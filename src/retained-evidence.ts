@@ -3,7 +3,7 @@ import { CLAUDE_AGENT_SDK_HARNESS, readQualifiedRunCapture, createAgentSdkNative
 import { createAgentSdkBehaviorEvidence } from "./behavior-assertions.js";
 import { describeAndValidateCodexDataset, CODEX_HARNESS } from "./codex.js";
 import { normalizeOpenHandsCapture, openHandsCapabilityProfile, type OpenHandsNativeRecord } from "./openhands.js";
-import { createDeepSeekHarnessAdapter, DEEPSEEK_HARNESS_ID, DEEPSEEK_SDK_VERSION, normalizeDeepSeekCapture, qualifyRetainedDeepSeekCapture, type DeepSeekNativeObservation } from "./deepseek-adapter.js";
+import { createDeepSeekHarnessAdapter, DEEPSEEK_HARNESS_ID, RETAINED_DEEPSEEK_SDK_VERSIONS, normalizeDeepSeekCapture, qualifyRetainedDeepSeekCapture, type DeepSeekNativeObservation } from "./deepseek-adapter.js";
 import { createCursorSdkBehaviorEvidence, CURSOR_SDK_HARNESS } from "./cursor-sdk.js";
 import { createCapturedNativeEvidenceResolver, describeNormalizedDataset, validateNormalizedDataset, type AdapterCoverageReport, type NormalizedDataset } from "./normalization-integrity.js";
 import { readBoundedFile } from "./scheduler.js";
@@ -18,7 +18,7 @@ import {
   qualifyRetainedPiCapture,
   PI_ADAPTER_VERSION,
   PI_HARNESS,
-  PINNED_PI_SDK_VERSION,
+  RETAINED_PI_SDK_VERSIONS,
   type PiNativeRecord,
 } from "./pi.js";
 
@@ -45,16 +45,16 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
     throw new Error(`Unsupported retained harness ${harness}; refusing Agent SDK fallback normalization.`);
   }
   if (harness === "openhands-agent-server") openHandsCapabilityProfile(manifest.run.harness.version);
-  if (harness === DEEPSEEK_HARNESS_ID && manifest.run.harness.version !== DEEPSEEK_SDK_VERSION) {
+  if (harness === DEEPSEEK_HARNESS_ID && !RETAINED_DEEPSEEK_SDK_VERSIONS.includes(manifest.run.harness.version)) {
     throw new Error(`Unsupported retained DeepSeek runtime ${manifest.run.harness.version}.`);
   }
-  if (harness === PI_HARNESS && manifest.run.harness.version !== PINNED_PI_SDK_VERSION) {
+  if (harness === PI_HARNESS && !RETAINED_PI_SDK_VERSIONS.includes(manifest.run.harness.version)) {
     throw new Error(`Unsupported retained Pi runtime ${manifest.run.harness.version}.`);
   }
   if (harness === PI_HARNESS) {
     const expected = new Map([
-      ["pi-coding-agent", { source: "earendil-works", version: PINNED_PI_SDK_VERSION }],
-      [PI_HARNESS, { source: "EBO", version: PINNED_PI_SDK_VERSION }],
+      ["pi-coding-agent", { source: "earendil-works", version: manifest.run.harness.version }],
+      [PI_HARNESS, { source: "EBO", version: manifest.run.harness.version }],
       ["pi-sdk-adapter", { source: "EBO", version: PI_ADAPTER_VERSION }],
     ]);
     for (const [name, identity] of expected) {
@@ -171,7 +171,7 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
     capture.qualification = native.qualification;
     outcomeCapture.qualification = native.qualification;
     dataset = describeNormalizedDataset({ capture: native, normalization: normalizeDeepSeekCapture(native),
-      capabilityProfile: createDeepSeekHarnessAdapter().normalization.capabilityProfile, adapterVersion: DEEPSEEK_SDK_VERSION,
+      capabilityProfile: createDeepSeekHarnessAdapter().normalization.capabilityProfile, adapterVersion: manifest.run.harness.version,
       nativeType: (record) => record.method ?? record.kind });
   }
   const coverage = await validateNormalizedDataset(dataset, resolver);

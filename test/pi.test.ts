@@ -319,6 +319,13 @@ test("retained Pi readback rejects unsupported versions, identity mismatches, an
     await assert.rejects(createRetainedBehaviorEvidence(summary.bundlePath), /Unsupported retained Pi runtime/u);
     writeFileSync(manifestPath, before);
 
+    const legacy = JSON.parse(before.toString()) as RunManifest;
+    legacy.run.harness.version = "0.85.1";
+    legacy.run.runtime = legacy.run.runtime.map((runtime) => ["pi-coding-agent", "pi-sdk"].includes(runtime.name) ? { ...runtime, version: "0.85.1" } : runtime);
+    writeFileSync(manifestPath, JSON.stringify(legacy));
+    assert.ok((await createRetainedBehaviorEvidence(summary.bundlePath)).dataset.events.length > 0, "retained Pi 0.85.1 bundles stay readable");
+    writeFileSync(manifestPath, before);
+
     const runtimeMismatch = JSON.parse(before.toString()) as RunManifest;
     runtimeMismatch.run.runtime = runtimeMismatch.run.runtime.filter(({ name }) => name !== "pi-sdk-adapter");
     writeFileSync(manifestPath, JSON.stringify(runtimeMismatch));

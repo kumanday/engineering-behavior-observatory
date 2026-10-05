@@ -27,6 +27,8 @@ import type {
 } from "./uniform-events.js";
 
 export const DEEPSEEK_SDK_VERSION = "0.1.7-rc.2";
+/** DeepSeek client versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
+export const RETAINED_DEEPSEEK_SDK_VERSIONS: readonly string[] = [DEEPSEEK_SDK_VERSION, "0.1.1-rc.2"];
 export const DEEPSEEK_ADAPTER_ID = "deepseek-harness-sdk";
 export const DEEPSEEK_HARNESS_ID = "deepseek-harness";
 
@@ -475,8 +477,8 @@ export function qualifyRetainedDeepSeekCapture(
   const children = new Map<string, string[]>();
   for (const observation of records) {
     const payload = record(observation.payload) ?? {};
-    if (observation.kind === "composition" && record(payload.runtime)?.clientVersion !== DEEPSEEK_SDK_VERSION) {
-      throw new Error("Retained DeepSeek capture is unqualified: native client version differs from the pinned runtime.");
+    if (observation.kind === "composition" && !RETAINED_DEEPSEEK_SDK_VERSIONS.includes(String(record(payload.runtime)?.clientVersion))) {
+      throw new Error("Retained DeepSeek capture is unqualified: native client version is not a supported retained runtime.");
     }
     if (observation.kind === "notification" && ["subagent.started", "subagent.finished"].includes(observation.method ?? "")
       && typeof payload.parentSessionId === "string" && typeof payload.childSessionId === "string") {

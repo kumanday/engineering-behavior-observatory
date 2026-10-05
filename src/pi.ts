@@ -67,6 +67,8 @@ export const PI_HARNESS = "pi-sdk";
 export const PI_CONFIG_SCHEMA_VERSION = "ebo.pi-config/v1";
 export const PI_ADAPTER_VERSION = "1.0.0";
 export const PINNED_PI_SDK_VERSION = "0.87.1";
+/** Pi SDK versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
+export const RETAINED_PI_SDK_VERSIONS: readonly string[] = [PINNED_PI_SDK_VERSION, "0.85.1"];
 
 const ATTEMPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
