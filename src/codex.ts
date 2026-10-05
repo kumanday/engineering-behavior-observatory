@@ -37,6 +37,8 @@ import {
 } from "./uniform-events.js";
 
 export const CODEX_APP_SERVER_VERSION = "0.157.0";
+/** App-server versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
+export const RETAINED_CODEX_APP_SERVER_VERSIONS: readonly string[] = [CODEX_APP_SERVER_VERSION, "0.153.4", "0.150.1"];
 export const CODEX_ADAPTER_VERSION = "0.1.0";
 export const CODEX_HARNESS = "codex-app-server";
 export const CODEX_DEFAULT_SHUTDOWN_GRACE_MS = 2_000;
@@ -651,7 +653,7 @@ export async function describeAndValidateCodexDataset(
   capture: QualifiedNativeCapture<ProtocolObservation>,
   runtimeVersion = (capture as Partial<CodexAppServerCapture>).telemetry?.runtime?.version ?? CODEX_APP_SERVER_VERSION,
 ): Promise<{ dataset: NormalizedDataset; coverage: AdapterCoverageReport }> {
-  if (runtimeVersion !== CODEX_APP_SERVER_VERSION && runtimeVersion !== "0.153.4" && runtimeVersion !== "0.150.1") throw new Error(`Unsupported retained Codex runtime ${runtimeVersion}.`);
+  if (!RETAINED_CODEX_APP_SERVER_VERSIONS.includes(runtimeVersion)) throw new Error(`Unsupported retained Codex runtime ${runtimeVersion}.`);
   const normalization = await normalizeCodexCapture(capture);
   const dataset = describeNormalizedDataset({
     capture,
