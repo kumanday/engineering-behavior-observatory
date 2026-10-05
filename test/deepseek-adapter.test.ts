@@ -742,3 +742,23 @@ class FailingNotificationCapture extends DeepSeekNativeCapture {
   }
 }
 import { checkRetainedEvaluation } from "./retained-evaluation-helper.js";
+
+test("projects the step usage of each completed assistant message as a timed per-request increment", () => {
+  const observation = (sequence: number, event: Record<string, unknown>) => ({
+    reference: { artifactId: "deepseek-session", recordLocator: `line:${sequence}` },
+    record: { schemaVersion: "ebo.deepseek-native-observation/v1" as const, sequence, observedAt: "2026-09-19T00:00:00.000Z",
+      kind: "notification" as const, method: "session.event", sessionId: "session-usage", payload: { sessionId: "session-usage", event } },
+  });
+  const { events } = normalizeDeepSeekCapture({ runId: "run-usage", attemptId: "attempt-usage", qualification: "qualified", records: [
+    observation(1, { type: "assistant/chunk", seq: 1, time: 1_789_752_712_465, data: { turn: 1, step: 1, chunk: { type: "usage", usage: { inputTokens: 12, outputTokens: 3 } } } }),
+    observation(2, { type: "assistant/message", seq: 2, time: 1_789_752_712_467, sourceEventSeqs: [1], data: { turn: 1, step: 1, message: {}, usage: { inputTokens: 12, outputTokens: 3, cacheReadTokens: 8 } } }),
+  ] });
+  const usage = events.filter(({ attributes }) => attributes.resourceSemantics === "increment");
+  assert.equal(usage.length, 1, "streamed usage chunks are not counted beside the completed message");
+  const message = events.find(({ id }) => id === "attempt-usage-deepseek-2")!;
+  assert.equal(usage[0]!.id, `${message.id}:usage`);
+  assert.deepEqual(usage[0]!.attributes, { inputTokens: 12, outputTokens: 3, cacheReadInputTokens: 8, turn: 1, step: 1, resourceSemantics: "increment", usageScope: "assistant" });
+  assert.deepEqual(usage[0]!.nativeTime, message.nativeTime);
+  assert.equal(usage[0]!.nativeTime.status, "known");
+  assert.deepEqual(usage[0]!.relations.known, [{ kind: "caused-by", eventId: message.id }]);
+});

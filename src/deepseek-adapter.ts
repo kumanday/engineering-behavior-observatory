@@ -582,13 +582,13 @@ export function normalizeDeepSeekCapture(
     }
     return [{ reference, record, family, id, event, sessionId, nativeSequence }];
   });
-  const events: UniformEvent[] = mapped.map(({ reference, record, family, id, event, sessionId, nativeSequence }) => {
+  const events: UniformEvent[] = mapped.flatMap(({ reference, record, family, id, event, sessionId, nativeSequence }) => {
     const sourceSequences = nativeSourceSequences(event);
     const known = sessionId === undefined ? [] : sourceSequences.flatMap((sequence) => {
       const eventId = eventBySessionSequence.get(`${sessionId}:${sequence}`);
       return eventId === undefined ? [] : [{ kind: "caused-by" as const, eventId }];
     });
-    return {
+    const base: UniformEvent = {
       schemaVersion: "ebo.uniform-event/v1",
       id,
       runId: input.runId,
@@ -617,6 +617,7 @@ export function normalizeDeepSeekCapture(
         ? { status: "known", value: [{ nativeReference: { ...reference, recordLocator: `${reference.recordLocator}#/payload` } }] }
         : { status: "unknown", reason: "native record carries no mapped content" },
     };
+    return [base, ...requestUsage(base, event)];
   });
   const mappedReferences = new Set(mapped.map(({ reference }) => referenceKey(reference)));
   return {
@@ -830,6 +831,30 @@ function eventFamily(recordValue: DeepSeekNativeObservation): UniformEventFamily
   if (type === "turn/end") return "outcome";
   if (type.startsWith("turn/") || type.startsWith("step/") || type.startsWith("hook/") || type === "agent/inbox/spliced") return "runtime";
   return undefined;
+}
+
+/** The step usage reported on a completed assistant message, as a per-request increment. */
+function requestUsage(message: UniformEvent, event: Record<string, unknown> | undefined): UniformEvent[] {
+  const data = record(event?.data);
+  const usage = record(data?.usage);
+  if (event?.type !== "assistant/message" || usage === undefined) return [];
+  const attributes: Record<string, UniformAttributeValue> = {};
+  for (const [target, source] of [["inputTokens", "inputTokens"], ["outputTokens", "outputTokens"], ["cacheReadInputTokens", "cacheReadTokens"],
+    ["cacheCreationInputTokens", "cacheWriteTokens"], ["reasoningOutputTokens", "reasoningTokens"]] as const) {
+    const value = usage[source];
+    if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) attributes[target] = value;
+  }
+  if (Object.keys(attributes).length === 0) return [];
+  for (const key of ["turn", "step"] as const) addAttribute(attributes, key, data?.[key]);
+  return [{
+    ...message,
+    id: `${message.id}:usage`,
+    family: "runtime",
+    phase: "after",
+    relations: { parent: message.relations.parent, known: [{ kind: "caused-by", eventId: message.id }] },
+    attributes: { ...attributes, resourceSemantics: "increment", usageScope: "assistant" },
+    content: { status: "known", value: [{ nativeReference: { ...message.source.nativeReference, recordLocator: `${message.source.nativeReference.recordLocator}#/payload/event/data/usage` } }] },
+  }];
 }
 
 function nativeSessionEvent(recordValue: DeepSeekNativeObservation): Record<string, unknown> | undefined {

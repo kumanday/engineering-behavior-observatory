@@ -324,6 +324,7 @@ export type {
 export {
   AdapterRegistry,
   assertAdapterContract,
+  globalEventKey,
   UNIFORM_EVENT_FAMILIES,
   validateUniformEvents,
 } from "./uniform-events.js";

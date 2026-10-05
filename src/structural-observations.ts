@@ -562,15 +562,17 @@ function resourceObservation(dataset: NormalizedDataset, id: ExtractorRegistrati
       ? known(dataset, registrationValue, finals[0]!.value, unit, citations(finals.map(({ event }) => event)), finals.map(({ event }) => event))
       : unavailable(dataset, registrationValue, `Conflicting cumulative-final ${field} records are available.`, citations(finals.map(({ event }) => event)), finals.map(({ event }) => event));
   }
+  // Harness-reported cumulative snapshots outrank per-request increments derived from the same records.
+  const snapshotCandidates = candidates.filter(({ semantics }) => semantics === "cumulative-snapshot");
+  if (snapshotCandidates.length > 0 && candidates.every(({ semantics }) => semantics === "cumulative-snapshot" || semantics === "increment")) {
+    const snapshots = resourceEvents.filter(({ attributes }) => attributes.resourceSemantics === "cumulative-snapshot");
+    return cumulativeResourceObservation(dataset, registrationValue, snapshotCandidates, snapshots, field, unit);
+  }
   if (candidates.every(({ semantics }) => semantics === "increment")) {
     const invalid = invalidResourceReason(candidates, field, unit);
     return invalid === undefined
       ? known(dataset, registrationValue, candidates.reduce((sum, { value }) => sum + value, 0), unit, citations(candidates.map(({ event }) => event)), candidates.map(({ event }) => event))
       : unavailable(dataset, registrationValue, invalid, citations(candidates.map(({ event }) => event)), candidates.map(({ event }) => event));
-  }
-  if (candidates.every(({ semantics }) => semantics === "cumulative-snapshot")) {
-    const snapshots = resourceEvents.filter(({ attributes }) => attributes.resourceSemantics === "cumulative-snapshot");
-    return cumulativeResourceObservation(dataset, registrationValue, candidates, snapshots, field, unit);
   }
   return unavailable(dataset, registrationValue, `${field} records have overlapping or unordered usage semantics.`, citations(candidates.map(({ event }) => event)), candidates.map(({ event }) => event));
 }

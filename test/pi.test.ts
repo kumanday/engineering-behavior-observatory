@@ -83,6 +83,15 @@ test("runs a frozen observational Pi entry through capture, export, retained eva
     assert.deepEqual(turnScopes, [`${SESSION_ID}:turn:0`, `${SESSION_ID}:turn:1`]);
     const streamTurnEnd = evidence.dataset.events.filter(({ source }) => source.nativeType === "stream:turn_end").at(-1);
     assert.deepEqual(streamTurnEnd?.nativeTime, { status: "known", value: "2023-11-14T22:13:20.400Z" });
+    const streamTool = evidence.dataset.events.filter(({ source }) => source.nativeType.startsWith("stream:tool_execution_"));
+    assert.ok(streamTool.length > 0 && streamTool.every(({ nativeTime, attributes }) => nativeTime.status === "known" && attributes.nativeTimeSource === "adapter-receipt"),
+      "stream tool events are timed by labeled receipt time");
+    const historyCall = evidence.dataset.events.find(({ source, attributes }) => source.nativeType === "history:message" && Array.isArray(attributes.toolCallIds))!;
+    const historyResult = evidence.dataset.events.find(({ source, attributes }) => source.nativeType === "history:message" && attributes.toolCallId === "tool-1")!;
+    const linked = (event: typeof historyCall) => new Set(event.relations.known.map(({ eventId }) => evidence.dataset.events.find(({ id }) => id === eventId)?.source.nativeType));
+    assert.deepEqual(historyCall.attributes.toolCallIds, ["tool-1"]);
+    assert.ok(linked(historyCall).has("stream:tool_execution_start"), "a history tool call relates to its streamed execution");
+    assert.ok(linked(historyResult).has("stream:tool_execution_end"), "a history tool result relates to its streamed execution");
     const observations = await createRetainedStructuralObservationSet(summary.bundlePath);
     const toolCount = observations.observations.find(({ id }) => id.endsWith("tool-operation-count"));
     assert.deepEqual(toolCount?.value, { status: "known", value: 1, unit: "identified-logical-tool-operations" });

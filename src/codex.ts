@@ -192,7 +192,7 @@ const CODEX_0_150_1_CAPABILITIES = {
   },
   evidence: {
     nativeOrder: { status: "available", detail: "The retained receive/write sequence is one stdio ordering domain." },
-    nativeTime: { status: "partial", detail: "Item lifecycle timestamps are native; other records retain observation time separately." },
+    nativeTime: { status: "partial", detail: "Item lifecycle timestamps are native; other records use EBO observation time, labeled by nativeTimeSource." },
     parentage: { status: "partial", detail: "Thread and turn scopes are retained; item relations remain source-specific." },
     content: { status: "partial", detail: "Mapped content references retained native payloads without copying bodies." },
   },
@@ -633,7 +633,7 @@ export async function normalizeCodexCapture(
   for (const captured of capture.records) {
     const event = mapCodexRecord(capture, captured);
     if (event === undefined) continue;
-    events.push(event);
+    events.push(event, ...requestUsage(event, captured.record));
     mapped.add(captured.record.sequence);
   }
   await validateUniformEvents(events, {
@@ -728,12 +728,14 @@ function mapCodexRecord(
   if (method === "thread/tokenUsage/updated" && isRecord(payload.tokenUsage)) {
     const total = numberRecord(payload.tokenUsage.total);
     if (total !== undefined) {
-      for (const key of ["totalTokens", "inputTokens", "cachedInputTokens", "cacheWriteInputTokens", "outputTokens", "reasoningOutputTokens"] as const) {
-        copyScalar(attributes, key, total[key]);
-      }
+      for (const key of TOKEN_USAGE_FIELDS) copyScalar(attributes, key, total[key]);
       attributes.resourceSemantics = "cumulative-snapshot";
     }
   }
+  const nativeTime = nativeTimestamp(method, payload);
+  // Observation time stands in only where the record has no lifecycle timestamp; an invalid one stays unknown.
+  const receipt = method === "item/completed" && payload.completedAtMs !== undefined ? undefined : observationTime(record.observedAt);
+  if (receipt !== undefined) attributes.nativeTimeSource = "capture-receipt";
   return {
     schemaVersion: "ebo.uniform-event/v1",
     id: `codex:${record.sequence}:${method.replaceAll("/", "-")}`,
@@ -745,7 +747,7 @@ function mapCodexRecord(
       nativeReference: captured.reference,
     },
     nativeOrder: { status: "known", value: record.sequence, domain: "codex-app-server-stdio" },
-    nativeTime: nativeTimestamp(method, payload),
+    nativeTime: receipt ?? nativeTime,
     actor: { kind: actor },
     family,
     phase,
@@ -768,6 +770,28 @@ function mapCodexRecord(
           }],
         },
   };
+}
+
+const TOKEN_USAGE_FIELDS = ["totalTokens", "inputTokens", "cachedInputTokens", "cacheWriteInputTokens", "outputTokens", "reasoningOutputTokens"] as const;
+
+/** The usage of the request that produced a cumulative snapshot (`tokenUsage.last`), as a per-request increment. */
+function requestUsage(snapshot: UniformEvent, record: ProtocolObservation): UniformEvent[] {
+  const payload = isRecord(record.payload) ? record.payload : {};
+  const last = record.method === "thread/tokenUsage/updated" && isRecord(payload.tokenUsage) ? numberRecord(payload.tokenUsage.last) : undefined;
+  if (last === undefined) return [];
+  const attributes: Record<string, string | number | boolean | null> = { method: record.method! };
+  for (const key of TOKEN_USAGE_FIELDS) copyScalar(attributes, key, last[key]);
+  attributes.resourceSemantics = "increment";
+  attributes.usageScope = "assistant";
+  if (typeof snapshot.attributes.nativeTimeSource === "string") attributes.nativeTimeSource = snapshot.attributes.nativeTimeSource;
+  return [{
+    ...snapshot,
+    id: `${snapshot.id}:request`,
+    attributes,
+    content: snapshot.content.status === "known"
+      ? { status: "known", value: [{ ...snapshot.content.value[0]!, nativeReference: { ...snapshot.content.value[0]!.nativeReference, recordLocator: `${snapshot.source.nativeReference.recordLocator}#/payload/tokenUsage/last` } }] }
+      : snapshot.content,
+  }];
 }
 
 function codexNativeType(record: ProtocolObservation): string {
@@ -813,6 +837,12 @@ function nativeTimestamp(method: string, payload: Record<string, unknown>): Unif
   return milliseconds === undefined
     ? { status: "unknown", reason: "Native record omitted a lifecycle timestamp." }
     : { status: "unknown", reason: "Native lifecycle timestamp is invalid or outside the supported range." };
+}
+
+function observationTime(value: unknown): UniformEvent["nativeTime"] | undefined {
+  if (typeof value !== "string") return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : { status: "known", value: date.toISOString() };
 }
 
 function scopedTurn(payload: Record<string, unknown>): UniformEvent["scope"] {

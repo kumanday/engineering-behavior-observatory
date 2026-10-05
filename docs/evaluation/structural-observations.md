@@ -69,9 +69,10 @@ Definitions are deliberately mechanical:
   records in one native-order domain; tool names are never used to infer either;
 - model requests require model-request events and native request identities;
   assistant messages and model reroutes are not requests;
-- cumulative resource snapshots select only the latest snapshot in one known
-  native-order domain, increments are summed only when every record declares
-  increment semantics, and a cumulative-final record is used directly;
+- a cumulative-final record is used directly; otherwise the latest cumulative
+  snapshot in one known native-order domain is used, and per-request
+  increments derived from the same updates are not added to it; increments are
+  summed only when every record declares increment semantics;
 - native token categories stay separate, native total tokens are never rebuilt
   from components, and cost does not imply subscription utilization;
 - compaction counts include only native records that explicitly identify a
