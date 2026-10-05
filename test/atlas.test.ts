@@ -64,6 +64,16 @@ test("Atlas mixed fixture preserves exact cohort populations, decisions and nati
     const html = renderAtlas(view, false);
     assert.match(html, /&lt;script&gt;window.fixtureXss=1&lt;\/script&gt;/u);
     assert.doesNotMatch(html, /<script>window.fixtureXss|ghp_abcdefghijklmnopqrstuvwxyz123456|SYNTHETIC_HIDDEN_REASONING|1200\.0%/u);
+    assert.doesNotMatch(`${html}${JSON.stringify(view)}`, /sk-ant-EBO-SENTINEL|fw_SyntheticPlantedKey/u);
+    const scan = view.secretScan!;
+    const cited = view.cases.filter(({ citations }) => citations.length > 0);
+    assert.equal(scan.findings.filter((finding) => "name" in finding && finding.name === "sessionApiKey" && finding.disposition === "not-secret").length, cited.length * 2);
+    for (const kind of ["github-token", "anthropic-api-key", "fireworks-api-key"]) {
+      assert.equal(scan.findings.filter((finding) => finding.kind === kind).length, cited.length, kind);
+    }
+    assert.equal(scan.redacted + scan.notSecret, scan.findings.length);
+    assert.ok(scan.findings.every(({ caseKey, location }) => caseKey !== undefined && location.startsWith(`/cases/${caseKey}/citations/0/nativeRecord/`)));
+    assert.equal(JSON.stringify(scan).includes("SENTINEL"), false);
     assert.match(html, /Print \/ save PDF/u);
     assert.match(html, /Frozen cohort/u);
     assert.match(html, /No human decision supplied/u);
@@ -167,6 +177,7 @@ test("shareable Atlas requires source export readback and fails closed on unsupp
     assert.equal(shared.mode, "public"); assert.equal(shared.cases.length, 0); assert.equal(shared.reviewPackets.length, 0);
     assert.equal(shared.matchingCases, null, "omitted case populations are unavailable, not an observed zero");
     assert.equal(shared.operatorNarrative, undefined);
+    assert.equal(shared.secretScan, undefined, "secret-scan findings name native identifiers and stay local");
     const output = JSON.stringify(shared);
     assert.doesNotMatch(output, /window.fixtureXss|ghp_|SYNTHETIC_HIDDEN_REASONING|file:\/\/|\/Users\/|\/private\/|synthetic-fixture-reviewer/u);
     assert.equal(shared.report.groups.some(({ metrics }) => metrics.some(({ population }) => population === "assertion")), false);

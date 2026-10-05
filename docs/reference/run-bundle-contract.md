@@ -200,6 +200,15 @@ references, policy, JSON/JSONL structure, and a final secret scan. A failed
 creation removes its newly-created destination tree; an existing destination
 is never replaced.
 
+Redaction and the final scan share one rule set (`src/redaction.ts`), so a
+sanitized value never fails its own scan. Known credential formats (private-key
+blocks, AWS, GitHub, Anthropic, OpenAI-style, Fireworks, Slack and Google keys,
+JWTs, bearer values and authorization headers) are always redacted, as are
+secret-named JSON fields. An assignment to a secret-named variable is redacted
+when its value is a quoted literal or looks like a secret: at least eight
+characters including a digit. Identifiers, dotted paths, environment lookups,
+constant names and placeholders are references, not secrets, and stay intact.
+
 The remainder of this verifier section applies only to `verified` tasks.
 Verifier results cannot contradict their assertions: passed results have no
 failed assertion, while failed results retain at least one failed assertion.
