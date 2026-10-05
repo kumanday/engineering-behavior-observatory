@@ -25,7 +25,7 @@ import {
   type PortableExportPolicy,
   type RunManifest,
 } from "../src/index.js";
-import { containsPortableLocalHomePath, containsPortableSecretPattern } from "../src/exports.js";
+import { containsPortableLocalHomePath, containsPortableSecretPattern, sanitizeDerivedExport } from "../src/exports.js";
 
 const fixtureRoot = resolve("test/fixtures/run-bundles/complete");
 const token = "ghp_abcdefghijklmnopqrstuvwxyz123456";
@@ -64,6 +64,18 @@ test("release scanning reuses the complete export credential patterns", () => {
   assert.equal(containsPortableLocalHomePath("file:///Users/alice/repo"), true);
   assert.equal(containsPortableLocalHomePath(String.raw`const home = "C:\\Users\\alice\\repo";`), true);
   assert.equal(containsPortableLocalHomePath("/tmp/example"), false);
+});
+
+test("local identifiers in code with escaped quotes are redacted and pass the final scan", () => {
+  const policy = { sharingClass: "partner" as const, maxArtifactBytes: 1024 * 1024, maxStringBytes: 64 * 1024 };
+  const code = "run(command, timeout_sec=120, user=\\\"alice-local\\\")\nconst policy = { kind: \\\"native-tool-policy\\\"; owner: \\\"runtime-composition\\\" }\nlogin='bob-local' owner: \"carol-local\"";
+  const output = JSON.stringify(sanitizeDerivedExport({ tool_input: { command: code } }, policy));
+  for (const value of ["alice-local", "runtime-composition", "bob-local", "carol-local"]) {
+    assert.equal(output.includes(value), false, `leaked ${value}`);
+  }
+  assert.ok(output.includes("native-tool-policy"));
+  assert.equal(JSON.parse(output).tool_input.command,
+    "run(command, timeout_sec=120, user=\\\"[LOCAL_USER]\\\")\nconst policy = { kind: \\\"native-tool-policy\\\"; owner: \\\"[LOCAL_USER]\\\" }\nlogin='[LOCAL_USER]' owner: \"[LOCAL_USER]\"");
 });
 
 test("exports a sanitized public M2 bundle without mutating its source", async () => {

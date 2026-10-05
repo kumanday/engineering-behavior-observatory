@@ -163,9 +163,12 @@ const TRUNCATABLE_FIELDS = new Set([
   "toolresult",
 ]);
 const LOCAL_IDENTIFIER_PATTERNS = [
+  // Code embedded in strings often escapes its quotes: user=\"root\".
+  /((?:user(?:name)?|owner|login)\s*[:=]\s*\\")(?!\[LOCAL_USER\]\\")(?:(?!\\")[^\r\n])*(\\")/giu,
+  /((?:user(?:name)?|owner|login)\s*[:=]\s*\\')(?!\[LOCAL_USER\]\\')(?:(?!\\')[^\r\n])*(\\')/giu,
   /((?:user(?:name)?|owner|login)\s*[:=]\s*")(?!\[LOCAL_USER\]")(?:\\.|[^"\\])*(")/giu,
   /((?:user(?:name)?|owner|login)\s*[:=]\s*')(?!\[LOCAL_USER\]')(?:\\.|[^'\\])*(')/giu,
-  /((?:user(?:name)?|owner|login)\s*[:=])(?!(?:\s*)\[LOCAL_USER\])\s*[^\s,"'}\]]+()/giu,
+  /((?:user(?:name)?|owner|login)\s*[:=])(?!(?:\s*)\[LOCAL_USER\])\s*[^\s,"'}\]\\]+()/giu,
 ];
 const LOCAL_PATH = /(^|[\s"'=:(+\-])(?:[A-Za-z]:\\(?:[^\\\s"']+\\)*[^\\\s"']*|\/(?!\/)[^\s"']+)/gu;
 const LOCAL_HOME_PATH = /(?:^|[\s`"'=:(+\-]|file:\/\/)(?:[A-Za-z]:\\+Users\\+[^\\\s`"']+(?=[\\\s`"',;:)}\]]|$)|\/(?:Users|home)\/[^/\s`"']+(?=[/\s`"',;:)}\]]|$)|\/root(?=[/\s`"',;:)}\]]|$))/giu;
@@ -764,7 +767,7 @@ function scanPortableTree(
       ["known sensitive value", sensitiveValues.some((value) => text.includes(value))],
       ["secret pattern", containsPortableSecretPattern(text, mediaType)],
       ["absolute path", containsLocalPath(text, mediaType)],
-      ["local identifier", LOCAL_IDENTIFIER_PATTERNS.some((pattern) => pattern.test(text))],
+      ["local identifier", containsLocalIdentifier(text, mediaType)],
       ["source correlation", sourceCorrelations.filter((value) => value.length >= 8).some((value) => text.includes(value))],
       ["hidden content field", /"(?:chain[_-]?of[_-]?thought|extended[_-]?thinking|hidden[_-]?reasoning|encrypted[_-]?(?:reasoning|thinking)|reasoning(?:[_-]?(?:content|details|signature))?|thinking(?:[_-]?(?:content|signature))?|text[_-]?signature|thought[_-]?signature|raw[_-]?(?:api|request|response)[_-]?body)"\s*:/iu.test(text)],
       ["Codex reasoning content", containsCodexReasoningContent(text, mediaType)],
@@ -878,6 +881,33 @@ function valueContainsSecretPattern(value: unknown): boolean {
 
 function stringContainsSecretPattern(value: string): boolean {
   return containsSecret(value);
+}
+
+function containsLocalIdentifier(text: string, mediaType: string): boolean {
+  if (mediaType === "application/json") {
+    return valueContainsLocalIdentifier(parseJson(Buffer.from(text), "Portable JSON final scan"));
+  }
+  if (mediaType === "application/x-ndjson") {
+    return text.split(/\r?\n/gu).filter(Boolean).some((line) =>
+      valueContainsLocalIdentifier(parseJson(Buffer.from(line), "Portable JSONL final scan")));
+  }
+  return stringContainsLocalIdentifier(text);
+}
+
+// Scan decoded values: JSON serialization escapes quotes, so a redacted
+// `owner: "[LOCAL_USER]"` would otherwise read as an unquoted value.
+function valueContainsLocalIdentifier(value: unknown): boolean {
+  if (typeof value === "string") return stringContainsLocalIdentifier(value);
+  if (Array.isArray(value)) return value.some(valueContainsLocalIdentifier);
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(([key, entry]) =>
+    stringContainsLocalIdentifier(key) || valueContainsLocalIdentifier(entry));
+}
+
+function stringContainsLocalIdentifier(value: string): boolean {
+  const matched = LOCAL_IDENTIFIER_PATTERNS.some((pattern) => pattern.test(value));
+  for (const pattern of LOCAL_IDENTIFIER_PATTERNS) pattern.lastIndex = 0;
+  return matched;
 }
 
 function containsLocalPath(text: string, mediaType: string): boolean {
