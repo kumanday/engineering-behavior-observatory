@@ -762,3 +762,22 @@ test("projects the step usage of each completed assistant message as a timed per
   assert.equal(usage[0]!.nativeTime.status, "known");
   assert.deepEqual(usage[0]!.relations.known, [{ kind: "caused-by", eventId: message.id }]);
 });
+
+test("maps tool identity, failure flag and the bash exit trailer onto tool events", () => {
+  const observation = (sequence: number, event: Record<string, unknown>) => ({
+    reference: { artifactId: "deepseek-session", recordLocator: `line:${sequence}` },
+    record: { schemaVersion: "ebo.deepseek-native-observation/v1" as const, sequence, observedAt: "2026-09-19T00:00:00.000Z",
+      kind: "notification" as const, method: "session.event", sessionId: "session-tools", payload: { sessionId: "session-tools", event } },
+  });
+  const { events } = normalizeDeepSeekCapture({ runId: "run-tools", attemptId: "attempt-tools", qualification: "qualified", records: [
+    observation(1, { type: "tool/call", seq: 1, time: 1_789_752_712_000, data: { turn: 1, step: 1, callId: "call-1", name: "bash", arguments: "{\"command\":\"pnpm test\"}" } }),
+    observation(2, { type: "tool/result", seq: 2, time: 1_789_752_713_000, data: { turn: 1, step: 1, message: { role: "tool", id: "m", source: { callId: "call-1" },
+      content: [{ type: "tool_result", toolCallId: "call-1", isError: false, content: [{ type: "text", text: "FAIL src/a.test.ts\n[exit code: 1]" }] }] } } }),
+  ] });
+  const [call, result] = events;
+  assert.equal(call!.attributes.toolName, "bash");
+  assert.match(String(call!.attributes.inputDigest), /^sha256:[a-f0-9]{64}$/u);
+  assert.equal(result!.attributes.callId, "call-1", "results carry the call identity from the message source");
+  assert.equal(result!.attributes.isError, false);
+  assert.equal(result!.attributes.exitCode, 1, "the harness reports a non-zero exit only in its trailer");
+});

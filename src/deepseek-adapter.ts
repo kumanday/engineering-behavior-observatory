@@ -924,6 +924,22 @@ function eventAttributes(
   addAttribute(attributes, "surface", event === undefined ? undefined : Object.hasOwn(event, "surfaceOp") ? "surface" : "log-only");
   addAttribute(attributes, "surfaceOp", typeof event?.surfaceOp === "string" ? event.surfaceOp : record(event?.surfaceOp)?.op);
   for (const key of ["turn", "step", "callId", "name", "status", "reason"] as const) addAttribute(attributes, key, data?.[key]);
+  // Tool identity for structural extraction: name and input digest on calls; call ID and failure flag on results.
+  if (event?.type === "tool/call") {
+    addAttribute(attributes, "toolName", data?.name);
+    if (data?.arguments !== undefined) attributes.inputDigest = `sha256:${digestBytes(Buffer.from(canonicalizeMetadata(data.arguments))).value}`;
+  }
+  if (event?.type === "tool/result") {
+    const message = record(data?.message);
+    const parts = Array.isArray(message?.content) ? message.content.map(record) : [];
+    addAttribute(attributes, "callId", data?.callId ?? record(message?.source)?.callId ?? parts[0]?.toolCallId);
+    if (parts.some((part) => typeof part?.isError === "boolean")) attributes.isError = parts.some((part) => part?.isError === true);
+    // The bash tool reports a non-zero exit only as a trailing `[exit code: N]` line it appends to the output.
+    const output = parts.flatMap((part) => Array.isArray(part?.content) ? part.content.flatMap((block) => typeof record(block)?.text === "string" ? [record(block)!.text as string] : [])
+      : typeof part?.content === "string" ? [part.content] : []).join("");
+    const exit = /\n?\[exit code: (-?\d+)\]\s*$/u.exec(output);
+    if (exit !== null) attributes.exitCode = Number(exit[1]);
+  }
   return attributes;
 }
 

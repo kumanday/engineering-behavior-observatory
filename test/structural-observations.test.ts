@@ -551,3 +551,12 @@ async function qualifiedBundle(root: string): Promise<string> {
   assert.equal(captured.qualification.semanticAnalysisUsable, true);
   return bundleRoot;
 }
+
+test("a tool batch callback spans operations and is not counted as one", () => {
+  const start = event(1, "tool", "before", { toolUseId: "tool-a", toolName: "Bash", inputDigest: "sha256:a" }, "tool-a-start");
+  const end = event(2, "tool", "after", { toolUseId: "tool-a", isError: false }, "tool-a-end");
+  const batch = event(3, "tool", "after", { toolUseId: "hook-batch-1", hook: "PostToolBatch", batchToolUseIds: ["tool-a"] }, "batch");
+  const report = createStructuralObservationSet(dataset([start, end, batch]), coverage([start, end, batch]));
+  assert.deepEqual(observation(report, "tool-operation-count").value, { status: "known", value: 1, unit: "identified-logical-tool-operations" });
+  assert.deepEqual(observation(report, "unidentified-tool-native-record-count").value, { status: "known", value: 0, unit: "native-records" });
+});

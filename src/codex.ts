@@ -10,6 +10,7 @@ import type { SandboxMode } from "../contracts/codex-app-server-0.157.0/types/Sa
 import type { ThreadReadParams } from "../contracts/codex-app-server-0.157.0/types/ThreadReadParams.js";
 import type { TokenUsageBreakdown } from "../contracts/codex-app-server-0.157.0/types/TokenUsageBreakdown.js";
 import type { TurnInterruptParams } from "../contracts/codex-app-server-0.157.0/types/TurnInterruptParams.js";
+import { digestMetadata } from "./artifacts.js";
 
 import {
   spawnProtocolProcess,
@@ -726,6 +727,13 @@ function mapCodexRecord(
     copyScalar(attributes, "itemId", payload.item.id);
     copyScalar(attributes, "status", payload.item.status);
     if (payload.item.type === "fileChange" && payload.item.status === "completed") attributes.mutation = true;
+    // Tool identity for structural extraction: the item's tool (or item type) and a digest of its input.
+    if (family === "tool") {
+      copyScalar(attributes, "toolName", typeof payload.item.tool === "string" ? payload.item.tool : payload.item.type);
+      copyScalar(attributes, "exitCode", payload.item.exitCode);
+      const input = payload.item.command ?? payload.item.arguments ?? payload.item.query;
+      if (input !== undefined) attributes.inputDigest = `sha256:${digestMetadata(input).value}`;
+    }
   }
   if (method === "thread/tokenUsage/updated" && isRecord(payload.tokenUsage)) {
     const total = numberRecord(payload.tokenUsage.total);

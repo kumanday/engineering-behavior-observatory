@@ -83,3 +83,26 @@ unsupported capability, ambiguous identity, unknown order, overlapping usage,
 or missing timing remains `unavailable` with a reason. Observational runs have
 no verifier assertion records and make no task-pass claim. Verified runs retain
 each assertion outcome with its native verifier citation.
+
+## Occurrences
+
+Extractor `1.1.0` adds `occurrences` beside the attempt-level counts. Each
+occurrence is one instance of a pattern and lists only its own events and native
+records, so a judge or reviewer can open exactly that instance:
+
+| Type | One occurrence | Rule |
+| :--- | :--- | :--- |
+| `failure-response` | consecutive explicit failures of one tool, then the next call of that tool | exact |
+| `validation-run` | one call whose command runs a test, typecheck, lint or build, classified per command segment; `result`, `reportedExitCode`, `outputRedirected` | heuristic |
+| `source-change` | an explicit mutation record, an edit/write tool call, or a shell command that writes a source path (`detectedBy`) | heuristic except explicit mutations |
+| `repeated-operation` | a call with the same tool and input digest as an earlier one | exact |
+| `compaction` | the records of one compaction boundary | exact |
+| `delegation` | the records of one delegated task, joined by task or agent ID | exact |
+
+IDs are `<attemptId>/occ/<type>/<firstEventId>`. A failure is an explicit native
+failure flag or non-zero exit code; failure text inside a successful call's
+output does not count, and validation runs report it as `reportedExitCode`.
+`occurrenceCoverage` reports each type as available with its count, or
+unavailable with a reason: delegation when the adapter does not expose it, and
+command-based types when native tool content is not available. An unavailable
+type is never an observed zero.

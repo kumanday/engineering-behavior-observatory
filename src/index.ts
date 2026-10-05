@@ -369,6 +369,8 @@ export {
   STRUCTURAL_EXTRACTOR_VERSION,
   validateStructuralObservationSet,
 } from "./structural-observations.js";
+export { extractOccurrences, OCCURRENCE_RULES_VERSION, OCCURRENCE_TYPES } from "./occurrences.js";
+export type { Occurrence, OccurrenceCoverage, OccurrenceType } from "./occurrences.js";
 export type {
   StructuralObservation,
   StructuralObservationSet,
