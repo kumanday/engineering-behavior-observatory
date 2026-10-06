@@ -207,7 +207,9 @@ JWTs, bearer values and authorization headers) are always redacted, as are
 secret-named JSON fields. Assignments to secret-named variables are classified
 by context. A quoted value, or the value of a shell-style assignment such as
 `KEY=value`, `--key=value` or `?token=value`, is a literal and is redacted
-unless it is an environment reference (`$VAR`) or a placeholder. In a
+unless it is a complete environment reference (`$VAR`, `${VAR}`, `%VAR%`) or a
+placeholder. A parameter expansion keeps its reference but a literal default,
+assigned or alternate word is redacted (`${VAR:-[REDACTED_SECRET]}`). In a
 code-style assignment (`key = expr`, `key: expr`) dotted paths, calls,
 environment lookups, constant names and keywords are references and stay
 intact; any other unquoted value of eight or more characters is redacted.

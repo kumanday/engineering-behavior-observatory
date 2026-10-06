@@ -64,12 +64,16 @@ const TOKEN_PATTERNS: ReadonlyArray<{ kind: SecretTokenKind; pattern: RegExp }> 
 const SECRET_NAME = /(api[_-]?key|(?:access|oauth|refresh|id|auth)?[_-]?token|client[_-]?secret|secret(?:[_-]?(?:access[_-]?)?key)?|private[_-]?key|access[_-]?key|credentials?(?:[_-]?json)?|database[_-]?url|connection[_-]?string|passwd|password)(\\?["']?)([ \t]*)(:=|[:=](?![=>~]))([ \t]*)/giu;
 const QUOTES = new Set(["\"", "'", "`"]);
 const IDENTIFIER_CHAR = /[A-Za-z0-9_$.-]/u;
-const UNQUOTED_VALUE = /^(?:Bearer\s+)?[^\s,;"'`)}\]]+/iu;
+const UNQUOTED_VALUE = /^(?:Bearer\s+)?(?:\$\{[^}\s]*\}|[^\s,;"'`)}\]])+/iu;
+// A complete plain environment reference: `$NAME`, `${NAME}`, `%NAME%`.
+const PLAIN_REFERENCE = /^(?:\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\}|%[A-Za-z_][A-Za-z0-9_]*%)$/u;
+// `${NAME:-word}`, `${NAME=word}`, `${NAME:+word}`, `${NAME:?message}`: the word can be a literal credential.
+const PARAMETER_EXPANSION = /^\$\{[A-Za-z_][A-Za-z0-9_]*(:?[-=+?])([\s\S]*?)\}?$/u;
 const SHELL_REFERENCE = /^(?:\$[A-Za-z_{(]|%[A-Za-z_][A-Za-z0-9_]*%)/u;
 const CALL_EXPRESSION = /^(?:new\s+)?[A-Za-z_$][\w$.]*\(/u;
 const KEYWORD = /^(?:null|undefined|true|false|none|nil|string|number|boolean|bigint|object|any|unknown|str|bytes|int|float|bool)$/iu;
 const ENVIRONMENT_REFERENCE = /^(?:process\.env\b|os\.environ\b|os\.getenv\b|import\.meta\.env\b|Deno\.env\b|env\.|getenv\b|secrets\.|\$[A-Za-z_{]|%[A-Za-z_][A-Za-z0-9_]*%)/u;
-const QUOTED_PLACEHOLDER = /^(?:|\[[A-Z_]+(?::[^\]]*)?\]|<[^<>]*>|\$\{[^}]*\}|\{\{[^}]*\}\}|\*+|x{3,}|\.{3})$/iu;
+const QUOTED_PLACEHOLDER = /^(?:|\[[A-Z_]+(?::[^\]]*)?\]|<[^<>]*>|\{\{[^}]*\}\}|\*+|x{3,}|\.{3})$/iu;
 // EBO's own markers, including a marker cut short by a display-length bound.
 const EBO_PLACEHOLDER_PREFIX = /^\[(?:REDACTED|LOCAL)_/u;
 const CONSTANT_NAME = /^[A-Z_][A-Z0-9_]*$/u;
@@ -164,6 +168,11 @@ function scanAssignments(text: string): Assignment[] {
       SECRET_NAME.lastIndex = Math.max(SECRET_NAME.lastIndex, valueEnd);
       // Values EBO already replaced were reported by the redaction that replaced them.
       if (EBO_PLACEHOLDER_PREFIX.test(value)) continue;
+      const expansion = classifyReference(value);
+      if (expansion !== undefined) {
+        assignments.push(expansionAssignment(expansion, name, valueStart, valueEnd));
+        continue;
+      }
       const finding: SecretFinding = QUOTED_PLACEHOLDER.test(value)
         ? { kind: "secret-assignment", disposition: "not-secret", name, reason: "placeholder" }
         : { kind: "secret-assignment", disposition: "redacted", name };
@@ -175,6 +184,12 @@ function scanAssignments(text: string): Assignment[] {
     const bearer = /^Bearer\s+/iu.exec(raw)?.[0] ?? "";
     const value = raw.slice(bearer.length);
     if (EBO_PLACEHOLDER_PREFIX.test(value)) continue;
+    const expansion = classifyReference(value);
+    if (expansion !== undefined) {
+      assignments.push(expansionAssignment(expansion, name, start + bearer.length, start + raw.length));
+      SECRET_NAME.lastIndex = Math.max(SECRET_NAME.lastIndex, start + raw.length);
+      continue;
+    }
     const reason = notSecretReason(value, shell);
     assignments.push({
       finding: reason === undefined
@@ -187,6 +202,29 @@ function scanAssignments(text: string): Assignment[] {
   }
   SECRET_NAME.lastIndex = 0;
   return assignments;
+}
+
+type ReferenceClass = { kind: "reference" } | { kind: "literal-word"; start: number; end: number };
+
+/**
+ * Environment references in any context. A complete plain reference stays; a parameter expansion stays unless its
+ * default, assigned or alternate word is a literal, in which case only that word is redacted. Error messages
+ * (`${NAME:?message}`) are not values.
+ */
+function classifyReference(value: string): ReferenceClass | undefined {
+  if (PLAIN_REFERENCE.test(value)) return { kind: "reference" };
+  const expansion = PARAMETER_EXPANSION.exec(value);
+  if (expansion === null) return undefined;
+  const [, operator, word] = expansion as unknown as [string, string, string];
+  if (operator.endsWith("?") || word === "" || PLAIN_REFERENCE.test(word) || EBO_PLACEHOLDER_PREFIX.test(word)) return { kind: "reference" };
+  const end = value.length - (value.endsWith("}") ? 1 : 0);
+  return { kind: "literal-word", start: end - word.length, end };
+}
+
+function expansionAssignment(reference: ReferenceClass, name: string, valueStart: number, valueEnd: number): Assignment {
+  return reference.kind === "reference"
+    ? { finding: { kind: "secret-assignment", disposition: "not-secret", name, reason: "environment-reference" }, valueStart, valueEnd }
+    : { finding: { kind: "secret-assignment", disposition: "redacted", name }, valueStart: valueStart + reference.start, valueEnd: valueStart + reference.end };
 }
 
 function notSecretReason(value: string, shell: boolean): NotSecretReason | undefined {

@@ -117,3 +117,30 @@ test("derived exports redact and continue on cited command text, recording each 
   sanitizeDerivedExport({ env: { apiKey: "anything" } }, policy, [], (finding) => fields.push(finding));
   assert.deepEqual(fields, [{ kind: "secret-field", disposition: "redacted", name: "apiKey", path: "/env/apiKey" }]);
 });
+
+test("environment references stay while literal fallbacks inside parameter expansions are redacted", () => {
+  const kept: Array<[string, string]> = [
+    ["API_KEY=\"$API_KEY\"", "API_KEY"],
+    ["API_KEY=\"${API_KEY}\"", "API_KEY"],
+    ["export API_KEY=${API_KEY}", "API_KEY"],
+    ["TOKEN=\"${TOKEN:?TOKEN is required}\"", "TOKEN"],
+    ["TOKEN=${TOKEN:-$FALLBACK_TOKEN}", "TOKEN"],
+    ["set PASSWORD=%PASSWORD%", "PASSWORD"],
+  ];
+  for (const [input, name] of kept) {
+    const { text, findings } = redact(input);
+    assert.equal(text, input, `${input} was changed`);
+    assert.deepEqual(findings, [{ kind: "secret-assignment", disposition: "not-secret", name, reason: "environment-reference" }], input);
+  }
+  const redactedWords: Array<[string, string]> = [
+    ["API_KEY=\"${API_KEY:-EBO_FALLBACK_SECRET_123456}\"", "API_KEY=\"${API_KEY:-[REDACTED_SECRET]}\""],
+    ["export API_KEY=${API_KEY:-EBO_FALLBACK_SECRET_123456} && run", "export API_KEY=${API_KEY:-[REDACTED_SECRET]} && run"],
+    ["TOKEN=${TOKEN:=correcthorse}", "TOKEN=${TOKEN:=[REDACTED_SECRET]}"],
+    ["password: ${DB_PASSWORD:-hunter2pass}", "password: ${DB_PASSWORD:-[REDACTED_SECRET]}"],
+  ];
+  for (const [input, expected] of redactedWords) {
+    const { text, findings } = redact(input);
+    assert.equal(text, expected);
+    assert.ok(findings.some(({ disposition }) => disposition === "redacted"), input);
+  }
+});
