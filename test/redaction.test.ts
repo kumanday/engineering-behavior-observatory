@@ -38,14 +38,14 @@ test("redacts known credential formats and keeps their kind", () => {
 test("reports secret-named references as not secret and leaves them intact", () => {
   const cases: Array<[string, string, string]> = [
     ["const sessionApiKey = /const sessionAuth = /", "sessionApiKey", "too-short"],
-    ["return { sessionApiKey: sessionAuth };", "sessionApiKey", "no-digit"],
     ["const client = new Client({ apiKey: input.apiKey });", "apiKey", "identifier-path"],
+    ["const token = getToken(scope);", "token", "expression"],
+    ["type Config = { apiKey: string };", "apiKey", "keyword"],
     ["const apiKey = process.env.FIREWORKS_API_KEY;", "apiKey", "environment-reference"],
     ["api_key = os.environ['FIREWORKS_API_KEY']", "api_key", "environment-reference"],
     ["export FIREWORKS_API_KEY=$FIREWORKS_TOKEN", "FIREWORKS_API_KEY", "environment-reference"],
     ["token = DEFAULT_TOKEN_NAME", "token", "constant-name"],
     ["max_token: 4096", "max_token", "too-short"],
-    ["const fixture = 'api_key=syntheticcredential;'", "api_key", "no-digit"],
     ["password: \"<your password>\"", "password", "placeholder"],
     ["apiKey: [LOCAL_PATH]", "apiKey", "placeholder"],
   ];
@@ -71,6 +71,12 @@ test("redacts secret-named assignments whose values look like secrets", () => {
     ["id_token='generic-token-value-12345'", "generic-token-value-12345"],
     ["curl -d \"{\\\"token\\\":\\\"abc123secretvalue\\\",\\\"n\\\":1}\"", "abc123secretvalue"],
     ["export SERVICE_API_KEY=a8f3k29dk3m2x9", "a8f3k29dk3m2x9"],
+    ["export SERVICE_API_KEY=SYNTHETICUPPERCASECREDENTIAL", "SYNTHETICUPPERCASECREDENTIAL"],
+    ["password=correcthorsebatterystaple", "correcthorsebatterystaple"],
+    ["const fixture = 'api_key=syntheticcredential;'", "syntheticcredential"],
+    ["curl 'https://example.test/hook?token=abcdef.ghijkl.mnopqr'", "abcdef.ghijkl.mnopqr"],
+    ["deploy --api-key=letteronlycredential", "letteronlycredential"],
+    ["return { sessionApiKey: sessionAuth };", "sessionAuth"],
     ["authorization=Bearer syntheticcredentialvalue", "syntheticcredentialvalue"],
   ];
   for (const [input, value] of cases) {
@@ -95,15 +101,15 @@ test("derived exports redact and continue on cited command text, recording each 
   const sanitized = output.message.content[0]!.input.command;
   assert.equal(sanitized.includes("sk-ant-EBO-SENTINEL"), false);
   assert.equal(sanitized.includes("fw_Synthetic"), false);
-  assert.ok(sanitized.includes("{ sessionApiKey: sessionAuth }"), "identifiers survive");
+  assert.ok(sanitized.includes("{ sessionApiKey: [REDACTED_SECRET] }"), "a bare word in a code assignment is redacted, not guessed to be an identifier");
   const path = "/message/content/0/input/command";
   assert.deepEqual(findings.filter(({ disposition }) => disposition === "not-secret").map(({ path: at, ...finding }) => ({ at, ...finding })), [
     { at: path, kind: "secret-assignment", disposition: "not-secret", name: "sessionApiKey", reason: "too-short" },
-    { at: path, kind: "secret-assignment", disposition: "not-secret", name: "sessionApiKey", reason: "no-digit" },
   ]);
   assert.deepEqual(findings.filter(({ disposition }) => disposition === "redacted").map(({ kind, path: at }) => [kind, at]), [
     ["anthropic-api-key", path],
     ["fireworks-api-key", path],
+    ["secret-assignment", path],
   ]);
   assert.equal(JSON.stringify(findings).includes("SENTINEL"), false, "findings never retain matched values");
 
