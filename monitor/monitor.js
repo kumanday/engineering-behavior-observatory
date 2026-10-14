@@ -77,9 +77,8 @@ function render() {
   $("progress").innerHTML = atts.map((a) => `<i data-s="${stateOf(a)}" title="${esc(`${short(a.model)} · ${a.harness} #${a.replicate}: ${stateLabel(a)}`)}"></i>`).join("");
   $("progress-legend").textContent = `${t.running} running · ${t.pending} pending · concurrency ${t.running}/${c.maxConcurrent ?? "—"}`;
   $("charged").textContent = usd(t.chargedUsd);
-  $("charged-label").textContent = t.estimatedUsd ? "Charged / estimated" : "Charged";
   $("charged-sub").textContent = `+${usd(t.reservedUsd)} reserved in flight · probes ${usd(t.probeChargedUsd)}`;
-  if (t.estimatedUsd) $("charged-sub").textContent += ` · ${usd(t.estimatedUsd)} Google estimate`;
+  if (t.estimatedUsd) $("charged-sub").textContent += ` · ${usd(t.estimatedUsd)} estimated usage, not included`;
   if (c.currentCreditUsd != null || c.creditAtStartUsd != null) {
     const live = c.currentCreditUsd != null;
     const left = live ? c.currentCreditUsd : c.creditAtStartUsd - t.chargedUsd;
@@ -88,13 +87,15 @@ function render() {
     $("credit-bar").style.width = `${Math.max(0, Math.min(100, (left / Math.max(left, c.creditAtStartUsd ?? 0, 1)) * 100))}%`;
     const pendingBudget = atts.filter((a) => a.state === "pending" && a.budgetUsd).reduce((n, a) => n + a.budgetUsd, 0);
     const updated = c.creditUpdatedAt ? `Updated ${new Date(c.creditUpdatedAt).toLocaleTimeString()}` : "Update time unavailable";
-    const stale = c.creditRefreshFailed || (c.creditUpdatedAt && Date.now() - c.creditUpdatedAt > 90000);
-    const creditInfo = [live ? "Refreshes every 30s" : "Estimated from starting credit", ...(stale ? ["Stale; refresh unavailable"] : []), ...(pendingBudget > left ? [`Below ${usd(pendingBudget, 0)} of pending budgets`] : [])].join(" · ");
+    const stale = c.creditRefreshFailed === true || (c.creditUpdatedAt && Date.now() - c.creditUpdatedAt > 90000);
+    // A live balance without a refresh timestamp or refresh result cannot be shown as current.
+    const unknown = live && !stale && (c.creditUpdatedAt == null || c.creditRefreshFailed == null);
+    const creditInfo = [live ? "Refreshes every 30s" : "Estimated from starting credit", ...(stale ? ["Stale; refresh unavailable"] : []), ...(unknown ? ["Refresh status unknown"] : []), ...(pendingBudget > left ? [`Below ${usd(pendingBudget, 0)} of pending budgets`] : [])].join(" · ");
     const creditSub = $("credit-sub");
     // Keep the focused trigger mounted across live snapshots.
     if (!creditSub.querySelector(".credit-info")) creditSub.innerHTML = `<span class="credit-time"></span> <span class="credit-info"><button type="button" aria-label="Account credit details" aria-describedby="credit-tooltip">ⓘ</button><span id="credit-tooltip" role="tooltip"></span></span>`;
     creditSub.querySelector(".credit-time").textContent = live ? updated : `of ${usd(c.creditAtStartUsd)} at start`;
-    creditSub.querySelector("button").classList.toggle("warn", !!stale || pendingBudget > left);
+    creditSub.querySelector("button").classList.toggle("warn", !!stale || unknown || pendingBudget > left);
     $("credit-tooltip").textContent = creditInfo;
   }
   $("deadline-sub").textContent = s.deadline ? `${new Date(s.deadline).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })} · running ${dur(Date.now() - s.startedAt)}` : "";
@@ -118,7 +119,7 @@ function renderMatrix() {
         const a = atts.find((x) => x.model === m && x.harness === h && x.replicate === r);
         if (!a) { html += `<td class="muted">—</td>`; continue; }
         const st = stateOf(a);
-        const meta = !a || st === "pending" ? (a?.budgetUsd ? `budget ${usd(a.budgetUsd, 0)}` : "no budget cap") : `${usd(a.spend?.chargedUsd)} · ${dur(a.elapsedMs)}`;
+        const meta = !a || st === "pending" ? (a?.budgetUsd ? `budget ${usd(a.budgetUsd, 0)}` : "no budget cap") : `${a.spend?.estimated ? "~" : ""}${usd(a.spend?.chargedUsd)} · ${dur(a.elapsedMs)}`;
         html += `<td><button type="button" data-s="${st}" ${a?.id ? `data-id="${esc(a.id)}"` : "disabled"} aria-pressed="${a?.id && a.id === selected}"><span class="st">${esc(stateLabel(a))}</span><span class="meta">${meta}</span></button></td>`;
       }
       html += "</tr>";
@@ -229,7 +230,7 @@ function renderDetail() {
     ["State", `<span class="q" data-s="${stateOf(a)}">${esc(stateLabel(a))}</span>${a.terminal ? ` · terminal ${esc(a.terminal.state)}, failure ${esc(a.terminal.failureClass)}` : ""}`],
     ...(a.taskAssessment ? [["Task assessment", `${esc(a.taskAssessment.status)} · ${esc(a.taskAssessment.reasonCode)}: ${esc(a.taskAssessment.reason)}`]] : []),
     ["Started", a.startedAt ? `${clock(a.startedAt)} · ${dur(a.elapsedMs)}${a.maxWallClockMs ? ` of ${dur(a.maxWallClockMs)}` : ""}` : "—"],
-    ["Charged", `${usd(a.spend?.chargedUsd, 4)}${a.spend?.reservedUsd ? ` + ${usd(a.spend.reservedUsd)} reserved` : ""}${a.budgetUsd ? ` · budget ${usd(a.budgetUsd, 0)}` : " · no budget cap"}${a.spend?.budgetStopped ? ' · <span class="warn">budget stop</span>' : ""}`],
+    [a.spend?.estimated ? "Estimated" : "Charged", `${usd(a.spend?.chargedUsd, 4)}${a.spend?.reservedUsd ? ` + ${usd(a.spend.reservedUsd)} reserved` : ""}${a.budgetUsd ? ` · budget ${usd(a.budgetUsd, 0)}` : " · no budget cap"}${a.spend?.budgetStopped ? ' · <span class="warn">budget stop</span>' : ""}`],
     ["Requests", `${int(a.spend?.requests)} · last response ${a.spend?.lastResponseAt ? clock(a.spend.lastResponseAt) : "—"}`],
     ["Tokens", `${big(a.tokens?.prompt)} prompt (${big(a.tokens?.cached)} cached) · ${big(a.tokens?.completion)} completion · ${big(a.tokens?.reasoning)} reasoning`],
     ["Capture", `${esc(a.qualification ?? "not qualified yet")}${a.captureState ? ` · live state ${esc(a.captureState)}` : ""}`],

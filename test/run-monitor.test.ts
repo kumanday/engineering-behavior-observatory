@@ -123,6 +123,35 @@ test("live account credit preserves top-ups and refresh timestamps independently
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("estimated usage is reported apart from provider charges and never counted twice", () => {
+  const { root, statusPath } = fixture();
+  try {
+    const status = JSON.parse(readFileSync(statusPath, "utf8"));
+    status.attempts.push({ id: "run-g", model: "google/model-b", harness: "pi-sdk", replicate: 1, state: "finished", spend: { chargedUsd: 12, estimated: true, requests: 40 } });
+    writeFileSync(statusPath, JSON.stringify(status));
+    const s = createRunMonitor(statusPath).snapshot();
+    assert.equal(s.totals.chargedUsd, 0.75);
+    assert.equal(s.totals.estimatedUsd, 12);
+    assert.equal(s.totals.probeChargedUsd, 0.02);
+    assert.equal(s.attempts.find((a: { id: string }) => a.id === "run-g")?.spend?.estimated, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("an absent credit refresh result stays unknown instead of becoming a success", () => {
+  const { root, statusPath } = fixture();
+  try {
+    const status = { format: "ebo.campaign-status/v1", campaign: { id: "credits" }, account: { currentCreditUsd: 80 }, attempts: [] };
+    writeFileSync(statusPath, JSON.stringify(status));
+    const monitor = createRunMonitor(statusPath);
+    assert.equal(monitor.snapshot().config.creditRefreshFailed, null);
+    assert.equal(monitor.snapshot().config.creditUpdatedAt, null);
+    writeFileSync(statusPath, JSON.stringify({ ...status, account: { currentCreditUsd: 80, creditRefreshFailed: "no" } }));
+    assert.equal(monitor.snapshot().config.creditRefreshFailed, null);
+    writeFileSync(statusPath, JSON.stringify({ ...status, account: { currentCreditUsd: 80, creditRefreshFailed: false } }));
+    assert.equal(monitor.snapshot().config.creditRefreshFailed, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("Messages usage includes fresh input, cache reads and writes in context without double counting snapshots", () => {
   const { root, statusPath } = fixture();
   try {

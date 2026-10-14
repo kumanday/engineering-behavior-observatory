@@ -164,6 +164,8 @@ export function createRunMonitor(statusPath: string) {
     }
     transitions.splice(0, Math.max(0, transitions.length - 200));
     const charged = (xs: MonitorAttemptLike[]) => xs.reduce((n, a) => n + (a.spend?.chargedUsd ?? 0), 0);
+    // Provider charges and usage estimates are separate quantities; each amount belongs to exactly one total.
+    const billed = (xs: MonitorAttemptLike[]) => xs.filter((a) => !a.spend?.estimated), estimated = (xs: MonitorAttemptLike[]) => xs.filter((a) => a.spend?.estimated);
     const pid = num(c.runnerPid);
     return {
       format: MONITOR_SNAPSHOT_FORMAT, generatedAt: now, campaign: str(c.id) ?? basename(root),
@@ -175,12 +177,13 @@ export function createRunMonitor(statusPath: string) {
         budgetPerAttemptUsd: num(status.limits?.budgetPerAttemptUsd), wallClockPerAttemptMs: num(status.limits?.wallClockPerAttemptMs),
         creditAtStartUsd: num(status.account?.creditAtStartUsd), provider: str(status.account?.provider),
         currentCreditUsd: num(status.account?.currentCreditUsd), creditUpdatedAt: time(status.account?.creditUpdatedAt),
-        creditRefreshFailed: status.account?.creditRefreshFailed === true,
+        // Unknown stays null: an absent flag is not evidence that the last refresh succeeded.
+        creditRefreshFailed: typeof status.account?.creditRefreshFailed === "boolean" ? status.account.creditRefreshFailed : null,
         models: Array.isArray(status.models) ? status.models.filter((m: unknown) => typeof m === "string") : [...new Set(attempts.map((a: MonitorAttemptLike) => a.model))],
       },
       totals: {
-        chargedUsd: charged(attempts), reservedUsd: attempts.reduce((n: number, a: MonitorAttemptLike) => n + (a.spend?.reservedUsd ?? 0), 0), probeChargedUsd: charged(probes),
-        estimatedUsd: charged(attempts.filter((a: MonitorAttemptLike) => a.spend?.estimated)),
+        chargedUsd: charged(billed(attempts)), reservedUsd: attempts.reduce((n: number, a: MonitorAttemptLike) => n + (a.spend?.reservedUsd ?? 0), 0), probeChargedUsd: charged(billed(probes)),
+        estimatedUsd: charged(estimated(attempts)),
         requests: attempts.reduce((n: number, a: MonitorAttemptLike) => n + (a.spend?.requests ?? 0), 0),
         pending: attempts.filter((a: MonitorAttemptLike) => a.state === "pending").length,
         running: attempts.filter((a: MonitorAttemptLike) => a.state === "running").length,
