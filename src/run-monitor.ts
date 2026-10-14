@@ -115,8 +115,9 @@ export function createRunMonitor(statusPath: string) {
       harnessVersion = str(manifest?.run?.harness?.version) ?? harnessVersion;
       // While the runner reports the attempt running, the manifest terminal is provisional and is not shown.
       if (state !== "running" && manifest?.terminal) terminal = { state: str(manifest.terminal.state), failureClass: str(manifest.terminal.failureClass), stopReason: str(manifest.terminal.stopReason) };
-      const reports = (Array.isArray(manifest?.evidence) ? manifest.evidence : []).filter((e: Json) => e?.kind === "capture-report" && typeof e.path === "string").map((e: Json) => e.path as string).sort();
-      const latest = reports.length ? readJson(join(bundle, reports[reports.length - 1]!)) : null;
+      // Capture reports are numbered (capture/report-NNNN-<id>.json); the highest number is the latest.
+      let reports: string[] = []; try { reports = readdirSync(join(bundle, "capture")).filter((f) => /^report-\d+.*\.json$/u.test(f)).sort(); } catch { /* none yet */ }
+      const latest = reports.length ? readJson(join(bundle, "capture", reports[reports.length - 1]!)) : null;
       qualification = str(latest?.qualification) ?? qualification;
     }
     const s = entry.spend ?? null;

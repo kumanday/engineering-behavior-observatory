@@ -17,10 +17,10 @@ function fixture() {
     mkdirSync(join(dir, "capture"), { recursive: true });
     writeFileSync(join(dir, "manifest.json"), JSON.stringify({
       schemaVersion: "run-bundle/v1", run: { id: run, harness: { id: "pi-sdk", version: "0.87.1" } }, attempt: { id: attempt, number: 1 }, terminal,
-      evidence: [{ kind: "capture-report", path: "capture/report-0000.json" }, { kind: "capture-report", path: "capture/report-0001.json" }],
+      evidence: [{ kind: "workspace", relativePath: "workspace.tar.gz" }],
     }));
-    writeFileSync(join(dir, "capture", "report-0000.json"), JSON.stringify({ qualification: "incomplete" }));
-    writeFileSync(join(dir, "capture", "report-0001.json"), JSON.stringify({ qualification }));
+    writeFileSync(join(dir, "capture", "report-0000-a.json"), JSON.stringify({ qualification: "incomplete" }));
+    writeFileSync(join(dir, "capture", "report-0001-b.json"), JSON.stringify({ qualification }));
     writeFileSync(join(dir, "auth.json"), JSON.stringify({ apiKey: "sk-secret-never-shown" }));
     return dir;
   };
