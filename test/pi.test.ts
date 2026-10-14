@@ -242,6 +242,24 @@ test("disposes the SDK session and retains partial history when prompt execution
   }
 });
 
+test("qualifies retained native history after a provider error without inventing successful completion", async () => {
+  const fixture = createPiFixture();
+  try {
+    const summary = await runPiQueueEntry({ ...fixture, createSession: fakePiSessionFactory(false, true).createSession });
+    assert.equal(summary.classification, "infrastructure-failure");
+    assert.equal(summary.terminal.state, "failed");
+    assert.equal(summary.captureQualification, "qualified");
+    const manifest = readManifest(summary.bundlePath);
+    const descriptor = manifest.evidence.find(({ kind }) => kind === "capture-report")!;
+    const report = JSON.parse(readFileSync(join(summary.bundlePath, descriptor.relativePath), "utf8"));
+    assert.equal(report.capabilities.semantic.status, "available");
+    assert.ok(!report.missingEvidence.some((entry: { kind: string }) => entry.kind === "session"));
+    const retained = await createRetainedBehaviorEvidence(summary.bundlePath);
+    assert.ok(retained.dataset.events.length > 0);
+    assert.match(readFileSync(join(summary.bundlePath, "pi-session.jsonl"), "utf8"), /Upstream idle timeout exceeded/u);
+  } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
+});
+
 test("retains persisted native history without regenerating it through the branch export helper", async () => {
   const fixture = createPiFixture();
   const base = fakePiSessionFactory();
@@ -932,7 +950,7 @@ export default function (pi) {
   return { parent, bundleRoot, queuePath, runId: queue.entries[0]!.runId, outputRoot: join(parent, "runs"), workspaceRoot };
 }
 
-function fakePiSessionFactory(settledAborted = false): { createSession: PiSessionFactory; calls(): number; disposals(): number } {
+function fakePiSessionFactory(settledAborted = false, providerError = false): { createSession: PiSessionFactory; calls(): number; disposals(): number } {
   let calls = 0;
   let disposals = 0;
   const createSession: PiSessionFactory = async (input) => {
@@ -951,8 +969,9 @@ function fakePiSessionFactory(settledAborted = false): { createSession: PiSessio
     };
     const finalAssistant = {
       role: "assistant", reasoning_content: HIDDEN_REASONING_CONTENT,
-      content: [{ type: "text", text: "done", textSignature: HIDDEN_TEXT_SIGNATURE }, { type: "thinking", thinking: HIDDEN_THOUGHT }],
-      provider: input.model.provider, model: input.model.model, stopReason: "stop", timestamp: 1_700_000_000_400,
+      content: providerError ? [{ type: "thinking", thinking: HIDDEN_THOUGHT }]
+        : [{ type: "text", text: "done", textSignature: HIDDEN_TEXT_SIGNATURE }, { type: "thinking", thinking: HIDDEN_THOUGHT }],
+      provider: input.model.provider, model: input.model.model, stopReason: providerError ? "error" : "stop", ...(providerError ? { errorMessage: "Upstream idle timeout exceeded" } : {}), timestamp: 1_700_000_000_400,
       usage: { input: 7, output: 3, cacheRead: 2, cacheWrite: 1, totalTokens: 13, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
     };
     const records: Record<string, unknown>[] = [
