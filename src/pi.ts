@@ -569,12 +569,14 @@ export async function capturePiSdkRun(options: CapturePiSdkRunOptions): Promise<
     });
   }
 
+  // Provider errors and native aborts are terminal evidence for valid partial sessions.
+  // Capture qualification must not require successful execution.
   const missingEvidence: CaptureMissingEvidence[] = [{
     kind: "telemetry", reason: "unsupported", affects: ["timing-resource"],
     detail: "The SDK has no verified native OTLP receipt surface in this integration.",
-  }, ...(attempt.terminal.state === "completed" && terminalEvidenceObserved ? [] : [{
+  }, ...(terminalEvidenceObserved ? [] : [{
     kind: "session", reason: "not-emitted" as const, affects: ["semantic" as const],
-    detail: "Pi did not retain a completed assistant terminal after the owned prompt.",
+    detail: "Pi did not retain a recognized native terminal after the owned prompt.",
   }]), ...(sessionExportFailed ? [{
     kind: "session", reason: "not-collected" as const, affects: ["semantic" as const],
     detail: "Pi session export failed; a persisted native-session fallback was retained when available.",
