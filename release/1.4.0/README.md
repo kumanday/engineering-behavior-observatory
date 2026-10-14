@@ -13,6 +13,10 @@ failed while its retained session can qualify for analysis. Regression coverage
 includes a provider timeout with partial reasoning and no final answer; missing
 identities, unknown terminals and damaged capture remain disqualified.
 
+Fresh installations pin `@earendil-works/pi-codemode` to 1.1.0, matching the
+locked dependency tree and the API imported by Pi SDK 1.1.0. This prevents a
+newer transitive release from breaking CLI startup.
+
 Harness and environment pins remain those recorded for
 [1.3.0](../1.3.0/README.md), including its
 [runtime qualification](../1.3.0/runtime-qualification.md). Capture qualification,
