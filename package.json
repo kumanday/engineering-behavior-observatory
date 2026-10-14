@@ -71,7 +71,9 @@
     "release/1.1.3/",
     "release/1.2.0/",
     "release/1.3.0/",
+    "monitor/",
     "viewer/dist/",
+    "viewer/src/tokens.css",
     "schemas/",
     "scripts/atlas-grafana.sh"
   ],

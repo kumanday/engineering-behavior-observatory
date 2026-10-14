@@ -143,6 +143,7 @@ Use the returned bundle path to inspect evidence, derive observations, and expor
 | Inspect or share captured evidence | [Evidence and export](docs/guides/evidence-and-sharing.md) |
 | Understand OTLP versus behavioral evidence | [Telemetry](docs/guides/telemetry.md) |
 | Explore reports and Grafana dashboards | [Behavior Atlas](docs/guides/atlas.md) |
+| Watch a campaign while it runs | [Run monitor](docs/guides/run-monitor.md) |
 | Evaluate behavior and compare conditions | [Evaluation workflow](docs/evaluation/README.md) |
 | Add an adapter, extractor, or rubric | [Extension contracts](docs/development/extension-contracts.md) |
 | Look up command syntax or artifact contracts | [Reference](docs/reference/README.md) |

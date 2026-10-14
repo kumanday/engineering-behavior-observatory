@@ -48,6 +48,7 @@ import {
 } from "./semantic-judge.js";
 import { createRetainedStructuralObservationSet } from "./structural-observations.js";
 import { serveAtlasBundle } from "./atlas-viewer.js";
+import { serveRunMonitor } from "./run-monitor.js";
 import { buildAtlasBundle, verifyAtlasBundle } from "./atlas-bundle.js";
 import { buildPacket, verifyPacket, type PacketVariant } from "./atlas-packet.js";
 import { DEFAULT_RATING_POLICY, rateRetainedOccurrences, type OccurrenceRatings } from "./occurrence-ratings.js";
@@ -95,6 +96,7 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo atlas build <request.json> <output-root> [--share] [--filter <name=value>]
        ebo atlas serve <request.json> [--port <port>]
        ebo atlas serve --bundle <bundle-dir> [--port <port>]
+       ebo monitor <campaign-status.json> [--port <port>] [--interval <ms>]
        ebo atlas bundle build <request.json> <output-root>
        ebo atlas bundle verify <bundle-dir>
        ebo packet build <bundle-dir> <output-dir> --variant internal|partner|restricted
@@ -232,6 +234,23 @@ export function main(
     }
     process.stderr.write("Usage: ebo packet build <bundle-dir> <output-dir> --variant internal|partner|restricted | ebo packet verify <packet-dir>\n");
     return 2;
+    })();
+  }
+  if (args[0] === "monitor") {
+    return (async () => {
+      const usage = "Usage: ebo monitor <campaign-status.json> [--port <port>] [--interval <ms>]";
+      const options: Record<string, string> = {};
+      for (let i = 2; i < args.length; i += 2) {
+        if ((args[i] !== "--port" && args[i] !== "--interval") || args[i + 1] === undefined) { process.stderr.write(`${usage}\n`); return 2; }
+        options[args[i]!] = args[i + 1]!;
+      }
+      if (!args[1] || args[1].startsWith("--")) { process.stderr.write(`${usage}\n`); return 2; }
+      try {
+        const server = await serveRunMonitor(args[1], options["--port"] === undefined ? 13013 : Number(options["--port"]), options["--interval"] === undefined ? 2000 : Number(options["--interval"]));
+        const address = server.address();
+        write(`Run monitor listening at http://127.0.0.1:${typeof address === "object" && address ? address.port : 13013}\n`);
+        return 0;
+      } catch (error) { write(`${errorMessage(error)}\n`); return 1; }
     })();
   }
   if (args[0] === "atlas") {

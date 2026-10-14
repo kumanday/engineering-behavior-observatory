@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EBO Run Monitor</title>
+  <script>try { const t = localStorage.getItem("ebo-monitor-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}</script>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="monitor.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><b>EBO</b> Run monitor <span class="tag">live</span></div>
+    <div class="campaign"><span id="campaign">—</span> <span id="stage" class="muted"></span></div>
+    <div class="live"><span id="state-pill" class="pill">connecting</span><span id="live-dot" class="dot" aria-hidden="true"></span><span id="updated" class="muted">waiting for data</span></div>
+    <button id="theme" class="icon-btn" type="button" aria-label="Switch between light and dark theme">◐</button>
+  </header>
+
+  <main>
+    <section class="strip" aria-label="Campaign summary">
+      <div class="cell wide">
+        <div class="k">Attempts</div>
+        <div class="v"><span id="done">0</span><span class="of">/ <span id="planned">0</span> done</span></div>
+        <div class="seg" id="progress" role="img" aria-label="Attempt progress"></div>
+        <div class="sub" id="progress-legend"></div>
+      </div>
+      <div class="cell">
+        <div class="k">Charged</div>
+        <div class="v" id="charged">$0.00</div>
+        <div class="sub" id="charged-sub"></div>
+      </div>
+      <div class="cell">
+        <div class="k">Account credit (est.)</div>
+        <div class="v" id="credit">—</div>
+        <div class="meter" aria-hidden="true"><i id="credit-bar"></i></div>
+        <div class="sub" id="credit-sub"></div>
+      </div>
+      <div class="cell">
+        <div class="k">Deadline</div>
+        <div class="v" id="deadline">—</div>
+        <div class="sub" id="deadline-sub"></div>
+      </div>
+      <div class="cell">
+        <div class="k">Model requests</div>
+        <div class="v" id="requests">0</div>
+        <div class="sub" id="requests-sub"></div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="panel" id="matrix-panel" aria-labelledby="matrix-h">
+        <header><h2 id="matrix-h">Attempt matrix</h2><span class="muted" id="matrix-note"></span></header>
+        <div id="matrix"></div>
+        <ul class="legend" id="state-legend"></ul>
+      </section>
+
+      <section class="panel" id="running-panel" aria-labelledby="running-h">
+        <header><h2 id="running-h">Running now</h2><span class="muted" id="running-note"></span></header>
+        <div id="running"></div>
+      </section>
+
+      <section class="panel span2" aria-labelledby="spend-h">
+        <header><h2 id="spend-h">Spend over time</h2><span class="muted">cumulative charged per attempt</span></header>
+        <div id="spend-chart" class="chart"></div>
+        <ul class="legend" id="harness-legend"></ul>
+      </section>
+
+      <section class="panel" id="detail-panel" aria-labelledby="detail-h">
+        <header><h2 id="detail-h">Attempt</h2><span class="muted" id="detail-note">select a cell or card</span></header>
+        <div id="detail"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="probes-h">
+        <header><h2 id="probes-h">Preflight probes</h2><span class="muted" id="probes-note"></span></header>
+        <div class="table-wrap"><table class="tbl" id="probes"></table></div>
+      </section>
+
+      <section class="panel span2" aria-labelledby="log-h">
+        <header><h2 id="log-h">Activity</h2><span class="muted">state changes seen since the monitor started</span></header>
+        <ol id="log" class="log"></ol>
+      </section>
+    </div>
+    <p class="foot">Live, unaudited figures: campaign state and spend from the runner's campaign status file, capture state and native event names from the attempts' EBO run bundles. Exploratory, not EBO-certified; costs are what the provider reported per response. <span id="format"></span></p>
+  </main>
+  <script src="monitor.js" type="module"></script>
+</body>
+</html>

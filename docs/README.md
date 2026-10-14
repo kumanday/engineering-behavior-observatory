@@ -23,6 +23,8 @@ the `ebo` command is installed as described in the quickstart.
   Grafana, and resource-accounting caveats.
 - [Behavior Atlas](guides/atlas.md): cohort filters, cited evidence, Grafana
   provisioning, and static reports.
+- [Run monitor](guides/run-monitor.md): live dashboard for a campaign in
+  progress, from the runner's campaign status file and the attempts' run bundles.
 
 ## Harness guides
 

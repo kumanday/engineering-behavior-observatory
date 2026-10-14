@@ -147,6 +147,14 @@ from a bundle; `packet verify` rechecks every file against its manifest.
 `atlas serve --bundle` shows one Atlas bundle in the interactive viewer at
 `http://127.0.0.1:13012` (see the [Behavior Atlas guide](../guides/atlas.md#interactive-viewer)).
 
+```sh
+ebo monitor <campaign-status.json> [--port <port>] [--interval <ms>]
+```
+
+`monitor` serves a live dashboard for a campaign in progress at `http://127.0.0.1:13013`, refreshed every
+`--interval` milliseconds (default 2000, minimum 250). It reads the runner's `ebo.campaign-status/v1` file and the
+attempts' run bundles read-only (see the [run monitor guide](../guides/run-monitor.md)).
+
 ## Operational behavior
 
 - A queue-run command executes one entry and creates a new attempt. It does not

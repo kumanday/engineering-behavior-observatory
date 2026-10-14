@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/trilogy-group/engineering-behavior-observatory/schemas/campaign-status.v1.json",
+  "title": "EBO campaign status v1",
+  "description": "Written by a campaign runner (an operation that consumes EBO) and rewritten in place as the campaign progresses; read by `ebo monitor`. Per-attempt capture evidence is read from the attempt's EBO run bundles, not from this file. Relative paths resolve against this file's directory.",
+  "type": "object",
+  "required": ["format", "campaign", "attempts"],
+  "properties": {
+    "format": { "const": "ebo.campaign-status/v1" },
+    "campaign": {
+      "type": "object",
+      "required": ["id", "state"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "state": { "enum": ["planned", "running", "finished", "failed", "stopped"] },
+        "stage": { "type": "string" },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "deadline": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "When the runner last rewrote this file." },
+        "runnerPid": { "type": "integer", "minimum": 1, "description": "Local process id of the runner, used only to show whether it is alive." }
+      },
+      "additionalProperties": true
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "maxConcurrent": { "type": "integer", "minimum": 1 },
+        "wallClockPerAttemptMs": { "type": "integer", "minimum": 1 },
+        "budgetPerAttemptUsd": { "type": ["number", "null"], "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "account": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string" },
+        "creditAtStartUsd": { "type": "number", "description": "Provider account credit when the campaign started; the monitor estimates remaining credit from it." }
+      },
+      "additionalProperties": true
+    },
+    "models": { "type": "array", "items": { "type": "string" }, "description": "Model order; the monitor's line patterns follow it." },
+    "attempts": {
+      "type": "array",
+      "description": "Every planned attempt, including pending ones, plus preflight probes (probe: true).",
+      "items": {
+        "type": "object",
+        "required": ["id", "model", "harness", "state"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "model": { "type": "string" },
+          "harness": { "type": "string", "description": "EBO harness id, e.g. pi-sdk, codex-app-server, claude-agent-sdk." },
+          "replicate": { "type": "integer", "minimum": 0 },
+          "probe": { "type": "boolean" },
+          "api": { "type": "string" },
+          "state": { "enum": ["pending", "running", "finished", "failed", "stopped"] },
+          "startedAt": { "type": "string", "format": "date-time" },
+          "endedAt": { "type": "string", "format": "date-time" },
+          "exitCode": { "type": ["integer", "null"] },
+          "passed": { "type": ["boolean", "null"], "description": "For probes: whether the runner accepted it." },
+          "budgetUsd": { "type": ["number", "null"], "minimum": 0 },
+          "maxWallClockMs": { "type": "integer", "minimum": 1 },
+          "runBundles": { "type": "string", "description": "Directory holding this attempt's EBO run bundles (<run>/<attempt>/manifest.json), or one bundle directory." },
+          "requestLog": { "type": "string", "description": "JSONL, one line per model response: {at, requestNumber?, costUsd? | cost?, usage} with an OpenAI-compatible usage object." },
+          "spend": {
+            "type": "object",
+            "properties": {
+              "chargedUsd": { "type": "number" },
+              "reservedUsd": { "type": "number" },
+              "requests": { "type": "integer", "minimum": 0 },
+              "accountingErrors": { "type": "integer", "minimum": 0 },
+              "budgetStopped": { "type": "boolean" },
+              "lastResponseAt": { "type": "string", "format": "date-time" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
