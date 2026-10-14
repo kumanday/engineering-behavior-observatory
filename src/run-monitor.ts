@@ -97,7 +97,7 @@ export function createRunMonitor(statusPath: string) {
       a.reasoning += num(u.completion_tokens_details?.reasoning_tokens) ?? 0;
     }
     const state = str(entry.state) ?? "pending";
-    let terminal: Json = null, qualification: string | null = null, harnessVersion: string | null = null;
+    let terminal: Json = null, qualification: string | null = null, captureState: string | null = null, harnessVersion: string | null = null;
     const dir = at(entry.runBundles);
     for (const bundle of dir ? bundles(dir) : []) {
       let files: string[]; try { files = readdirSync(bundle); } catch { continue; }
@@ -118,7 +118,9 @@ export function createRunMonitor(statusPath: string) {
       // Capture reports are numbered (capture/report-NNNN-<id>.json); the highest number is the latest.
       let reports: string[] = []; try { reports = readdirSync(join(bundle, "capture")).filter((f) => /^report-\d+.*\.json$/u.test(f)).sort(); } catch { /* none yet */ }
       const latest = reports.length ? readJson(join(bundle, "capture", reports[reports.length - 1]!)) : null;
-      qualification = str(latest?.qualification) ?? qualification;
+      // structuralQualification.status is EBO's verdict once the bundle is qualified; qualification is the live capture state.
+      qualification = str(latest?.structuralQualification?.status) ?? qualification;
+      captureState = str(latest?.qualification) ?? captureState;
     }
     const s = entry.spend ?? null;
     const startedAt = time(entry.startedAt), endedAt = time(entry.endedAt), lastResponseAt = time(s?.lastResponseAt);
@@ -131,7 +133,7 @@ export function createRunMonitor(statusPath: string) {
       maxWallClockMs: num(entry.maxWallClockMs), budgetUsd: num(entry.budgetUsd),
       spend: s && { chargedUsd: num(s.chargedUsd), reservedUsd: num(s.reservedUsd), requests: num(s.requests), accountingErrors: num(s.accountingErrors), budgetStopped: s.budgetStopped === true, lastResponseAt },
       quiet: state === "running" && lastResponseAt !== null && now - lastResponseAt > QUIET_MS,
-      terminal, qualification,
+      terminal, qualification, captureState,
       tokens: { prompt: sum(2), completion: sum(3), cached: sum(4), reasoning: a.reasoning },
       requests: a.requests,
       native: { lines: a.lines, toolCalls: a.toolsKnown ? a.tools : null, types: [...a.types].sort((x, y) => y[1] - x[1]).slice(0, 12) },

@@ -20,11 +20,11 @@ function fixture() {
       evidence: [{ kind: "workspace", relativePath: "workspace.tar.gz" }],
     }));
     writeFileSync(join(dir, "capture", "report-0000-a.json"), JSON.stringify({ qualification: "incomplete" }));
-    writeFileSync(join(dir, "capture", "report-0001-b.json"), JSON.stringify({ qualification }));
+    writeFileSync(join(dir, "capture", "report-0001-b.json"), JSON.stringify({ qualification: "incomplete", ...(qualification === "pending" ? {} : { structuralQualification: { status: qualification } }) }));
     writeFileSync(join(dir, "auth.json"), JSON.stringify({ apiKey: "sk-secret-never-shown" }));
     return dir;
   };
-  const running = bundle("run-a", "run-1", { state: "interrupted", failureClass: "infrastructure" }, "incomplete");
+  const running = bundle("run-a", "run-1", { state: "interrupted", failureClass: "infrastructure" }, "pending");
   bundle("probe-a", "run-0", { state: "completed", failureClass: "none", stopReason: "none" }, "qualified");
   writeFileSync(join(running, "pi-events.jsonl"), [
     { nativeType: "event", payload: { type: "turn_start" } },
@@ -62,7 +62,8 @@ test("the run monitor combines campaign status with run bundles into an allowlis
     const a = first.attempts.find((x) => x.id === "run-a")!;
     assert.equal(a.quiet, true, "a running attempt without a response for over two minutes is quiet");
     assert.equal(a.terminal, null, "a running attempt's provisional manifest terminal is not shown");
-    assert.equal(a.qualification, "incomplete", "the latest capture report wins");
+    assert.equal(a.qualification, null, "no verdict before EBO qualifies the bundle");
+    assert.equal(a.captureState, "incomplete", "the latest capture report's live state");
     assert.equal(a.harnessVersion, "0.87.1");
     assert.equal(a.directory, "attempts/run-a/runs");
     assert.deepEqual(a.tokens, { prompt: 3000, completion: 20, cached: 2400, reasoning: 4 });

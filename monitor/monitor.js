@@ -25,6 +25,7 @@ function stateOf(a) {
   if (a.spend?.budgetStopped || (a.exitCode != null && a.exitCode !== 0) || a.state === "failed" || a.state === "stopped" || (a.terminal && a.terminal.state !== "completed")) return "failed";
   if (a.qualification === "qualified") return "ok";
   if (a.qualification === "qualified-with-gaps") return "gaps";
+  if (a.qualification === "unqualified") return "failed";
   return a.state === "failed" ? "failed" : "ok";
 }
 const stateLabel = (a) => ({ pending: "pending", running: "running", quiet: "quiet", ok: a?.qualification ?? "done", gaps: "with gaps", failed: a?.terminal?.state ?? a?.state ?? "failed" })[stateOf(a)];
@@ -211,6 +212,7 @@ function renderDetail() {
     ["Charged", `${usd(a.spend?.chargedUsd, 4)}${a.spend?.reservedUsd ? ` + ${usd(a.spend.reservedUsd)} reserved` : ""}${a.budgetUsd ? ` · budget ${usd(a.budgetUsd, 0)}` : " · no budget cap"}${a.spend?.budgetStopped ? ' · <span class="warn">budget stop</span>' : ""}`],
     ["Requests", `${int(a.spend?.requests)} · last response ${a.spend?.lastResponseAt ? clock(a.spend.lastResponseAt) : "—"}`],
     ["Tokens", `${big(a.tokens?.prompt)} prompt (${big(a.tokens?.cached)} cached) · ${big(a.tokens?.completion)} completion · ${big(a.tokens?.reasoning)} reasoning`],
+    ["Capture", `${esc(a.qualification ?? "not qualified yet")}${a.captureState ? ` · live state ${esc(a.captureState)}` : ""}`],
     ["Native records", `${int(a.native?.lines)} · ${a.native?.toolCalls ?? "n/a"} tool calls`],
     ["Directory", a.directory ? `<code>${esc(a.directory)}</code>` : "—"],
   ];
