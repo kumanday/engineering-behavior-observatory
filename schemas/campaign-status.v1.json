@@ -12,7 +12,8 @@
       "required": ["id", "state"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "state": { "enum": ["planned", "running", "finished", "failed", "stopped"] },
+        "state": { "enum": ["planned", "running", "paused", "finished", "failed", "stopped"], "description": "paused: the runner is waiting for an operator decision (for example a credit review) and will not start attempts on its own." },
+        "note": { "type": "string", "description": "Short runner wording for the current state, e.g. awaiting-credit-review." },
         "stage": { "type": "string" },
         "startedAt": { "type": "string", "format": "date-time" },
         "deadline": { "type": "string", "format": "date-time" },

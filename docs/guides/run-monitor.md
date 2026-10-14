@@ -17,7 +17,7 @@ Running studies is an operation that consumes EBO, so the monitor reads two kind
 
 | Input | Owner | Provides |
 | :--- | :--- | :--- |
-| `ebo.campaign-status/v1` file ([schema](../../schemas/campaign-status.v1.json)) | the campaign runner | campaign state and stage, deadline, runner PID, limits, account credit at start, model order, every planned attempt and probe with its state, times, budget, live spend and paths below |
+| `ebo.campaign-status/v1` file ([schema](../../schemas/campaign-status.v1.json)) | the campaign runner | campaign state (`planned`, `running`, `paused` for a runner waiting on an operator decision, `finished`, `failed`, `stopped`) with an optional `note`, stage, deadline, runner PID, limits, account credit at start, model order, every planned attempt and probe with its state, times, budget, live spend and paths below |
 | Each attempt's EBO run bundles (`runBundles`) | EBO capture | harness version, latest capture-report qualification, terminal state once the attempt ended, native stream record counts, event type names and tool calls started |
 | Each attempt's request log (`requestLog`, optional) | the runner's model proxy | per-response time, prompt/completion/cached/reasoning tokens and cost (OpenAI-compatible `usage` objects) |
 

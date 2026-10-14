@@ -65,7 +65,7 @@ function render() {
   $("stage").textContent = s.stage ? `· ${s.stage}` : "";
   const runnerGone = s.state === "running" && s.pidAlive === false;
   const pill = $("state-pill");
-  pill.textContent = runnerGone ? "runner not alive" : s.state;
+  pill.textContent = runnerGone ? "runner not alive" : s.note ? `${s.state} · ${s.note}` : s.state;
   pill.dataset.state = runnerGone ? "offline" : s.state;
   $("format").textContent = s.format;
 

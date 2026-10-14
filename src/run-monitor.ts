@@ -154,7 +154,7 @@ export function createRunMonitor(statusPath: string) {
     const pid = num(c.runnerPid);
     return {
       format: MONITOR_SNAPSHOT_FORMAT, generatedAt: now, campaign: str(c.id) ?? basename(root),
-      state: str(c.state) ?? "unknown", stage: str(c.stage), pidAlive: pid ? pidAlive(pid) : null,
+      state: str(c.state) ?? "unknown", note: str(c.note), stage: str(c.stage), pidAlive: pid ? pidAlive(pid) : null,
       startedAt: time(c.startedAt), deadline: time(c.deadline),
       lastWrite: Math.max(time(c.updatedAt) ?? 0, ...all.map((a: MonitorAttemptLike) => a.spend?.lastResponseAt ?? 0)) || null,
       config: {
