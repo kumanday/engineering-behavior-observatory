@@ -3,8 +3,9 @@
 The opt-in v2 lane derives structural observations, occurrence ledgers, rating
 inputs, semantic judge inputs, assertions and Atlas units from typed operations
 and event facts. It accepts all eight registered owned-native projections and
-the two registered Pi ATIF producers. Imported evidence retains imported
-qualification and recorded-document scope.
+the registered Pi, Codex, Hermes and OpenClaw ATIF producers. Imported evidence
+retains imported qualification; each measurement names its recorded population
+or a partial whole-attempt lower bound.
 
 ```sh
 ebo v2 inspect /path/to/retained-bundle /path/to/new-analysis-directory
@@ -49,7 +50,8 @@ Measurements declare a population and coverage. Identified tool operations,
 source-native requests, observed request boundaries and declared inference
 counts are distinct measures. A Pi model-output identity groups sibling tool
 calls without establishing a provider request or an inference count. ATIF
-source diagnostics use a `source-` prefix and recorded-document scope. Converter
+source diagnostics use a `source-` prefix and explicit population. Whole-attempt
+counts remain partial or unavailable. Converter
 zero-fill limitations preserve unknown success and partial failure counts.
 
 Resource measurements keep source, population, authority and

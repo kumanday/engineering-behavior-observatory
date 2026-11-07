@@ -156,3 +156,20 @@ tier for root-document reports; child traversal order does not replace the
 evaluated agent’s final answer.
 
 Atlas displays unavailable task, trial and terminal metadata explicitly in imported attempt audits. The retained metadata keeps its original null values.
+
+## Additional producers in the v2 lane
+
+Run `ebo atif profiles --v2` to list Pi, Codex, Hermes and OpenClaw fingerprints.
+Supply an exact profile ID to `ebo atif import` or an explicit Harbor/leaderboard
+binding, then run `ebo v2 inspect IMPORT_BUNDLE NEW_ANALYSIS_DIRECTORY` for typed
+analysis and the local evidence viewer. `projectAtifV2()` provides the library
+projection over a structurally validated source; `readImportedBehaviorEvidenceV2()`
+reopens retained imports offline.
+
+The import manifest's profile field describes v1 support. For the three
+additional producers, v1 retains the source and reports unsupported mapping;
+the v2 dataset carries its independent profile identity and digest. Their
+[profile support table](../development/atif-producer-profiles.md#additional-v2-interpretations)
+describes the exact converters, pending-call losses, untracked inference,
+partial-history rules and native-authority sources. Imported qualification and
+restricted sharing apply throughout.

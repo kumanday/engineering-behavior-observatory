@@ -1,3 +1,4 @@
+import { projectAdditionalAtifV2 } from "./atif-additional-v2.js";
 import { readFileSync } from "node:fs";
 import { digestBytes } from "./artifacts.js";
 import { readAtifImportAdmission, readImportedBehaviorEvidence } from "./atif-import.js";
@@ -105,8 +106,13 @@ export async function projectPiAtifV2(input: {
 /** Retained imports reopen with the pinned receipt and no Python runtime. */
 export async function readImportedBehaviorEvidenceV2(bundleRoot: string): Promise<RetainedBehaviorEvidenceV2> {
   const { manifest, read } = readAtifImportAdmission(bundleRoot);
-  const projected = await projectPiAtifV2({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: digestValue(manifest) });
+  const projected = await projectAtifV2({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: digestValue(manifest) });
   // The established reader owns the declared and source-derived blinding aliases.
   const original = await readImportedBehaviorEvidence(bundleRoot);
   return { ...projected, modelAliases: original.modelAliases };
+}
+
+/** Dispatch by exact producer provenance; no profile is inferred from an agent name alone. */
+export async function projectAtifV2(input: Parameters<typeof projectPiAtifV2>[0]): Promise<RetainedBehaviorEvidenceV2> {
+  return selectAtifProducerProfile(input.producer).status === "supported" ? projectPiAtifV2(input) : projectAdditionalAtifV2(input);
 }

@@ -708,7 +708,7 @@ export { ANALYSIS_V2_VERSION, analysisDigestV2, createStructuralObservationSetV2
   validateCitationV2, operationScopeV2, operationEventsV2, operationContentV2,
   type HashV2, type EvidenceCitationV2, type ObservationV2, type ObservationSetV2 } from "./analysis-v2.js";
 
-export { projectPiAtifV2, readImportedBehaviorEvidenceV2 } from "./atif-v2.js";
+export { projectAtifV2, projectPiAtifV2, readImportedBehaviorEvidenceV2 } from "./atif-v2.js";
 
 export * from "./occurrences-v2.js";
 export * from "./ratings-v2.js";
@@ -718,3 +718,5 @@ export { loadRetainedAnalysisV2 } from "./analysis-v2-cli.js";
 
 export { prepareMigrationTargetV2 } from "./migration-targets-v2.js";
 export { ratingAnswerSchemaV2, semanticJudgeAnswerSchemaV2 } from "./model-contracts-v2.js";
+
+export { listAdditionalAtifProfilesV2, listAtifProfilesV2, selectAdditionalAtifProfileV2, HLB_TRAJECTORIES_REVISION, type AdditionalAtifProfileV2 } from "./atif-producers-v2.js";

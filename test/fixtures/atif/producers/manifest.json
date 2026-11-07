@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "ebo.atif-producer-fixtures/v1",
+  "harborVersion": "0.24.0",
+  "converterDigests": {
+    "harbor.agents.installed.codex": "1fbd52746468b9734cc3af963c9398a21f6fda6f7173b84fa0ac3ae0fe623c66",
+    "harbor.agents.installed.hermes": "561549f4c3449e3c4a7cbc3e6929c8b1b02b754567a551feec02df6b7196087e",
+    "hlb.harbor_ext.trajectories": "c64c9a8e47c731d4f18337d3e05469044c470d73a57e8e10333c1c8bf004f894"
+  },
+  "fixtures": [
+    {
+      "id": "codex",
+      "native": "codex.native.jsonl",
+      "trajectory": "codex.atif.json",
+      "nativeSha256": "20e734f922585edb58a332566b814699bb052a839b6501495576a55b38103dc1",
+      "trajectorySha256": "b4643b8abf07e4ed911aaac7290f18b582a96e46cf899ed184342971bed3d6ce"
+    },
+    {
+      "id": "hermes",
+      "native": "hermes.native.json",
+      "trajectory": "hermes.atif.json",
+      "nativeSha256": "69f6fb71c26b6dc5831b7180d024520b519a8d9f46de16b8910aae1e924a0aff",
+      "trajectorySha256": "cba7e5416861e8051d18a302c90c0319551d070235f78200f2e278c7032ea710"
+    },
+    {
+      "id": "openclaw",
+      "native": "openclaw.native.jsonl",
+      "trajectory": "openclaw.atif.json",
+      "nativeSha256": "c22166867efb1bc5f678018153f94e711be7ca99c4a7455d9177350f6a0608ee",
+      "trajectorySha256": "777b2a6c8b1b856198f47c54c926dec85e549875c0d29c1df37b87d33c6aacfe"
+    }
+  ]
+}
