@@ -704,3 +704,19 @@ test("a prior trajectory added to a frozen task blocks queue compilation and exe
     assert.equal(existsSync(join(root, "attempt")), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+
+test("prior-trajectory probes preserve official invalid-task classification for file and missing roots", async () => {
+  const root = tempRoot("invalid-task-root");
+  try {
+    const task = writePrototypeTask(root), adapter = fakeAdapter();
+    let inspected = 0;
+    adapter.inspect = async () => { inspected += 1; throw new HarborAdapterError("task-invalid", "Expected a task directory."); };
+    for (const path of [join(task, "task.toml"), join(root, "missing"), join(task, "task.toml/nested")]) {
+      const result = await inspectHarborTask(path, { adapter });
+      assert.equal(result.classification, "invalid");
+      assert.equal(result.reasonCode, "task-invalid");
+    }
+    assert.equal(inspected, 3);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

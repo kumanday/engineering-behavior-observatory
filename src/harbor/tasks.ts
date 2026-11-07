@@ -274,13 +274,13 @@ export async function inspectHarborTask(taskDir: string, options: InspectHarborT
 export function harborTaskHasPriorTrajectory(taskDir: string): boolean {
   const present = (path: string): boolean => {
     try { lstatSync(path); return true; }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
+    catch (error) { if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false; throw error; }
   };
   if (present(join(taskDir, "trajectory.json"))) return true;
   const steps = join(taskDir, "steps");
   let directory;
   try { directory = lstatSync(steps); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
+  catch (error) { if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false; throw error; }
   if (!directory.isDirectory() || directory.isSymbolicLink()) return false;
   const entries = readdirSync(steps, { withFileTypes: true });
   if (entries.length > MAX_HARBOR_SNAPSHOT_FILES) throw new Error("Harbor steps exceed the snapshot file limit.");
