@@ -450,3 +450,26 @@ test("tied earliest successors cannot be selected by display time or event ID", 
   assert.equal(result.coverage.find(({ type }) => type === "failure-response")!.status, "unavailable");
   assert.equal(result.occurrences.filter(({ type }) => type === "failure-response").length, 0);
 });
+
+
+test("an instant call is not a failure endpoint when its actual result has another or unknown order", () => {
+  for (const unknown of [false, true]) {
+    const failed = call(1, "Bash", "fail", { isError: true }).operation;
+    failed.events = failed.events.map((value) => value.phase === "before" ? { ...value, phase: "instant" } : { ...value,
+      nativeOrder: unknown ? { status: "unknown", reason: "No source order" } : { status: "known", value: 100, domain: "other-results" } });
+    const next = call(2, "Bash", "already-running", { isError: false }).operation;
+    const result = extract([failed, next]);
+    assert.equal(result.occurrences.some(({ type }) => type === "failure-response"), false);
+    assert.equal(result.coverage.find(({ type }) => type === "failure-response")!.status, "unavailable");
+  }
+});
+
+test("tied intervening-tool boundaries cannot establish one consecutive failure chain", () => {
+  const first = call(1, "Bash", "fail", { isError: true }).operation;
+  const edit = call(2, "Edit", "change", { isError: false }).operation;
+  const retry = call(3, "Bash", "retry", { isError: true }).operation;
+  edit.events = edit.events.map((value) => ({ ...value, nativeOrder: { status: "known", value: value.phase === "before" ? 30 : 31, domain: "session" } }));
+  const result = extract([first, edit, retry]);
+  assert.equal(result.coverage.find(({ type }) => type === "failure-response")!.status, "unavailable");
+  assert.ok(result.occurrences.filter(({ type }) => type === "failure-response").every(({ attributes }) => attributes.failures === 1));
+});

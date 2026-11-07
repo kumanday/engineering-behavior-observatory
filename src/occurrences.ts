@@ -86,6 +86,7 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
     const view = commonOperationView(group);
     if (view === undefined) { if (group.some(({ failed }) => failed)) failureOrderUnavailable = true; continue; }
     const scoped = [...group].sort((a, b) => nativeEventPrecedence(view.get(a.id)!.start, view.get(b.id)!.start) ?? compareEvents(view.get(a.id)!.start, view.get(b.id)!.start));
+    const otherTools = operations.filter((operation) => operationScope(operation) === operationScope(group[0]!) && operation.toolName !== group[0]!.toolName);
     for (let index = 0; index < scoped.length;) {
       const first = scoped[index]!;
       if (!first.failed) { index += 1; continue; }
@@ -96,12 +97,14 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
           const candidate = view.get(scoped[end]!.id)!.start;
           // Other tools remain chain boundaries even though follow-up selection is tool-specific.
           let separated = false;
-          for (const other of operations) {
-            if (operationScope(other) !== operationScope(first) || other.toolName === first.toolName) continue;
+          for (const other of otherTools) {
             const starts = other.events.filter((event) => (event.phase === "before" || event.phase === "instant")
               && event.nativeOrder.status === "known" && previous.nativeOrder.status === "known" && event.nativeOrder.domain === previous.nativeOrder.domain);
-            if (starts.length === 0) { failureOrderUnavailable = true; separated = true; continue; }
-            if (starts.some((start) => nativeEventPrecedence(previous, start) === -1 && nativeEventPrecedence(start, candidate) === -1)) separated = true;
+            if (starts.length === 0) { failureOrderUnavailable = true; separated = true; break; }
+            if (starts.some((start) => nativeEventPrecedence(previous, start) === undefined || nativeEventPrecedence(start, candidate) === undefined)) {
+              failureOrderUnavailable = true; separated = true; break;
+            }
+            if (starts.some((start) => nativeEventPrecedence(previous, start) === -1 && nativeEventPrecedence(start, candidate) === -1)) { separated = true; break; }
           }
           if (separated) break;
         }
@@ -406,12 +409,20 @@ function commonOperationView(operations: readonly OccurrenceOperation[], purpose
       const sorted = [...events].sort((a, b) => nativeEventPrecedence(a, b) ?? compareEvents(a, b));
       const start = sorted.find(({ phase }) => phase === "before" || phase === "instant")
         ?? (purpose === "repetition" ? sorted[0] : undefined);
-      const end = sorted.filter(({ phase }) => phase === "after" || phase === "instant").at(-1);
+      const end = sorted.filter((event) => (event.phase === "after" || event.phase === "instant" && isFailureEndpoint(event))
+        && (!operation.failed || isFailureEndpoint(event))).at(-1);
       return start === undefined || purpose === "failure" && operation.failed && end === undefined ? [] : [[domain, { start, end }] as const];
     }));
   });
   const common = [...views[0]?.keys() ?? []].sort().find((domain) => views.every((view) => view.has(domain)));
   return common === undefined ? undefined : new Map(operations.map(({ id }, index) => [id, views[index]!.get(common)!]));
+}
+
+/** A phase alone cannot turn an instant call declaration into a terminal failure. */
+function isFailureEndpoint(event: UniformEvent): boolean {
+  return event.attributes.isError === true || event.attributes.errorScope === "agent-tool"
+    || typeof event.attributes.exitCode === "number" && event.attributes.exitCode !== 0
+    || event.attributes.hook === "PostToolUseFailure" || ["failed", "error", "declined"].includes(String(event.attributes.status));
 }
 
 /** A declaration retained in any view takes precedence over serial execution callbacks in another view. */
