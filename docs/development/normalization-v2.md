@@ -50,6 +50,11 @@ alone is insufficient. Reader code is shipped implementation, never packet data.
 
 ## Migration boundary
 
+[Migration accounting](migration-accounting.md) inventories explicit retained
+study selections before adapter development, then reconciles actual regenerated
+inputs after the target consumers are implemented. Frozen readers retain the
+original outputs throughout both phases.
+
 | 1.x field or behavior | v2 representation |
 | --- | --- |
 | Adapter harness doubles as source kind | Source format/profile and executed harness are independent |

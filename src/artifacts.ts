@@ -1180,6 +1180,7 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("atif-producer-profile.v1.json"));
   ajv.addSchema(readSchema("behavior-assertions.v1.json"));
   ajv.addSchema(readSchema("semantic-judge.v1.json"));
+  ajv.addSchema(readSchema("migration.v1.json"));
   ajv.addSchema(readSchema("human-calibration.v1.json"));
   ajv.addSchema(readSchema("aggregation.v1.json"));
   ajv.addSchema(readSchema("occurrence-ratings.v1.json"));
@@ -1249,6 +1250,8 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.semantic-judge-request/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/request")],
     ["ebo.semantic-judge-input/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/input")],
     ["ebo.semantic-judgment/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/judgment")],
+    ["ebo.migration-inventory/v1", requiredValidator(ajv, "urn:ebo:schema:migration:v1#/$defs/inventory")],
+    ["ebo.migration-reconciliation/v1", requiredValidator(ajv, "urn:ebo:schema:migration:v1#/$defs/reconciliation")],
     ["ebo.review-source-set/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sourceSet")],
     ["ebo.review-sample-criteria/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/criteria")],
     ["ebo.review-sample/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sample")],
