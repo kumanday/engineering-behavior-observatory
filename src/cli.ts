@@ -2,6 +2,8 @@
 
 import { createHash } from "node:crypto";
 import { readAtifFile } from "./atif-reader.js";
+import { importAtifFile } from "./atif-import.js";
+import { listAtifProducerProfiles } from "./atif-profiles.js";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -81,6 +83,8 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo queue validate <queue.json> [experiment.json] [--bundle-root <bundle-root>]
        ebo harbor <inspect|prepare|admit|freeze|status|doctor|compile|convert-legacy|environment|run> ...
        ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...
+       ebo atif profiles
+       ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> --profile <id> [--python <executable>]
        ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
        ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
        ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
@@ -500,6 +504,29 @@ export function main(
 }
 
 async function runAtifInspection(args: string[], write: (message: string) => void): Promise<number> {
+  if (args[0] === "profiles" && args.length === 1) {
+    write(`${JSON.stringify(listAtifProducerProfiles(), null, 2)}\n`); return 0;
+  }
+  if (args[0] === "import") {
+    const [_, sourcePath, destination, ...flags] = args;
+    const values = new Map<string, string>();
+    if (!sourcePath || !destination || flags.length % 2) { write("Usage: ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> --profile <registered-id> [--python <executable>]\n"); return 1; }
+    for (let index = 0; index < flags.length; index += 2) {
+      const flag = flags[index]!, value = flags[index + 1]!;
+      if (!["--run", "--attempt", "--profile", "--python"].includes(flag) || values.has(flag) || value.startsWith("--")) {
+        write("ATIF import requires unique, recognized options with values.\n"); return 1;
+      }
+      values.set(flag, value);
+    }
+    const profile = listAtifProducerProfiles().find(({ id }) => id === values.get("--profile"));
+    if (!profile || !values.has("--run") || !values.has("--attempt")) { write("ATIF import requires --run, --attempt and an explicit registered --profile (see ebo atif profiles).\n"); return 1; }
+    try {
+      const result = await importAtifFile({ sourcePath, destination, runId: values.get("--run")!, attemptId: values.get("--attempt")!,
+        producer: profile.producer, pythonExecutable: values.get("--python") });
+      write(`${JSON.stringify({ destination, reused: result.reused, qualification: result.manifest.qualification, mapping: result.evidence.mapping }, null, 2)}\n`);
+      return 0;
+    } catch (error) { write(`ATIF import failed: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
+  }
   if (args[0] !== "inspect" || args[1] === undefined || args[1].startsWith("--")) {
     write("Usage: ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...\n");
     return 1;

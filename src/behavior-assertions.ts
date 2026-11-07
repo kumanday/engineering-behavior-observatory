@@ -1,3 +1,4 @@
+import type { RetainedNormalizationInput } from "./uniform-events.js";
 import { readFileSync } from "node:fs";
 import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
 import { evidenceWorkspaces } from "./evidence-projection.js";
@@ -110,7 +111,7 @@ export async function validateBehaviorAssertion(
   dataset: NormalizedDataset,
   resolver: NativeEvidenceResolver,
   vocabulary: BehaviorVocabulary = DEFAULT_BEHAVIOR_VOCABULARY,
-  capture?: NormalizationInput<unknown>,
+  capture?: RetainedNormalizationInput<unknown>,
 ): Promise<readonly ResolvedBehaviorCitation[]> {
   assertValid("behavior assertion", assertion);
   assertVocabulary(vocabulary);
@@ -160,7 +161,7 @@ export async function validateBehaviorAssertion(
 }
 
 /** A claim's workspace must be the one working directory its cited native records state explicitly. */
-export function validateClaimWorkspaces(assertion: BehaviorAssertion, capture?: NormalizationInput<unknown>): void {
+export function validateClaimWorkspaces(assertion: BehaviorAssertion, capture?: RetainedNormalizationInput<unknown>): void {
   for (const claim of assertion.judgment.claims ?? []) {
     if (claim.workspace === null) continue;
     if (capture === undefined) throw new Error("Validating a claim workspace needs the native capture.");
@@ -203,7 +204,7 @@ export async function isConfirmedBehaviorAssertion(
   resolver: NativeEvidenceResolver,
   review?: BehaviorReview,
   vocabulary: BehaviorVocabulary = DEFAULT_BEHAVIOR_VOCABULARY,
-  capture?: NormalizationInput<unknown>,
+  capture?: RetainedNormalizationInput<unknown>,
 ): Promise<boolean> {
   await validateBehaviorAssertion(assertion, dataset, resolver, vocabulary, capture);
   if (review === undefined) return false;

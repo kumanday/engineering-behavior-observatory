@@ -1,3 +1,5 @@
+import { readAtifImportAdmission } from "./atif-import.js";
+import { selectAtifProducerProfile } from "./atif-profiles.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -38,7 +40,7 @@ export type CorpusSourceIssue = {
 
 export type CorpusIndexEntry = {
   schemaVersion: "ebo.corpus-index-entry/v1";
-  manifestKind: "run" | "export" | "unknown";
+  manifestKind: "run" | "export" | "import" | "unknown";
   manifestPath: string;
   manifestDigest: DigestString;
   bundleId?: string;
@@ -73,6 +75,9 @@ export type CorpusIndexEntry = {
   verifierStatuses: string[];
   captureArtifactIds: string[];
   captureQualification?: string;
+  evidenceOrigin?: "owned" | "imported";
+  sourceFormat?: string;
+  producerProfileDigest?: DigestString;
   exportArtifactIds: string[];
   exportStatus?: string;
   sharingClass?: string;
@@ -273,12 +278,25 @@ function projectManifest(root: string, manifestPath: string): CorpusIndexEntry {
   }
   const schemaVersion = isRecord(document) ? document.schemaVersion : undefined;
   entry.manifestKind = schemaVersion === "run-manifest/v1" ? "run"
-    : schemaVersion === "export-manifest/v1" ? "export" : "unknown";
+    : schemaVersion === "export-manifest/v1" ? "export" : schemaVersion === "ebo.import-manifest/v1" ? "import" : "unknown";
   entry.issues.push(...validateArtifact(manifestPath, document).map(({ field, message }) => ({ field, message })));
   if (!isRecord(document)) return entry;
   if (typeof document.bundleId === "string") entry.bundleId = document.bundleId;
   if (entry.manifestKind === "run") projectRun(entry, document as unknown as RunManifest, manifestRoot);
   if (entry.manifestKind === "export") projectExport(entry, document as unknown as PortableExportManifest, manifestRoot);
+  if (entry.manifestKind === "import" && entry.issues.length === 0) {
+    try {
+      const { manifest } = readAtifImportAdmission(manifestRoot);
+      const profile = selectAtifProducerProfile(manifest.producer);
+      entry.runId = manifest.identity.runId; entry.attemptId = manifest.identity.attemptId;
+      entry.harnessId = profile.status === "supported" ? profile.profile.harness : "atif.unregistered";
+      entry.harnessVersion = manifest.producer.agent.version ?? "unavailable";
+      entry.captureQualification = "imported"; entry.sharingClass = "restricted";
+      entry.evidenceOrigin = "imported"; entry.sourceFormat = manifest.producer.formatVersion;
+      if (profile.status === "supported") entry.producerProfileDigest = profile.profileDigest;
+      entry.captureArtifactIds = [manifest.source.artifactId];
+    } catch (error) { entry.issues.push({ field: "/source", message: errorMessage(error) }); }
+  }
   entry.issues = uniqueSourceIssues(entry.issues);
   return entry;
 }
@@ -588,17 +606,18 @@ function assertCorpusIndexEntry(value: unknown, line: number): asserts value is 
     value.bundleId, value.runId, value.trialId, value.attemptId, value.retryOf, value.taskId, value.fixtureId,
     value.modelProvider, value.modelId, value.harnessId, value.harnessVersion, value.assessmentMode, value.terminalState,
     value.failureClass, value.stopReason, value.verifierLocator, value.captureQualification, value.exportStatus,
-    value.sharingClass, value.captureAssessmentMode,
+    value.sharingClass, value.captureAssessmentMode, value.sourceFormat,
   ];
   if (value.schemaVersion !== INDEX_SCHEMA_VERSION
-      || !["run", "export", "unknown"].includes(String(value.manifestKind))
+      || !["run", "export", "import", "unknown"].includes(String(value.manifestKind))
       || typeof value.manifestPath !== "string" || !isSafeArtifactRelativePath(value.manifestPath)
       || digestValue(value.manifestDigest) === undefined
       || stringArrays.some((items) => !Array.isArray(items) || items.some((item) => typeof item !== "string"))
       || optionalStrings.some((item) => item !== undefined && typeof item !== "string")
+      || value.evidenceOrigin !== undefined && !["owned", "imported"].includes(String(value.evidenceOrigin))
       || (value.attemptNumber !== undefined && (typeof value.attemptNumber !== "number"
         || !Number.isSafeInteger(value.attemptNumber) || value.attemptNumber < 1))
-      || [value.manifestDigest, value.configurationDigest, value.verifierDigest, value.policyDigest, value.sourceManifestDigest]
+      || [value.manifestDigest, value.configurationDigest, value.verifierDigest, value.policyDigest, value.sourceManifestDigest, value.producerProfileDigest]
         .some((digest) => digest !== undefined && digestValue(digest) === undefined)
       || !Array.isArray(value.issues)
       || value.issues.some((issue) => !isRecord(issue) || typeof issue.field !== "string" || typeof issue.message !== "string")) {

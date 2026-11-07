@@ -1,10 +1,9 @@
+import type { OutcomeEvidenceInput } from "./outcome-evidence.js";
+import { createPointerEvidenceResolver } from "./evidence-pointers.js";
 import { createHash } from "node:crypto";
 import { createAgentSdkBehaviorEvidence } from "./behavior-assertions.js";
 import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
 
-import {
-  type AgentSdkNativeRecord,
-} from "./agent-sdk-normalizer.js";
 import { canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
 import { extractOccurrences, type Occurrence, type OccurrenceCoverage } from "./occurrences.js";
 import {
@@ -15,7 +14,6 @@ import type {
   AdapterCapability,
   NativeEvidenceReference,
   NativeEvidenceResolver,
-  NormalizationInput,
   UniformEvent,
   UniformEventFamily,
 } from "./uniform-events.js";
@@ -111,7 +109,7 @@ export async function createRetainedStructuralObservationSet(bundleRoot: string)
 export function createStructuralObservationSet(
   dataset: NormalizedDataset,
   coverage: AdapterCoverageReport,
-  nativeCapture?: NormalizationInput<AgentSdkNativeRecord>,
+  nativeCapture?: OutcomeEvidenceInput,
 ): StructuralObservationSet {
   if (coverage.runId !== dataset.runId || coverage.attemptId !== dataset.attemptId
       || canonicalizeMetadata(coverage.adapter) !== canonicalizeMetadata(dataset.adapter)) {
@@ -144,14 +142,24 @@ export function createStructuralObservationSet(
       capabilityProfile: structuredClone(dataset.capabilityProfile),
       coverage: structuredClone(coverage),
     },
-    observations,
-    occurrences,
-    occurrenceCoverage,
+    observations: dataset.origin?.kind === "imported" ? observations.map((observation) =>
+      observation.extractor.id.startsWith("outcome-") ? observation : {
+        ...observation, value: { status: "unavailable" as const, reason: dataset.origin!.reason },
+      }) : observations,
+    occurrences: dataset.origin?.kind === "imported" ? occurrences
+      .filter((occurrence) => occurrence.type !== "failure-response" || occurrence.attributes.nextOutcome !== "none")
+      .map((occurrence) => ({ ...occurrence, attributes: { ...occurrence.attributes, sourceCompleteness: "unproven", evidenceOrigin: "imported" } })) : occurrences,
+    occurrenceCoverage: dataset.origin?.kind === "imported" ? occurrenceCoverage.map(({ type }) => ({ type, status: "unavailable" as const,
+      reason: dataset.origin!.reason })) : occurrenceCoverage,
   };
 }
 
 /** Resolve `<locator>#<json pointer>` content references against the retained native documents. */
-export function nativeContentResolver(capture: NormalizationInput<AgentSdkNativeRecord>): (reference: NativeEvidenceReference) => unknown {
+export function nativeContentResolver(capture: OutcomeEvidenceInput): (reference: NativeEvidenceReference) => unknown {
+  if (capture.qualification === "imported") {
+    const resolver = createPointerEvidenceResolver({ ...capture, records: capture.records.map(({ reference, record }) => ({ reference, record: record.document })) });
+    return (reference) => resolver.read(reference)?.value;
+  }
   const documents = new Map(capture.records.map(({ reference, record }) => [`${reference.artifactId}\0${reference.recordLocator}`, record.document]));
   return (reference) => {
     const marker = reference.recordLocator.indexOf("#");
@@ -251,7 +259,7 @@ function extractStructuralFacts(dataset: NormalizedDataset, operations: readonly
 
 function importOutcomes(
   dataset: NormalizedDataset,
-  capture: NormalizationInput<AgentSdkNativeRecord> | undefined,
+  capture: OutcomeEvidenceInput | undefined,
   assessmentMode: "observational" | "verified" | "unknown",
 ): StructuralObservation[] {
   const terminal = dataset.events.find((event) => event.family === "outcome" && event.source.nativeType === "terminal-record");
@@ -359,6 +367,8 @@ function explicitAgentScope(event: UniformEvent): string | undefined {
 
 function directSessionScope(event: UniformEvent): string | undefined {
   const retained = scalarString(event.attributes.sessionId);
+  const document = scalarString(event.attributes.documentScope);
+  if (document !== undefined) return `document:${JSON.stringify([document, retained ?? ""])}`;
   if (retained !== undefined) return `session:${retained}`;
   const scopeId = scalarString(event.scope.id);
   return (event.scope.kind === "session" || event.scope.kind === "turn") && scopeId !== undefined
@@ -836,7 +846,7 @@ function isCompactionBoundary(event: UniformEvent): boolean {
 
 function importAssessmentMode(
   dataset: NormalizedDataset,
-  capture?: NormalizationInput<AgentSdkNativeRecord>,
+  capture?: OutcomeEvidenceInput,
 ): "observational" | "verified" | "unknown" {
   const record = capture?.records.find(({ record }) => record.kind === "assessment-mode")?.record.document;
   if (record === "observational" || record === "verified") return record;

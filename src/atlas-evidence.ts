@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { canonicalizeMetadata, digestBytes } from "./artifacts.js";
+import { readEvidencePointer } from "./evidence-pointers.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -14,14 +16,22 @@ import type { UniformEvent } from "./uniform-events.js";
  * line. Audit verdicts compare the final message's check claims with captured checks; they read command and message
  * text and are exploratory, as the viewer says.
  */
-export type NativeRecordDoc = { artifact: string; locator: string; resolved: boolean; path?: string; sha256?: string; chars?: number; truncated?: boolean; text?: string; binary?: boolean; part?: string; event_key?: string };
+export type NativeRecordDoc = { artifact: string; locator: string; resolved: boolean; source_sha256?: string; path?: string; sha256?: string; chars?: number; truncated?: boolean; text?: string; binary?: boolean; part?: string; event_key?: string };
 
 /**
  * The digest a native record is cited by: a line record (`line:N`) hashes that line's UTF-8 text; any other locator
  * names the whole file record (workspace, verifier, telemetry, manifest evidence), which hashes the file's bytes.
  */
-export function nativeRecordDigest(file: Buffer | null, locator: string): { sha256: string; text?: string; chars: number; binary?: boolean } | undefined {
+export function nativeRecordDigest(file: Buffer | null, locator: string, policy?: "canonical-json-pointers/v1"): { sha256: string; source_sha256?: string; text?: string; chars: number; binary?: boolean } | undefined {
   if (file === null) return undefined;
+  if (policy === "canonical-json-pointers/v1" && locator.startsWith("#")) {
+    try {
+      const value = readEvidencePointer(JSON.parse(file.toString("utf8").replace(/^\uFEFF/u, "")), locator);
+      if (!value.found) return undefined;
+      const text = canonicalizeMetadata(value.value);
+      return { sha256: createHash("sha256").update(text).digest("hex"), source_sha256: digestBytes(file).value, text, chars: text.length };
+    } catch { return undefined; }
+  }
   const line = /^line:(\d+)/u.exec(locator);
   if (line) {
     const raw = file.toString("utf8").split("\n")[Number(line[1]) - 1];
@@ -58,18 +68,32 @@ export function claimLines(text: string): Array<{ text: string; kinds: string[] 
 export class NativeLines {
   private files = new Map<string, string>();
   private cache = new Map<string, string[] | null>();
+  private imported = false;
+  private importedSource?: { digest: string; bytes: number };
+  private retainedFile?: Buffer;
   constructor(private bundleRoot: string, private displayRoot: string) {
-    const manifest = JSON.parse(readFileSync(join(bundleRoot, "manifest.json"), "utf8")) as { evidence?: Array<{ id: string; relativePath?: string }> };
+    const manifest = JSON.parse(readFileSync(join(bundleRoot, "manifest.json"), "utf8")) as { schemaVersion?: string; source?: { artifactId: string; path: string; digest: string; bytes: number }; evidence?: Array<{ id: string; relativePath?: string }> };
     for (const e of manifest.evidence ?? []) if (e.relativePath) this.files.set(e.id, e.relativePath);
+    if (manifest.schemaVersion === "ebo.import-manifest/v1") {
+      if (manifest.source?.path !== "trajectory.json" || manifest.source.artifactId !== "atif-trajectory") throw new Error("Unsupported imported source descriptor.");
+      this.imported = true; this.importedSource = manifest.source;
+      this.files.set(manifest.source.artifactId, manifest.source.path);
+    }
   }
+  locator(locator: string): string { return this.imported ? locator : locator.split("#")[0]!; }
   record(artifact: string, locator: string, part?: string, eventKey?: string): NativeRecordDoc {
+    if (this.imported && !locator.startsWith("#")) return { artifact, locator, resolved: false };
     const match = /^line:(\d+)/u.exec(locator);
     const relativePath = this.files.get(artifact);
     if (!relativePath) return { artifact, locator, resolved: false, ...(part ? { part } : {}), ...(eventKey ? { event_key: eventKey } : {}) };
     if (!match) {
       let file: Buffer | null = null;
-      try { file = readFileSync(join(this.bundleRoot, relativePath)); } catch { file = null; }
-      const digest = nativeRecordDigest(file, locator);
+      try { file = this.retainedFile ?? readFileSync(join(this.bundleRoot, relativePath)); } catch { file = null; }
+      if (this.imported && file !== null) {
+        if (file.length !== this.importedSource!.bytes || `sha256:${digestBytes(file).value}` !== this.importedSource!.digest) throw new Error("Imported Atlas source bytes differ from admission.");
+        this.retainedFile = file;
+      }
+      const digest = nativeRecordDigest(file, locator, this.imported ? "canonical-json-pointers/v1" : undefined);
       return digest ? { artifact, locator, path: `${this.displayRoot}/${relativePath}`, resolved: true, ...digest, truncated: false, ...(part ? { part } : {}), ...(eventKey ? { event_key: eventKey } : {}) }
         : { artifact, locator, resolved: false, ...(part ? { part } : {}), ...(eventKey ? { event_key: eventKey } : {}) };
     }
@@ -123,10 +147,10 @@ export function attemptEvidence(input: EvidenceInput) {
     const parts: NativeRecordDoc[] = [];
     for (const { eventKey, part, event } of partsOf.get(u.unit_id) ?? []) {
       const { artifactId, recordLocator } = event.source.nativeReference;
-      const key = `${artifactId}\0${recordLocator.split("#")[0]}`;
+      const key = `${artifactId}\0${native.locator(recordLocator)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      parts.push(native.record(artifactId, recordLocator.split("#")[0]!, part, eventKey));
+      parts.push(native.record(artifactId, native.locator(recordLocator), part, eventKey));
     }
     nativeUnits[String(u.row_id)] = { unit_id: u.unit_id, parts, omitted_parts: 0, hook_copies_omitted: 0 };
   }
@@ -230,7 +254,7 @@ export function assessmentDoc(assertion: BehaviorAssertion, context: { short: st
       const { unit, how, step } = linkCitation(c.eventId);
       return { ordinal, event_key: `${assertion.attemptId}/${c.eventId}`, occurrence_id: c.occurrenceId ?? null, resolved_event: true,
         row_id: unit?.row_id ?? null, unit_id: unit?.unit_id ?? null, unit_kind: unit?.unit_kind ?? null, step, seq: unit?.seq ?? null, link: how,
-        native: native.record(c.nativeReference.artifactId, c.nativeReference.recordLocator.split("#")[0]!) };
+        native: native.record(c.nativeReference.artifactId, native.locator(c.nativeReference.recordLocator)) };
     }),
   };
 }

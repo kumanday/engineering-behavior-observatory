@@ -1,8 +1,10 @@
+import type { OutcomeEvidenceInput } from "./outcome-evidence.js";
+import { readImportedBehaviorEvidence } from "./atif-import.js";
 import { digestMetadata } from "./artifacts.js";
 import { factoryModelSelection } from "./factory-model.js";
 import { FACTORY_HARNESS, RETAINED_FACTORY_ADAPTER_VERSIONS, RETAINED_FACTORY_SDK_VERSIONS, qualifyFactoryCapture, describeAndValidateFactoryDataset } from "./factory-droid.js";
 import { join } from "node:path";
-import { CLAUDE_AGENT_SDK_HARNESS, readQualifiedRunCapture, createAgentSdkNativeEvidenceResolver, type AgentSdkNativeRecord } from "./agent-sdk-normalizer.js";
+import { CLAUDE_AGENT_SDK_HARNESS, readQualifiedRunCapture, createAgentSdkNativeEvidenceResolver } from "./agent-sdk-normalizer.js";
 import { createAgentSdkBehaviorEvidence } from "./behavior-assertions.js";
 import { describeAndValidateCodexDataset, CODEX_HARNESS } from "./codex.js";
 import { describeAndValidateDevinDataset, DEVIN_HARNESS, qualifyRetainedDevinCapture, RETAINED_DEVIN_CLI_VERSIONS } from "./devin.js";
@@ -12,7 +14,7 @@ import { createCursorSdkBehaviorEvidence, CURSOR_SDK_HARNESS } from "./cursor-sd
 import { createCapturedNativeEvidenceResolver, describeNormalizedDataset, validateNormalizedDataset, type AdapterCoverageReport, type NormalizedDataset } from "./normalization-integrity.js";
 import { readBoundedFile } from "./scheduler.js";
 import { assertProtocolObservation, type ProtocolObservation } from "./process-protocol.js";
-import type { NormalizationInput, NativeEvidenceResolver } from "./uniform-events.js";
+import type { NormalizationInput, RetainedNormalizationInput, NativeEvidenceResolver } from "./uniform-events.js";
 import type { RunManifest } from "./run-bundles.js";
 import {
   assertPiNativeRecord,
@@ -28,9 +30,11 @@ import {
 } from "./pi.js";
 
 export type RetainedBehaviorEvidence = {
-  capture: NormalizationInput<unknown>;
+  capture: RetainedNormalizationInput<unknown>;
+  /** Known source model and route aliases, used together for evaluator blinding. */
+  modelAliases?: readonly string[];
   /** Verified bundle metadata for outcome import; never replaces native session records. */
-  outcomeCapture: NormalizationInput<AgentSdkNativeRecord>;
+  outcomeCapture: OutcomeEvidenceInput;
   dataset: NormalizedDataset;
   resolver: NativeEvidenceResolver;
   coverage: AdapterCoverageReport;
@@ -38,6 +42,7 @@ export type RetainedBehaviorEvidence = {
 
 export async function createRetainedBehaviorEvidence(bundleRoot: string): Promise<RetainedBehaviorEvidence> {
   const manifest = JSON.parse(readBoundedFile(join(bundleRoot, "manifest.json"), "Run manifest").toString("utf8")) as RunManifest;
+  if ((manifest as unknown as { schemaVersion: string }).schemaVersion === "ebo.import-manifest/v1") return readImportedBehaviorEvidence(bundleRoot);
   const harness = manifest.run.harness.id;
   if (harness === CURSOR_SDK_HARNESS) return createCursorSdkBehaviorEvidence(bundleRoot);
   const isAgentSdk = [CLAUDE_AGENT_SDK_HARNESS, "agent-sdk"].includes(harness)

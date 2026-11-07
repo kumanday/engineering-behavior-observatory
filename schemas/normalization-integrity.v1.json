@@ -40,6 +40,7 @@
       "required": ["schemaVersion", "runId", "attemptId", "adapter", "capabilityProfile", "nativeRecords", "contentReferences", "events", "unmapped"],
       "properties": {
         "schemaVersion": { "const": "ebo.normalized-dataset/v1" },
+        "origin": {"type": "object", "additionalProperties": false, "required": ["kind", "qualification", "manifestDigest", "exactAttemptMeasures", "reason"], "properties": {"kind": {"const": "imported"}, "qualification": {"const": "imported"}, "manifestDigest": {"$ref": "#/$defs/digest"}, "exactAttemptMeasures": {"const": "unavailable"}, "reason": {"$ref": "#/$defs/identifier"}}},
         "runId": { "$ref": "#/$defs/identifier" },
         "attemptId": { "$ref": "#/$defs/identifier" },
         "adapter": { "$ref": "#/$defs/adapter" },

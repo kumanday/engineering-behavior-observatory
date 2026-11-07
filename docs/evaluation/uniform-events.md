@@ -130,6 +130,13 @@ zero.
 Dataset-wide native-reference, ordering, coverage, and comparison gates are
 documented in [Normalization integrity and comparison gates](normalization-integrity.md).
 
+Imported ATIF datasets use a separate constructor and optional `origin` record
+with qualification `imported`. Existing native datasets omit that field and
+retain their v1 digest semantics. Imported selected-history counts live in a
+mapping diagnostic; exact attempt observations remain unavailable until a
+measurement contract can establish the required coverage. Source pointers use
+canonical pointed-value hashes, with the file's raw-byte hash retained
+separately. See [ATIF imports](../reference/atif.md#pi-imports).
 ## Occurrence precedence
 
 Occurrence rules 1.2.0 establish before/after only from distinct native ordinals

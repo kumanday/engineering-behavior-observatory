@@ -9,7 +9,6 @@ import {
   validateBehaviorReview,
   type BehaviorAssertion,
   type BehaviorReview,
-  type AgentSdkBehaviorEvidence,
 } from "./behavior-assertions.js";
 import { createRetainedBehaviorEvidence, type RetainedBehaviorEvidence } from "./retained-evidence.js";
 import {
@@ -544,7 +543,7 @@ function resolveCitationContent(candidate: LoadedCandidate, reference: { artifac
   return structuredClone(nativeSession ? record : (record as { document: unknown }).document);
 }
 
-export function terminalVerifierOutcome(capture: AgentSdkBehaviorEvidence["capture"], manifest: RunManifest): Outcome {
+export function terminalVerifierOutcome(capture: RetainedBehaviorEvidence["outcomeCapture"], manifest: RunManifest): Outcome {
   if (manifest.run.assessmentMode === "observational") return "unavailable";
   const workspaceId = manifest.terminal.workspaceArtifactId;
   if (workspaceId === undefined) return "unavailable";
