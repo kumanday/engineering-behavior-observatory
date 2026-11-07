@@ -1,3 +1,4 @@
+import { v1OperationAlias } from "./v1-consumer-compatibility.js";
 import { loadAnalysisRuntime, type AnalysisRuntimeIdentity, type FrozenAnalysisRuntime } from "./analysis-runtime.js";
 import { createPointerEvidenceResolver } from "./evidence-pointers.js";
 import { createHash } from "node:crypto";
@@ -202,7 +203,7 @@ function eventRow(event: UniformEvent, index: number, resolve: ReturnType<typeof
     order_domain: event.nativeOrder.status === "known" ? event.nativeOrder.domain : null,
     order_value: event.nativeOrder.status === "known" ? event.nativeOrder.value : null,
     event_time: known(event.nativeTime), t_rel_seconds: null, role: str(attrs.role), tool_name: toolName,
-    tool_call_id: str(attrs.toolCallId) ?? str(attrs.callId) ?? (event.family === "tool" ? str(attrs.itemId) : null),
+    tool_call_id: v1OperationAlias(event, "atlas") ?? null,
     is_error: typeof attrs.isError === "boolean" ? attrs.isError : null,
     parent_event_key: parent.status === "known" && parent.value ? `${event.attemptId}/${parent.value}` : null,
     attributes_json: JSON.stringify(attrs), content_status: event.content.status, content_ref_count: refs.length, content_resolution: resolution,

@@ -1,0 +1,1343 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:consumers:v2",
+  "$defs": {
+    "occurrence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "type",
+        "rule",
+        "operationIds",
+        "eventIds",
+        "citations",
+        "facts"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.occurrence/v2"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "type": {
+          "enum": [
+            "execution-follow-up",
+            "inference-conditioned-response",
+            "validation-run",
+            "source-change",
+            "repeated-operation",
+            "compaction",
+            "delegation"
+          ]
+        },
+        "rule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "heuristic"
+          ],
+          "properties": {
+            "version": {
+              "const": "2.0.0"
+            },
+            "heuristic": {
+              "type": "boolean"
+            }
+          }
+        },
+        "operationIds": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384
+          }
+        },
+        "eventIds": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384
+          }
+        },
+        "citations": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "$ref": "urn:ebo:schema:analysis:v2#/$defs/citation"
+          }
+        },
+        "facts": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "value"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "value": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16384
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "array",
+                        "maxItems": 1000000,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 16384
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/unavailable"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "runId",
+        "attemptId",
+        "datasetDigest",
+        "occurrences",
+        "coverage"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.occurrence-ledger/v2"
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "datasetDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "occurrences": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "$ref": "urn:ebo:schema:consumers:v2#/$defs/occurrence"
+          }
+        },
+        "coverage": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "count",
+              "limitation"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "execution-follow-up",
+                  "inference-conditioned-response",
+                  "validation-run",
+                  "source-change",
+                  "repeated-operation",
+                  "compaction",
+                  "delegation"
+                ]
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limitation": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "status",
+                      "value"
+                    ],
+                    "properties": {
+                      "status": {
+                        "const": "known"
+                      },
+                      "value": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16384
+                      }
+                    }
+                  },
+                  {
+                    "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/unavailable"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "ratingInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "version",
+        "datasetDigest",
+        "ledgerDigest",
+        "occurrenceId",
+        "type",
+        "question",
+        "state",
+        "citations",
+        "limits"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.occurrence-rating-input/v2"
+        },
+        "version": {
+          "const": "2.0.0"
+        },
+        "datasetDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "ledgerDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "occurrenceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "type": {
+          "enum": [
+            "execution-follow-up",
+            "inference-conditioned-response",
+            "validation-run",
+            "source-change",
+            "repeated-operation",
+            "compaction",
+            "delegation"
+          ]
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "state": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "facts",
+            "operations"
+          ],
+          "properties": {
+            "facts": {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "status",
+                      "value"
+                    ],
+                    "properties": {
+                      "status": {
+                        "const": "known"
+                      },
+                      "value": {
+                        "oneOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 16384
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "array",
+                            "maxItems": 1000000,
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 16384
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/unavailable"
+                  }
+                ]
+              }
+            },
+            "operations": {
+              "type": "array",
+              "maxItems": 1000000,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "toolName",
+                  "failure",
+                  "input",
+                  "output"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16384
+                  },
+                  "toolName": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "status",
+                          "value"
+                        ],
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "value": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 16384
+                          }
+                        }
+                      },
+                      {
+                        "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/unavailable"
+                      }
+                    ]
+                  },
+                  "failure": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "status",
+                          "value"
+                        ],
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "value": {
+                            "type": "boolean"
+                          }
+                        }
+                      },
+                      {
+                        "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/unavailable"
+                      }
+                    ]
+                  },
+                  "input": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "content",
+                      "truncated"
+                    ],
+                    "properties": {
+                      "content": {
+                        "type": "string",
+                        "maxLength": 110000
+                      },
+                      "truncated": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "output": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "content",
+                      "truncated"
+                    ],
+                    "properties": {
+                      "content": {
+                        "type": "string",
+                        "maxLength": 110000
+                      },
+                      "truncated": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "citations": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "$ref": "urn:ebo:schema:analysis:v2#/$defs/citation"
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maxFieldChars",
+            "maxInputChars"
+          ],
+          "properties": {
+            "maxFieldChars": {
+              "type": "integer",
+              "minimum": 256,
+              "maximum": 100000
+            },
+            "maxInputChars": {
+              "type": "integer",
+              "minimum": 256,
+              "maximum": 1000000
+            }
+          }
+        }
+      }
+    },
+    "ratingAnswer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "confidence",
+        "rationale",
+        "citationIds"
+      ],
+      "properties": {
+        "label": {
+          "enum": [
+            "supported",
+            "unsupported",
+            "unclear"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "citationIds": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "rating": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "inputDigest",
+        "input",
+        "evaluator",
+        "status",
+        "accepted"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.occurrence-rating/v2"
+        },
+        "inputDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "input": {
+          "$ref": "urn:ebo:schema:consumers:v2#/$defs/ratingInput"
+        },
+        "evaluator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version",
+            "configurationDigest"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "configurationDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "failed"
+          ]
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "answer": {
+          "$ref": "urn:ebo:schema:consumers:v2#/$defs/ratingAnswer"
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        }
+      }
+    },
+    "judgeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "behavior",
+        "rubric",
+        "evaluator",
+        "eventIds",
+        "limits"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.semantic-judge-request/v2"
+        },
+        "behavior": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "vocabularyVersion",
+            "categoryId",
+            "dimensionId"
+          ],
+          "properties": {
+            "vocabularyVersion": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "categoryId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "dimensionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        "rubric": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version",
+            "instructions"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "instructions": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100000
+            }
+          }
+        },
+        "evaluator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version",
+            "configuration"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "configuration": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "eventIds": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maxRecordChars",
+            "maxInputChars"
+          ],
+          "properties": {
+            "maxRecordChars": {
+              "type": "integer",
+              "minimum": 256,
+              "maximum": 100000
+            },
+            "maxInputChars": {
+              "type": "integer",
+              "minimum": 256,
+              "maximum": 10000000
+            }
+          }
+        }
+      }
+    },
+    "judgeInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "promptVersion",
+        "runId",
+        "attemptId",
+        "dependencies",
+        "origin",
+        "request",
+        "observations",
+        "ledger",
+        "ratings",
+        "evidence",
+        "omissions",
+        "modelIdentity"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.semantic-judge-input/v2"
+        },
+        "promptVersion": {
+          "const": "2.0.0"
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dataset",
+            "observations",
+            "ledger",
+            "ratings",
+            "request",
+            "evaluatorConfiguration"
+          ],
+          "properties": {
+            "dataset": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "observations": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "ledger": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "ratings": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "request": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "evaluatorConfiguration": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "origin": {
+          "$ref": "urn:ebo:schema:normalization:v2#/$defs/dataset/properties/origin"
+        },
+        "request": {
+          "$ref": "urn:ebo:schema:consumers:v2#/$defs/judgeRequest"
+        },
+        "observations": {
+          "$ref": "urn:ebo:schema:analysis:v2#/$defs/observationSet"
+        },
+        "ledger": {
+          "$ref": "urn:ebo:schema:consumers:v2#/$defs/ledger"
+        },
+        "ratings": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "$ref": "urn:ebo:schema:consumers:v2#/$defs/rating"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "eventId",
+              "content",
+              "truncated",
+              "citation"
+            ],
+            "properties": {
+              "eventId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              },
+              "content": {
+                "type": "string",
+                "maxLength": 110000
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "citation": {
+                "$ref": "urn:ebo:schema:analysis:v2#/$defs/citation"
+              }
+            }
+          }
+        },
+        "omissions": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384
+          }
+        },
+        "modelIdentity": {
+          "const": "blinded"
+        }
+      }
+    },
+    "assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "runId",
+        "attemptId",
+        "inputDigest",
+        "behavior",
+        "evaluator",
+        "status",
+        "assessment",
+        "rationale",
+        "alternativeExplanation",
+        "citations",
+        "claims",
+        "confidence",
+        "abstentionReason"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.behavior-assertion/v2"
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "inputDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "behavior": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "vocabularyVersion",
+            "categoryId",
+            "dimensionId"
+          ],
+          "properties": {
+            "vocabularyVersion": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "categoryId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "dimensionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        "evaluator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version",
+            "configurationDigest"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "configurationDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "status": {
+          "const": "proposed"
+        },
+        "assessment": {
+          "enum": [
+            "constructive",
+            "adverse",
+            "mixed",
+            "context-dependent",
+            "abstain"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "alternativeExplanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "citations": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "urn:ebo:schema:analysis:v2#/$defs/citation"
+          }
+        },
+        "claims": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "text",
+              "citationIds",
+              "workspace"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 12000
+              },
+              "citationIds": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              },
+              "workspace": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "confidence": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstentionReason": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 12000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "judgment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "runId",
+        "attemptId",
+        "inputDigest",
+        "evaluator",
+        "status",
+        "usage"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.semantic-judgment/v2"
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "inputDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "evaluator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version",
+            "configurationDigest"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "configurationDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "failed"
+          ]
+        },
+        "assertion": {
+          "$ref": "urn:ebo:schema:consumers:v2#/$defs/assertion"
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "rawResponse": {
+          "type": "string",
+          "maxLength": 64000
+        },
+        "usage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "totalCostUsd"
+          ],
+          "properties": {
+            "totalCostUsd": {
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "atlasUnit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "sourceId",
+        "eventIds",
+        "label",
+        "role",
+        "failure",
+        "durationMs",
+        "command"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "kind": {
+          "enum": [
+            "tool",
+            "message",
+            "delegation",
+            "model-request",
+            "context"
+          ]
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "eventIds": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384
+          }
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "role": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "value"
+              ],
+              "properties": {
+                "status": {
+                  "const": "known"
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16384
+                }
+              }
+            },
+            {
+              "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/unavailable"
+            }
+          ]
+        },
+        "failure": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "value"
+              ],
+              "properties": {
+                "status": {
+                  "const": "known"
+                },
+                "value": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/unavailable"
+            }
+          ]
+        },
+        "durationMs": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "value"
+              ],
+              "properties": {
+                "status": {
+                  "const": "known"
+                },
+                "value": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            },
+            {
+              "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/unavailable"
+            }
+          ]
+        },
+        "command": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "atlasView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "runtime",
+        "runId",
+        "attemptId",
+        "origin",
+        "sources",
+        "observations",
+        "ledger",
+        "units",
+        "evidence"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.atlas-view/v2"
+        },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version",
+            "datasetDigest"
+          ],
+          "properties": {
+            "id": {
+              "const": "ebo-typed-v2"
+            },
+            "version": {
+              "const": "2.0.0"
+            },
+            "datasetDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "origin": {
+          "$ref": "urn:ebo:schema:normalization:v2#/$defs/dataset/properties/origin"
+        },
+        "sources": {
+          "$ref": "urn:ebo:schema:normalization:v2#/$defs/dataset/properties/sources"
+        },
+        "observations": {
+          "$ref": "urn:ebo:schema:analysis:v2#/$defs/observationSet"
+        },
+        "ledger": {
+          "$ref": "urn:ebo:schema:consumers:v2#/$defs/ledger"
+        },
+        "units": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "$ref": "urn:ebo:schema:consumers:v2#/$defs/atlasUnit"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "citationId",
+              "citation",
+              "content"
+            ],
+            "properties": {
+              "citationId": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "citation": {
+                "$ref": "urn:ebo:schema:analysis:v2#/$defs/citation"
+              },
+              "content": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}

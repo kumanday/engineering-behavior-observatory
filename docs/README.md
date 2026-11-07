@@ -87,3 +87,5 @@ scattered through release history.
 - [EBO v2 analytical contracts](development/normalization-v2.md) define the explicit migration boundary.
 - [Native v2 adapters](development/native-v2-adapters.md) derive typed operations and source facts from qualified native bundles.
 - [Migration accounting](development/migration-accounting.md) inventories retained studies and reconciles dependency changes before re-judging.
+
+- [Typed v2 consumers](development/typed-v2-consumers.md) prepare observations, ledgers, evaluation inputs and local Atlas inspection.
