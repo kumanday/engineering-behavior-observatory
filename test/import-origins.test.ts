@@ -130,3 +130,18 @@ test("semantic judging uses every retained model/route alias and never requires 
     assert.equal(called, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+
+test("origin selection omits indexed excluded-origin derived sources and still rejects unindexed sources", async () => {
+  for (const selected of ["owned", "imported"] as const) {
+    const excluded = selected === "owned" ? "imported" : "owned";
+    const excludedObservation = { bundleRoot: "/not-read", document: { runId: excluded, attemptId: excluded } } as Parameters<typeof aggregateEvaluation>[0]["observationSets"][number];
+    const excludedAssertion = { bundleRoot: "/not-read", document: { runId: excluded, attemptId: excluded, id: "excluded-assertion" } } as Parameters<typeof aggregateEvaluation>[0]["assertions"][number];
+    const report = await aggregateEvaluation({ ...input(), observationSets: [excludedObservation], assertions: [excludedAssertion] }, { ...policy, evidenceOrigins: selected });
+    assert.equal(report.sourcePopulation.selectedAttempts, 1);
+    assert.equal(report.sourceLineage.observationSets.length, 0);
+    assert.equal(report.sourceLineage.assertions.length, 0);
+  }
+  const unknown = { bundleRoot: "/not-read", document: { runId: "unknown", attemptId: "unknown" } } as Parameters<typeof aggregateEvaluation>[0]["observationSets"][number];
+  await assert.rejects(aggregateEvaluation({ ...input(), observationSets: [unknown] }, { ...policy, evidenceOrigins: "imported" }), /no unique corpus entry/u);
+});

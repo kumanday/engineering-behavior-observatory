@@ -158,7 +158,12 @@ async function aggregateValidatedEvaluation(
   assertPolicy(policy);
   const { attempts, duplicates } = uniqueAttempts(input.corpusEntries, policy.evidenceOrigins ?? "owned");
   const selected = selectAttempts(attempts, policy.selectedAttemptPolicy);
-  const observationSources = uniqueBy(input.observationSets, ({ document }) => `${document.runId}\0${document.attemptId}`, "observation set");
+  const includedOriginIds = new Set(attempts.map(attemptKey));
+  const excludedOriginIds = new Set(input.corpusEntries.filter((entry) => ["run", "import"].includes(entry.manifestKind)
+    && entry.runId !== undefined && entry.attemptId !== undefined && !includedOriginIds.has(attemptKey(entry as Attempt))).map((entry) => attemptKey(entry as Attempt)));
+  // Unknown sources still reach the existing binding check; only indexed, excluded origins are omitted.
+  const includedSource = ({ document }: { document: { runId: string; attemptId: string } }) => !excludedOriginIds.has(attemptKey(document));
+  const observationSources = uniqueBy(input.observationSets.filter(includedSource), ({ document }) => `${document.runId}\0${document.attemptId}`, "observation set");
   const observations = new Map<string, StructuralObservationSet>();
   for (const { bundleRoot, document } of observationSources.values()) {
     assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
@@ -170,7 +175,7 @@ async function aggregateValidatedEvaluation(
     if (canonicalizeMetadata(comparable) !== canonicalizeMetadata(document)) throw new Error(`Structural observation set for attempt "${document.attemptId}" is stale.`);
     observations.set(`${document.runId}\0${document.attemptId}`, rebuilt);
   }
-  const assertionSources = uniqueBy(input.assertions, ({ document }) => assertionKey(document), "behavior assertion");
+  const assertionSources = uniqueBy(input.assertions.filter(includedSource), ({ document }) => assertionKey(document), "behavior assertion");
   const assertions = new Map<string, BehaviorAssertion>();
   for (const { bundleRoot, document } of assertionSources.values()) {
     assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
@@ -299,12 +304,12 @@ function groupMetrics(
   const terminalEligible = selected.filter((attempt) => evidenceOrigin(attempt) === "owned" || attempt.terminalState !== undefined);
   const metrics: AggregateMetric[] = [
     metric("attempt-count", "attempt", selected.length, relatedAll.length, "attempt", "attempt", selectionExclusions),
-    rateMetric("infrastructure-failure-rate", "attempt", infrastructureEligible.filter(({ failureClass }) => failureClass === "infrastructure").length, infrastructureEligible.length, "attempt", exclusionCounts(selected.filter((attempt) => !infrastructureEligible.includes(attempt)).map(() => "imported-failure-class-unavailable"), "attempt")),
+    rateMetric("infrastructure-failure-rate", "attempt", infrastructureEligible.filter(({ failureClass }) => failureClass === "infrastructure").length, infrastructureEligible.length, "attempt", exclusionCounts(selected.filter((attempt) => evidenceOrigin(attempt) === "imported" && attempt.failureClass === undefined).map(() => "imported-failure-class-unavailable"), "attempt")),
     rateMetric("capture-qualified-rate", "attempt",
       selected.filter(({ captureQualification }) => captureQualification === "qualified" || captureQualification === "qualified-with-gaps").length,
       selected.filter(({ captureQualification }) => captureQualification !== undefined && captureQualification !== "unavailable").length,
       "attempt", exclusionCounts(selected.flatMap(({ captureQualification }) => captureQualification === undefined || captureQualification === "unavailable" ? ["capture-qualification-unavailable"] : []), "attempt")),
-    rateMetric("terminal-completed-rate", "attempt", terminalEligible.filter(({ terminalState }) => terminalState === "completed").length, terminalEligible.length, "attempt", exclusionCounts(selected.filter((attempt) => !terminalEligible.includes(attempt)).map(() => "imported-terminal-state-unavailable"), "attempt")),
+    rateMetric("terminal-completed-rate", "attempt", terminalEligible.filter(({ terminalState }) => terminalState === "completed").length, terminalEligible.length, "attempt", exclusionCounts(selected.filter((attempt) => evidenceOrigin(attempt) === "imported" && attempt.terminalState === undefined).map(() => "imported-terminal-state-unavailable"), "attempt")),
   ];
   const verified = selected.filter(({ assessmentMode, verifierStatuses }) => assessmentMode === "verified"
     && verifierStatuses.length === 1 && ["passed", "failed"].includes(verifierStatuses[0]!));
