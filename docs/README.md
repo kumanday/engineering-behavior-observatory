@@ -81,3 +81,4 @@ contract. CLI syntax is in [one grouped reference](reference/cli.md), not
 scattered through release history.
 
 - [Supplemental evidence companions](reference/evidence-companions.md) bind extra evidence to an existing attempt.
+- [Frozen analysis runtime](development/frozen-analysis-runtime.md) preserves a shipped 1.x reader and its receipts.

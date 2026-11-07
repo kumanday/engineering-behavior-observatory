@@ -689,3 +689,5 @@ export type { OutcomeEvidenceInput, ImportedOutcomeRecord } from "./outcome-evid
 export * from "./harbor-import.js";
 export * from "./harbor-record-reader.js";
 export { writeEvidenceCompanion, readEvidenceCompanion, companionArtifactId, EVIDENCE_COMPANION_LIMITS, type EvidenceCompanion, type EvidenceCompanionRequest, type CompanionRange } from "./evidence-companions.js";
+
+export { listAnalysisRuntimes, loadAnalysisRuntime, type AnalysisRuntimeIdentity, type AnalysisRuntimeSnapshot, type FrozenAnalysisRuntime } from "./analysis-runtime.js";

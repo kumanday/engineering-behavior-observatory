@@ -1187,12 +1187,14 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("deepseek-runtime-composition.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-admission.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-import.v1.json"));
+  ajv.addSchema(readSchema("analysis-runtime-snapshot.v1.json"));
   ajv.addSchema(readSchema("harbor-review.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-freeze.v1.schema.json"));
   ajv.addSchema(readSchema("experiment.v2.schema.json"));
   ajv.addSchema(readSchema("run-queue.v2.schema.json"));
 
   return new Map([
+    ["ebo.analysis-runtime-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:analysis-runtime-snapshot:v1")],
     ["ebo.harbor-trial-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/inspection")],
     ["ebo.harbor-source-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/snapshot")],
     ["ebo.harbor-execution/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/execution")],
