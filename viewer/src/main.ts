@@ -103,7 +103,8 @@ async function main() {
       in_primary: Boolean(x.cohorts?.primary && x.cohorts.primary.included !== false) }));
     const c2 = await db.connect();
     // IPC bytes, not a Table object: DuckDB-WASM bundles its own apache-arrow
-    await c2.insertArrowFromIPCStream(tableToIPC(tableFromJSON(rows), "stream"), { name: "assessments", create: true });
+    if (rows.length) await c2.insertArrowFromIPCStream(tableToIPC(tableFromJSON(rows), "stream"), { name: "assessments", create: true });
+    else await c2.query("CREATE TABLE assessments (id VARCHAR, attempt_id VARCHAR, condition VARCHAR, task_id VARCHAR, trial_id VARCHAR, dimension VARCHAR, outcome VARCHAR, confidence DOUBLE, citations INTEGER, in_primary BOOLEAN)");
     await c2.close();
   }
 

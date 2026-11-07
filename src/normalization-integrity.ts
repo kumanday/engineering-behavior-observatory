@@ -80,6 +80,7 @@ export type ComparisonCapability = `family:${UniformEventFamily}`
 export type ComparisonCandidate = {
   id: string;
   manifestDigest: DigestString;
+  evidenceOrigin?: { kind: "owned" | "imported"; profileDigest?: DigestString };
   adapterVersion: string;
   task: { id: string; digest: DigestString };
   fixture: { id: string; digest: DigestString };
@@ -105,6 +106,8 @@ export type ComparisonRequest = {
 
 export type ComparisonReason = {
   code:
+    | "evidence-origin-mismatch"
+    | "producer-profile-mismatch"
     | "task-mismatch"
     | "fixture-mismatch"
     | "material-configuration-mismatch"
@@ -159,7 +162,9 @@ export function describeImportedDataset<NativeRecord>(
 ): NormalizedDataset {
   if (input.capture.qualification !== "imported" || input.origin.kind !== "imported" || input.origin.qualification !== "imported"
       || input.origin.exactAttemptMeasures !== "unavailable") throw new Error("Imported datasets require imported provenance and explicit attempt-measure limits.");
-  return { ...describeEvidenceDataset(input), origin: structuredClone(input.origin) };
+  const normalization = { ...input.normalization, events: input.normalization.events.map((event) => ({ ...event,
+    attributes: { ...event.attributes, evidenceOrigin: "imported" } })) };
+  return { ...describeEvidenceDataset({ ...input, normalization }), origin: structuredClone(input.origin) };
 }
 
 function describeEvidenceDataset<NativeRecord>(input: Omit<NormalizedDatasetInput<NativeRecord>, "capture"> & {
@@ -373,6 +378,16 @@ export function assessComparisonEligibility(request: ComparisonRequest): Compari
   assertValidArtifact("comparison request", request);
   const blockers: ComparisonReason[] = [];
   const caveats: ComparisonReason[] = [];
+  const origin = (candidate: ComparisonCandidate) => candidate.evidenceOrigin?.kind === "imported" || candidate.harness.id.startsWith("atif.") ? "imported" : "owned";
+  // No complete-attempt cross-origin instruments have passed the registered invariance gate yet.
+  // Fixture diagnostics qualify retained-source mapping; they do not qualify attempt-wide comparisons.
+  if (origin(request.left) !== origin(request.right)) blockers.push({ code: "evidence-origin-mismatch", dimension: "evidence origin",
+    detail: "Cross-origin comparison has no registered profile-and-measure invariance gate." });
+  const imported = [request.left, request.right].filter((candidate) => origin(candidate) === "imported");
+  if (imported.some((candidate) => candidate.evidenceOrigin?.kind !== "imported" || candidate.evidenceOrigin.profileDigest === undefined)
+      || imported.length === 2 && imported[0]!.evidenceOrigin!.profileDigest !== imported[1]!.evidenceOrigin!.profileDigest) {
+    blockers.push({ code: "producer-profile-mismatch", dimension: "producer profile", detail: "Imported comparison requires the same explicitly bound producer profile." });
+  }
   compareExact(request.left.task, request.right.task, "task", "task-mismatch", blockers);
   compareExact(request.left.fixture, request.right.fixture, "fixture", "fixture-mismatch", blockers);
   for (const [dimension, left, right] of [

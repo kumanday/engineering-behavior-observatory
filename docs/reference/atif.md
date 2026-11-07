@@ -106,6 +106,17 @@ profiles require source pins, conformance checks and independent paired gates.
 manifest are authoritative. Portable import export and Harbor/leaderboard trial
 identity/outcome binding are separate source-context integrations.
 
+For Atlas and aggregation, select `evidenceOrigins: "imported"` in the
+aggregation request, or `"separate"` to include owned captures in separate
+origin groups. The default selects owned captures. See
+[evidence-origin rules](../evaluation/aggregation.md#evidence-origins).
+
+Imported Atlas tool results keep an unknown status unless retained source fields
+explicitly establish an outcome. Result text alone does not establish a successful
+exit. Error totals remain unavailable when any result has an unknown outcome.
+Imported narratives also withhold whole-attempt freshness and last-check claims
+when complete ordered history is unproven. Cited source records remain inspectable.
+
 Judge preparation retains ordinary Pi assistant reports as model messages.
 Occurrence ratings resolve pointed argument objects and result strings directly,
 with the same hidden-content projection used for semantic evidence. Imported
@@ -120,6 +131,14 @@ Usage from a step with an untracked or aggregated inference count stays
 unavailable unless its component completeness is established. Positive merged
 usage cannot hide a zero-filled component. Independent fixture gates record
 these cases as named source-information losses.
+
+For a structural-only viewer pilot, run
+`node scripts/atif-import-pilot/build-atlas.mjs IMPORT_BUNDLE NEW_OUTPUT` after
+building EBO. It copies the admitted source into a new restricted destination,
+builds observations and an Atlas bundle, and verifies its retained evidence.
+Serve `NEW_OUTPUT/atlas` with `ebo atlas serve --bundle NEW_OUTPUT/atlas`.
+The viewer supports unavailable task identities; imported audit freshness and
+unknown failure totals remain unavailable in Swimlanes and Totals.
 
 Imported occurrence coverage stays unavailable for complete-attempt populations.
 Positive local occurrences remain available for cited evaluation; missing
