@@ -99,6 +99,7 @@ export type ImportedNativeEvidence<NativeRecord> = {
   runId: string;
   attemptId: string;
   qualification: "imported";
+  sourceLimitations?: readonly string[];
   records: readonly CapturedNativeRecord<NativeRecord>[];
 };
 export type RetainedNormalizationInput<NativeRecord> = NormalizationInput<NativeRecord> | ImportedNativeEvidence<NativeRecord>;

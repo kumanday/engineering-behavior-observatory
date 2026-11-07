@@ -1,3 +1,4 @@
+import { visibleEvidence } from "./evidence-projection.js";
 import { canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
 import { runCodexStructuredTurn, type CodexTurnSettings } from "./codex-judge.js";
 import type { SemanticJudgeBackendResult } from "./semantic-judge.js";
@@ -306,10 +307,15 @@ function callKey(event: UniformEvent): string {
 function firstText(events: readonly UniformEvent[], resolveContent: (reference: NativeEvidenceReference) => unknown, kind: "input" | "output"): string | undefined {
   for (const event of events) {
     if (event.content.status !== "known") continue;
-    for (const { nativeReference } of event.content.value) {
+    for (const { nativeReference, role } of event.content.value) {
       const value = resolveContent(nativeReference);
       if (value === undefined) continue;
-      const text = kind === "input" ? findCommand(value) ?? inputText(value) : outputText(value);
+      const pointedContent = nativeReference.recordLocator.startsWith("#/") && (role === "tool-input" || role === "tool-result");
+      const visible = pointedContent ? visibleEvidence(value) : value;
+      const text = kind === "input" ? findCommand(visible) ?? inputText(visible)
+        ?? (pointedContent && role === "tool-input" ? typeof visible === "string" ? visible : canonicalizeMetadata(visible) : undefined)
+        : pointedContent && typeof visible === "string" ? visible : outputText(visible)
+          ?? (pointedContent && role === "tool-result" ? canonicalizeMetadata(visible) : undefined);
       if (text !== undefined && text.trim() !== "") return text;
     }
   }

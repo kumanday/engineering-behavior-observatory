@@ -105,3 +105,11 @@ profiles require source pins, conformance checks and independent paired gates.
 `mapping.json` is a reproducible diagnostic; source bytes and the admission
 manifest are authoritative. Portable import export and Harbor/leaderboard trial
 identity/outcome binding are separate source-context integrations.
+
+Judge preparation retains ordinary Pi assistant reports as model messages.
+Occurrence ratings resolve pointed argument objects and result strings directly,
+with the same hidden-content projection used for semantic evidence. Imported
+judge inputs carry their source class, unproven completeness and producer
+limitations; these constrain absence and whole-attempt claims. Declared session
+and trajectory IDs partition child operations without manufacturing native
+request or timing identities. Ambiguous duplicate child IDs remain unavailable.

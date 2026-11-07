@@ -1,3 +1,5 @@
+import { occurrenceRequest, occurrenceState } from "../src/occurrence-ratings.js";
+import { prepareJudgeRequest } from "../src/judge-prepare.js";
 import { compareFixtureMeasurement } from "./atif-fixture-gate.js";
 import { runAgentSdkSemanticJudge, type SemanticJudgeRequest } from "../src/semantic-judge.js";
 import { probeClaudeAgentSdkCapabilities } from "../src/agent-sdk.js";
@@ -13,7 +15,7 @@ import { normalizePiAtif } from "../src/atif-pi.js";
 import { inspectAtifBytes, type AtifObject } from "../src/atif-reader.js";
 import { listAtifProducerProfiles } from "../src/atif-profiles.js";
 import { createRetainedBehaviorEvidence } from "../src/retained-evidence.js";
-import { createRetainedStructuralObservationSet, createStructuralObservationSet, nativeContentResolver } from "../src/structural-observations.js";
+import { createRetainedStructuralObservationSet, createStructuralObservationSet, toolOperations, nativeContentResolver } from "../src/structural-observations.js";
 import { readCorpusIndex, writeCorpusIndex, buildCorpusIndex } from "../src/corpus.js";
 import { validateBehaviorAssertion, type BehaviorAssertion } from "../src/behavior-assertions.js";
 import { boundedEvidence } from "../src/evidence-projection.js";
@@ -303,7 +305,7 @@ test("semantic judging uses every retained model/route alias and never requires 
     let called = false;
     await runAgentSdkSemanticJudge({ bundleRoot, outputRoot: join(root, "judge"), observations, request,
       backend: { id: "claude-agent-sdk", version: probeClaudeAgentSdkCapabilities().sdkVersion, run: async (prompt) => {
-        called = true; assert.doesNotMatch(prompt, /provider\/Model\[route\]|Model\[route\]|served-model/u); assert.match(prompt, /visible/u);
+        called = true; assert.match(prompt, /third-party imported evidence with unproven capture completeness/u); assert.match(prompt, /CONVERTER_ZERO_FILL_POSSIBLE/u); assert.doesNotMatch(prompt, /provider\/Model\[route\]|Model\[route\]|served-model/u); assert.match(prompt, /visible/u);
         return { status: "failed", kind: "provider", message: "Synthetic backend; no model call", raw: {} };
       } } });
     assert.equal(called, true);
@@ -333,4 +335,61 @@ test("a positive sibling step cannot hide zero-filled output or cache usage", as
     const measure = field === "completion_tokens" ? "output-token-count" : "cache-read-input-token-count";
     assert.deepEqual(evidence.mapping.measures[measure], { status: "unavailable", reason: "CONVERTER_ZERO_FILL_POSSIBLE" });
   }
+});
+
+
+test("occurrence rating state preserves pointed string output and non-shell argument objects", async () => {
+  const source = fixture(), agent = steps(source)[1]!;
+  const calls = agent.tool_calls as AtifObject[];
+  calls[0]!.arguments = { command: "npm test" };
+  calls[1]!.function_name = "read"; calls[1]!.arguments = { path: "src/example.ts" };
+  ((agent.observation as AtifObject).results as AtifObject[])[0]!.content = "FAILURE_DIAGNOSTIC";
+  steps(source).push({ step_id: 4, source: "agent", message: "Read again", llm_call_count: 1,
+    tool_calls: [{ tool_call_id: "call-c", function_name: "read", arguments: { path: "src/example.ts" } }],
+    observation: { results: [{ source_call_id: "call-c", content: "RETAINED_CONTENT", extra: { is_error: false } }] } });
+  const evidence = await project(source), observations = createStructuralObservationSet(evidence.dataset, evidence.coverage, evidence.outcomeCapture);
+  const map = new Map(evidence.dataset.events.map((event) => [event.id, event]));
+  const resolve = nativeContentResolver(evidence.outcomeCapture);
+  const validation = observations.occurrences!.find(({ type }) => type === "validation-run")!;
+  const request = occurrenceRequest(validation, observations.occurrences!, map, resolve);
+  assert.match(JSON.stringify(request.state), /FAILURE_DIAGNOSTIC/u);
+  const repetition = observations.occurrences!.find(({ type }) => type === "repeated-operation")!;
+  const rendered = occurrenceState(repetition, map, resolve).state;
+  assert.match(JSON.stringify(rendered), /src\/example.ts/u);
+  assert.match(JSON.stringify(rendered), /RETAINED_CONTENT/u);
+});
+
+test("assistant reports remain selected by the existing judge preparation policy", async () => {
+  const evidence = await project(), observations = createStructuralObservationSet(evidence.dataset, evidence.coverage, evidence.outcomeCapture);
+  const request = prepareJudgeRequest(observations, evidence.dataset.events, { schemaVersion: "ebo.judge-prepare-spec/v1", id: "p", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+    rubric: { id: "r", version: "1", instructions: "Inspect source behavior." }, evaluator: { provider: "anthropic", model: "synthetic-judge", effort: "low" },
+    occurrenceTypes: ["validation-run", "failure-response"], blinding: { evaluatedModelIdentity: "redact" },
+    limits: { maxEvidenceItems: 64, maxRecordChars: 8_000, maxInputChars: 200_000, maxOutputChars: 8_192, maxCitations: 8, maxWallClockMs: 5_000, maxTurns: 1 } });
+  const reports = evidence.dataset.events.filter(({ family, actor }) => family === "message" && actor.kind === "model");
+  assert.equal(reports.length, 2);
+  assert.ok(reports.every(({ id }) => request.selection.eventIds.includes(id)));
+});
+
+test("per-step negative uncached input cannot be hidden by a positive sibling step", async () => {
+  const source = fixture(), agents = steps(source).filter((step) => step.source === "agent");
+  const tuples = [[22, 20, 3], [18, 10, 0]];
+  agents.forEach((step, index) => { const [prompt, cache, write] = tuples[index]!;
+    const metrics = step.metrics as AtifObject; metrics.prompt_tokens = prompt; metrics.cached_tokens = cache; (metrics.extra as AtifObject).cache_write_tokens = write; });
+  const final = source.final_metrics as AtifObject; final.total_prompt_tokens = 40; final.total_cached_tokens = 30; (final.extra as AtifObject).cache_write_tokens = 3;
+  assert.deepEqual((await project(source)).mapping.measures["input-token-count"], { status: "unavailable", reason: "PI_INCLUSIVE_PROMPT_CONFLICT" });
+});
+
+test("embedded child operations preserve declared session and trajectory scopes", async () => {
+  const source = fixture(), child = fixture(); child.trajectory_id = "native-child-id";
+  ((steps(source)[1]!.observation as AtifObject).results as AtifObject[])[0]!.subagent_trajectory_ref = [{ trajectory_id: "native-child-id" }];
+  source.subagent_trajectories = [child];
+  const evidence = await project(source), operations = toolOperations(evidence.dataset.events);
+  assert.equal(operations.length, 4);
+  assert.equal(new Set(operations.map(({ scope }) => scope)).size, 2);
+  const childEvents = evidence.dataset.events.filter(({ source }) => source.nativeReference.recordLocator.startsWith("#/subagent_trajectories"));
+  assert.ok(childEvents.every(({ attributes }) => attributes.agentId === "native-child-id" && attributes.sessionId === "synthetic-pi-fixture"));
+  source.subagent_trajectories = [child, structuredClone(child)];
+  const ambiguous = await project(source);
+  assert.ok(ambiguous.mapping.limitations.includes("DUPLICATE_CHILD_TRAJECTORY_ID"));
+  assert.equal(ambiguous.dataset.events.some(({ source }) => source.nativeReference.recordLocator.startsWith("#/subagent_trajectories")), false);
 });
