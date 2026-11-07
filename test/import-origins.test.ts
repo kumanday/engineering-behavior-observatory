@@ -1,13 +1,15 @@
+import { createAtlasFixture } from "./atlas-fixture.js";
+import type { BehaviorAssertion } from "../src/behavior-assertions.js";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { aggregateEvaluation, selectAggregationAttempts, type AggregationRequest } from "../src/aggregation.js";
 import { assessComparisonEligibility, type ComparisonRequest } from "../src/normalization-integrity.js";
-import { validateArtifact } from "../src/artifacts.js";
+import { digestMetadata, validateArtifact } from "../src/artifacts.js";
 import { buildCorpusIndex, writeCorpusIndex, type CorpusIndexEntry } from "../src/corpus.js";
-import { importAtifFile } from "../src/atif-import.js";
+import { readImportedBehaviorEvidence, importAtifFile } from "../src/atif-import.js";
 import { listAtifProducerProfiles } from "../src/atif-profiles.js";
 import { createRetainedStructuralObservationSet } from "../src/structural-observations.js";
 import { loadAtlas, queryAtlas } from "../src/atlas.js";
@@ -77,16 +79,33 @@ test("imported Pi evidence flows through Atlas with origin labels, unknown outco
   try {
     mkdirSync(join(root, "corpus"));
     const bundleRoot = join(root, "corpus/pi");
-    await importAtifFile({ sourcePath: "test/fixtures/atif/pi/parallel-failure-cache-write.atif.json", destination: bundleRoot,
+    const trajectory = JSON.parse(readFileSync("test/fixtures/atif/pi/parallel-failure-cache-write.atif.json", "utf8"));
+    trajectory.steps[1].tool_calls.forEach((call: { arguments: unknown }) => { call.arguments = { command: "npm test" }; });
+    trajectory.steps[2].message = "All tests passed.";
+    const sourcePath = join(root, "trajectory.json"); writeFileSync(sourcePath, JSON.stringify(trajectory));
+    await importAtifFile({ sourcePath, destination: bundleRoot,
       runId: "imported-run", attemptId: "imported-attempt", producer: listAtifProducerProfiles()[0]!.producer, pythonExecutable: python });
     const observations = await createRetainedStructuralObservationSet(bundleRoot);
     writeFileSync(join(root, "observations.json"), JSON.stringify(observations));
+    const ownedRoot = join(root, "owned-source"); await createAtlasFixture(ownedRoot);
+    cpSync(join(ownedRoot, "corpus/synthetic-attempt-0"), join(root, "corpus/excluded-owned"), { recursive: true });
     const index = buildCorpusIndex(join(root, "corpus"));
-    assert.equal(index[0]!.evidenceOrigin, "imported");
-    assert.match(index[0]!.producerProfileDigest!, /^sha256:/u);
+    const importedEntry = index.find(({ manifestKind }) => manifestKind === "import")!;
+    assert.equal(importedEntry.evidenceOrigin, "imported");
+    assert.equal(importedEntry.modelId, "synthetic-model");
+    assert.match(importedEntry.producerProfileDigest!, /^sha256:/u);
+    const evidence = await readImportedBehaviorEvidence(bundleRoot);
+    const assertion = JSON.parse(readFileSync("test/fixtures/behavior-assertions/positive.json", "utf8")) as BehaviorAssertion;
+    assertion.runId = "imported-run"; assertion.attemptId = "imported-attempt";
+    assertion.dataset.digest = `sha256:${digestMetadata(evidence.dataset).value}`;
+    const event = evidence.dataset.events.find(({ family }) => family === "tool")!;
+    assertion.judgment.citations = [{ eventId: event.id, nativeReference: event.source.nativeReference }];
+    assertion.judgment.rationale = "Synthetic citation round-trip.";
+    writeFileSync(join(root, "assertion.json"), JSON.stringify(assertion));
     writeCorpusIndex(join(root, "index.jsonl"), index);
     const aggregation: AggregationRequest = { schemaVersion: "ebo.aggregation-request/v1", sources: { corpusRoot: "corpus", corpusIndex: "index.jsonl",
-      observationSets: [{ bundleRoot: "corpus/pi", path: "observations.json" }], assertions: [], calibrations: [] },
+      observationSets: [{ bundleRoot: "corpus/pi", path: "observations.json" }], assertions: [
+        { bundleRoot: "corpus/pi", path: "assertion.json" }, { bundleRoot: "/excluded-origin-must-not-open", path: join(ownedRoot, "assertion-0.json") }], calibrations: [] },
       ...policy, evidenceOrigins: "imported", comparisons: [] };
     writeFileSync(join(root, "aggregation.json"), JSON.stringify(aggregation));
     writeFileSync(join(root, "atlas.json"), JSON.stringify({ schemaVersion: "ebo.atlas-request/v1", aggregationRequest: "aggregation.json", title: "Imported Pi" }));
@@ -94,11 +113,19 @@ test("imported Pi evidence flows through Atlas with origin labels, unknown outco
     assert.equal(view.cases.length, 1); assert.equal(view.cases[0]!.origin, "imported");
     assert.equal(view.cases[0]!.outcome, "unavailable");
     assert.match(renderAtlas(view, false), /Imported evidence/u);
-    writeFileSync(join(root, "bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v1", id: "imported-test", title: "Imported Pi", cohorts: [{ id: "pi", atlasRequest: "atlas.json" }] }));
+    writeFileSync(join(root, "claims-source.json"), JSON.stringify({ study: "imported-test", source: { file: "synthetic", title: "Synthetic" }, number_kinds: {},
+      claims: [{ id: "C1", type: "descriptive", text: "Synthetic citation test.", source_section: "fixture", numbers: [], support: [assertion.id] }] }));
+    writeFileSync(join(root, "bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v1", id: "imported-test", title: "Imported Pi", claims: "claims-source.json", cohorts: [{ id: "pi", atlasRequest: "atlas.json" }] }));
     const out = join(root, "atlas-bundle");
     const manifest = await buildAtlasBundle(join(root, "bundle.json"), out);
     assert.equal(manifest.tables.attempts!.rows, 1);
     assert.ok(manifest.tables.events!.rows > 0);
+    const audit = JSON.parse(readFileSync(join(out, "audit.json"), "utf8")).attempts["imported-attempt"];
+    assert.equal(audit.last.test.last_ok, null);
+    assert.ok(audit.checks.some(({ status }: { status: unknown }) => status === null));
+    assert.ok(audit.verdicts.some(({ status }: { status: string }) => status === "claimed-coverage-unavailable"));
+    assert.equal(JSON.parse(readFileSync(join(out, "lanes.json"), "utf8")).attempts[0].errors, null);
+    assert.equal(JSON.parse(readFileSync(join(out, "claims.json"), "utf8")).validated, true);
     assert.equal(verifyAtlasBundle(out).ok, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -129,4 +156,19 @@ test("semantic judging uses every retained model/route alias and never requires 
       } } });
     assert.equal(called, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("origin selection omits indexed excluded-origin derived sources and still rejects unindexed sources", async () => {
+  for (const selected of ["owned", "imported"] as const) {
+    const excluded = selected === "owned" ? "imported" : "owned";
+    const excludedObservation = { bundleRoot: "/not-read", document: { runId: excluded, attemptId: excluded } } as Parameters<typeof aggregateEvaluation>[0]["observationSets"][number];
+    const excludedAssertion = { bundleRoot: "/not-read", document: { runId: excluded, attemptId: excluded, id: "excluded-assertion" } } as Parameters<typeof aggregateEvaluation>[0]["assertions"][number];
+    const report = await aggregateEvaluation({ ...input(), observationSets: [excludedObservation], assertions: [excludedAssertion] }, { ...policy, evidenceOrigins: selected });
+    assert.equal(report.sourcePopulation.selectedAttempts, 1);
+    assert.equal(report.sourceLineage.observationSets.length, 0);
+    assert.equal(report.sourceLineage.assertions.length, 0);
+  }
+  const unknown = { bundleRoot: "/not-read", document: { runId: "unknown", attemptId: "unknown" } } as Parameters<typeof aggregateEvaluation>[0]["observationSets"][number];
+  await assert.rejects(aggregateEvaluation({ ...input(), observationSets: [unknown] }, { ...policy, evidenceOrigins: "imported" }), /no unique corpus entry/u);
 });

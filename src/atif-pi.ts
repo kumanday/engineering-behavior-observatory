@@ -6,7 +6,7 @@ import { describeImportedDataset, validateNormalizedDataset } from "./normalizat
 import type { RetainedBehaviorEvidence } from "./retained-evidence.js";
 import { UNIFORM_EVENT_FAMILIES, type AdapterCapabilityProfile, type ImportedNativeEvidence, type UniformEvent } from "./uniform-events.js";
 
-type Measure = { status: "known"; value: number } | { status: "unavailable"; reason: string };
+type Measure = { status: "known"; value: number; unit: string } | { status: "unavailable"; reason: string };
 export type PiAtifMappingReport = {
   schemaVersion: "ebo.pi-atif-mapping/v1";
   scope: "retained-selected-trajectory";
@@ -22,7 +22,7 @@ const hash = (value: unknown): `sha256:${string}` => `sha256:${digestMetadata(va
 const object = (value: unknown): AtifObject => value !== null && typeof value === "object" && !Array.isArray(value) ? value as AtifObject : {};
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const missing = (reason: string): Measure => ({ status: "unavailable", reason });
-const count = (value: number): Measure => ({ status: "known", value });
+const count = (value: number, unit: string): Measure => ({ status: "known", value, unit });
 const integer = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
 /** Producer semantics apply only after independent structural validation and the EBO version gate. */
@@ -59,15 +59,19 @@ export async function normalizePiAtif(input: {
   const emit = (step: AtifObject, stepPointer: string, pointer: string, suffix: string, family: UniformEvent["family"],
     phase: UniformEvent["phase"], attributes: UniformEvent["attributes"], contentPointer?: string, operation?: string) => {
     const documentPointer = stepPointer.slice(0, stepPointer.lastIndexOf("/steps/"));
+    const pointedDocument = readEvidencePointer(document, documentPointer);
+    const sourceDocument = object(pointedDocument.found ? pointedDocument.value : undefined);
     events.push({ schemaVersion: "ebo.uniform-event/v1", id: `${pointer}/${suffix}`, runId: input.runId, attemptId: input.attemptId,
       family, phase,
       source: { harness, nativeType: pointerTypes.get(pointer) ?? "atif:step", nativeReference: reference(pointer) },
       nativeOrder: { status: "known", value: Number(step.step_id), domain: `${artifactId}:${documentPointer}` },
       nativeTime: { status: "unsupported", reason: "PER_OPERATION_CLOCK_NOT_RECORDED" },
-      actor: { kind: family === "tool" && phase === "after" ? "tool" : step.source === "agent" ? "agent" : step.source === "user" ? "user" : "system" },
+      actor: { kind: family === "tool" && phase === "after" ? "tool" : step.source === "agent" ? family === "message" ? "model" : "agent" : step.source === "user" ? "user" : "system" },
       scope: operation === undefined ? { kind: "session", id: `document:${documentPointer}` } : { kind: "operation", id: operation },
       relations: { parent: { status: "unsupported", reason: "PARENTAGE_NOT_ESTABLISHED" }, known: [] },
-      attributes: { ...attributes, documentScope: documentPointer, ...(step.llm_call_count === 1
+      attributes: { ...attributes, documentScope: documentPointer,
+        ...(typeof sourceDocument.session_id === "string" ? { sessionId: sourceDocument.session_id } : {}),
+        ...(typeof sourceDocument.trajectory_id === "string" ? { agentId: sourceDocument.trajectory_id } : {}), ...(step.llm_call_count === 1
         ? { inferenceId: `${artifactId}:${stepPointer}`, inferenceIdentitySource: "declared-single-inference-step" } : {}) },
       content: { status: "known", value: contentPointer === undefined ? [] : [{ nativeReference: reference(contentPointer), role: family === "tool" ? phase === "before" ? "tool-input" : "tool-result" : "message" }] },
     });
@@ -75,6 +79,11 @@ export async function normalizePiAtif(input: {
   const visit = (trajectory: AtifObject, pointer: string, contextOnly: boolean) => {
     if (object(trajectory.extra).partial) { gap = true; limitations.add("PRODUCER_PARTIAL_HISTORY"); }
     const roles = new Map<string, Set<string>>();
+    const childIds = new Map<unknown, number>();
+    for (const child of array(trajectory.subagent_trajectories)) {
+      const id = object(child).trajectory_id;
+      childIds.set(id, (childIds.get(id) ?? 0) + 1);
+    }
     const callFrequency = new Map<unknown, number>();
     for (const value of array(trajectory.steps)) {
       const step = object(value);
@@ -103,10 +112,10 @@ export async function normalizePiAtif(input: {
       const contextType = extra.pi_event_type ?? object(extra.context_management).type;
       if (["compaction", "branch_summary"].includes(String(contextType))) {
         emit(step, stepPointer, stepPointer, "context", "context", "instant", { contextManagementType: String(contextType),
-          ...(contextType === "compaction" ? { subtype: "compact_boundary" } : {}) }, typeof step.message === "string" ? `${stepPointer}/message` : undefined);
+          ...(contextType === "compaction" ? { subtype: "compact_boundary" } : {}) }, typeof step.message === "string" || Array.isArray(step.message) ? `${stepPointer}/message` : undefined);
         continue;
       }
-      if (typeof step.message === "string" && step.message.length > 0) emit(step, stepPointer, stepPointer, "message", "message", "after",
+      if ((typeof step.message === "string" || Array.isArray(step.message)) && step.message.length > 0) emit(step, stepPointer, stepPointer, "message", "message", "after",
         { role: step.source === "agent" ? "assistant" : String(step.source) }, `${stepPointer}/message`);
       const calls = array(step.tool_calls).map(object);
       mapping.recorded.calls = (mapping.recorded.calls ?? 0) + calls.length;
@@ -140,7 +149,9 @@ export async function normalizePiAtif(input: {
     }
     for (const [index, value] of array(trajectory.subagent_trajectories).entries()) {
       const child = object(value), role = roles.get(String(child.trajectory_id));
-      const admitted = role?.size === 1 && role.has("delegated");
+      const duplicateId = (childIds.get(child.trajectory_id) ?? 0) > 1;
+      const admitted = !duplicateId && role?.size === 1 && role.has("delegated");
+      if (duplicateId) { gap = true; limitations.add("DUPLICATE_CHILD_TRAJECTORY_ID"); }
       if (!admitted) limitations.add("CHILD_CONTEXT_NOT_NEW_BEHAVIOR");
       const sameProducer = child.schema_version === input.producer.formatVersion && object(child.agent).name === input.producer.agent.name
         && (object(child.agent).version ?? null) === input.producer.agent.version;
@@ -150,12 +161,27 @@ export async function normalizePiAtif(input: {
     }
   };
   if (selection.status === "supported") {
+    const canonical = (trajectory: AtifObject, pointer: string) => {
+      for (const [index, value] of array(trajectory.steps).entries()) {
+        const step = object(value), location = `${pointer}/steps/${index}`;
+        if (Object.hasOwn(step, "is_copied_context") && typeof step.is_copied_context !== "boolean"
+            || !integer(step.step_id) || Number(step.step_id) < 1
+            || step.llm_call_count !== undefined && step.llm_call_count !== null && !integer(step.llm_call_count)) {
+          throw new Error(`Pi projection requires canonical flag and ordinal fields at ${location}.`);
+        }
+      }
+      for (const [index, child] of array(trajectory.subagent_trajectories).entries()) canonical(object(child), `${pointer}/subagent_trajectories/${index}`);
+    };
+    canonical(document, "#");
     mapping.recorded = { calls: 0, linkedResults: 0, copiedStepsExcluded: 0, contextOnlyStepsExcluded: 0 };
     mapping.profileDigest = selection.profileDigest;
     selection.profile.limitations.forEach((reason) => limitations.add(reason));
     visit(document, "#", false);
+    const componentsComplete = agentSteps.every((step) => step.llm_call_count === 1);
+    const usageMissingReason = !componentsComplete ? "USAGE_COMPONENT_COMPLETENESS_UNPROVEN" : "STEP_USAGE_INCOMPLETE";
+    if (!componentsComplete) limitations.add("USAGE_COMPONENT_COMPLETENESS_UNPROVEN");
     const sum = (key: string, extra = false): number | undefined => {
-      if (gap || !agentSteps.length) return undefined;
+      if (gap || !agentSteps.length || !componentsComplete) return undefined;
       const values = agentSteps.map((step) => extra ? object(object(step.metrics).extra)[key] : object(step.metrics)[key]);
       if (!values.every(integer)) return undefined;
       const total = values.reduce((left, right) => left + right, 0);
@@ -163,25 +189,35 @@ export async function normalizePiAtif(input: {
     };
     const prompt = sum("prompt_tokens"), cached = sum("cached_tokens"), writes = sum("cache_write_tokens", true), output = sum("completion_tokens");
     const final = object(document.final_metrics);
-    const reconciled = (value: number | undefined, key: string): Measure => value === undefined ? missing("STEP_USAGE_INCOMPLETE")
+    const stepZero = (key: string) => agentSteps.some((step) => object(step.metrics)[key] === 0);
+    const reconciled = (value: number | undefined, key: string, stepKey: string): Measure => value === undefined ? missing(usageMissingReason)
       : final[key] !== undefined && final[key] !== value ? missing("STEP_FINAL_USAGE_CONFLICT")
-        : value === 0 ? missing("CONVERTER_ZERO_FILL_POSSIBLE") : count(value);
-    mapping.measures["tool-operation-count"] = gap ? missing("PRODUCER_PARTIAL_HISTORY") : count(mapping.recorded.calls ?? 0);
+        : stepZero(stepKey) ? missing("CONVERTER_ZERO_FILL_POSSIBLE") : count(value, "tokens");
+    mapping.measures["tool-operation-count"] = gap ? missing("PRODUCER_PARTIAL_HISTORY") : count(mapping.recorded.calls ?? 0, "identified-logical-tool-operations");
     mapping.measures["tool-error-count"] = gap ? missing("PRODUCER_PARTIAL_HISTORY") : mapping.signatures.some(({ failed }) => failed === null)
-      ? missing("TOOL_RESULT_STATUS_INCOMPLETE") : count(mapping.signatures.filter(({ failed }) => failed).length);
-    mapping.measures["input-token-count"] = prompt === undefined || cached === undefined || writes === undefined ? missing("STEP_USAGE_INCOMPLETE")
-      : cached + writes > prompt ? missing("PI_INCLUSIVE_PROMPT_CONFLICT")
+      ? missing("TOOL_RESULT_STATUS_INCOMPLETE") : count(mapping.signatures.filter(({ failed }) => failed).length, "logical-tool-operations");
+    const negativeStepInput = agentSteps.some((step) => {
+      const metrics = object(step.metrics), extra = object(metrics.extra);
+      return integer(metrics.prompt_tokens) && integer(metrics.cached_tokens) && integer(extra.cache_write_tokens)
+        && metrics.prompt_tokens - metrics.cached_tokens - extra.cache_write_tokens < 0;
+    });
+    mapping.measures["input-token-count"] = prompt === undefined || cached === undefined || writes === undefined ? missing(usageMissingReason)
+      : negativeStepInput || cached + writes > prompt ? missing("PI_INCLUSIVE_PROMPT_CONFLICT")
         : final.total_prompt_tokens !== undefined && final.total_prompt_tokens !== prompt || final.total_cached_tokens !== undefined && final.total_cached_tokens !== cached
           || object(final.extra).cache_write_tokens !== undefined && object(final.extra).cache_write_tokens !== writes ? missing("STEP_FINAL_USAGE_CONFLICT")
-          : prompt - cached - writes === 0 ? missing("CONVERTER_ZERO_FILL_POSSIBLE") : count(prompt - cached - writes);
-    mapping.measures["output-token-count"] = reconciled(output, "total_completion_tokens");
-    mapping.measures["cache-read-input-token-count"] = reconciled(cached, "total_cached_tokens");
+           : agentSteps.some((step) => {
+            const metrics = object(step.metrics);
+            return Number(metrics.prompt_tokens) - Number(metrics.cached_tokens) - Number(object(metrics.extra).cache_write_tokens) === 0;
+          }) ? missing("CONVERTER_ZERO_FILL_POSSIBLE") : count(prompt - cached - writes, "tokens");
+    mapping.measures["output-token-count"] = reconciled(output, "total_completion_tokens", "completion_tokens");
+    mapping.measures["cache-read-input-token-count"] = reconciled(cached, "total_cached_tokens", "cached_tokens");
     const inference = !gap && agentSteps.length > 0 && agentSteps.every((step) => integer(step.llm_call_count))
       ? agentSteps.reduce((sum, step) => sum + Number(step.llm_call_count), 0) : undefined;
-    mapping.measures["declared-inference-count"] = inference !== undefined && Number.isSafeInteger(inference) ? count(inference) : missing("DECLARED_INFERENCE_INCOMPLETE");
+    mapping.measures["declared-inference-count"] = inference !== undefined && Number.isSafeInteger(inference) ? count(inference, "declared-inferences") : missing("DECLARED_INFERENCE_INCOMPLETE");
   } else limitations.add("PRODUCER_PROFILE_UNREGISTERED");
   mapping.measures["model-request-count"] = missing("NATIVE_REQUEST_IDENTITIES_UNAVAILABLE");
   mapping.limitations = [...limitations].sort();
+  capture.sourceLimitations = mapping.limitations;
   const capabilities: AdapterCapabilityProfile = { schemaVersion: "ebo.adapter-capability-profile/v1", adapterId: "atif-pi-import", harness,
     nativeTypes: ["atif:trajectory", "atif:step", "atif:call", "atif:result"],
     families: Object.fromEntries(UNIFORM_EVENT_FAMILIES.map((family) => [family, { status: events.some((event) => event.family === family) ? "partial" : "unsupported",

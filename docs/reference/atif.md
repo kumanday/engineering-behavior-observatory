@@ -95,15 +95,16 @@ Pending, missing and ambiguous results keep unknown status. Pi's converter can
 zero-fill a missing failure flag to false, so a false flag is retained as
 `producerIsError` without asserting native success. Empty converted arguments
 cannot establish an identical-input digest. Explicit true errors remain failure
-evidence. Zero usage totals stay unavailable, and uncached input requires
+evidence. Zero-filled per-step usage stays unavailable even when positive sibling steps
+make the sum nonzero. Uncached input requires
 cache-write fields and reconciled step/final inclusive prompt totals.
 
 The TypeScript API can also retain structurally valid unregistered producers;
 their records remain inspectable with no behavioral events or measures. New
 profiles require source pins, conformance checks and independent paired gates.
 `mapping.json` is a reproducible diagnostic; source bytes and the admission
-manifest are authoritative. Portable import export and Harbor/leaderboard trial
-identity/outcome binding are separate source-context integrations.
+manifest are authoritative. Portable import export and leaderboard cohort
+selection have separate policies.
 
 For Atlas and aggregation, select `evidenceOrigins: "imported"` in the
 aggregation request, or `"separate"` to include owned captures in separate
@@ -112,3 +113,24 @@ origin groups. The default selects owned captures. See
 
 [Harbor source imports](harbor-imports.md) bind retained trial directories to
 execution identities, capture revisions and separate assessment records.
+
+Imported Atlas tool results keep an unknown status unless retained source fields
+explicitly establish an outcome. Result text alone does not establish a successful
+exit. Error totals remain unavailable when any result has an unknown outcome.
+Imported narratives also withhold whole-attempt freshness and last-check claims
+when complete ordered history is unproven. Cited source records remain inspectable.
+
+Judge preparation retains ordinary Pi assistant reports as model messages.
+Occurrence ratings resolve pointed argument objects and result strings directly,
+with the same hidden-content projection used for semantic evidence. Imported
+judge inputs carry their source class, unproven completeness and producer
+limitations; these constrain absence and whole-attempt claims. Declared session
+and trajectory IDs partition child operations without manufacturing native
+request or timing identities. Ambiguous duplicate child IDs remain unavailable.
+
+Pi behavior projection requires canonical JSON booleans and integer ordinals;
+Harbor's structural coercions are not applied silently to the retained source.
+Usage from a step with an untracked or aggregated inference count stays
+unavailable unless its component completeness is established. Positive merged
+usage cannot hide a zero-filled component. Independent fixture gates record
+these cases as named source-information losses.

@@ -381,7 +381,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   for (const [attemptId, { entry, bundleRoot, cohorts: memberOf }] of [...attempts].sort(([a], [b]) => a.localeCompare(b))) {
     const evidence = await createRetainedBehaviorEvidence(bundleRoot);
     const resolveContent = contentResolver(evidence);
-    const derived = deriveUnits({ attemptId, events: evidence.dataset.events, occurrences: observationSets.get(attemptId)?.occurrences ?? [],
+    const derived = deriveUnits({ attemptId, evidenceOrigin: evidence.capture.qualification === "imported" ? "imported" : "owned", events: evidence.dataset.events, occurrences: observationSets.get(attemptId)?.occurrences ?? [],
       resolveContent: (reference) => { const r = resolveContent(reference); return r.status === "resolved" ? r.value : undefined; } });
     const linksOf = new Map<string, string[]>();
     for (const link of derived.links) linksOf.set(link.unit_id, [...linksOf.get(link.unit_id) ?? [], link.event_key]);
@@ -441,7 +441,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     const native = new NativeLines(bundleRoot, relative(base, bundleRoot));
     const contentOf = (event: UniformEvent) => (event.content.status === "known"
       ? event.content.value.map(({ nativeReference }) => resolveContent(nativeReference)).flatMap((r) => (r.status === "resolved" ? [r.value] : [])) : []);
-    const evidenceDocs = attemptEvidence({ attemptId, short, condition: arm, trialId: entry.trialId ?? null, cohorts: [...memberOf].sort(), units: rowsOfAttempt,
+    const evidenceDocs = attemptEvidence({ attemptId, evidenceOrigin: evidence.capture.qualification === "imported" ? "imported" : "owned", short, condition: arm, trialId: entry.trialId ?? null, cohorts: [...memberOf].sort(), units: rowsOfAttempt,
       links: derived.links, events: evidence.dataset.events, occurrences: observationSets.get(attemptId)?.occurrences ?? [], native, resolveContent: contentOf });
     audits[attemptId] = evidenceDocs.audit;
     writeFileSync(join(outputRoot, "native", `${fileName(attemptId)}.json`), JSON.stringify(evidenceDocs.native));
@@ -588,6 +588,8 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     const db = await DuckDBInstance.create(":memory:", extensionsOff);
     const c = await db.connect();
     const files = new Map<string, Buffer | null>();
+    const importedPaths = new Set([...attempts.values()].filter(({ entry }) => entry.manifestKind === "import")
+      .map(({ bundleRoot }) => resolve(bundleRoot, "trajectory.json")));
     try {
       for (const name of ["assessments", "attempts", "assessment_cohorts", "attempt_cohorts", "citations"]) await c.run(`CREATE VIEW ${name} AS SELECT * FROM ${tablePath(name)}`);
       await c.run(`CREATE VIEW units AS SELECT * FROM ${tablePath("units")} WHERE embed`);
@@ -597,7 +599,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
         assessments: assessmentDocs as never, audits: audits as never, attempts: attemptsById, viewIds,
         recordSha256: (path, locator) => {
           if (!files.has(path)) { try { files.set(path, readFileSync(resolve(base, path))); } catch { files.set(path, null); } }
-          return nativeRecordDigest(files.get(path)!, locator)?.sha256;
+          return nativeRecordDigest(files.get(path)!, locator, importedPaths.has(resolve(base, path)) ? "canonical-json-pointers/v1" : undefined)?.sha256;
         },
       });
       writeFileSync(join(outputRoot, "claims.json"), JSON.stringify(claims));

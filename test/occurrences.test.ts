@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { checkKindsOf, extractOccurrences, findCommand, shellWrites, type OccurrenceOperation } from "../src/occurrences.js";
 import type { UniformEvent } from "../src/uniform-events.js";
+import { compareEventDisplayOrder, nativeEventPrecedence } from "../src/event-order.js";
+import { occurrenceRequest } from "../src/occurrence-ratings.js";
 
 function event(sequence: number, family: UniformEvent["family"], attributes: UniformEvent["attributes"] = {}, phase: UniformEvent["phase"] = "instant"): UniformEvent {
   return {
@@ -26,6 +28,213 @@ function call(sequence: number, toolName: string, command: string, result: { isE
 }
 
 const capability = { status: "available" as const };
+
+function extract(operations: OccurrenceOperation[]) {
+  return extractOccurrences({ attemptId: "attempt", events: operations.flatMap(({ events }) => events), operations,
+    toolCapability: capability, delegationCapability: capability, isCompaction: () => false, resolveContent: () => undefined });
+}
+
+test("source precedence recognizes a later call after an untimed failure result", () => {
+  const failed = call(1, "Bash", "fail", { isError: true }).operation;
+  failed.events = failed.events.map((value) => value.phase === "after"
+    ? { ...value, nativeTime: { status: "unknown", reason: "No source clock" } } : value);
+  const response = call(2, "Bash", "recover", { isError: false }).operation;
+  const { occurrences, coverage } = extract([response, failed]);
+  const chain = occurrences.find(({ type }) => type === "failure-response")!;
+  assert.equal(chain.attributes.lastFailureEventId, "event-11");
+  assert.equal(chain.attributes.responseEventId, "event-20");
+  assert.equal(chain.rule.version, "1.2.0");
+  assert.equal(chain.rule.heuristic, true);
+  assert.equal(coverage.find(({ type }) => type === "failure-response")!.status, "available");
+});
+
+test("unrelated order domains and receipt clocks cannot establish a response", () => {
+  const failed = call(1, "Bash", "fail", { isError: true }).operation;
+  const other = call(2, "Bash", "other", { isError: false }).operation;
+  other.events = other.events.map((value) => ({ ...value, nativeOrder: { status: "known", domain: "hooks", value: 1 },
+    attributes: { ...value.attributes, nativeTimeSource: "capture-receipt" } }));
+  const { occurrences, coverage } = extract([failed, other]);
+  assert.equal(nativeEventPrecedence(failed.events[0]!, other.events[0]!), undefined);
+  assert.equal(occurrences.some(({ type }) => type === "failure-response"), false);
+  assert.equal(coverage.find(({ type }) => type === "failure-response")!.status, "unavailable");
+});
+
+test("tied source positions have a deterministic display order and unavailable precedence", () => {
+  const failed = call(1, "Bash", "fail", { isError: true }).operation;
+  const other = call(2, "Bash", "other", { isError: false }).operation;
+  for (const operation of [failed, other]) operation.events = operation.events.map((value) => ({ ...value,
+    nativeOrder: { status: "known", domain: "steps", value: 1 } }));
+  assert.notEqual(compareEventDisplayOrder(failed.events[0]!, other.events[0]!), 0);
+  assert.equal(nativeEventPrecedence(failed.events[0]!, other.events[0]!), undefined);
+  assert.equal(extract([failed, other]).coverage.find(({ type }) => type === "failure-response")!.status, "unavailable");
+});
+
+test("a tied failure endpoint is unavailable rather than an accepted no-response", () => {
+  const failed = call(1, "Bash", "fail", { isError: true }).operation;
+  const next = call(2, "Bash", "next", { isError: false }).operation;
+  next.events = next.events.map((value) => value.phase === "before"
+    ? { ...value, nativeOrder: { status: "known", domain: "session", value: 11 } } : value);
+  const result = extract([failed, next]);
+  assert.equal(result.occurrences.some(({ type }) => type === "failure-response"), false);
+  assert.equal(result.coverage.find(({ type }) => type === "failure-response")!.status, "unavailable");
+});
+
+test("duplicate session and hook views retain the supported failure sequence", () => {
+  const failed = call(1, "Bash", "fail", { isError: true }).operation;
+  const response = call(2, "Bash", "recover", { isError: false }).operation;
+  for (const operation of [failed, response]) operation.events = operation.events.flatMap((value) => [value, { ...value,
+    id: `hook-${value.id}`, nativeOrder: { ...value.nativeOrder, domain: "hooks" } as UniformEvent["nativeOrder"],
+    source: { ...value.source, nativeReference: { artifactId: "hooks", recordLocator: value.source.nativeReference.recordLocator } } }]);
+  const result = extract([failed, response]);
+  assert.equal(result.coverage.find(({ type }) => type === "failure-response")!.status, "available");
+  const chain = result.occurrences.find(({ type }) => type === "failure-response")!;
+  assert.equal(chain.attributes.failures, 1);
+  assert.equal(chain.eventIds.length, 8, "both native views remain cited");
+  assert.ok(["event-20", "hook-event-20"].includes(String(chain.attributes.responseEventId)));
+});
+
+test("serial hooks cannot make siblings from one retained declaration into feedback", () => {
+  const failed = call(1, "Bash", "fail", { isError: true }).operation;
+  const sibling = call(2, "Bash", "sibling", { isError: false }).operation;
+  const response = call(3, "Bash", "response", { isError: false }).operation;
+  for (const operation of [failed, sibling, response]) operation.events = operation.events.flatMap((value) => {
+    const history = value.phase === "before" && operation !== response ? { ...value,
+      nativeOrder: { status: "known" as const, domain: "session", value: 1 },
+      source: { ...value.source, nativeReference: { artifactId: "session", recordLocator: "line:1" } } } : value;
+    return [history, { ...value, id: `hook-${value.id}`, nativeOrder: { ...value.nativeOrder, domain: "hooks" } as UniformEvent["nativeOrder"],
+      source: { ...value.source, nativeReference: { artifactId: "hooks", recordLocator: value.source.nativeReference.recordLocator } } }];
+  });
+  const chain = extract([failed, sibling, response]).occurrences.find(({ type }) => type === "failure-response")!;
+  assert.ok(["event-30", "hook-event-30"].includes(String(chain.attributes.responseEventId)));
+  assert.equal(chain.eventIds.some((id) => ["event-20", "hook-event-20"].includes(id)), false);
+});
+
+test("failed retries retain response roles and originating-failure identities across display inversions", () => {
+  const failed = call(1, "Bash", "fail", { isError: true }).operation;
+  const sibling = call(2, "Bash", "sibling", { isError: false }).operation;
+  const retry = call(3, "Bash", "retry", { isError: true }).operation;
+  const recovery = call(4, "Bash", "recover", { isError: false }).operation;
+  const operations = [failed, sibling, retry, recovery];
+  for (const operation of operations) operation.events = operation.events.map((value) => ({ ...value,
+    attributes: { ...value.attributes, toolCallId: operation.id,
+      ...([failed, sibling].includes(operation) ? { inferenceId: "batch-a" } : {}) },
+    ...(operation === failed ? { nativeTime: { status: "unknown" as const, reason: "No source clock" } } : {}) }));
+  const chains = extract(operations).occurrences.filter(({ type }) => type === "failure-response");
+  assert.equal(chains.length, 2);
+  assert.equal(new Set(chains.map(({ id }) => id)).size, 2);
+  const original = chains.find(({ attributes }) => attributes.lastFailureEventId === "event-11")!;
+  assert.equal(original.id, "attempt/occ/failure-response/event-10");
+  assert.equal(original.attributes.responseEventId, "event-30");
+  assert.equal(original.attributes.nextOutcome, "failed");
+  const state = occurrenceRequest(original, chains, new Map(operations.flatMap(({ events }) => events).map((value) => [value.id, value])), () => undefined).state!;
+  assert.deepEqual((state.calls as Array<{ position: string; nativeResult: string }>).map(({ position, nativeResult }) => [position, nativeResult]),
+    [["failure 1", "failed"], ["response", "failed"]]);
+});
+
+test("compaction traversal follows source order when its start is untimed", () => {
+  const pre = { ...event(1, "context", { hook: "PreCompact" }), nativeTime: { status: "unknown" as const, reason: "No clock" } };
+  const post = event(2, "context", { hook: "PostCompact" });
+  const result = extractOccurrences({ attemptId: "attempt", events: [pre, post], operations: [],
+    toolCapability: capability, delegationCapability: capability, isCompaction: () => true });
+  assert.equal(result.coverage.find(({ type }) => type === "compaction")!.status, "available");
+  assert.equal(result.occurrences.filter(({ type }) => type === "compaction").length, 1);
+  assert.deepEqual(new Set(result.occurrences[0]!.eventIds), new Set([pre.id, post.id]));
+});
+
+test("mixed-domain compaction merge preserves native order against reversed clocks", () => {
+  const pre = { ...event(1, "context", { hook: "PreCompact" }), nativeTime: event(2, "context").nativeTime };
+  const post = { ...event(2, "context", { hook: "PostCompact" }), nativeTime: event(1, "context").nativeTime };
+  const other = { ...event(3, "tool"), nativeOrder: { status: "known" as const, domain: "other-stream", value: 1 } };
+  const result = extractOccurrences({ attemptId: "attempt", events: [pre, post, other], operations: [],
+    toolCapability: capability, delegationCapability: capability, isCompaction: ({ family }) => family === "context" });
+  assert.equal(result.coverage.find(({ type }) => type === "compaction")!.status, "available");
+  assert.equal(result.occurrences.filter(({ type }) => type === "compaction").length, 1);
+});
+
+test("repeated-operation support retains both endpoints from the selected native view", () => {
+  const first = call(1, "Bash", "same", { isError: false }).operation;
+  const repeated = call(3, "Bash", "same", { isError: false }).operation;
+  for (const operation of [first, repeated]) operation.events = operation.events.flatMap((value) => [value, { ...value,
+    id: `hook-${value.id}`, nativeTime: { status: "known" as const, value: new Date(Date.parse((value.nativeTime as { value: string }).value) + 100).toISOString() },
+    nativeOrder: { ...value.nativeOrder, domain: "hooks" } as UniformEvent["nativeOrder"],
+    source: { ...value.source, nativeReference: { artifactId: "hooks", recordLocator: value.source.nativeReference.recordLocator } } }]);
+  const occurrences = extract([first, repeated]).occurrences;
+  const target = occurrences.find(({ type }) => type === "repeated-operation")!;
+  assert.equal(target.attributes.firstEventId, "hook-event-10");
+  assert.equal(target.attributes.repeatedEventId, "hook-event-30");
+  const edit = { ...event(20, "artifact", { mutation: true }), nativeOrder: { status: "known" as const, domain: "hooks", value: 20 } };
+  const change = { ...target, id: "edit", type: "source-change" as const, eventIds: [edit.id] };
+  const request = occurrenceRequest(target, [...occurrences, change], new Map([...first.events, ...repeated.events, edit].map((value) => [value.id, value])), () => undefined);
+  assert.equal((request.state!.facts as Record<string, unknown>).sourceChangesBetween, 1);
+});
+
+test("rating support selects the edit view compatible with the failure endpoints", () => {
+  const failed = call(1, "Bash", "fail", { isError: true }).operation;
+  const response = call(3, "Bash", "response", { isError: false }).operation;
+  const chains = extract([failed, response]).occurrences;
+  const sessionEdit = event(20, "tool", { mutation: true }, "before");
+  const hookEdit = { ...sessionEdit, id: "hook-edit", nativeOrder: { status: "known" as const, domain: "hooks", value: 20 } };
+  const sourceChange = { ...chains[0]!, id: "edit", type: "source-change" as const, eventIds: [hookEdit.id, sessionEdit.id] };
+  const events = new Map([...failed.events, ...response.events, hookEdit, sessionEdit].map((value) => [value.id, value]));
+  const request = occurrenceRequest(chains.find(({ type }) => type === "failure-response")!, [...chains, sourceChange], events, () => undefined);
+  assert.equal((request.state!.facts as Record<string, unknown>).sourceChangesBetween, 1);
+});
+
+test("compaction grouping preserves cross-stream barriers and a complete boundary", () => {
+  const pre = { ...event(1, "context", { hook: "PreCompact" }), nativeOrder: { status: "known" as const, domain: "hooks", value: 1 } };
+  const marker = event(3, "context", { subtype: "compact_boundary" });
+  const tool = event(0, "tool");
+  const result = extractOccurrences({ attemptId: "attempt", events: [tool, pre, marker], operations: [],
+    toolCapability: capability, delegationCapability: capability, isCompaction: ({ family }) => family === "context" });
+  assert.deepEqual(result.occurrences.filter(({ type }) => type === "compaction").map(({ eventIds }) => eventIds), [[pre.id, marker.id]]);
+  const barrier = event(2, "message");
+  const separated = extractOccurrences({ attemptId: "attempt", events: [pre, barrier, marker], operations: [],
+    toolCapability: capability, delegationCapability: capability, isCompaction: ({ family }) => family === "context" });
+  assert.equal(separated.occurrences.filter(({ type }) => type === "compaction").length, 2);
+  const receiptPre = { ...pre, attributes: { ...pre.attributes, nativeTimeSource: "hook-callback" } };
+  const ambiguous = extractOccurrences({ attemptId: "attempt", events: [receiptPre, marker], operations: [],
+    toolCapability: capability, delegationCapability: capability, isCompaction: ({ family }) => family === "context" });
+  assert.equal(ambiguous.coverage.find(({ type }) => type === "compaction")!.status, "unavailable");
+  assert.equal(ambiguous.occurrences.some(({ type }) => type === "compaction"), false);
+});
+
+test("serial execution of calls from one inference never turns a sibling into a response", () => {
+  const failed = call(1, "Bash", "fail", { isError: true }).operation;
+  const sibling = call(2, "Bash", "sibling", { isError: false }).operation;
+  for (const operation of [failed, sibling]) operation.events = operation.events.map((value) => ({ ...value,
+    attributes: { ...value.attributes, inferenceId: "inference-a" } }));
+  const response = call(3, "Bash", "response", { isError: false }).operation;
+  const chain = extract([failed, sibling, response]).occurrences.find(({ type }) => type === "failure-response")!;
+  assert.equal(chain.attributes.responseEventId, "event-30");
+  assert.equal(chain.eventIds.includes("event-20"), false);
+});
+
+test("unknown source order with known clocks withholds exact occurrence coverage", () => {
+  const failed = call(1, "Bash", "same", { isError: true }).operation;
+  const other = call(2, "Bash", "same", { isError: false }).operation;
+  for (const operation of [failed, other]) operation.events = operation.events.map((value) => ({ ...value,
+    nativeOrder: { status: "unknown", reason: "No source ordinal" } }));
+  const result = extract([failed, other]);
+  for (const type of ["failure-response", "repeated-operation"]) {
+    assert.equal(result.coverage.find((value) => value.type === type)!.status, "unavailable");
+    assert.equal(result.occurrences.some((value) => value.type === type), false);
+  }
+});
+
+test("rating support facts use source precedence and abstain across clock-only domains", () => {
+  const failed = call(1, "Bash", "fail", { isError: true }).operation;
+  const response = call(3, "Bash", "recover", { isError: false }).operation;
+  const occurrences = extract([failed, response]).occurrences;
+  const change = { ...event(20, "artifact", { mutation: true }), nativeOrder: { status: "known" as const, domain: "hooks", value: 2 } };
+  const sourceChange = { ...occurrences[0]!, id: "change", type: "source-change" as const, eventIds: [change.id] };
+  const request = occurrenceRequest(occurrences.find(({ type }) => type === "failure-response")!, [...occurrences, sourceChange],
+    new Map([...failed.events, ...response.events, change].map((value) => [value.id, value])), () => undefined);
+  assert.equal((request.state!.facts as Record<string, unknown>).sourceChangesBetween, "unknown");
+  const legacy = { ...occurrences.find(({ type }) => type === "failure-response")!, rule: { ...occurrences[0]!.rule, version: "1.1.0" as const } };
+  const retainedRequest = occurrenceRequest(legacy, [...occurrences, sourceChange],
+    new Map([...failed.events, ...response.events, change].map((value) => [value.id, value])), () => undefined);
+  assert.equal((retainedRequest.state!.facts as Record<string, unknown>).sourceChangesBetween, 1, "retained rating inputs preserve their recorded rule semantics");
+});
 
 test("classifies every check a command runs per segment and the source paths it writes", () => {
   assert.deepEqual(checkKindsOf("cd app && pnpm exec jest src/a.test.ts; npx tsc --noEmit | tail -5"), ["test", "typecheck"]);
@@ -70,7 +279,7 @@ test("extracts instance-sized occurrences that cite only their own events", () =
   assert.deepEqual(chain!.eventIds, ["event-10", "event-11", "event-20", "event-21", "event-40", "event-41"], "two failures of Bash, then its next call");
   assert.deepEqual(chain!.attributes, { toolName: "Bash", failures: 2, lastFailureEventId: "event-21", nextOutcome: "passed", responseEventId: "event-40" });
   assert.equal(chain!.id, "attempt/occ/failure-response/event-10");
-  assert.equal(chain!.rule.heuristic, false);
+  assert.equal(chain!.rule.heuristic, true, "execution follow-up does not establish model causality");
 
   const validations = of("validation-run");
   assert.equal(validations.length, 4);
@@ -187,4 +396,96 @@ test("inferred changes need native success, partitions use the resolved scope, D
   assert.deepEqual(of("failure-response").map(({ attributes }) => attributes.failures), [1, 1], "main-agent and subagent failures are separate chains");
   assert.deepEqual(of("source-change").map(({ eventIds }) => eventIds), [["event-6", "event-7"]], "an unfinished edit is not a change; a PostToolUse-confirmed one is");
   assert.deepEqual(of("compaction").map(({ eventIds }) => eventIds), [["event-20", "event-21"]], "start and end of one DeepSeek compaction form one boundary");
+});
+
+
+test("intervening tools separate source-ordered failure chains without hiding a failed retry", () => {
+  const first = call(1, "Bash", "fail", { isError: true }).operation;
+  const edit = call(2, "Edit", "change", { isError: false }).operation;
+  const retry = call(3, "Bash", "retry", { isError: true }).operation;
+  first.events = first.events.map((value) => value.phase === "after"
+    ? { ...value, nativeTime: { status: "unknown", reason: "No source clock" } } : value);
+  const { occurrences, coverage } = extract([retry, first, edit]);
+  const chains = occurrences.filter(({ type }) => type === "failure-response");
+  assert.equal(chains.length, 2);
+  const original = chains.find(({ attributes }) => attributes.lastFailureEventId === "event-11")!;
+  assert.equal(original.attributes.failures, 1);
+  assert.equal(original.attributes.responseEventId, "event-30");
+  assert.equal(original.attributes.nextOutcome, "failed");
+  const terminal = chains.find(({ attributes }) => attributes.lastFailureEventId === "event-31")!;
+  assert.equal(terminal.attributes.failures, 1);
+  assert.equal(terminal.attributes.nextOutcome, "none");
+  assert.equal(coverage.find(({ type }) => type === "failure-response")!.status, "available");
+});
+
+
+test("completion-only native operations retain source-ordered repetition evidence", () => {
+  const first = call(1, "Bash", "same", { isError: false }).operation;
+  const repeated = call(2, "Bash", "same", { isError: false }).operation;
+  for (const operation of [first, repeated]) operation.events = operation.events.filter(({ phase }) => phase === "after");
+  const result = extract([repeated, first]);
+  const occurrence = result.occurrences.find(({ type }) => type === "repeated-operation")!;
+  assert.equal(occurrence.attributes.firstEventId, "event-11");
+  assert.equal(occurrence.attributes.repeatedEventId, "event-21");
+  assert.equal(result.coverage.find(({ type }) => type === "repeated-operation")!.status, "available");
+});
+
+test("repetition needs comparable source observations without requiring a failure result in that domain", () => {
+  const first = call(1, "Bash", "same", { isError: true }).operation;
+  const repeated = call(2, "Bash", "same", { isError: false }).operation;
+  first.events = first.events.map((value) => value.phase === "after" ? { ...value,
+    nativeOrder: { status: "known", value: 1, domain: "results" } } : value);
+  const result = extract([first, repeated]);
+  assert.equal(result.occurrences.filter(({ type }) => type === "repeated-operation").length, 1);
+  assert.equal(result.coverage.find(({ type }) => type === "repeated-operation")!.status, "available");
+});
+
+test("tied earliest successors cannot be selected by display time or event ID", () => {
+  const failed = call(1, "Bash", "fail", { isError: true }).operation;
+  const left = call(2, "Bash", "left", { isError: false }).operation;
+  const right = call(3, "Bash", "right", { isError: false }).operation;
+  right.events = right.events.map((value) => ({ ...value,
+    nativeOrder: { status: "known", value: value.phase === "before" ? 20 : 21, domain: "session" } }));
+  const result = extract([right, failed, left]);
+  assert.equal(result.coverage.find(({ type }) => type === "failure-response")!.status, "unavailable");
+  assert.equal(result.occurrences.filter(({ type }) => type === "failure-response").length, 0);
+});
+
+
+test("an instant call is not a failure endpoint when its actual result has another or unknown order", () => {
+  for (const unknown of [false, true]) {
+    const failed = call(1, "Bash", "fail", { isError: true }).operation;
+    failed.events = failed.events.map((value) => value.phase === "before" ? { ...value, phase: "instant" } : { ...value,
+      nativeOrder: unknown ? { status: "unknown", reason: "No source order" } : { status: "known", value: 100, domain: "other-results" } });
+    const next = call(2, "Bash", "already-running", { isError: false }).operation;
+    const result = extract([failed, next]);
+    assert.equal(result.occurrences.some(({ type }) => type === "failure-response"), false);
+    assert.equal(result.coverage.find(({ type }) => type === "failure-response")!.status, "unavailable");
+  }
+});
+
+test("tied intervening-tool boundaries cannot establish one consecutive failure chain", () => {
+  const first = call(1, "Bash", "fail", { isError: true }).operation;
+  const edit = call(2, "Edit", "change", { isError: false }).operation;
+  const retry = call(3, "Bash", "retry", { isError: true }).operation;
+  edit.events = edit.events.map((value) => ({ ...value, nativeOrder: { status: "known", value: value.phase === "before" ? 30 : 31, domain: "session" } }));
+  const result = extract([first, edit, retry]);
+  assert.equal(result.coverage.find(({ type }) => type === "failure-response")!.status, "unavailable");
+  assert.ok(result.occurrences.filter(({ type }) => type === "failure-response").every(({ attributes }) => attributes.failures === 1));
+});
+
+
+test("a definite intervening tool separates failures independently of another tool's display clock", () => {
+  const first = call(1, "Bash", "fail", { isError: true }).operation;
+  const edit = call(2, "Edit", "change", { isError: false }).operation;
+  const retry = call(3, "Bash", "retry", { isError: true }).operation;
+  const read = call(4, "Read", "inspect", { isError: false }).operation;
+  read.events = read.events.map((value) => ({ ...value, nativeOrder: { status: "known", value: value.phase === "before" ? 30 : 31, domain: "session" } }));
+  const early = extract([first, edit, retry, { ...read, events: read.events.map((value) => ({ ...value,
+    nativeTime: { status: "known", value: "2026-10-01T00:00:00Z" } })) }]);
+  const late = extract([first, edit, retry, { ...read, events: read.events.map((value) => ({ ...value,
+    nativeTime: { status: "known", value: "2026-10-10T00:00:00Z" } })) }]);
+  assert.deepEqual(early, late);
+  assert.equal(early.coverage.find(({ type }) => type === "failure-response")!.status, "available");
+  assert.equal(early.occurrences.filter(({ type }) => type === "failure-response").length, 2);
 });

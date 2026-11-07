@@ -137,3 +137,21 @@ mapping diagnostic; exact attempt observations remain unavailable until a
 measurement contract can establish the required coverage. Source pointers use
 canonical pointed-value hashes, with the file's raw-byte hash retained
 separately. See [ATIF imports](../reference/atif.md#pi-imports).
+## Occurrence precedence
+
+Occurrence rules 1.2.0 establish before/after only from distinct native ordinals
+in the same order domain and attempt. Timestamps and event IDs provide display
+order; they do not connect unrelated sources. Failure follow-ups are heuristic
+execution sequences. Calls declared in the same inference cannot respond to
+one another's results. Ambiguous order makes the affected occurrence coverage
+unavailable, including supporting source-change counts used for ratings.
+Logical operations can retain multiple hook and session views; a shared native
+view establishes their sequence while citations retain all views. Compaction
+adjacency uses native order or source clocks and remains heuristic. Receipt
+clocks and unrelated, untimed sources make that grouping unavailable.
+
+Retained occurrence records with rule versions 1.0.0 and 1.1.0 remain readable.
+Regenerate derived observation sets into a new destination before rating or
+judging them with the current rules. Their observation digests and dependent
+ratings or judgments require compatibility accounting; native capture and
+normalized-dataset digests are unchanged by these occurrence rules.

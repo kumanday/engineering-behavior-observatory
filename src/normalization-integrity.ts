@@ -162,7 +162,9 @@ export function describeImportedDataset<NativeRecord>(
 ): NormalizedDataset {
   if (input.capture.qualification !== "imported" || input.origin.kind !== "imported" || input.origin.qualification !== "imported"
       || input.origin.exactAttemptMeasures !== "unavailable") throw new Error("Imported datasets require imported provenance and explicit attempt-measure limits.");
-  return { ...describeEvidenceDataset(input), origin: structuredClone(input.origin) };
+  const normalization = { ...input.normalization, events: input.normalization.events.map((event) => ({ ...event,
+    attributes: { ...event.attributes, evidenceOrigin: "imported" } })) };
+  return { ...describeEvidenceDataset({ ...input, normalization }), origin: structuredClone(input.origin) };
 }
 
 function describeEvidenceDataset<NativeRecord>(input: Omit<NormalizedDatasetInput<NativeRecord>, "capture"> & {

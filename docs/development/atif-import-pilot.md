@@ -1,8 +1,7 @@
 # ATIF import pilot: 2026-11-07
 
 The pilot supports an additive Pi import path with separate qualification. It
-also reproduces an occurrence-ordering defect that must be corrected before
-imported events enter occurrence analysis. Production admission and full-corpus
+also supplies an occurrence-ordering regression for imported events. Production admission and full-corpus
 evaluation are implementation tasks in the ATIF/v2 planning wave.
 
 ## Sample and method
@@ -65,8 +64,8 @@ rate, comparative aggregate or judge batch.
 
 The baseline ordering probe creates a failed operation whose result has source
 ordinal 2 and no timestamp, followed by a timed call at ordinal 3 in the same
-domain. Current occurrence rules 1.1.0 fail to associate that later call. This
-is a correctness defect, reproduced independently of ATIF conversion.
+domain. Rules 1.2.0 associate that later call by source order. The frozen 1.1.0
+baseline receipt demonstrates the defect independently of ATIF conversion.
 
 The reader/profile split is necessary: Pi error fields, untracked Hermes
 inference counts, OpenClaw partial markers and Codex pending-call loss have

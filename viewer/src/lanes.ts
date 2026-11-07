@@ -12,8 +12,8 @@ import { describable, provide, register, run, target } from "./registry";
 
 export interface LaneMeta {
   attempt_id: string; task_id: string; condition: string; trial_id: string; harness_id: string; model_id: string;
-  terminal_state: string; failure_class: string; capture_qualification: string; t_start_ms: number; t_end_ms: number;
-  units: number; tools: number; errors: number; compactions: number; cited_units: number;
+  terminal_state: string; failure_class: string; capture_qualification: string; t_start_ms: number | null; t_end_ms: number | null;
+  units: number; tools: number; errors: number | null; compactions: number; cited_units: number;
   usage_semantics: "per-turn" | "per-turn (native)" | "final-only" | "none"; tokens_total: number | null; cost_usd: number | null; context_max: number | null;
 }
 export interface LanesData { attempts: LaneMeta[]; usage: Record<string, [number, number][]>; context?: Record<string, [number, number][]> }
@@ -48,7 +48,9 @@ export const cls = (s: unknown) => String(s ?? "").replace(/[^A-Za-z0-9_-]/g, "_
 /** A number from bundle data for markup; a missing or non-numeric value renders as "—" (unavailable), never 0 or markup. */
 export const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? String(x) : "—");
 const fmtTok = (n: number | null) => n == null ? "" : n >= 1e9 ? (n / 1e9).toFixed(1) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "k" : String(n);
-export const fmtDur = (ms: number) => {
+export const laneDurationMs = (lane: Pick<LaneMeta, "t_start_ms" | "t_end_ms">): number | null => lane.t_start_ms === null || lane.t_end_ms === null ? null : lane.t_end_ms - lane.t_start_ms;
+export const fmtDur = (ms: number | null) => {
+  if (ms === null || !Number.isFinite(ms)) return "—";
   const s = Math.round(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
   return h ? `${h}h${String(m).padStart(2, "0")}m` : `${m}:${String(r).padStart(2, "0")}`;
 };
@@ -134,7 +136,7 @@ export class SwimlanesPanel {
     return {
       summary: `${lanes.length} attempts of task ${this.task}${this.armFilter === "all" ? "" : ` in arm ${this.armFilter}`}, ${this.mode} view, ${this.axis} axis${this.focus ? `, cluster ${this.focus.id} emphasized` : ""}.`,
       data: { task: this.task, arm: this.armFilter, mode: this.mode, lanes: lanes.map((l) => ({ attemptId: l.attempt_id, condition: l.condition, trial: l.trial_id, terminal: l.terminal_state,
-        durationMs: l.t_end_ms - l.t_start_ms, tools: l.tools, errors: l.errors, compactions: l.compactions, citedUnits: l.cited_units, failureChains: this.ev?.chainsOf(l.attempt_id).length ?? null,
+        durationMs: laneDurationMs(l), tools: l.tools, errors: l.errors, compactions: l.compactions, citedUnits: l.cited_units, failureChains: this.ev?.chainsOf(l.attempt_id).length ?? null,
         usage: l.usage_semantics, tokens: l.tokens_total })) },
     };
   }
@@ -318,7 +320,7 @@ export class SwimlanesPanel {
         labels += `<div class="lane-label ${pickedIdx >= 0 ? "picked" : ""}" style="height:${LANE_H}px" data-lane="${esc(l.attempt_id)}">
           <label class="pick"><input type="checkbox" data-pick="${esc(l.attempt_id)}" ${target("toggleLanePick", l.attempt_id)} ${pickedIdx >= 0 ? "checked" : ""} aria-label="Select trial ${esc(l.trial_id)} for alignment">${pickedIdx >= 0 ? `<b>${"AB"[pickedIdx]}</b>` : ""}</label>
           <div class="ll-main"><span class="ll-title">trial ${esc(l.trial_id)}${l.terminal_state !== "completed" ? ` <span class="badge">${esc(l.terminal_state)}</span>` : ""} <span class="muted" title="${esc(tokTitle)}">${tok}</span></span>
-          <span class="ll-meta">${fmtDur(l.t_end_ms - l.t_start_ms)} · ${num(l.tools)} tools · ${num(l.errors)} err${l.compactions ? ` · <span title="${num(l.compactions)} compactions">┆${num(l.compactions)}</span>` : ""}</span>
+          <span class="ll-meta">${fmtDur(laneDurationMs(l))} · ${num(l.tools)} tools · ${num(l.errors)} err${l.compactions ? ` · <span title="${num(l.compactions)} compactions">┆${num(l.compactions)}</span>` : ""}</span>
           <span class="ll-id" title="${esc(`${l.attempt_id} · cohorts: ${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).join(", ") || "—"} · token usage source: ${l.usage_semantics === "none" ? "none recorded (not zero)" : l.usage_semantics}`)}"><span class="mono">${esc(l.attempt_id.slice(0, 8))}</span>${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).map((c) => ` <span class="coh">${esc(c)}</span>`).join("")} · ${l.usage_semantics === "none" ? "<span class=\"no-usage\">no usage recorded</span>" : `usage: ${esc(l.usage_semantics)}`}</span></div>
           ${this.ev?.audit && this.ev.chainsOf(l.attempt_id).length ? `<button class="icon-btn fail-btn" data-chains="${esc(l.attempt_id)}" ${target("openChains", l.attempt_id)} title="Failure chains: failed calls and the next call of the same tool">✕ ${this.ev.chainsOf(l.attempt_id).length}</button>` : ""}
           ${this.ev?.audit ? `<button class="icon-btn" data-audit="${esc(l.attempt_id)}" ${target("openAudit", l.attempt_id)} title="Audit: checks vs source changes vs final claims, failure chains, final message">Audit</button>` : ""}

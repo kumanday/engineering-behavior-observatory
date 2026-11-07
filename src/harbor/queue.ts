@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { harborTaskHasPriorTrajectory } from "./tasks.js";
 import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact, type ArtifactValidationError } from "../artifacts.js";
 import {
   assertDeclaredOrder,
@@ -9,7 +11,7 @@ import {
 } from "../contracts.js";
 import { formatErrors } from "../task-packets.js";
 import type { FrozenTaskIdentity } from "../scheduler.js";
-import { admissionLocatorOf, freezeLocatorOf, readHarborStudyJson, statusHarborTask } from "./study.js";
+import { admissionLocatorOf, freezeLocatorOf, harborStudyPaths, readHarborStudyJson, statusHarborTask } from "./study.js";
 import type { AssessmentMode } from "../contracts.js";
 import type { HarborAdapter } from "./adapter.js";
 
@@ -374,6 +376,9 @@ async function resolveTaskIdentity(
   }
   if (options.studyRoot === undefined) {
     throw new Error(`Harbor task "${taskId}" requires a study root to resolve its frozen identity.`);
+  }
+  if (harborTaskHasPriorTrajectory(join(harborStudyPaths(options.studyRoot).snapshotsRoot, condition.taskSourceId))) {
+    throw new Error("unsupported-imported-trajectory: task-shipped trajectory.json requires seeded-context support.");
   }
   const status = await statusHarborTask(options.studyRoot, condition.taskSourceId, options.adapter === undefined ? {} : { adapter: options.adapter });
   if (status.status !== "frozen") {
