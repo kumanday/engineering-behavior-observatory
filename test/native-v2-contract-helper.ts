@@ -16,6 +16,14 @@ export async function assertNativeV2RetainedBundle(root: string): Promise<void> 
   assert.equal(projected.dataset.origin.kind, "owned");
   assert.ok(projected.modelAliases?.length, "retained v2 readers preserve the manifest model identity");
   assert.equal(projected.dataset.origin.qualification, original.capture.qualification);
+  if (original.dataset.adapter.harness === "factory-droid") {
+    const prompt = projected.dataset.events.find(({ facts }) => facts.message?.role.status === "known" && facts.message.role.value === "user")!;
+    assert.ok(prompt, "retained Factory captures include the owned prompt");
+    const source = original.dataset.events.find(({ id }) => id === prompt.id)!;
+    assert.equal(source.scope.kind, "session");
+    assert.equal(prompt.facts.message!.identity.status, "known");
+    if (source.scope.kind === "session" && prompt.facts.message!.identity.status === "known") assert.equal(prompt.facts.message!.identity.value.scope, `session:${source.scope.id}`);
+  }
   assert.equal(projected.dataset.nativeRecords.length, projected.dataset.recordCoverage.length);
   for (const reference of projected.dataset.contentReferences) {
     const resolution = await projected.resolver.resolve(reference.reference);

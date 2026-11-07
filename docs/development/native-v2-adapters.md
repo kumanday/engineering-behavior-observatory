@@ -34,7 +34,7 @@ value; a missing population identifier stays unknown.
 | Codex | Item identities bind within native thread and turn scopes. Owned started items survive as pending calls. Foreign thread and turn notifications remain retained evidence. Per-request usage increments and cumulative session snapshots remain separate. |
 | DeepSeek Harness | Session events retain their native sequence domain. Pinned tool-role results and retained multi-call result messages preserve their explicit tool bindings. Turn and step distinguish reused call IDs. Recovery observations with unknown outcomes retain unknown failure. Transport recorder order supplies no missing native precedence. |
 | OpenHands | Conversation scope and native action/observation relations bind operations. Source timestamps remain producer observations. REST and WebSocket evidence keep their declared order domains. |
-| Factory Droid | Session scope binds tool-use IDs. Session snapshots and owned-turn totals inclusive of children retain separate resource scopes. |
+| Factory Droid | Session scope binds tool-use IDs and the native message identities on prompts, partial deltas and completed messages. Session snapshots and owned-turn totals inclusive of children retain separate resource scopes. |
 | Cursor | Missing tool status remains a partial observation. Collector sequence is presentation order. Streamed assistant deltas remain fragments. Shell process exit codes qualify the successful tool envelope. |
 | Devin CLI/ACP | Session tool-call IDs bind terminal updates, including a previously recorded terminal exit. Message chunks remain partial; receipt clocks retain their own provenance. |
 
