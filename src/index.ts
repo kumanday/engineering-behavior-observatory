@@ -688,3 +688,5 @@ export type { OutcomeEvidenceInput, ImportedOutcomeRecord } from "./outcome-evid
 
 export * from "./harbor-import.js";
 export * from "./harbor-record-reader.js";
+
+export { listAnalysisRuntimes, loadAnalysisRuntime, type AnalysisRuntimeIdentity, type AnalysisRuntimeSnapshot, type FrozenAnalysisRuntime } from "./analysis-runtime.js";
