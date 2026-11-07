@@ -36,6 +36,7 @@ export const deepSeekV2Profile: NativeProjectionProfile = {
     const firstClass = message.role === "tool" && text(message.toolCallId) !== undefined;
     const part = firstClass ? message : partIndex === undefined ? parts.find((value) => value.type === "tool_result") ?? {} : parts[Number(partIndex)] ?? {};
     const output = Array.isArray(part.content) ? part.content.flatMap((block) => text(object(block).text) ?? []).join("") : text(part.content);
+    const killed = output !== undefined && /\n\[killed by signal: [^\]\n]+\]\s*$/u.test(output);
     const exit = output === undefined ? null : /\n?\[exit code: (-?\d+)\]\s*$/u.exec(output);
     const phase = type === "tool/call" || record.method === "subagent.started" ? "before"
       : type === "tool/result" || record.method === "subagent.finished" ? "after" : event.phase;
@@ -59,6 +60,6 @@ export const deepSeekV2Profile: NativeProjectionProfile = {
       toolName: text(data.name), ...(data.arguments === undefined ? {} : { inputDigest: digestValue(data.arguments) }),
       failure: effectiveEndpoint !== "result" ? unreported : event.family === "delegation"
         ? payload.status === "ok" ? known(false) : payload.status === "error" ? known(true) : unreported
-        : resultFailure(part.isError, exit ? Number(exit[1]) : undefined) } };
+        : resultFailure(killed ? true : part.isError, exit ? Number(exit[1]) : undefined) } };
   },
 };
