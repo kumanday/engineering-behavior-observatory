@@ -685,3 +685,5 @@ export * from "./atif-pi.js";
 export type { ImportedNativeEvidence, RetainedNormalizationInput } from "./uniform-events.js";
 export { describeImportedDataset } from "./normalization-integrity.js";
 export type { OutcomeEvidenceInput, ImportedOutcomeRecord } from "./outcome-evidence.js";
+
+export { writeEvidenceCompanion, readEvidenceCompanion, companionArtifactId, EVIDENCE_COMPANION_LIMITS, type EvidenceCompanion, type EvidenceCompanionRequest, type CompanionRange } from "./evidence-companions.js";
