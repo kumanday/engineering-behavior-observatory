@@ -40,7 +40,7 @@
     "test": "npm run build && node --test dist/test/*.test.js",
     "ebo": "node dist/src/cli.js",
     "build:viewer": "npm run build --workspace viewer",
-    "compatibility:verify": "node scripts/compatibility/freeze-v1.mjs"
+    "compatibility:verify": "node scripts/compatibility/freeze-v1.mjs all"
   },
   "files": [
     "contracts/",

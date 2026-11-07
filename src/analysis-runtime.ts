@@ -36,7 +36,7 @@ export type AnalysisRuntimeSnapshot = {
   files: Array<{ path: string; bytes: number; digest: Hash }>;
 };
 const registered: readonly AnalysisRuntimeIdentity[] = [{ id: "ebo-v1.4-atif-20261107", sourceCommit: "fb1dfd7397836de1eab370090534433f0383f45f",
-  manifestDigest: "sha256:16c2da39f03f44e33eaccd8ddc9f72de6b73e3a5cf25152ae292f8e7295548c5", nodeVersion: "24.19.0" }];
+  manifestDigest: "sha256:16c2da39f03f44e33eaccd8ddc9f72de6b73e3a5cf25152ae292f8e7295548c5", nodeVersion: "24.19.0" }, { id: "ebo-v1.4.0-86a6010", sourceCommit: "86a601079a51243756fe52798365a9cbf69cfe6f", manifestDigest: "sha256:594bd5f0b13ef5ff912c46fef0e5b43e18cce807e0533abe6d5c93eb5bd2e9a5", nodeVersion: "24.19.0" }];
 const expectedExports = ["createRetainedBehaviorEvidence", "createRetainedStructuralObservationSet", "loadAtlas", "queryAtlas", "roCrate", "validateRetainedBehaviorAssertion", "validateStructuralObservationSet", "verifyPacket"].sort();
 const rawHash = (bytes: Uint8Array): Hash => `sha256:${digestBytes(bytes).value}`;
 

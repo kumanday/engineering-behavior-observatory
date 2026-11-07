@@ -8,7 +8,10 @@ import {dirname,join,resolve} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 const repo=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
-const sourceCommit='fb1dfd7397836de1eab370090534433f0383f45f',id='ebo-v1.4-atif-20261107';
+const sources={'ebo-v1.4-atif-20261107':'fb1dfd7397836de1eab370090534433f0383f45f','ebo-v1.4.0-86a6010':'86a601079a51243756fe52798365a9cbf69cfe6f'};
+if(process.argv[2]==='all'){for(const id of Object.keys(sources))execFileSync(process.execPath,[fileURLToPath(import.meta.url),id],{cwd:repo,stdio:'inherit'});process.exit(0);}
+const id=process.argv[2]??'ebo-v1.4-atif-20261107',sourceCommit=sources[id];
+if(!Object.hasOwn(sources,id)||typeof sourceCommit!=='string')throw Error('Only registered trusted source revisions can be frozen.');
 const target=join(repo,'compatibility',id),temporary=mkdtempSync(join(tmpdir(),'ebo-freeze-v1-'));
 const sha=bytes=>'sha256:'+createHash('sha256').update(bytes).digest('hex');
 const exportsByModule={
