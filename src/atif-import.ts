@@ -56,6 +56,8 @@ export async function importAtifFile(options: {
     profile: selection.status === "supported" ? { status: "supported", id: selection.profile.id, digest: selection.profileDigest } : selection };
   assertManifest(manifest);
   const evidence = await normalizePiAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) });
+  const mappingErrors = validateArtifact("Pi ATIF mapping", evidence.mapping);
+  if (mappingErrors.length) throw new Error(`Invalid generated Pi mapping: ${mappingErrors[0]!.message}`);
   writeJson(destination, "mapping.json", evidence.mapping);
   writeJson(destination, "manifest.json", manifest);
   return { manifest, reused: false, evidence };

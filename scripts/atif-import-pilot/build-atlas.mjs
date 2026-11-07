@@ -1,0 +1,24 @@
+// Build a restricted structural Atlas from one admitted import. No model or verifier is run.
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { readAtifImportAdmission } from '../../dist/src/atif-import.js';
+import { buildCorpusIndex, writeCorpusIndex } from '../../dist/src/corpus.js';
+import { createRetainedStructuralObservationSet } from '../../dist/src/structural-observations.js';
+import { buildAtlasBundle, verifyAtlasBundle } from '../../dist/src/atlas-bundle.js';
+const [source, destination] = process.argv.slice(2);
+if (!source || !destination) throw Error('Usage: node scripts/atif-import-pilot/build-atlas.mjs IMPORT_BUNDLE NEW_OUTPUT');
+readAtifImportAdmission(source);
+const root = resolve(destination); mkdirSync(root, { mode: 0o700 });
+const bundle = join(root, 'corpus', 'import'); mkdirSync(bundle, { recursive: true, mode: 0o700 });
+for (const name of ['manifest.json', 'trajectory.json', 'inspection.json']) cpSync(join(source, name), join(bundle, name), { errorOnExist: true, force: false });
+const write = (name, value) => writeFileSync(join(root, name), JSON.stringify(value, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+write('observations.json', await createRetainedStructuralObservationSet(bundle));
+writeCorpusIndex(join(root, 'index.jsonl'), buildCorpusIndex(join(root, 'corpus')));
+write('aggregation.json', { schemaVersion: 'ebo.aggregation-request/v1', sources: { corpusRoot: 'corpus', corpusIndex: 'index.jsonl', observationSets: [{ bundleRoot: 'corpus/import', path: 'observations.json' }], assertions: [], calibrations: [] }, groupBy: ['harness'], selectedAttemptPolicy: 'all-attempts', evidenceOrigins: 'imported', recurrence: { minimumOccurrences: 2 }, comparisons: [] });
+write('atlas.json', { schemaVersion: 'ebo.atlas-request/v1', aggregationRequest: 'aggregation.json', title: 'Imported trajectory: structural pilot' });
+write('claims-source.json', { study: 'imported-structural-pilot', source: { file: 'retained import', title: 'Structural import pilot' }, number_kinds: {}, claims: [] });
+write('bundle-request.json', { schemaVersion: 'ebo.atlas-bundle-request/v1', id: 'imported-structural-pilot', title: 'Imported trajectory: structural pilot', claims: 'claims-source.json', cohorts: [{ id: 'imported', atlasRequest: 'atlas.json' }] });
+await buildAtlasBundle(join(root, 'bundle-request.json'), join(root, 'atlas'));
+const verification = verifyAtlasBundle(join(root, 'atlas')); write('verification.json', verification);
+console.log(JSON.stringify({ output: join(root, 'atlas'), verified: verification.ok }));
+if (!verification.ok) process.exitCode = 1;

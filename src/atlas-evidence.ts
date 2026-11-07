@@ -166,14 +166,15 @@ export function attemptEvidence(input: EvidenceInput) {
       checks.push({ ...base(u), kinds: [...u.check_kinds], exit_code: u.exit_code, output_redirected: /(?<![0-9&])>\s*[^\s&]/u.test(command), command });
     }
   }
-  const last: Record<string, null | { last: Run; last_ok: Run | null; runs: number; changes_after: number; first_change_after: Run | null }> = {};
+  const last: Record<string, null | { last: Run; last_ok: Run | null; runs: number; changes_after: number | null; first_change_after: Run | null }> = {};
   for (const kind of CHECKS) {
     const runs = checks.filter((c) => c.kinds!.includes(kind));
     if (!runs.length) { last[kind] = null; continue; }
     const lr = runs.at(-1)!, after = changes.filter((c) => c.seq > lr.seq);
-    last[kind] = { last: lr, last_ok: runs.filter((c) => c.status === "ok").at(-1) ?? null, runs: runs.length, changes_after: after.length, first_change_after: after[0] ?? null };
+    last[kind] = { last: lr, last_ok: runs.filter((c) => c.status === "ok").at(-1) ?? null, runs: runs.length, changes_after: input.evidenceOrigin === "imported" ? null : after.length, first_change_after: input.evidenceOrigin === "imported" ? null : after[0] ?? null };
   }
-  const messages = units.filter((u) => u.unit_kind === "message" && (u.role === "assistant" || u.role === "agent"));
+  const messages = units.filter((u) => u.unit_kind === "message" && (u.role === "assistant" || u.role === "agent")
+    && (input.evidenceOrigin !== "imported" || (partsOf.get(u.unit_id) ?? []).some(({ event }) => event.attributes.documentScope === "#")));
   const textOf = (u: AtlasUnit) => (partsOf.get(u.unit_id) ?? []).flatMap(({ event }) => input.resolveContent(event)).flatMap((v) => visibleText(v)).join("\n").trim();
   const finalUnit = [...messages].reverse().find((m) => textOf(m));
   const final = finalUnit ? (() => { const text = textOf(finalUnit); return { row_id: finalUnit.row_id, seq: finalUnit.seq, text, chars: text.length, claims: claimLines(text) }; })() : null;
@@ -208,6 +209,7 @@ export function attemptEvidence(input: EvidenceInput) {
 
   const audit = { attempt_id: attemptId, short: input.short, condition: input.condition, trial_id: input.trialId, cohorts: input.cohorts, steps: steps.length,
     changes, checks, last, final, verdicts, failure_chains: chains,
+    ...(input.evidenceOrigin === "imported" ? { freshness_coverage: "unavailable", mutation_coverage: "unavailable", failure_coverage: "unavailable" } : {}),
     notes: [...(input.evidenceOrigin === "imported" ? ["Imported evidence has unproven completeness; unknown tool outcomes do not establish successful checks or mutations."] : []), "Source changes are edit tool calls plus shell commands whose text writes a source path (heuristic: redirects, writeFileSync, sed -i, cp/mv, apply_patch).",
       "Checks are the units' check kinds: every check a command runs, decided per command segment by its program. Exit status is the whole command's; redirected output hides the check's own result.",
       "Claims are sentences of the final message that mention a check together with a pass word.",
