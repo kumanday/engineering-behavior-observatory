@@ -64,6 +64,9 @@ jobs:
             dist/test/leaderboard-*.test.js \
             dist/test/evidence-companions.test.js \
             dist/test/normalization-v2.test.js \
+            dist/test/native-v2.test.js \
+            dist/test/consumers-v2.test.js \
+            dist/test/migration-accounting.test.js \
             dist/test/analysis-runtime.test.js \
             dist/test/runtime-atlas.test.js
         env:
