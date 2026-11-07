@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { readAtifFile } from "./atif-reader.js";
 import { importAtifFile } from "./atif-import.js";
 import { listAtifProducerProfiles } from "./atif-profiles.js";
+import { importHarborTrial, inspectHarborTrial, type HarborOriginalBinding } from "./harbor-import.js";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -504,6 +505,36 @@ export function main(
 }
 
 async function runAtifInspection(args: string[], write: (message: string) => void): Promise<number> {
+  if (args[0] === "import-harbor" || args[0] === "inspect-harbor") {
+    const importing = args[0] === "import-harbor";
+    const directory = args[1], store = importing ? args[2] : undefined;
+    const flags = args.slice(importing ? 3 : 2), values = new Map<string, string>();
+    if (!directory || importing && !store || flags.length % 2) {
+      write("Usage: ebo atif import-harbor <trial-directory> <store> --namespace <source-id> --profile <id> [--python <executable>] [--originals <bindings.json>]\n"); return 1;
+    }
+    for (let index = 0; index < flags.length; index += 2) {
+      const flag = flags[index]!, value = flags[index + 1]!;
+      if (!["--namespace", "--profile", "--python", "--originals"].includes(flag) || values.has(flag) || value.startsWith("--")) {
+        write("Harbor import options require unique recognized flags and values.\n"); return 1;
+      }
+      values.set(flag, value);
+    }
+    const namespace = values.get("--namespace");
+    const profile = listAtifProducerProfiles().find(({ id }) => id === values.get("--profile"));
+    if (!namespace || importing && !profile) { write("Harbor import requires --namespace and an explicit registered --profile.\n"); return 1; }
+    try {
+      const document = values.has("--originals") ? readJson(values.get("--originals")!) : [];
+      if (!Array.isArray(document) || document.some((value) => value === null || typeof value !== "object"
+          || typeof value.sourceReference !== "string" || typeof value.directory !== "string")) throw new Error("Original bindings require an array of sourceReference/directory records.");
+      const options = { directory, namespace, pythonExecutable: values.get("--python"), originals: document as HarborOriginalBinding[] };
+      const result = importing ? await importHarborTrial({ ...options, store: store!, producer: profile!.producer }) : await inspectHarborTrial(options);
+      const inspection = result.inspection;
+      write(`${JSON.stringify({ status: "status" in result ? result.status : inspection.status, executionId: inspection.execution?.id,
+        sourceCaptureDigest: inspection.captureRevision, ...( "binding" in result && result.binding !== undefined ? { captureRevision: result.binding.captureRevision, inspectionDigest: result.inspectionDigest } : {}), assessmentId: inspection.assessment?.id, snapshotDigest: inspection.snapshotDigest,
+        diagnostics: inspection.diagnostics, ...( "bundleRoot" in result ? { bundleRoot: result.bundleRoot, reused: result.reused } : {}) }, null, 2)}\n`);
+      return inspection.status === "eligible" ? 0 : 1;
+    } catch (error) { write(`Harbor source import failed: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
+  }
   if (args[0] === "profiles" && args.length === 1) {
     write(`${JSON.stringify(listAtifProducerProfiles(), null, 2)}\n`); return 0;
   }

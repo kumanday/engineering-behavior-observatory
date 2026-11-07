@@ -103,13 +103,16 @@ The TypeScript API can also retain structurally valid unregistered producers;
 their records remain inspectable with no behavioral events or measures. New
 profiles require source pins, conformance checks and independent paired gates.
 `mapping.json` is a reproducible diagnostic; source bytes and the admission
-manifest are authoritative. Portable import export and Harbor/leaderboard trial
-identity/outcome binding are separate source-context integrations.
+manifest are authoritative. Portable import export and leaderboard cohort
+selection have separate policies.
 
 For Atlas and aggregation, select `evidenceOrigins: "imported"` in the
 aggregation request, or `"separate"` to include owned captures in separate
 origin groups. The default selects owned captures. See
 [evidence-origin rules](../evaluation/aggregation.md#evidence-origins).
+
+[Harbor source imports](harbor-imports.md) bind retained trial directories to
+execution identities, capture revisions and separate assessment records.
 
 Imported Atlas tool results keep an unknown status unless retained source fields
 explicitly establish an outcome. Result text alone does not establish a successful

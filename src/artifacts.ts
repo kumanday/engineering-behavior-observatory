@@ -1185,12 +1185,20 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("atlas-bundle.v1.json"));
   ajv.addSchema(readSchema("deepseek-runtime-composition.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-admission.v1.schema.json"));
+  ajv.addSchema(readSchema("harbor-import.v1.json"));
   ajv.addSchema(readSchema("harbor-review.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-freeze.v1.schema.json"));
   ajv.addSchema(readSchema("experiment.v2.schema.json"));
   ajv.addSchema(readSchema("run-queue.v2.schema.json"));
 
   return new Map([
+    ["ebo.harbor-trial-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/inspection")],
+    ["ebo.harbor-source-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/snapshot")],
+    ["ebo.harbor-execution/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/execution")],
+    ["ebo.harbor-capture-binding/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/binding")],
+    ["ebo.harbor-capture-membership/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/membership")],
+    ["ebo.harbor-assessment/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/assessment")],
+
     ["ebo.pi-atif-mapping/v1", requiredValidator(ajv, "urn:ebo:schema:pi-atif-mapping:v1")],
     ["ebo.import-manifest/v1", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v1")],
     ["ebo.atif-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:atif-inspection:v1")],

@@ -685,3 +685,6 @@ export * from "./atif-pi.js";
 export type { ImportedNativeEvidence, RetainedNormalizationInput } from "./uniform-events.js";
 export { describeImportedDataset } from "./normalization-integrity.js";
 export type { OutcomeEvidenceInput, ImportedOutcomeRecord } from "./outcome-evidence.js";
+
+export * from "./harbor-import.js";
+export * from "./harbor-record-reader.js";

@@ -164,6 +164,29 @@
           }
         }
       ]
+    },
+    "blinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority",
+        "modelAliases"
+      ],
+      "properties": {
+        "authority": {
+          "const": "operator-declared"
+        },
+        "modelAliases": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        }
+      }
     }
   }
 }
