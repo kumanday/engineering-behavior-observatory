@@ -50,7 +50,8 @@ export async function inspectHarborTrial(options: { directory: string; namespace
     const inspection: HarborTrialInspection = { schemaVersion: "ebo.harbor-trial-inspection/v1", sourceAuthority: "third-party", status: "inspect-only",
       namespace: options.namespace, diagnostics: [], snapshotDigest: hash({ namespace: options.namespace, files: descriptors }), files: descriptors, modelAliases: [], originalBindings: [] };
     const lineage: HarborTrialRead[] = [];
-    const stop = (reason: string): HarborTrialRead => { inspection.diagnostics.push(reason); return { inspection, files, lineage }; };
+    let retainedResult: ObjectValue | undefined;
+    const stop = (reason: string): HarborTrialRead => { inspection.diagnostics.push(reason); return { inspection, files, lineage, ...(retainedResult === undefined ? {} : { result: retainedResult }) }; };
     if (!files.has("result.json")) return stop("TRIAL_RESULT_MISSING");
     let result: ObjectValue, config: ObjectValue;
     try {
@@ -68,6 +69,7 @@ export async function inspectHarborTrial(options: { directory: string; namespace
     inspection.trialId = trialId;
     inspection.structural = await validateHarborTrialBytes(files.get("result.json")!, options.pythonExecutable);
     if (inspection.structural.status !== "valid") return stop("TRIAL_STRUCTURAL_VALIDATION_UNAVAILABLE_OR_INVALID");
+    retainedResult = result;
     if (seen.has(trialId)) return stop("ORIGINAL_TRIAL_CYCLE");
     if (depth > HARBOR_IMPORT_LIMITS.lineageDepth) return stop("ORIGINAL_TRIAL_DEPTH_LIMIT");
     seen.add(trialId);
@@ -89,7 +91,7 @@ export async function inspectHarborTrial(options: { directory: string; namespace
       const retained = await inspect(bindings.get(sourceReference)!, depth + 1);
       lineage.push(...retained.lineage, retained);
       if (retained.inspection.trialId) inspection.originalBindings.push({ sourceReference, snapshotDigest: retained.inspection.snapshotDigest, trialId: retained.inspection.trialId, inspectionDigest: hash(retained.inspection) });
-      if (retained.inspection.status !== "eligible" || retained.result === undefined || retained.inspection.execution === undefined) return stop("ORIGINAL_EXECUTOR_UNRESOLVED");
+      if (retained.inspection.structural?.status !== "valid" || retained.result === undefined || retained.inspection.execution === undefined) return stop("ORIGINAL_EXECUTOR_UNRESOLVED");
       if (source.trial_id && String(source.trial_id).toLowerCase() !== retained.inspection.trialId) return stop("SOURCE_TRIAL_BINDING_CONFLICT");
       if (retained.result.task_name !== result.task_name || hash(retained.result.agent_info) !== hash(result.agent_info)
           || hash(agentFiles(files)) !== hash(agentFiles(retained.files)) || agentFiles(files).length === 0) return stop("REGRADE_EXECUTION_EVIDENCE_CONFLICT");
@@ -169,7 +171,7 @@ export async function importHarborTrial(options: { directory: string; store: str
   let imported;
   try {
     imported = await importAtifFile({ sourcePath: join(snapshot, "agent/trajectory.json"), destination: pending === undefined ? destination : join(pending, "bundle"),
-      runId: execution.runId, attemptId: execution.attemptId, producer: options.producer, pythonExecutable: options.pythonExecutable });
+      runId: execution.runId, attemptId: execution.attemptId, producer: options.producer, pythonExecutable: options.pythonExecutable, modelAliases: execution.modelAliases });
     if (pending !== undefined) { renameSync(join(pending, "bundle"), destination); rmdirSync(pending); }
   } catch (error) { throw new Error(`${error instanceof Error ? error.message : String(error)}${pending === undefined ? "" : ` Partial admission remains at ${pending}.`}`); }
   const manifest = readImportManifest(destination);
@@ -243,7 +245,7 @@ export function readHarborCapture(store: string, captureRevision: Hash, sourceSn
     verifySnapshot(original.snapshotDigest);
     const receipt = read(`inspections/${identifier(original.inspectionDigest)}.json`) as unknown as HarborTrialInspection;
     if (hash(receipt) !== original.inspectionDigest || receipt.snapshotDigest !== original.snapshotDigest || receipt.trialId !== original.trialId
-        || receipt.status !== "eligible" || hash(receipt.execution) !== hash(execution)) throw new Error("Retained Harbor lineage is stale.");
+        || receipt.execution === undefined || receipt.structural?.status !== "valid" || hash(receipt.execution) !== hash(execution)) throw new Error("Retained Harbor lineage is stale.");
     queue.push(...receipt.originalBindings);
   }
   const sourceCaptureDigest = hash({ execution: execution.id, agentFiles: agentFiles(files), trajectory: rawHash(files.get("agent/trajectory.json")!) });

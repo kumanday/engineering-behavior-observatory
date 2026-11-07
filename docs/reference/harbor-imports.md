@@ -99,3 +99,10 @@ CLI returns the stored `captureRevision` and the separate `sourceCaptureDigest`.
 Context inventories, bindings and inspection records use a shared 32 MiB
 write/read limit. Oversized metadata fails admission while retaining source
 bytes; successful admission always fits the context readback limit.
+
+Original-execution resolution is independent of ATIF availability. A proven
+original with matching native agent files can anchor a regrade whose trajectory
+was backfilled later. The regrade still passes its own ATIF admission gate.
+Execution model aliases from Harbor config/result records are bound into the
+capture’s operator-declared blinding metadata and unioned with ATIF aliases on
+retained readback. Regrading preserves the capture manifest and its blinding input.
