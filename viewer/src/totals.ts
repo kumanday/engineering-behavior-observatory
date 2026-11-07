@@ -121,7 +121,7 @@ export function renderTotals(view: HTMLElement, task: string, lanes: LaneMeta[],
     </tbody></table>` : `<p class="muted">No attempt metadata (run p3/build.py).</p>`;
 
   view.innerHTML = `<div class="totals">
-    ${lanes.some((lane) => lane.capture_qualification === "imported") ? `<p class="legend">Imported evidence: activity counts describe retained records. Complete-attempt totals and unknown failure outcomes remain unavailable. Failure windows use confirmed failures only.</p>` : ""}
+    ${lanes.some((lane) => lane.capture_qualification === "imported") ? `<p class="legend">Imported evidence: activity counts describe retained projected records; unprojected records can contain additional operations. Complete-attempt totals and unknown failure outcomes remain unavailable. Failure windows use confirmed failures only.</p>` : ""}
     <p class="legend">All arms on <b>${esc(task)}</b>, every attempt (the arm filter and cloud selection do not apply). Each cell: total over the arm's attempts, then mean per attempt and the range across attempts. Actions = tool calls + compactions; categories as in the lane legend (shell commands that write source files count as edit / write). Exploratory.</p>
     <div class="tot-grid"><div><h3>By action category</h3>${tbl1}</div><div><h3>By tool</h3>${tbl2}</div></div>
     <h3>Failures by tool and error</h3>

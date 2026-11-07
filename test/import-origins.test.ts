@@ -1,3 +1,9 @@
+import { normalizePiAtif } from "../src/atif-pi.js";
+import { inspectAtifBytes } from "../src/atif-reader.js";
+import { deriveUnits } from "../src/atlas-units.js";
+import { laneData } from "../src/atlas-lanes.js";
+import { attemptEvidence, NativeLines } from "../src/atlas-evidence.js";
+import { nativeContentResolver } from "../src/structural-observations.js";
 import { createAtlasFixture } from "./atlas-fixture.js";
 import type { BehaviorAssertion } from "../src/behavior-assertions.js";
 import assert from "node:assert/strict";
@@ -173,4 +179,33 @@ test("origin selection omits indexed excluded-origin derived sources and still r
   }
   const unknown = { bundleRoot: "/not-read", document: { runId: "unknown", attemptId: "unknown" } } as Parameters<typeof aggregateEvaluation>[0]["observationSets"][number];
   await assert.rejects(aggregateEvaluation({ ...input(), observationSets: [unknown] }, { ...policy, evidenceOrigins: "imported" }), /no unique corpus entry/u);
+});
+
+
+test("omitted ambiguous imported operations never establish zero failures", async () => {
+  const source = JSON.parse(readFileSync("test/fixtures/atif/pi/parallel-failure-cache-write.atif.json", "utf8"));
+  source.steps.push({ ...structuredClone(source.steps[1]), step_id: 4 });
+  const read = inspectAtifBytes(Buffer.from(JSON.stringify(source))); read.inspection.structural = { status: "valid", validator: "harbor", version: "0.24.0", diagnostics: [] };
+  const evidence = await normalizePiAtif({ read, producer: listAtifProducerProfiles()[0]!.producer, runId: "r", attemptId: "a", manifestDigest: digest });
+  const units = deriveUnits({ attemptId: "a", evidenceOrigin: "imported", events: evidence.dataset.events, occurrences: [], resolveContent: nativeContentResolver(evidence.outcomeCapture) }).units;
+  assert.equal(units.some(({ unit_kind }) => unit_kind === "tool"), false);
+  const lane = laneData({ attempt_id: "a", capture_qualification: "imported" } as never, units, evidence.dataset.events).lane;
+  assert.equal(lane.errors, null);
+});
+
+test("imported Atlas audit uses the root final report while retaining child messages", async () => {
+  const source = JSON.parse(readFileSync("test/fixtures/atif/pi/parallel-failure-cache-write.atif.json", "utf8"));
+  const child = structuredClone(source); child.trajectory_id = "child";
+  source.steps.at(-1).message = "ROOT FINAL: Tests were not run."; child.steps.at(-1).message = "CHILD FINAL: All tests passed.";
+  source.steps[1].observation.results[0].subagent_trajectory_ref = [{ trajectory_id: "child" }]; source.subagent_trajectories = [child];
+  const read = inspectAtifBytes(Buffer.from(JSON.stringify(source))); read.inspection.structural = { status: "valid", validator: "harbor", version: "0.24.0", diagnostics: [] };
+  const evidence = await normalizePiAtif({ read, producer: listAtifProducerProfiles()[0]!.producer, runId: "r", attemptId: "a", manifestDigest: digest });
+  const resolve = nativeContentResolver(evidence.outcomeCapture);
+  const derived = deriveUnits({ attemptId: "a", evidenceOrigin: "imported", events: evidence.dataset.events, occurrences: [], resolveContent: resolve });
+  const audit = attemptEvidence({ attemptId: "a", evidenceOrigin: "imported", short: "a", condition: "imported", trialId: null, cohorts: [],
+    units: derived.units.map((unit, row_id) => ({ ...unit, row_id })), links: derived.links, events: evidence.dataset.events, occurrences: [],
+    native: { locator: (value: string) => value, record: () => ({ resolved: false }) } as unknown as NativeLines,
+    resolveContent: (event) => event.content.status === "known" ? event.content.value.map(({ nativeReference }) => resolve(nativeReference)) : [] }).audit;
+  assert.equal(audit.final!.text, "ROOT FINAL: Tests were not run.");
+  assert.equal(derived.units.filter(({ unit_kind }) => unit_kind === "message").length, 6);
 });

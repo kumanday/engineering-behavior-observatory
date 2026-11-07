@@ -173,7 +173,8 @@ export function attemptEvidence(input: EvidenceInput) {
     const lr = runs.at(-1)!, after = changes.filter((c) => c.seq > lr.seq);
     last[kind] = { last: lr, last_ok: runs.filter((c) => c.status === "ok").at(-1) ?? null, runs: runs.length, changes_after: input.evidenceOrigin === "imported" ? null : after.length, first_change_after: input.evidenceOrigin === "imported" ? null : after[0] ?? null };
   }
-  const messages = units.filter((u) => u.unit_kind === "message" && (u.role === "assistant" || u.role === "agent"));
+  const messages = units.filter((u) => u.unit_kind === "message" && (u.role === "assistant" || u.role === "agent")
+    && (input.evidenceOrigin !== "imported" || (partsOf.get(u.unit_id) ?? []).some(({ event }) => event.attributes.documentScope === "#")));
   const textOf = (u: AtlasUnit) => (partsOf.get(u.unit_id) ?? []).flatMap(({ event }) => input.resolveContent(event)).flatMap((v) => visibleText(v)).join("\n").trim();
   const finalUnit = [...messages].reverse().find((m) => textOf(m));
   const final = finalUnit ? (() => { const text = textOf(finalUnit); return { row_id: finalUnit.row_id, seq: finalUnit.seq, text, chars: text.length, claims: claimLines(text) }; })() : null;
