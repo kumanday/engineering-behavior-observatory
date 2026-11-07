@@ -1,3 +1,4 @@
+import { v1OperationAlias } from "./v1-consumer-compatibility.js";
 import type { OutcomeEvidenceInput } from "./outcome-evidence.js";
 import { createPointerEvidenceResolver } from "./evidence-pointers.js";
 import { createHash } from "node:crypto";
@@ -767,8 +768,7 @@ function observation(
 
 function operationId(event: UniformEvent, events: readonly UniformEvent[]): string | undefined {
   if (isToolBatch(event)) return undefined;
-  const direct = [event.attributes.toolUseId, event.attributes.toolCallId, event.attributes.actionId, event.attributes.callId, event.attributes.itemId]
-    .map(scalarString).find((value) => value !== undefined)
+  const direct = v1OperationAlias(event, "structural")
     ?? (event.scope.kind === "operation" ? event.scope.id : undefined);
   if (direct !== undefined) return direct;
   for (const relation of event.relations.known) {
@@ -780,8 +780,7 @@ function operationId(event: UniformEvent, events: readonly UniformEvent[]): stri
 }
 
 function operationIdWithoutRelations(event: UniformEvent): string | undefined {
-  return [event.attributes.toolUseId, event.attributes.toolCallId, event.attributes.actionId, event.attributes.callId, event.attributes.itemId]
-    .map(scalarString).find((value) => value !== undefined)
+  return v1OperationAlias(event, "structural")
     ?? (event.scope.kind === "operation" ? event.scope.id : undefined);
 }
 

@@ -1,3 +1,4 @@
+import { v1OperationAlias } from "./v1-consumer-compatibility.js";
 import { visibleEvidence } from "./evidence-projection.js";
 import { canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
 import { runCodexStructuredTurn, type CodexTurnSettings } from "./codex-judge.js";
@@ -297,10 +298,8 @@ export function occurrenceState(
 }
 
 function callKey(event: UniformEvent): string {
-  for (const key of ["toolUseId", "toolCallId", "callId", "itemId"]) {
-    const value = event.attributes[key];
-    if (typeof value === "string" && value !== "") return value;
-  }
+  const alias = v1OperationAlias(event, "rating");
+  if (alias !== undefined) return alias;
   return event.scope.kind === "operation" && typeof event.scope.id === "string" ? event.scope.id : event.id;
 }
 

@@ -1,3 +1,4 @@
+import { v1MessageRole as messageRole } from "./v1-consumer-compatibility.js";
 import { checkKindsOf, findCommand, shellWrites, unwrap, type Occurrence } from "./occurrences.js";
 import { toolOperations, type ToolOperation } from "./structural-observations.js";
 import type { NativeEvidenceReference, UniformEvent } from "./uniform-events.js";
@@ -157,29 +158,6 @@ const nativeEventType = (event: UniformEvent) => {
   const a = event.attributes;
   return [a.eventType, a.itemType, a.method].find((v): v is string => typeof v === "string") ?? event.source.nativeType;
 };
-
-/**
- * The record that carries one completed message, per harness: streaming chunks, start records and duplicate stream
- * copies are not messages. Returns the message role, or undefined when the event is not a message record.
- */
-function messageRole(event: UniformEvent): string | undefined {
-  const type = nativeEventType(event);
-  const role = typeof event.attributes.role === "string" ? event.attributes.role : undefined;
-  switch (event.source.harness) {
-    case "factory-droid": return type === "droid.add_user_message" ? "user" : type === "create_message" ? "assistant" : undefined;
-    case "codex-app-server": return type === "agentMessage" ? "agent" : type === "userMessage" ? "user" : undefined;
-    case "deepseek-harness": return type === "assistant/message" ? "assistant" : type === "user/message" ? "user" : undefined;
-    case "pi-sdk": return event.source.nativeType === "history:message" && (role === "user" || role === "assistant") ? role : undefined;
-    case "claude-agent-sdk":
-      if (type === "assistant" && event.actor.kind === "model") return "assistant";
-      if (type === "user" && event.actor.kind === "harness") return "harness";
-      return type === "UserPromptSubmit" ? "user" : undefined;
-    case "devin-cli": return event.attributes.sessionUpdate === "agent_message_chunk" ? "assistant" : event.attributes.sessionUpdate === "user_message_chunk" || type === "session/prompt" ? "user" : undefined;
-    default:
-      if (event.phase === "before" || event.phase === "during" || /chunk|delta|start/u.test(type)) return undefined;
-      return role === "user" || role === "assistant" || role === "agent" ? role : event.actor.kind === "user" ? "user" : event.actor.kind === "model" || event.actor.kind === "agent" ? "assistant" : undefined;
-  }
-}
 
 const time = (event: UniformEvent) => (event.nativeTime.status === "known" ? event.nativeTime.value : null);
 const seconds = (a: string | null, b: string | null) => (a && b && Number.isFinite(Date.parse(a)) && Number.isFinite(Date.parse(b)) ? (Date.parse(b) - Date.parse(a)) / 1000 : null);

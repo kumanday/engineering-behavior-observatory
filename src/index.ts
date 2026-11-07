@@ -704,3 +704,16 @@ export { inventoryMigrationStudy, migrationDependencies, reconcileMigration, typ
   type MigrationUnit, type MigrationAssertion, type MigrationInventory, type MigrationTarget, type MigrationReconciliation } from "./migration-accounting.js";
 export { createRetainedBehaviorEvidenceV2, projectNativeEvidenceV2, createSourceEvidenceResolverV2, listNativeV2Profiles,
   type RetainedBehaviorEvidenceV2, type SourceEvidenceResolverV2 } from "./native-v2.js";
+export { ANALYSIS_V2_VERSION, analysisDigestV2, createStructuralObservationSetV2, validateStructuralObservationSetV2, citeEventV2,
+  validateCitationV2, operationScopeV2, operationEventsV2, operationContentV2,
+  type HashV2, type EvidenceCitationV2, type ObservationV2, type ObservationSetV2 } from "./analysis-v2.js";
+
+export { projectPiAtifV2, readImportedBehaviorEvidenceV2 } from "./atif-v2.js";
+
+export * from "./occurrences-v2.js";
+export * from "./ratings-v2.js";
+export * from "./semantic-judge-v2.js";
+export * from "./atlas-v2.js";
+export { loadRetainedAnalysisV2 } from "./analysis-v2-cli.js";
+
+export { ratingAnswerSchemaV2, semanticJudgeAnswerSchemaV2 } from "./model-contracts-v2.js";

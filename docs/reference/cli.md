@@ -200,3 +200,16 @@ admit explicitly selected native trials. `ebo atif read-leaderboard STORE DIGEST
 verifies the resulting corpus and source bindings without Python. See the
 [leaderboard import guide](leaderboard-imports.md) for the request, runtime pins
 and refresh workflow.
+
+## Opt-in typed v2 analysis
+
+```sh
+ebo v2 inspect <retained-bundle> <new-directory>
+ebo v2 prepare-judge <retained-bundle> <new-directory> <request.json>
+```
+
+Prepare typed datasets, observations, ledgers, rating inputs and a restricted
+local Atlas page. `prepare-judge` also writes a digest-bound judge input.
+Both commands use registered source readers and dispatch no inference. See
+[typed v2 analysis](../development/typed-v2-consumers.md) for request contracts,
+coverage and compatibility semantics.
