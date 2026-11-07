@@ -17,6 +17,10 @@ try {
   assert.doesNotMatch(totals, /No failed tool calls on this task/);
   await page.evaluate((attemptId) => window.ebo.run('openAudit', { attemptId }), lanes.lanes[0].attemptId);
   assert.match(await page.locator('body').innerText(), /freshness is unavailable|coverage unavailable/);
+  const auditText = await page.locator('body').innerText();
+  assert.match(auditText, /Audit · trial unavailable/);
+  assert.match(auditText, /task unavailable/);
+  assert.doesNotMatch(auditText, /trial null|trial undefined/);
   if (process.env.MIXED === '1') {
     await page.evaluate(() => window.ebo.run('openTab', { tab: 'assessments' }));
     await page.evaluate(() => window.ebo.run('setMatrixCohort', { cohort: 'mixed' }));

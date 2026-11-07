@@ -154,3 +154,5 @@ Embedded-document usage is reconciled against each document’s own final metric
 before summing admitted local totals. Judge preparation reserves the final-report
 tier for root-document reports; child traversal order does not replace the
 evaluated agent’s final answer.
+
+Atlas displays unavailable task, trial and terminal metadata explicitly in imported attempt audits. The retained metadata keeps its original null values.
