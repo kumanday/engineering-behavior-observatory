@@ -445,7 +445,7 @@ export class MatrixPanel {
     // EBO bundles record each cell's arms. Only cells covering this arm alone are comparable with it; report groups
     // partition attempts, so the arm's cells (one per task, say) add up to the arm's certified counts.
     if (c.cells.some((x) => x.conditions)) {
-      const own = c.cells.filter((x) => x.category === cat && x.conditions?.length === 1 && x.conditions[0] === arm && (this.task === "all" || x.group.task === this.task));
+      const own = c.cells.filter((x) => x.category === cat && x.conditions?.length === 1 && x.conditions[0] === arm && (this.task === "all" || x.group.task === (this.task ?? "unavailable")));
       if (!own.length || (this.task !== "all" && !own.every((x) => "task" in x.group))) return null;
       const counts: Record<string, number> = {};
       for (const x of own) for (const [k, v] of Object.entries(x.counts)) counts[k] = (counts[k] ?? 0) + v;

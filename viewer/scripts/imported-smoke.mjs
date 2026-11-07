@@ -24,7 +24,7 @@ try {
     await page.waitForFunction(() => window.ebo.getState().assessments.task === null);
     const partial = await page.evaluate(async () => (await window.ebo.describe()).assessments.data);
     assert.equal(partial.cells.reduce((sum, cell) => sum + cell.judgments, 0), 1);
-    assert.ok(partial.cells.some((cell) => cell.arm === 'Imported · pi' && cell.judgments === 1));
+    assert.ok(partial.cells.some((cell) => cell.arm === 'Imported · pi' && cell.judgments === 1 && cell.certified));
     await page.evaluate(() => window.ebo.run('setMatrixTask', { task: 'all' }));
     const combined = await page.evaluate(async () => (await window.ebo.describe()).assessments.data);
     const cells = combined.cells.filter((cell) => cell.judgments > 0);

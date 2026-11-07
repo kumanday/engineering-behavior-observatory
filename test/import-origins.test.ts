@@ -138,6 +138,7 @@ test("imported Pi evidence flows through Atlas with origin labels, unknown outco
     renameSync(join(root, "corpus/excluded-owned"), join(root, "corpus/pi-owned"));
     writeCorpusIndex(join(root, "index.jsonl"), buildCorpusIndex(join(root, "corpus")));
     aggregation.evidenceOrigins = "separate";
+    aggregation.groupBy = ["harness", "task"];
     aggregation.sources.assertions[1]!.bundleRoot = "corpus/pi-owned";
     aggregation.sources.observationSets = [...aggregation.sources.observationSets, { bundleRoot: "corpus/pi-owned", path: join(ownedRoot, "observations-0.json") }];
     writeFileSync(join(root, "mixed-aggregation.json"), JSON.stringify(aggregation));
