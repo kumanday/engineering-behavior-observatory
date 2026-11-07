@@ -219,6 +219,21 @@ test("v2 migration targets bind source readback, observations, ledger and evalua
     await assert.rejects(createMigrationTargetV2(unit, { ...input, attemptId: "foreign" }, evidence), /source evidence|dependencies/u);
     assert.throws(() => reconcileMigration(inventory, [{ ...target, configurationDigest: hash("unbound") }]), /configuration differs/u);
     assert.throws(() => reconcileMigration(inventory, [{ ...target, evaluatorDigest: unit.evaluatorDigest }]), /evaluator differs/u);
+    const restored = JSON.parse(JSON.stringify(target)) as typeof target;
+    assert.throws(() => reconcileMigration(inventory, [restored]), /requires source validation/u);
+    const validated = await createMigrationTargetV2(unit, restored.input, evidence);
+    assert.equal(reconcileMigration(inventory, [validated]).summary.affectedUnits, 1);
+    for (const field of ["evidence", "modelData", "readiness"] as const) {
+      const stale = JSON.parse(JSON.stringify(target)) as typeof target;
+      if (field === "evidence") stale.input.evidence = [{ eventId: "invented", content: "invented", truncated: false, citation: input.citationRegistry[0]!.citation, workspaceHints: [] }];
+      else if (field === "modelData") stale.input.modelData = { invented: true };
+      else stale.input.readiness = { status: "requires-ratings", missingRatingOccurrenceIds: ["invented"] };
+      assert.throws(() => reconcileMigration(inventory, [stale]), /requires source validation/u);
+      await assert.rejects(createMigrationTargetV2(unit, stale.input, evidence), /differs|stale|source/u);
+    }
+    const modified = await createMigrationTargetV2(unit, structuredClone(input), evidence);
+    modified.input.modelData = { invented: true };
+    assert.throws(() => reconcileMigration(inventory, [modified]), /requires source validation/u);
   } finally { f.close(); }
 });
 

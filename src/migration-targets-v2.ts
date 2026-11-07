@@ -1,5 +1,5 @@
 import { analysisDigestV2, referenceKeyV2, type ObservationSetV2 } from "./analysis-v2.js";
-import { createMigrationTargetV2, type MigrationTarget, type MigrationUnit } from "./migration-accounting.js";
+import { createMigrationTargetV2, type MigrationTargetV2, type MigrationUnit } from "./migration-accounting.js";
 import type { RetainedBehaviorEvidenceV2 } from "./native-v2.js";
 import { OCCURRENCE_V2_TYPES, type OccurrenceLedgerV2, type OccurrenceTypeV2 } from "./occurrences-v2.js";
 import type { SemanticJudgeInput, SemanticJudgmentRecord } from "./semantic-judge.js";
@@ -10,7 +10,7 @@ export async function prepareMigrationTargetV2(options: {
   unit: MigrationUnit; originalInput: SemanticJudgeInput; legacyEvaluator: SemanticJudgmentRecord["evaluator"];
   evidence: RetainedBehaviorEvidenceV2; observations: ObservationSetV2; ledger: OccurrenceLedgerV2;
   limits: { maxRecordChars: number; maxInputChars: number };
-}): Promise<MigrationTarget> {
+}): Promise<MigrationTargetV2> {
   const { unit, originalInput, legacyEvaluator, evidence } = options;
   if (analysisDigestV2(originalInput) !== unit.inputDigest || analysisDigestV2(legacyEvaluator) !== unit.evaluatorDigest) throw new Error("Migration preparation differs from the verified original input or evaluator.");
   const byId = new Map(evidence.dataset.events.map((event) => [event.id, event])), byReference = new Map<string, typeof evidence.dataset.events>();

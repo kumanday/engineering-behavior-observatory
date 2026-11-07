@@ -71,6 +71,13 @@ rating-dependency regeneration when the original input used ratings.
 its original judgment unit. Reconciliation records the target's input schema,
 configuration digest and rating readiness.
 
+V2 targets are created through `createMigrationTargetV2` or
+`prepareMigrationTargetV2`. Reconciliation accepts only the unchanged target
+object returned after source validation. The input JSON and reconciliation
+receipts remain durable artifacts. After loading an input from JSON, recreate
+its target against the retained source before reconciliation; a TypeScript
+cast or a copied target object does not establish source validation.
+
 `planMigrationV2` identifies the exact affected units from the supported prompt
 protocol change from the retained 1.0, 1.1, 1.2 and 1.3 generations to 2.0. This proof remains available while source
 rebuilds are pending. Its counts distinguish affected judgment units, distinct

@@ -64,7 +64,11 @@ export type MigrationInventory = {
     verifiedInputUnits: number; missingInputUnits: number; invalidInputUnits: number;
     measuredCostUsd: number | null };
 };
-export type MigrationTarget = { unitId: Hash; input: SemanticJudgeInput | JudgeInputV2; evaluatorDigest: Hash; configurationDigest: Hash };
+type MigrationTargetBinding = { unitId: Hash; evaluatorDigest: Hash; configurationDigest: Hash };
+declare const sourceValidatedTarget: unique symbol;
+export type MigrationTargetV2 = MigrationTargetBinding & { input: JudgeInputV2; readonly [sourceValidatedTarget]: true };
+export type MigrationTarget = (MigrationTargetBinding & { input: SemanticJudgeInput }) | MigrationTargetV2;
+const validatedV2Targets = new WeakMap<MigrationTargetV2, Hash>();
 export type MigrationReconciliation = {
   schemaVersion: "ebo.migration-reconciliation/v1";
   studyId: string;
@@ -246,6 +250,7 @@ export function reconcileMigration(inventory: MigrationInventory, targets: reado
     if (target.input.schemaVersion === "ebo.semantic-judge-input/v2") {
       if (target.configurationDigest !== target.input.dependencies.evaluatorConfiguration) throw new Error("V2 migration target configuration differs from its input.");
       if (target.evaluatorDigest !== hash({ id: target.input.request.evaluator.id, version: target.input.request.evaluator.version })) throw new Error("V2 migration target evaluator differs from its input.");
+      if (validatedV2Targets.get(target as MigrationTargetV2) !== hash(target)) throw new Error("V2 migration target requires source validation; reconstruct it with createMigrationTargetV2 after loading or modifying inputs.");
     }
     const changed: string[] = (Object.keys(dependencies) as Array<keyof MigrationDependencies>).filter((key) => dependencies[key] !== unit.dependencies![key]);
     if (target.evaluatorDigest !== unit.evaluatorDigest) changed.push("evaluatorDigest");
@@ -289,11 +294,13 @@ function assertArtifact(value: unknown, profiles: readonly ReceiptProfile[] = []
 }
 
 /** Source readback is mandatory before packaging a v2 migration target. This function dispatches no inference. */
-export async function createMigrationTargetV2(unit: MigrationUnit, input: JudgeInputV2, evidence: RetainedBehaviorEvidenceV2): Promise<MigrationTarget> {
+export async function createMigrationTargetV2(unit: MigrationUnit, input: JudgeInputV2, evidence: RetainedBehaviorEvidenceV2): Promise<MigrationTargetV2> {
   if (!unit.dependencies || !unit.configurationDigest || !unit.assertionDigests.length) throw new Error("V2 migration target requires verified original dependencies and assertion configuration.");
   await validateSemanticJudgeInputV2(input, evidence);
   if (input.runId !== unit.runId || input.attemptId !== unit.attemptId || hash(input.request.behavior) !== hash(unit.behavior)) throw new Error("V2 migration target belongs to a different original judgment unit.");
-  return { unitId: unit.id, input, evaluatorDigest: hash({ id: input.request.evaluator.id, version: input.request.evaluator.version }), configurationDigest: input.dependencies.evaluatorConfiguration };
+  const target = { unitId: unit.id, input, evaluatorDigest: hash({ id: input.request.evaluator.id, version: input.request.evaluator.version }), configurationDigest: input.dependencies.evaluatorConfiguration } as MigrationTargetV2;
+  validatedV2Targets.set(target, hash(target));
+  return target;
 }
 
 
