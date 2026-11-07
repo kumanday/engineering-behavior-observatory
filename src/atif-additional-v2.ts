@@ -28,10 +28,11 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
     const event: UniformEventV2 = { schemaVersion: "ebo.uniform-event/v2", id: `${pointer}/${suffix}`, runId: input.runId, attemptId: input.attemptId,
       source: { sourceId, nativeType: `atif:${suffix}`, nativeReference: ref(pointer) }, family,
       phase: family === "tool" ? projection.operation?.endpoint === "call" ? "before" : projection.operation?.endpoint === "result" ? "after" : "instant" : "instant",
-      nativeOrder: projection.operation && projection.operation.endpoint !== "call" ? { status: "unknown", reason: "CONVERTER_RESULT_ORDER_UNESTABLISHED" }
+      nativeOrder: profile.family === "codex" ? { status: "unknown", reason: "CONVERTER_REORDERS_MODEL_OUTPUTS" }
+        : projection.operation && projection.operation.endpoint !== "call" ? { status: "unknown", reason: "CONVERTER_RESULT_ORDER_UNESTABLISHED" }
         : { status: "known", domain: `${artifactId}:#`, value: Number(step.step_id) }, clock: unreported,
       actor: { kind: family === "tool" && projection.operation?.endpoint !== "call" ? "tool" : step.source === "agent" ? "model" : step.source === "user" ? "user" : "harness" },
-      scope: { kind: "session", id: "document:#" }, relations: { parent: unreported, known: [] }, attributes: {},
+      scope: { kind: "session", id: "document:#" }, relations: { parent: unreported, known: [] }, attributes: { convertedStepId: Number(step.step_id) },
       content: contentPointer === undefined ? unreported : known([{ nativeReference: ref(contentPointer), role: family === "tool"
         ? projection.operation?.endpoint === "call" ? "tool-input" : "tool-result" : "message" }]), facts: projection.facts };
     if (profile.family !== "hermes" && (!projection.operation || projection.operation.endpoint === "call")) {
@@ -82,8 +83,11 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
         gap = true; omitted = true; limitations.add("AMBIGUOUS_OPERATION_IDENTITY"); continue;
       }
       callIds.add(id);
+      const argumentsValue = object(call.arguments), argumentKeys = Object.keys(argumentsValue);
+      const fallbackArguments = profile.family === "hermes" && argumentKeys.length === 1 && Object.hasOwn(argumentsValue, "raw");
+      if (fallbackArguments) limitations.add("CONVERTER_ARGUMENT_FALLBACK_AMBIGUITY");
       const operation: OperationContribution = { nativeId: id, scope: "document:#", identityClass: "converter-assigned", canonical: true, toolName: name, endpoint: "call", issuingInference: issued,
-        ...(Object.keys(object(call.arguments)).length ? { inputDigest: digestValue(call.arguments) } : {}) };
+        ...(argumentKeys.length && !fallbackArguments ? { inputDigest: digestValue(call.arguments) } : {}) };
       const callPointer = `${pointer}/tool_calls/${callIndex}`;
       emit(step, pointer, callPointer, "call", "tool", { facts: {}, clock: unreported, operation }, `${callPointer}/arguments`);
       const linked = results.map((result, resultIndex) => ({ result, resultIndex })).filter(({ result }) => result.source_call_id === id);

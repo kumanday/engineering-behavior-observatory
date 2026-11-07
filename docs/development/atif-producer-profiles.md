@@ -46,8 +46,8 @@ independent converter check and immutable-head code review.
 
 | Producer | Pinned source | Interpretation and limits |
 | --- | --- | --- |
-| Codex 0.162.1, ATIF v1.7 | Harbor 0.24.0 Codex converter; HFCodex wrapper at `0583ba55` | Document-scoped converted calls and grouped declared inference. Unanswered native calls can be omitted. Converted timestamps remain producer observations; tool execution durations and tool failure status are unavailable. |
-| Hermes v0.22.1, ATIF v1.2 | Harbor 0.24.0 Hermes converter; HFHermes wrapper at `0583ba55` | Tool IDs can be converter-assigned. Inference counts, tool failure state and component-complete usage stay unknown. The inserted `[tool call]` placeholder produces no assistant-report event. |
+| Codex 0.162.1, ATIF v1.7 | Harbor 0.24.0 Codex converter; HFCodex wrapper at `0583ba55` | Document-scoped converted calls and grouped declared inference. Converted step order can reverse native interleavings, so native precedence stays unknown. Unanswered native calls can be omitted. Converted timestamps remain producer observations; tool execution durations and tool failure status are unavailable. |
+| Hermes v0.22.1, ATIF v1.2 | Harbor 0.24.0 Hermes converter; HFHermes wrapper at `0583ba55` | Tool IDs can be converter-assigned. Ambiguous `raw` argument fallback objects cannot establish identical inputs. Inference counts, tool failure state and component-complete usage stay unknown. The inserted `[tool call]` placeholder produces no assistant-report event. |
 | OpenClaw 2026.10.4, ATIF v1.8 | HLB 0.1.1 `hlb.harbor_ext.trajectories` and HFOpenClaw wrapper at `c4a8c4cb` | Explicit `context_management.type` records real compaction. HLB gap steps record missing history. Positive result `is_error`, including a bodyless primary response, is failure evidence; nested results are observations of their parent, not completed parent endpoints. |
 
 Their source-file digests and full revisions are in the closed registry. The
@@ -76,7 +76,7 @@ and unknown aggregation semantics instead of becoming normalized native input
 usage. Replacement boundaries remain unknown, so these profiles cannot rebuild
 the model's context.
 
-`scripts/convert-atif-producer-fixtures.py` regenerates six authored native/ATIF
+`scripts/convert-atif-producer-fixtures.py` regenerates eight authored native/ATIF
 pairs twice, checks converter source digests, and verifies byte-identical output.
 `test/atif-producers-v2.test.ts` separately checks admission, offline readback,
 typed consumers, partial histories and unsupported measures. Restricted
@@ -90,5 +90,5 @@ fallback conversion reproduces its retained steps and partial marker, with zero
 recorded calls and unknown whole-attempt count. Its native session is absent,
 so paired native fidelity remains unavailable. These case-specific results do
 not authorize cross-origin pooling. The implementation's public regression gate
-passes the focused producer and import tests with pinned Harbor and board-policy runtimes; all six
+passes the focused producer and import tests with pinned Harbor and board-policy runtimes; all eight
 independent authored conversions reproduce byte for byte.

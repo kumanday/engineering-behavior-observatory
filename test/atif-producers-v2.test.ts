@@ -10,7 +10,7 @@ import { projectAtifV2, readImportedBehaviorEvidenceV2 } from "../src/atif-v2.js
 import { createStructuralObservationSetV2, analysisDigestV2 } from "../src/analysis-v2.js";
 import { createOccurrenceLedgerV2 } from "../src/occurrences-v2.js";
 import { buildAtlasViewV2 } from "../src/atlas-v2.js";
-import { executionDurationMs, validateNormalizedDatasetV2 } from "../src/normalization-v2.js";
+import { executionDurationMs, precedes, validateNormalizedDatasetV2 } from "../src/normalization-v2.js";
 import { importAtifFile, readImportedBehaviorEvidence } from "../src/atif-import.js";
 const profiles = listAdditionalAtifProfilesV2();
 const fixtureRoot = new URL("../../test/fixtures/atif/producers/", import.meta.url);
@@ -182,4 +182,24 @@ test("empty primary OpenClaw and Hermes responses retain completion and positive
       assert.deepEqual((await measures(evidence))["tool-error-count"], { status: "lower-bound", value: 1, reason: "OPERATION_FAILURE_UNREPORTED" });
     } else assert.equal(call.failure.status, "unknown");
   }
+});
+
+
+test("Codex converted step order never reverses native calls and intervening user messages", async () => {
+  const source = fixture("codex-interleaved"), sourceSteps = steps(source);
+  assert.equal(sourceSteps[1]!.source, "user"); assert.ok(sourceSteps[2]!.tool_calls);
+  const evidence = await project("codex", undefined, "codex-interleaved");
+  const call = evidence.dataset.events.find(({ family, phase }) => family === "tool" && phase === "before")!;
+  const message = evidence.dataset.events.find(({ source, family }) => family === "message" && source.nativeReference.recordLocator === "#/steps/1")!;
+  assert.equal(precedes(call, message), "unknown");
+  assert.ok(evidence.dataset.events.every(({ nativeOrder }) => nativeOrder.status === "unknown"));
+  assert.equal(call.attributes.convertedStepId, 3);
+});
+
+test("Hermes missing-argument placeholders cannot establish identical native inputs", async () => {
+  const evidence = await project("hermes", undefined, "hermes-missing-arguments");
+  assert.ok(evidence.dataset.operations.every(({ inputDigest }) => inputDigest.status === "unknown"));
+  assert.equal((await measures(evidence))["repeated-tool-operation-count"]!.status, "unknown");
+  const ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
+  assert.equal(ledger.occurrences.filter(({ type }) => type === "repeated-operation").length, 0);
 });

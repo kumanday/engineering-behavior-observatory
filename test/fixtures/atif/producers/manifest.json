@@ -8,6 +8,13 @@
   },
   "fixtures": [
     {
+      "id": "codex-interleaved",
+      "native": "codex-interleaved.native.jsonl",
+      "trajectory": "codex-interleaved.atif.json",
+      "nativeSha256": "b5b24373be735c00e24aea10c0e02c34929907d218d950ef5b666b0079a09fe5",
+      "trajectorySha256": "ced427dbf043597d71a7a6039e0ba2075600cc84fb3bf35883dbafa275db7221"
+    },
+    {
       "id": "codex",
       "native": "codex.native.jsonl",
       "trajectory": "codex.atif.json",
@@ -15,25 +22,25 @@
       "trajectorySha256": "b4643b8abf07e4ed911aaac7290f18b582a96e46cf899ed184342971bed3d6ce"
     },
     {
-      "id": "hermes",
-      "native": "hermes.native.json",
-      "trajectory": "hermes.atif.json",
-      "nativeSha256": "69f6fb71c26b6dc5831b7180d024520b519a8d9f46de16b8910aae1e924a0aff",
-      "trajectorySha256": "cba7e5416861e8051d18a302c90c0319551d070235f78200f2e278c7032ea710"
-    },
-    {
-      "id": "openclaw",
-      "native": "openclaw.native.jsonl",
-      "trajectory": "openclaw.atif.json",
-      "nativeSha256": "c22166867efb1bc5f678018153f94e711be7ca99c4a7455d9177350f6a0608ee",
-      "trajectorySha256": "777b2a6c8b1b856198f47c54c926dec85e549875c0d29c1df37b87d33c6aacfe"
-    },
-    {
       "id": "hermes-empty",
       "native": "hermes-empty.native.json",
       "trajectory": "hermes-empty.atif.json",
       "nativeSha256": "e7da903e5379842eeab62aeb75feb127aa48127e0b77dac5be0631032920aba7",
       "trajectorySha256": "433d01847f51d60b1cde8d1eab841ea48037d579e5891aa116d62a5b5b607f23"
+    },
+    {
+      "id": "hermes-missing-arguments",
+      "native": "hermes-missing-arguments.native.json",
+      "trajectory": "hermes-missing-arguments.atif.json",
+      "nativeSha256": "257621722e6386532cdf628ae1f7ec3c993d452fdfbd5160eccfd1099132cd2b",
+      "trajectorySha256": "ae6d02cb0af13a2f7f3e2b13f7b2bce670c14f6aa2770f6f20e34d5e2a591379"
+    },
+    {
+      "id": "hermes",
+      "native": "hermes.native.json",
+      "trajectory": "hermes.atif.json",
+      "nativeSha256": "69f6fb71c26b6dc5831b7180d024520b519a8d9f46de16b8910aae1e924a0aff",
+      "trajectorySha256": "cba7e5416861e8051d18a302c90c0319551d070235f78200f2e278c7032ea710"
     },
     {
       "id": "openclaw-empty",
@@ -48,6 +55,13 @@
       "trajectory": "openclaw-late-results.atif.json",
       "nativeSha256": "15ee0e5c32509213d8c9f8da219c76199308486380b5267c682ee3fa3b05adc8",
       "trajectorySha256": "07f9572aac5108ac6be6be209fbb90f48ab4a6f0b19cfb4c669c16187dbeb9ae"
+    },
+    {
+      "id": "openclaw",
+      "native": "openclaw.native.jsonl",
+      "trajectory": "openclaw.atif.json",
+      "nativeSha256": "c22166867efb1bc5f678018153f94e711be7ca99c4a7455d9177350f6a0608ee",
+      "trajectorySha256": "777b2a6c8b1b856198f47c54c926dec85e549875c0d29c1df37b87d33c6aacfe"
     }
   ]
 }

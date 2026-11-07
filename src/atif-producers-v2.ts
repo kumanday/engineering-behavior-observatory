@@ -17,8 +17,8 @@ const harbor = (family: "codex" | "hermes", formatVersion: string, agentVersion:
   producer: { formatVersion, agent: { name: family, version: agentVersion },
     converter: { id: `harbor.agents.installed.${family}.${family === "codex" ? "Codex" : "Hermes"}`, packageVersion: "0.24.0", sourceDigest },
     context: { kind: "harness-leaderboard", revision: HLB_PI_PILOT_REVISION, wrapperDigest: HLB_PI_WRAPPER_DIGEST } },
-  limitations: [...common, ...(family === "codex" ? ["CONVERTER_OMITS_PENDING_CALLS", "CONVERTER_GROUPED_CLOCKS", "TOOL_FAILURE_NOT_PROJECTED"]
-    : ["INFERENCE_COUNT_UNTRACKED", "CONVERTER_MAY_ASSIGN_TOOL_IDS", "TOOL_FAILURE_NOT_PROJECTED", "USAGE_COMPONENT_COMPLETENESS_UNPROVEN"])],
+  limitations: [...common, ...(family === "codex" ? ["CONVERTER_OMITS_PENDING_CALLS", "CONVERTER_REORDERS_MODEL_OUTPUTS", "CONVERTER_GROUPED_CLOCKS", "TOOL_FAILURE_NOT_PROJECTED"]
+    : ["INFERENCE_COUNT_UNTRACKED", "CONVERTER_MAY_ASSIGN_TOOL_IDS", "CONVERTER_ARGUMENT_FALLBACK_AMBIGUITY", "TOOL_FAILURE_NOT_PROJECTED", "USAGE_COMPONENT_COMPLETENESS_UNPROVEN"])],
   nativeAuthority: family === "codex" ? "Codex rollout response_item records, including unanswered function_call/custom_tool_call records"
     : "Hermes session export messages, including assistant tool_calls and adjacent tool messages",
   sources: ["https://pypi.org/project/harbor/0.24.0/", `${base}${HLB_PI_PILOT_REVISION}/hlb/harbor_ext/agents.py`],

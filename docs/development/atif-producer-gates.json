@@ -22,7 +22,8 @@
       "toolFailures": "unavailable",
       "executionDuration": "unavailable: grouped producer-observation clocks",
       "contextReconstruction": "unsupported",
-      "toolResultEndpointOrder": "unknown: converter folds results into issuing steps"
+      "toolResultEndpointOrder": "unknown: converter folds results into issuing steps",
+      "nativePrecedence": "unavailable: converter may reorder model outputs around intervening messages"
     },
     "hermes": {
       "atifVersion": "ATIF-v1.2",
@@ -38,7 +39,8 @@
       "usage": "source-reported fields only; component completeness unproven",
       "contextReconstruction": "unsupported",
       "toolResultEndpointOrder": "unknown: converter folds results into issuing steps",
-      "emptyPrimaryResponse": "pass: completion retained without a body; failure unknown"
+      "emptyPrimaryResponse": "pass: completion retained without a body; failure unknown",
+      "argumentFallback": "unavailable input identity for ambiguous raw wrapper"
     },
     "openclaw": {
       "atifVersion": "ATIF-v1.8",
@@ -63,5 +65,5 @@
   "qualification": "imported",
   "crossOriginPooling": "not qualified",
   "modelCalls": 0,
-  "independentAuthoredPairs": 6
+  "independentAuthoredPairs": 8
 }

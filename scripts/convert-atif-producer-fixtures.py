@@ -24,10 +24,11 @@ for module, digest in expected.items():
         raise SystemExit(f"Converter source drift: {module.__name__}")
 manifest = {"schemaVersion": "ebo.atif-producer-fixtures/v1", "harborVersion": version("harbor"),
             "converterDigests": {m.__name__: d for m, d in expected.items()}, "fixtures": []}
-for name in ["codex", "hermes", "openclaw", "hermes-empty", "openclaw-empty", "openclaw-late-results"]:
+for source in sorted(args.root.glob("*.native.*")):
+    name, extension = source.name.split(".native.")
     family = name.split("-", 1)[0]
-    extension = "json" if family == "hermes" else "jsonl"
-    source = args.root / f"{name}.native.{extension}"
+    if family not in {"codex", "hermes", "openclaw"} or extension != ("json" if family == "hermes" else "jsonl"):
+        raise SystemExit(f"Unsupported authored fixture: {source.name}")
     outputs = []
     for _ in range(2):
         with tempfile.TemporaryDirectory() as tmp:
@@ -61,4 +62,4 @@ if args.check:
         raise SystemExit("Fixture manifest drift")
 else:
     target.write_text(data)
-print("PASS: 6 independent deterministic producer conversions")
+print(f"PASS: {len(manifest['fixtures'])} independent deterministic producer conversions")
