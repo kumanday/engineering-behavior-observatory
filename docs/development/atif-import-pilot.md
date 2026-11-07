@@ -129,10 +129,11 @@ an implementation gate.
 
 
 The dependency audit reads the same 651 retained records with EBO's canonical
-digest recipe. It identifies 297 distinct declared input/evaluator judgment
+digest recipe. It identifies 298 distinct declared input/evaluator/configuration judgment
 units. Retained inputs are digest-verified for 224 units; every copy is missing
-for 73. No measured judgment cost is recorded. Six inventory files are source
-test fixtures. These gaps keep the v2 affected-unit and paid re-judge forecasts
+for 74. No measured judgment cost is recorded. Six inventory files are source
+test fixtures. A missing evaluator configuration digest retains its own
+unit rather than implying equivalence to a configured judgment. These gaps keep the v2 affected-unit and paid re-judge forecasts
 unavailable until the missing inputs and target projections are resolved.
 
 ## Reproduction and limits
