@@ -68,6 +68,8 @@ The [evaluation reading path](evaluation/README.md) explains how the parts fit:
   [decision record](development/atif-adoption-adr.md), and
   [measured import pilot](development/atif-import-pilot.md): proposed import
   qualification, normalization and compatibility work.
+- [Harbor source imports](reference/harbor-imports.md): execution identity,
+  capture revisions and separate assessments.
 - [ATIF producer profiles](development/atif-producer-profiles.md): closed converter
   identities, mapping vocabulary and source limitations.
 - [Documentation sync findings](development/documentation-sync.md): why generated

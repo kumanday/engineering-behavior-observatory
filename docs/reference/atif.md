@@ -109,3 +109,6 @@ For Atlas and aggregation, select `evidenceOrigins: "imported"` in the
 aggregation request, or `"separate"` to include owned captures in separate
 origin groups. The default selects owned captures. See
 [evidence-origin rules](../evaluation/aggregation.md#evidence-origins).
+
+[Harbor source imports](harbor-imports.md) bind retained trial directories to
+execution identities, capture revisions and separate assessment records.
