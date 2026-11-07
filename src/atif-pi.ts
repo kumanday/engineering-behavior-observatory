@@ -78,6 +78,16 @@ export async function normalizePiAtif(input: {
     });
   };
   const visit = (trajectory: AtifObject, pointer: string, contextOnly: boolean) => {
+    if (!contextOnly) {
+      for (const [index, value] of array(trajectory.steps).entries()) {
+        const step = object(value), location = `${pointer}/steps/${index}`;
+        if (Object.hasOwn(step, "is_copied_context") && typeof step.is_copied_context !== "boolean"
+            || !integer(step.step_id) || Number(step.step_id) < 1
+            || step.llm_call_count !== undefined && step.llm_call_count !== null && !integer(step.llm_call_count)) {
+          throw new Error(`Pi projection requires canonical flag and ordinal fields at ${location}.`);
+        }
+      }
+    }
     const documentSteps: AtifObject[] = [];
     if (!contextOnly) usageDocuments.push({ trajectory, steps: documentSteps });
     if (object(trajectory.extra).partial) { gap = true; limitations.add("PRODUCER_PARTIAL_HISTORY"); }
@@ -164,18 +174,6 @@ export async function normalizePiAtif(input: {
     }
   };
   if (selection.status === "supported") {
-    const canonical = (trajectory: AtifObject, pointer: string) => {
-      for (const [index, value] of array(trajectory.steps).entries()) {
-        const step = object(value), location = `${pointer}/steps/${index}`;
-        if (Object.hasOwn(step, "is_copied_context") && typeof step.is_copied_context !== "boolean"
-            || !integer(step.step_id) || Number(step.step_id) < 1
-            || step.llm_call_count !== undefined && step.llm_call_count !== null && !integer(step.llm_call_count)) {
-          throw new Error(`Pi projection requires canonical flag and ordinal fields at ${location}.`);
-        }
-      }
-      for (const [index, child] of array(trajectory.subagent_trajectories).entries()) canonical(object(child), `${pointer}/subagent_trajectories/${index}`);
-    };
-    canonical(document, "#");
     mapping.recorded = { calls: 0, linkedResults: 0, copiedStepsExcluded: 0, contextOnlyStepsExcluded: 0 };
     mapping.profileDigest = selection.profileDigest;
     selection.profile.limitations.forEach((reason) => limitations.add(reason));
