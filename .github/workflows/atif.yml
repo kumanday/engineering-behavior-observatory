@@ -1,0 +1,71 @@
+name: ATIF import conformance
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'src/**'
+      - 'schemas/**'
+      - 'test/**'
+      - 'compatibility/**'
+      - 'scripts/atif-*'
+      - 'scripts/atif-import-pilot/**'
+      - 'scripts/compatibility/**'
+      - 'scripts/freeze-native-baseline.mjs'
+      - 'scripts/check-pi-fixture-pairs.mjs'
+      - 'scripts/*pi-fixtures*'
+      - 'scripts/*pi-pairs*'
+      - 'package*.json'
+      - '.github/workflows/atif.yml'
+permissions:
+  contents: read
+concurrency:
+  group: atif-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  import-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.19.0'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13.12'
+      - run: npm ci
+      - run: npm run build && npm run typecheck
+      - name: Install pinned conformance runtime
+        run: |
+          python -m venv .atif-venv
+          .atif-venv/bin/python -m pip install -r scripts/atif-import-pilot/requirements-ci.lock.txt
+          git clone --no-checkout https://huggingface.co/spaces/joelniklaus/harness-leaderboard .atif-policy-source
+          git -C .atif-policy-source checkout --detach c4a8c4cb468aa1b1e8f3e31c002d2272cc090236
+          .atif-venv/bin/python -m pip install --no-deps ./.atif-policy-source
+          .atif-venv/bin/python -m pip check
+        env:
+          GIT_LFS_SKIP_SMUDGE: '1'
+      - name: Check independent Pi conversions and retained media
+        run: |
+          .atif-venv/bin/python scripts/convert-pi-fixtures.py test/fixtures/atif/pi --check
+          .atif-venv/bin/python -m unittest discover -s scripts -p test_freeze_pi_pairs.py
+      - name: Check import contracts on authored fixtures
+        run: |
+          node --test --test-concurrency=4 \
+            dist/test/atif-*.test.js \
+            dist/test/retained-versions.test.js \
+            dist/test/occurrences.test.js \
+            dist/test/evidence-pointers.test.js \
+            dist/test/import-origins.test.js \
+            dist/test/harbor-import.test.js \
+            dist/test/leaderboard-*.test.js \
+            dist/test/evidence-companions.test.js \
+            dist/test/normalization-v2.test.js \
+            dist/test/analysis-runtime.test.js \
+            dist/test/runtime-atlas.test.js
+        env:
+          EBO_ATIF_TEST_PYTHON: '${{ github.workspace }}/.atif-venv/bin/python'
+          EBO_LEADERBOARD_TEST_PYTHON: '${{ github.workspace }}/.atif-venv/bin/python'
+      # Private study bundles and optional live capture checks remain local gates.
