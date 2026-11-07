@@ -114,3 +114,19 @@ independent request/inference measures. Additional checks cover citation
 readback, blinding, bounded inputs, stale ratings, assertion reconstruction,
 mixed v1/v2 cohorts, Atlas escaping and the CLI. Release qualification also
 requires the retained native baseline and migration reconciliation.
+
+Model-facing payloads carry a citation registry with explicit accepted IDs.
+Semantic answers return `citationIds`; EBO resolves them to the original
+pointer references and digests. Input-owned run, attempt, behavior, evaluator
+and dataset bindings cannot be supplied by an answer. Backend callbacks receive
+the blinded model payload. Canonical ledgers, ratings and their digests remain
+in the private preparation artifact for validation.
+
+A request can declare `ratingRequirements.types`. Preparation records the
+occurrences still needing rating receipts, and judge dispatch stays blocked
+until those receipts exist. Failed or uncertain ratings remain visible evidence.
+
+Backend callbacks also receive a closed response schema. Its answer body omits
+artifact versions and input-owned identifiers; EBO supplies those fields when
+it validates and records the response. `ratingAnswerSchemaV2` and
+`semanticJudgeAnswerSchemaV2` expose the same wire contracts to integrations.

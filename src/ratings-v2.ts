@@ -1,3 +1,4 @@
+import { ratingAnswerSchemaV2 } from "./model-contracts-v2.js";
 import { validateArtifact } from "./artifacts.js";
 import { analysisDigestV2, citeEventV2, operationContentV2, type EvidenceCitationV2, type HashV2 } from "./analysis-v2.js";
 import { boundedEvidence } from "./evidence-projection.js";
@@ -11,7 +12,7 @@ export type RatingInputV2 = {
   occurrenceId: string; type: OccurrenceTypeV2; question: string;
   state: { facts: OccurrenceLedgerV2["occurrences"][number]["facts"]; operations: Array<{ id: string; toolName: EvidenceValue<string>; failure: EvidenceValue<boolean>;
     input: { content: string; truncated: boolean }; output: { content: string; truncated: boolean } }> };
-  citations: EvidenceCitationV2[]; limits: { maxFieldChars: number; maxInputChars: number };
+  citations: EvidenceCitationV2[]; citationRegistry: Array<{ id: HashV2; citation: EvidenceCitationV2 }>; modelData: Record<string, unknown>; limits: { maxFieldChars: number; maxInputChars: number };
 };
 export type RatingAnswerV2 = { label: "supported" | "unsupported" | "unclear"; confidence: number; rationale: string; citationIds: string[] };
 export type RatingRecordV2 = { schemaVersion: "ebo.occurrence-rating/v2"; inputDigest: HashV2; input: RatingInputV2; evaluator: { id: string; version: string; configurationDigest: HashV2 };
@@ -21,6 +22,12 @@ export function blindTextV2(text: string, aliases: readonly string[]): string {
   if (aliases.length > 256 || aliases.some((alias) => !alias.trim() || alias.length > 1024)) throw new Error("V2 model alias inventory exceeds bounds.");
   for (const alias of [...new Set(aliases)].sort((a, b) => b.length - a.length || a.localeCompare(b))) text = text.replaceAll(alias, "[EVALUATED_MODEL]");
   return text;
+}
+export function blindValueV2(value: unknown, aliases: readonly string[]): unknown {
+  if (typeof value === "string") return blindTextV2(value, aliases);
+  if (Array.isArray(value)) return value.map((entry) => blindValueV2(entry, aliases));
+  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, entry]) => [blindTextV2(key, aliases), blindValueV2(entry, aliases)]));
+  return value;
 }
 const questions: Record<OccurrenceTypeV2, string> = {
   "execution-follow-up": "Does the subsequent recorded execution address the reported failure? Judge the execution relation only; model conditioning on the failure is unavailable. Abstain when evidence is insufficient.",
@@ -39,7 +46,7 @@ export async function prepareOccurrenceRatingInputsV2(evidence: RetainedBehavior
   const operations = new Map(evidence.dataset.operations.map((operation) => [operation.id, operation]));
   const result: RatingInputV2[] = [];
   for (const occurrence of ledger.occurrences) {
-    const rows: RatingInputV2["state"]["operations"] = [], citations = new Map<string, EvidenceCitationV2>();
+    const rows: RatingInputV2["state"]["operations"] = [], citations = new Map<HashV2, EvidenceCitationV2>();
     for (const citation of occurrence.citations) citations.set(analysisDigestV2(citation), citation);
     for (const id of occurrence.operationIds) {
       const operation = operations.get(id)!;
@@ -52,8 +59,10 @@ export async function prepareOccurrenceRatingInputsV2(evidence: RetainedBehavior
       rows.push({ id, toolName: operation.toolName, failure: operation.failure, input: await content("tool-input"), output: await content("tool-result") });
     }
     const input: RatingInputV2 = { schemaVersion: "ebo.occurrence-rating-input/v2", version: "2.0.0", datasetDigest: datasetV2Digest(evidence.dataset), ledgerDigest: analysisDigestV2(ledger),
-      occurrenceId: occurrence.id, type: occurrence.type, question: questions[occurrence.type], state: { facts: occurrence.facts, operations: rows },
-      citations: [...citations.values()], limits };
+      occurrenceId: occurrence.id, type: occurrence.type, question: questions[occurrence.type], state: { facts: blindValueV2(occurrence.facts, evidence.modelAliases ?? []) as RatingInputV2["state"]["facts"], operations: rows },
+      citations: [...citations.values()], citationRegistry: [...citations].map(([id, citation]) => ({ id, citation })), modelData: {}, limits };
+    input.modelData = blindValueV2({ question: input.question, state: input.state, occurrenceId: input.occurrenceId, type: input.type,
+      citationRegistry: input.citationRegistry }, evidence.modelAliases ?? []) as Record<string, unknown>;
     if (JSON.stringify(input).length > limits.maxInputChars) throw new Error("V2 rating occurrence exceeds the input limit; raise the bound without dropping ledger members.");
     result.push(input);
   }
@@ -61,17 +70,18 @@ export async function prepareOccurrenceRatingInputsV2(evidence: RetainedBehavior
 }
 
 /** Backend execution is explicit. Preparation never dispatches paid inference. */
-export async function rateOccurrenceV2(input: RatingInputV2, evaluator: RatingRecordV2["evaluator"], run: (input: RatingInputV2) => Promise<RatingAnswerV2>): Promise<RatingRecordV2> {
+export async function rateOccurrenceV2(input: RatingInputV2, evaluator: RatingRecordV2["evaluator"], run: (modelData: Record<string, unknown>, responseSchema: Record<string, unknown>) => Promise<RatingAnswerV2>): Promise<RatingRecordV2> {
   if (validateArtifact("V2 rating input", input).length) throw new Error("Invalid v2 rating input.");
   const base = { schemaVersion: "ebo.occurrence-rating/v2" as const, inputDigest: analysisDigestV2(input), input: structuredClone(input), evaluator: structuredClone(evaluator) };
   try {
-    const answer = await run(structuredClone(input));
+    const answer = await run(structuredClone(input.modelData), ratingAnswerSchemaV2());
+    if (!answer || Object.keys(answer).sort().join(",") !== "citationIds,confidence,label,rationale") throw new Error("Invalid v2 rating answer shape.");
     if (!answer || !["supported", "unsupported", "unclear"].includes(answer.label) || !Number.isFinite(answer.confidence) || answer.confidence < 0 || answer.confidence > 1
       || typeof answer.rationale !== "string" || !answer.rationale.trim() || answer.rationale.length > 12000 || !Array.isArray(answer.citationIds)
       || new Set(answer.citationIds).size !== answer.citationIds.length || answer.citationIds.some((id) => !input.citations.some((citation) => analysisDigestV2(citation) === id))
       || answer.label !== "unclear" && !answer.citationIds.length) throw new Error("Invalid v2 rating answer or citations.");
     return { ...base, status: "completed", accepted: answer.label !== "unclear" && answer.confidence >= 0.8, answer: structuredClone(answer) };
-  } catch (error) { return { ...base, status: "failed", accepted: false, error: error instanceof Error ? error.message : "Rating backend failed" }; }
+  } catch (error) { return { ...base, status: "failed", accepted: false, error: error instanceof Error ? error.message.slice(0, 12000) : "Rating backend failed" }; }
 }
 
 export async function validateRatingRecordV2(record: RatingRecordV2, evidence: RetainedBehaviorEvidenceV2, ledger: OccurrenceLedgerV2): Promise<void> {

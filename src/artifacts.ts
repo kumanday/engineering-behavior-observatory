@@ -1252,6 +1252,7 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.semantic-judge-request/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/request")],
     ["ebo.semantic-judge-input/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/input")],
     ["ebo.semantic-judgment/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/judgment")],
+    ["ebo.semantic-judge-answer/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeAnswer")],
     ["ebo.semantic-judgment/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgment")],
     ["ebo.atlas-view/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/atlasView")],
     ["ebo.occurrence/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/occurrence")],

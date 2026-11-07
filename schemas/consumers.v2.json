@@ -231,7 +231,9 @@
         "question",
         "state",
         "citations",
-        "limits"
+        "limits",
+        "citationRegistry",
+        "modelData"
       ],
       "properties": {
         "schemaVersion": {
@@ -456,6 +458,31 @@
               "maximum": 1000000
             }
           }
+        },
+        "citationRegistry": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "citation"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "citation": {
+                "$ref": "urn:ebo:schema:analysis:v2#/$defs/citation"
+              }
+            }
+          }
+        },
+        "modelData": {
+          "type": "object",
+          "additionalProperties": true
         }
       }
     },
@@ -682,6 +709,30 @@
               "maximum": 10000000
             }
           }
+        },
+        "ratingRequirements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "types"
+          ],
+          "properties": {
+            "types": {
+              "type": "array",
+              "maxItems": 7,
+              "items": {
+                "enum": [
+                  "execution-follow-up",
+                  "inference-conditioned-response",
+                  "validation-run",
+                  "source-change",
+                  "repeated-operation",
+                  "compaction",
+                  "delegation"
+                ]
+              }
+            }
+          }
         }
       }
     },
@@ -701,7 +752,11 @@
         "ratings",
         "evidence",
         "omissions",
-        "modelIdentity"
+        "modelIdentity",
+        "citationRegistry",
+        "modelData",
+        "modelRubric",
+        "readiness"
       ],
       "properties": {
         "schemaVersion": {
@@ -794,7 +849,8 @@
               "eventId",
               "content",
               "truncated",
-              "citation"
+              "citation",
+              "workspaceHints"
             ],
             "properties": {
               "eventId": {
@@ -811,6 +867,15 @@
               },
               "citation": {
                 "$ref": "urn:ebo:schema:analysis:v2#/$defs/citation"
+              },
+              "workspaceHints": {
+                "type": "array",
+                "maxItems": 1000000,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16384
+                }
               }
             }
           }
@@ -826,6 +891,61 @@
         },
         "modelIdentity": {
           "const": "blinded"
+        },
+        "citationRegistry": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "citation"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "citation": {
+                "$ref": "urn:ebo:schema:analysis:v2#/$defs/citation"
+              }
+            }
+          }
+        },
+        "modelData": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "modelRubric": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100000
+        },
+        "readiness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "missingRatingOccurrenceIds"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "ready",
+                "requires-ratings"
+              ]
+            },
+            "missingRatingOccurrenceIds": {
+              "type": "array",
+              "maxItems": 1000000,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              }
+            }
+          }
         }
       }
     },
@@ -1333,8 +1453,144 @@
               "citation": {
                 "$ref": "urn:ebo:schema:analysis:v2#/$defs/citation"
               },
-              "content": {}
+              "content": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "status",
+                      "value"
+                    ],
+                    "properties": {
+                      "status": {
+                        "const": "known"
+                      },
+                      "value": {}
+                    }
+                  },
+                  {
+                    "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/unavailable"
+                  }
+                ]
+              }
             }
+          }
+        }
+      }
+    },
+    "judgeAnswer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "assessment",
+        "confidence",
+        "abstentionReason",
+        "rationale",
+        "alternativeExplanation",
+        "claims",
+        "citationIds"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.semantic-judge-answer/v2"
+        },
+        "assessment": {
+          "enum": [
+            "constructive",
+            "adverse",
+            "mixed",
+            "context-dependent",
+            "abstain"
+          ]
+        },
+        "confidence": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstentionReason": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 12000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "alternativeExplanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "claims": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "text",
+              "citationIds",
+              "workspace"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 12000
+              },
+              "citationIds": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              },
+              "workspace": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "citationIds": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
           }
         }
       }

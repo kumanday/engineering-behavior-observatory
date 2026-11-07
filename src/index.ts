@@ -715,3 +715,5 @@ export * from "./ratings-v2.js";
 export * from "./semantic-judge-v2.js";
 export * from "./atlas-v2.js";
 export { loadRetainedAnalysisV2 } from "./analysis-v2-cli.js";
+
+export { ratingAnswerSchemaV2, semanticJudgeAnswerSchemaV2 } from "./model-contracts-v2.js";
