@@ -273,6 +273,7 @@ test("v2 planning accounts for every retained v1 prompt generation and rejects u
       Object.assign(f.input, { promptVersion: version }); f.judgment.input.digest = hash(f.input); f.write();
       const plan = planMigrationV2(inventoryMigrationStudy(f.study));
       assert.equal(plan.summary.affectedUnits, 1); assert.equal(plan.units[0]!.proof!.previous, version);
+      assert.deepEqual(validateArtifact("historical plan", plan), []);
     }
     Object.assign(f.input, { promptVersion: "unknown" }); f.judgment.input.digest = hash(f.input); f.write();
     assert.throws(() => planMigrationV2(inventoryMigrationStudy(f.study)), /No supported prompt-version/u);
