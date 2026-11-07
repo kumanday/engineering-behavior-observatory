@@ -110,16 +110,20 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
       const failures = scoped.slice(index, end);
       const failureEnds = failures.map(({ id }) => view.get(id)!.end!);
       const failedAt = [...failureEnds].sort((a, b) => nativeEventPrecedence(a, b) ?? compareEvents(a, b)).at(-1)!;
-      if (failureEnds.some((event) => event.id !== failedAt.id && nativeEventPrecedence(event, failedAt) === undefined)) failureOrderUnavailable = true;
-      let next: typeof first | undefined;
+      let chainOrderUnavailable = failureEnds.some((event) => event.id !== failedAt.id && nativeEventPrecedence(event, failedAt) === undefined);
+      const candidates: typeof scoped = [];
       for (const candidate of scoped.slice(end)) {
         if (candidate.toolName !== first.toolName) continue;
         const start = view.get(candidate.id)!.start;
         if (failures.some((failure) => sameDeclaredBatch(failure, candidate))) continue;
         const precedence = nativeEventPrecedence(failedAt, start);
-        if (precedence === undefined) { failureOrderUnavailable = true; continue; }
-        if (precedence < 0) { next = candidate; break; }
+        if (precedence === undefined) { chainOrderUnavailable = true; continue; }
+        if (precedence < 0) candidates.push(candidate);
       }
+      const next = candidates[0];
+      if (next !== undefined && candidates.slice(1).some((candidate) =>
+        nativeEventPrecedence(view.get(next.id)!.start, view.get(candidate.id)!.start) !== -1)) chainOrderUnavailable = true;
+      if (chainOrderUnavailable) { failureOrderUnavailable = true; index = end; continue; }
       add("failure-response", true, [...failures, ...(next === undefined ? [] : [next])].flatMap(({ events }) => events), {
         toolName: first.toolName, failures: failures.length, lastFailureEventId: failedAt.id,
         nextOutcome: next === undefined ? "none" : details.get(next.id)!.result,
@@ -152,7 +156,7 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
   }
   for (const group of signatures.values()) {
     if (group.length < 2) continue;
-    const view = commonOperationView(group);
+    const view = commonOperationView(group, "repetition");
     if (view === undefined) { repeatedOrderUnavailable = true; continue; }
     const sorted = [...group].sort((a, b) => nativeEventPrecedence(view.get(a.id)!.start, view.get(b.id)!.start) ?? compareEvents(view.get(a.id)!.start, view.get(b.id)!.start));
     const first = view.get(sorted[0]!.id)!.start;
@@ -392,7 +396,7 @@ function ordered(events: readonly UniformEvent[]): UniformEvent[] {
 }
 
 /** One complete native view shared by logical operations, even when each has duplicate hook/session records. */
-function commonOperationView(operations: readonly OccurrenceOperation[]): Map<string, { start: UniformEvent; end?: UniformEvent }> | undefined {
+function commonOperationView(operations: readonly OccurrenceOperation[], purpose: "failure" | "repetition" = "failure"): Map<string, { start: UniformEvent; end?: UniformEvent }> | undefined {
   const views = operations.map((operation) => {
     const byDomain = new Map<string, UniformEvent[]>();
     for (const event of operation.events) if (event.nativeOrder.status === "known") {
@@ -400,9 +404,10 @@ function commonOperationView(operations: readonly OccurrenceOperation[]): Map<st
     }
     return new Map([...byDomain].flatMap(([domain, events]) => {
       const sorted = [...events].sort((a, b) => nativeEventPrecedence(a, b) ?? compareEvents(a, b));
-      const start = sorted.find(({ phase }) => phase === "before" || phase === "instant");
+      const start = sorted.find(({ phase }) => phase === "before" || phase === "instant")
+        ?? (purpose === "repetition" ? sorted[0] : undefined);
       const end = sorted.filter(({ phase }) => phase === "after" || phase === "instant").at(-1);
-      return start === undefined || operation.failed && end === undefined ? [] : [[domain, { start, end }] as const];
+      return start === undefined || purpose === "failure" && operation.failed && end === undefined ? [] : [[domain, { start, end }] as const];
     }));
   });
   const common = [...views[0]?.keys() ?? []].sort().find((domain) => views.every((view) => view.has(domain)));

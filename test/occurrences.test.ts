@@ -417,3 +417,36 @@ test("intervening tools separate source-ordered failure chains without hiding a 
   assert.equal(terminal.attributes.nextOutcome, "none");
   assert.equal(coverage.find(({ type }) => type === "failure-response")!.status, "available");
 });
+
+
+test("completion-only native operations retain source-ordered repetition evidence", () => {
+  const first = call(1, "Bash", "same", { isError: false }).operation;
+  const repeated = call(2, "Bash", "same", { isError: false }).operation;
+  for (const operation of [first, repeated]) operation.events = operation.events.filter(({ phase }) => phase === "after");
+  const result = extract([repeated, first]);
+  const occurrence = result.occurrences.find(({ type }) => type === "repeated-operation")!;
+  assert.equal(occurrence.attributes.firstEventId, "event-11");
+  assert.equal(occurrence.attributes.repeatedEventId, "event-21");
+  assert.equal(result.coverage.find(({ type }) => type === "repeated-operation")!.status, "available");
+});
+
+test("repetition needs comparable source observations without requiring a failure result in that domain", () => {
+  const first = call(1, "Bash", "same", { isError: true }).operation;
+  const repeated = call(2, "Bash", "same", { isError: false }).operation;
+  first.events = first.events.map((value) => value.phase === "after" ? { ...value,
+    nativeOrder: { status: "known", value: 1, domain: "results" } } : value);
+  const result = extract([first, repeated]);
+  assert.equal(result.occurrences.filter(({ type }) => type === "repeated-operation").length, 1);
+  assert.equal(result.coverage.find(({ type }) => type === "repeated-operation")!.status, "available");
+});
+
+test("tied earliest successors cannot be selected by display time or event ID", () => {
+  const failed = call(1, "Bash", "fail", { isError: true }).operation;
+  const left = call(2, "Bash", "left", { isError: false }).operation;
+  const right = call(3, "Bash", "right", { isError: false }).operation;
+  right.events = right.events.map((value) => ({ ...value,
+    nativeOrder: { status: "known", value: value.phase === "before" ? 20 : 21, domain: "session" } }));
+  const result = extract([right, failed, left]);
+  assert.equal(result.coverage.find(({ type }) => type === "failure-response")!.status, "unavailable");
+  assert.equal(result.occurrences.filter(({ type }) => type === "failure-response").length, 0);
+});
