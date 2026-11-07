@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import assert from "node:assert/strict";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -231,4 +233,59 @@ test("retained store links cannot redirect admission or readback", { skip: !pyth
     const replacement = join(outside, "binding.json"); cpSync(record, replacement); rmSync(record); symlinkSync(replacement, record);
     assert.throws(() => readHarborCapture(store, admitted.binding.captureRevision, admitted.inspection.snapshotDigest), /store links/u);
   } finally { temp.cleanup(); }
+});
+
+
+test("descendant trajectory changes create capture revisions and preserve earlier evidence", { skip: !python }, async () => {
+  const temp = temporary();
+  try {
+    const source = fixture(temp.root); mkdirSync(join(source.directory, "agent/child"));
+    const child = join(source.directory, "agent/child/trajectory.json"); writeFileSync(child, '{"synthetic":1}');
+    const options = { directory: source.directory, store: join(temp.root, "store"), namespace: "synthetic-source", producer, pythonExecutable: python };
+    const first = await importHarborTrial(options); writeFileSync(child, '{"synthetic":2}'); const second = await importHarborTrial(options);
+    assert.equal(first.status, "imported"); assert.equal(second.status, "imported");
+    if (first.status !== "imported" || second.status !== "imported") return;
+    assert.notEqual(first.binding.captureRevision, second.binding.captureRevision);
+    assert.equal(first.inspection.execution!.id, second.inspection.execution!.id);
+    readHarborCapture(options.store, first.binding.captureRevision, first.inspection.snapshotDigest);
+  } finally { temp.cleanup(); }
+});
+
+test("refreshed original assessments retain selectable membership contexts for the same regrade", { skip: !python }, async () => {
+  const temp = temporary();
+  try {
+    const original = fixture(temp.root), regrade = fixture(temp.root, "regrade", ids[1]);
+    regrade.result.config.source_trial = { action: "regrade", type: "hub", trial_id: ids[0] }; save(regrade.directory, regrade.result);
+    const options = { directory: regrade.directory, originals: [{ sourceReference: ids[0]!, directory: original.directory }], store: join(temp.root, "store"), namespace: "synthetic-source", producer, pythonExecutable: python };
+    const first = await importHarborTrial(options);
+    original.result.verifier_result.rewards.reward = 1; save(original.directory, original.result);
+    const second = await importHarborTrial(options);
+    assert.equal(first.status, "imported"); assert.equal(second.status, "imported");
+    if (first.status !== "imported" || second.status !== "imported") return;
+    assert.equal(first.binding.captureRevision, second.binding.captureRevision); assert.equal(second.reused, true);
+    assert.notEqual(first.inspectionDigest, second.inspectionDigest);
+    assert.throws(() => readHarborCapture(options.store, second.binding.captureRevision, second.inspection.snapshotDigest), /select an inspection digest/u);
+    readHarborCapture(options.store, first.binding.captureRevision, first.inspection.snapshotDigest, first.inspectionDigest);
+    readHarborCapture(options.store, second.binding.captureRevision, second.inspection.snapshotDigest, second.inspectionDigest);
+  } finally { temp.cleanup(); }
+});
+
+test("interrupted staged source writes remain retained and a retry can finish admission", { skip: !python }, async () => {
+  const temp = temporary(), originalWrite = fs.writeFileSync;
+  try {
+    const source = fixture(temp.root), store = join(temp.root, "store"); let failed = false;
+    fs.writeFileSync = ((path: fs.PathOrFileDescriptor, data: any, options: any) => {
+      if (!failed && String(path).includes("pending-writes")) {
+        failed = true; originalWrite(path, Buffer.from(data).subarray(0, 5), options);
+        throw Object.assign(new Error("Synthetic interrupted write"), { code: "ENOSPC" });
+      }
+      return originalWrite(path, data, options);
+    }) as typeof fs.writeFileSync; syncBuiltinESMExports();
+    const options = { directory: source.directory, store, namespace: "synthetic-source", producer, pythonExecutable: python };
+    await assert.rejects(importHarborTrial(options), /Synthetic interrupted write/u);
+    const retained = readdirSync(join(store, "pending-writes")); assert.equal(retained.length, 1);
+    const retry = await importHarborTrial(options); assert.equal(retry.status, "imported");
+    assert.deepEqual(readdirSync(join(store, "pending-writes")), retained);
+    assert.equal(readFileSync(join(store, "pending-writes", retained[0]!, "bytes")).length, 5);
+  } finally { fs.writeFileSync = originalWrite; syncBuiltinESMExports(); temp.cleanup(); }
 });

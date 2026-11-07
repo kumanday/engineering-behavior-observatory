@@ -1,5 +1,5 @@
 import { validateHarborTrialBytes, type HarborTrialValidation } from "./harbor-record-reader.js";
-import { lstatSync, mkdirSync, mkdtempSync, opendirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from "node:fs";
+import { linkSync, lstatSync, mkdirSync, mkdtempSync, opendirSync, readFileSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { assertNoDuplicateJsonKeys, digestBytes, digestMetadata, validateArtifact } from "./artifacts.js";
 import { isSafeArtifactRelativePath } from "./contracts.js";
@@ -176,18 +176,19 @@ export async function importHarborTrial(options: { directory: string; store: str
     sourceCaptureDigest: source.inspection.captureRevision, importManifestDigest: hash(manifest),
     nativeArtifacts: agentFiles(source.files), modelAliases: execution.modelAliases };
   keepJson(join(store, "bindings"), `${revision.slice(7)}.json`, binding);
-  keepJson(join(store, "memberships", revision.slice(7)), `${source.inspection.snapshotDigest.slice(7)}.json`, {
+  const inspectionDigest = hash(source.inspection);
+  keepJson(join(store, "memberships", revision.slice(7), source.inspection.snapshotDigest.slice(7)), `${inspectionDigest.slice(7)}.json`, {
     schemaVersion: "ebo.harbor-capture-membership/v1", captureRevision: revision, sourceSnapshotDigest: source.inspection.snapshotDigest,
-    assessmentId: source.inspection.assessment.id, inspectionDigest: hash(source.inspection), bindingDigest: hash(binding), modelAliases: source.inspection.modelAliases,
+    assessmentId: source.inspection.assessment.id, inspectionDigest, bindingDigest: hash(binding), modelAliases: source.inspection.modelAliases,
   });
   keepJson(join(store, "assessments"), `${source.inspection.assessment.id.slice(7)}.json`, {
     schemaVersion: "ebo.harbor-assessment/v1", authority: "third-party", executionId: execution.id, ...source.inspection.assessment,
   });
-  return { status: "imported" as const, reused: imported.reused, inspection: source.inspection, snapshot, bundleRoot: destination, binding };
+  return { status: "imported" as const, reused: imported.reused, inspection: source.inspection, snapshot, bundleRoot: destination, binding, inspectionDigest };
 }
 
 /** Reopens an explicitly selected revision and snapshot; source metadata cannot select another execution. */
-export function readHarborCapture(store: string, captureRevision: Hash, sourceSnapshotDigest: Hash) {
+export function readHarborCapture(store: string, captureRevision: Hash, sourceSnapshotDigest: Hash, inspectionDigest?: Hash) {
   const identifier = (value: string) => { if (!/^sha256:[a-f0-9]{64}$/u.test(value)) throw new Error("Invalid Harbor content identity."); return value.slice(7); };
   const revision = identifier(captureRevision), snapshotId = identifier(sourceSnapshotDigest);
   const read = (path: string): ObjectValue => {
@@ -198,7 +199,22 @@ export function readHarborCapture(store: string, captureRevision: Hash, sourceSn
     return value;
   };
   const binding = read(`bindings/${revision}.json`);
-  const membership = read(`memberships/${revision}/${snapshotId}.json`);
+  const contexts = `memberships/${revision}/${snapshotId}`;
+  if (inspectionDigest === undefined) {
+    assertNoStoreLinks(store, contexts);
+    const directory = opendirSync(join(store, contexts)); const candidates: string[] = [];
+    try {
+      for (let entry = directory.readSync(); entry !== null; entry = directory.readSync()) {
+        if (!/^[a-f0-9]{64}\.json$/u.test(entry.name)) throw new Error("Invalid retained Harbor context record.");
+        candidates.push(entry.name.slice(0, -5));
+        if (candidates.length > 1) throw new Error("Multiple Harbor context receipts; select an inspection digest.");
+      }
+    } finally { directory.closeSync(); }
+    if (candidates.length !== 1) throw new Error("Harbor context receipt is missing.");
+    inspectionDigest = `sha256:${candidates[0]!}`;
+  }
+  const membership = read(`${contexts}/${identifier(inspectionDigest)}.json`);
+  if (membership.inspectionDigest !== inspectionDigest) throw new Error("Harbor context identity is stale.");
   if (binding.captureRevision !== captureRevision || membership.captureRevision !== captureRevision
       || membership.sourceSnapshotDigest !== sourceSnapshotDigest || membership.bindingDigest !== hash(binding)) throw new Error("Harbor revision membership is stale.");
   const inspection = read(`inspections/${identifier(String(membership.inspectionDigest))}.json`) as unknown as HarborTrialInspection;
@@ -300,7 +316,7 @@ function declaredSubset(source: unknown, target: unknown): boolean {
   return Object.entries(source).every(([key, value]) => Object.hasOwn(candidate, key) && declaredSubset(value, candidate[key]));
 }
 function agentFiles(files: Map<string, Buffer>) {
-  return [...files].filter(([path]) => path.startsWith("agent/") && !/(?:^|\/)trajectory(?:\.original)?\.json$/u.test(path))
+  return [...files].filter(([path]) => path.startsWith("agent/") && path !== "agent/trajectory.json")
     .map(([path, bytes]) => ({ path, digest: rawHash(bytes) }));
 }
 function retainExact(root: string, path: string, bytes: Buffer, store = root) {
@@ -309,11 +325,16 @@ function retainExact(root: string, path: string, bytes: Buffer, store = root) {
   if (!isSafeArtifactRelativePath(storePath)) throw new Error("Unsafe retained store path.");
   assertNoStoreLinks(store, storePath);
   mkdirSync(dirname(join(root, path)), { recursive: true, mode: 0o700 });
-  try { writeFileSync(join(root, path), bytes, { flag: "wx", mode: 0o600 }); }
+  assertNoStoreLinks(store, "pending-writes");
+  mkdirSync(join(store, "pending-writes"), { recursive: true, mode: 0o700 });
+  const pending = mkdtempSync(join(store, "pending-writes", "record-")), staged = join(pending, "bytes");
+  writeFileSync(staged, bytes, { flag: "wx", mode: 0o600 });
+  try { linkSync(staged, join(root, path)); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    if (!readFileSync(join(root, path)).equals(bytes)) throw new Error("Retained Harbor identity or source bytes conflict; existing evidence is preserved.");
+    if (lstatSync(join(root, path)).size !== bytes.length || !readFileSync(join(root, path)).equals(bytes)) throw new Error("Retained Harbor identity or source bytes conflict; existing evidence and staged bytes are preserved.");
   }
+  unlinkSync(staged); rmdirSync(pending);
 }
 function retainJson(root: string, path: string, value: unknown, store = root) {
   const errors = validateArtifact(path, value);

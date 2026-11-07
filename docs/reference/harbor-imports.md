@@ -53,7 +53,7 @@ adapter trials require an owned binding; this importer rejects their admission.
 ## Storage and evidence limits
 
 The store separates immutable `sources`, `inspections`, `executions`,
-`captures`, `bindings`, `memberships` and `assessments`. A source snapshot's
+`captures`, `bindings`, versioned contextual `memberships` and `assessments`. A source snapshot's
 identity depends on its namespace and sorted file descriptors. Contextual
 inspection receipts are separate, so supplying a missing original binding can
 resolve an existing snapshot without replacing its bytes. Repeated identical
@@ -83,3 +83,12 @@ explicitly selected revision without Python. It verifies retained source bytes,
 the ATIF admission receipt and the execution, inspection, assessment and revision
 bindings before returning source context. Changed or linked retained evidence
 fails readback. ATIF and trial agent names and explicit versions must agree.
+
+Source and context writes are staged under unique `pending-writes` paths and
+published without replacing existing files. Interrupted staged bytes stay
+retained; retries publish a complete new stage. Capture identity includes
+descendant trajectories and every agent artifact; the root trajectory is hashed
+separately. Context memberships are versioned by inspection digest. If a snapshot
+has several valid contexts, pass the returned `inspectionDigest` as the fourth
+argument to `readHarborCapture`; readback requires explicit selection. The import
+CLI returns the stored `captureRevision` and the separate `sourceCaptureDigest`.
