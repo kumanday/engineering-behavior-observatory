@@ -21,7 +21,7 @@ to 32 MiB input, 16 MiB output and 15 seconds. It launches no benchmark, agent,
 verifier or model judge. Imported documents cannot supply executable policy code.
 A missing or mismatched runtime produces an inspect-only receipt.
 
-A `complete` input must retain every fact’s run record and each referenced original run. Missing closure produces an unavailable policy receipt with no definitive exclusions. Bounded subsets keep their explicit population limit.
+A `complete` input must retain every fact’s run record and the recursively linked original facts and run records needed for reuse ordering and invalidation. Cyclic or conflicting reuse chains remain unavailable. Missing closure produces an unavailable policy receipt with no definitive exclusions. Bounded subsets keep their explicit population limit.
 
 The board-policy revision is independent of each trial's execution-time
 producer/converter revision. The current board policy includes trial-specific
@@ -134,7 +134,7 @@ Source and scanner revisions coexist as immutable records.
 
 A refresh uses a new acquisition snapshot and can name `priorCohortId`. Missing or
 moved native sources receive explicit exclusions. `withdrawnFactIds` excludes
-named trials from a new cohort revision for takedown handling. Historical private
+named trials from a new cohort revision for takedown handling. Withdrawal, selection and duplicate matching use UUID identity regardless of letter case; original protected record spelling remains in provenance. Historical private
 cohorts remain intact. Raw imports and source terms retain restricted status.
 
 Readback verifies source byte hashes, policy-input binding, scan receipts,

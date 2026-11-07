@@ -53,14 +53,19 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
   publishDirectory(store, `selections/${metadataHash(selection).slice(7)}`, new Map([["selection.json", jsonBytes(selection)], ["input.json", jsonBytes(source.input)]]));
   if (selection.status !== "available") return { status: "inspect-only" as const, sourceSnapshotDigest: source.snapshotDigest, diagnostics: selection.diagnostics };
   if (request.priorCohortId !== undefined) readLeaderboardCohort(store, request.priorCohortId);
-  const selectedIds = new Set(selection.rows.map(({ id }) => id));
-  const withdrawn = new Set(request.withdrawnFactIds ?? []), seen = new Set<string>(), members = new Map<string, CohortMember>(), cases: CaseResult[] = [];
-  for (const binding of [...request.nativeBindings].sort((a, b) => a.factId < b.factId ? -1 : a.factId > b.factId ? 1 : 0)) {
+  const selectedIds = new Map<string, Set<string>>();
+  for (const row of selection.rows) { const uuid = row.id.toLowerCase(); const ids = selectedIds.get(uuid) ?? new Set<string>(); ids.add(row.id); selectedIds.set(uuid, ids); }
+  const withdrawn = new Set((request.withdrawnFactIds ?? []).map((id) => id.toLowerCase())), seen = new Set<string>(), members = new Map<string, CohortMember>(), cases: CaseResult[] = [];
+  for (const declaredBinding of [...request.nativeBindings].sort((a, b) => a.factId < b.factId ? -1 : a.factId > b.factId ? 1 : 0)) {
+    const binding = { ...declaredBinding };
     if (!binding || typeof binding.factId !== "string" || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(binding.factId)
-        || typeof binding.directory !== "string" || typeof binding.profileId !== "string" || seen.has(binding.factId)) throw new Error("Native source bindings require unique bounded trial identities.");
-    seen.add(binding.factId);
-    if (withdrawn.has(binding.factId)) { cases.push({ factId: binding.factId, status: "withdrawn", reason: "OPERATOR_WITHDRAWAL" }); continue; }
-    if (!selectedIds.has(binding.factId)) { cases.push({ factId: binding.factId, status: "not-selected", reason: "OUTSIDE_PINNED_SOURCE_SELECTION" }); continue; }
+        || typeof binding.directory !== "string" || typeof binding.profileId !== "string" || seen.has(binding.factId.toLowerCase())) throw new Error("Native source bindings require unique bounded trial identities.");
+    const uuid = binding.factId.toLowerCase(), sourceIds = selectedIds.get(uuid);
+    seen.add(uuid);
+    if (sourceIds?.size === 1) binding.factId = [...sourceIds][0]!;
+    if (withdrawn.has(uuid)) { cases.push({ factId: binding.factId, status: "withdrawn", reason: "OPERATOR_WITHDRAWAL" }); continue; }
+    if (!sourceIds?.size) { cases.push({ factId: binding.factId, status: "not-selected", reason: "OUTSIDE_PINNED_SOURCE_SELECTION" }); continue; }
+    if (sourceIds.size > 1) { cases.push({factId:binding.factId,status:"inspect-only",reason:"AMBIGUOUS_SOURCE_UUID_SPELLING"}); continue; }
     let inspected: Awaited<ReturnType<typeof inspectHarborTrial>>;
     try { inspected = await inspectHarborTrial({ directory: binding.directory, namespace: "huggingface-bucket:joelniklaus/harness-leaderboard", originals: binding.originals, pythonExecutable }); }
     catch (error) {

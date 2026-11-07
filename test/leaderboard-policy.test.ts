@@ -44,3 +44,13 @@ test('complete history never classifies facts without their run or reused execut
   const receipt=await selectPinnedLeaderboardFacts(source,'/runtime-must-not-be-needed');assert.equal(receipt.status,'unavailable');assert.deepEqual(receipt.excludedSourceIndexes,[]);assert.deepEqual(receipt.diagnostics,['LEADERBOARD_RUN_OR_REUSE_CONTEXT_UNAVAILABLE']);
  }
 });
+
+test('complete reuse history requires original facts and rejects cycles before classification',async()=>{
+ const source=input();source.historyCompleteness='complete';source.facts=[{...source.facts[0],reused_from:'pilot'}];source.runs.pilot={...source.runs.full as object,run_id:'pilot',stage:'pilot'};source.invalid.pilot={rules:[{}]};
+ const missing=await selectPinnedLeaderboardFacts(source,'/runtime-not-needed');assert.equal(missing.status,'unavailable');assert.deepEqual(missing.excludedSourceIndexes,[]);
+ source.facts.push({...source.facts[0],run_id:'pilot',reused_from:'full'});const cycle=await selectPinnedLeaderboardFacts(source,'/runtime-not-needed');assert.equal(cycle.status,'unavailable');assert.deepEqual(cycle.excludedSourceIndexes,[]);
+});
+test('retained original invalidation facts prevent a reused trial from becoming a complete-history pass',{skip:!python},async()=>{
+ const source=input();source.historyCompleteness='complete';source.facts=[{...source.facts[0],reused_from:'pilot'}];source.runs.pilot={...source.runs.full as object,run_id:'pilot',stage:'pilot'};source.invalid.pilot={rules:[{}]};
+ source.facts.push({...source.facts[0],run_id:'pilot',reused_from:null});const result=await selectPinnedLeaderboardFacts(source,python);assert.equal(result.status,'available');assert.equal(result.rows.length,0);
+});

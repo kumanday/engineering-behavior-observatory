@@ -74,7 +74,23 @@ export async function selectPinnedLeaderboardFacts(input: LeaderboardPolicyInput
       const run = input.runs[id];
       return run !== null && typeof run === "object" && !Array.isArray(run) && (run as Record<string, unknown>).run_id === id;
     };
-    if (input.facts.some((fact) => !hasRun(fact.run_id) || fact.reused_from !== null && fact.reused_from !== undefined && !hasRun(fact.reused_from))) return unavailable("LEADERBOARD_RUN_OR_REUSE_CONTEXT_UNAVAILABLE");
+    const key = (run: unknown, id: unknown) => JSON.stringify([run, id]);
+    const parents = new Map<string, string | null>();
+    for (const fact of input.facts) {
+      if (!hasRun(fact.run_id) || fact.reused_from !== null && fact.reused_from !== undefined && !hasRun(fact.reused_from)) return unavailable("LEADERBOARD_RUN_OR_REUSE_CONTEXT_UNAVAILABLE");
+      const own = key(fact.run_id, fact.id), parent = typeof fact.reused_from === "string" ? key(fact.reused_from, fact.id) : null;
+      if (parents.has(own) && parents.get(own) !== parent) return unavailable("LEADERBOARD_RUN_OR_REUSE_CONTEXT_UNAVAILABLE");
+      parents.set(own, parent);
+    }
+    const complete = new Set<string>();
+    for (const own of parents.keys()) {
+      let current: string | null = own; const visiting = new Set<string>();
+      while (current !== null && !complete.has(current)) {
+        if (!parents.has(current) || visiting.has(current)) return unavailable("LEADERBOARD_RUN_OR_REUSE_CONTEXT_UNAVAILABLE");
+        visiting.add(current); current = parents.get(current)!;
+      }
+      for (const item of visiting) complete.add(item);
+    }
   }
   return new Promise((complete) => {
     const child = spawn(pythonExecutable, ["-I", "-c", PROGRAM], { stdio: ["pipe", "pipe", "pipe"] });

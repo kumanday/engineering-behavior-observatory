@@ -180,3 +180,13 @@ test('protected canonical and route aliases reach blinded judges and revise only
   const next=readLeaderboardCohort(f.store,refreshed.cohortId).manifest.members[0]!;assert.equal(next.executionId,member.executionId);assert.notEqual(next.captureRevision,member.captureRevision);assert.equal(readLeaderboardCohort(f.store,imported.cohortId).manifest.members[0]!.captureRevision,member.captureRevision);
  }finally{f.cleanup();}
 });
+
+test('UUID case variants cannot bypass withdrawals, selection or duplicate binding checks',{skip:!python},async()=>{
+ const f=fixture();try{
+  const uuid='de3da3ea-edda-41c1-afcf-40f93cb15134';const result=JSON.parse(readFileSync(join(f.trial,'result.json'),'utf8'));result.id=uuid;write(join(f.trial,'result.json'),result);
+  const artifact=f.acquisition.artifacts.find(({remotePath})=>remotePath.endsWith('.jsonl'))!,fact=JSON.parse(readFileSync(join(f.snapshot,artifact.localPath),'utf8'));fact.id=uuid;const bytes=Buffer.from(JSON.stringify(fact)+'\n');writeFileSync(join(f.snapshot,artifact.localPath),bytes);artifact.bytes=bytes.length;artifact.sha256=rawHash(bytes).slice(7);write(join(f.snapshot,'acquisition.json'),f.acquisition);
+  f.request.nativeBindings[0]!.factId=uuid.toUpperCase();const excluded=await importLeaderboardCohort({...f.request,withdrawnFactIds:[uuid.toUpperCase()]},f.store,python);assert.equal(excluded.status,'imported');if(excluded.status!=='imported')return;assert.equal(excluded.admittedExecutions,0);assert.equal(excluded.cases[0]!.status,'withdrawn');
+  const imported=await importLeaderboardCohort(f.request,f.store,python);assert.equal(imported.status,'imported');if(imported.status!=='imported')return;assert.equal(imported.admittedExecutions,1);f.request.nativeBindings[0]!.factId=uuid;const canonical=await importLeaderboardCohort(f.request,f.store,python);assert.equal(canonical.status,'imported');if(canonical.status==='imported')assert.equal(canonical.cohortId,imported.cohortId);
+  await assert.rejects(importLeaderboardCohort({...f.request,nativeBindings:[...f.request.nativeBindings,{...f.request.nativeBindings[0]!,factId:uuid.toUpperCase()}]},f.store,python),/unique bounded trial/u);
+ }finally{f.cleanup();}
+});
