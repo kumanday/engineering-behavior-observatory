@@ -117,7 +117,7 @@
       }
     },
     "producer": {
-      "$ref": "urn:ebo:schema:atif-producer-profile:v1#/$defs/fingerprint"
+      "$ref": "urn:ebo:schema:atif-producer-profile:v1#/properties/producer"
     },
     "producerAuthority": {
       "const": "operator-declared"
