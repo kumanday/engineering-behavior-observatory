@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { FACTORY_BYOK_MODEL_ID, type FactoryModelRoute } from "../src/factory-model.js";
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -165,6 +166,7 @@ test("Factory declined permissions retain an interrupted run bundle and native p
     assert.equal(result.manifest.terminal.state, "interrupted");
     assert.equal(result.capture?.terminal?.reason, "permission_rejected");
     const retained = await createRetainedBehaviorEvidence(bundle);
+    await assertNativeV2RetainedBundle(bundle);
     assert.equal(retained.dataset.events.find(e => e.family === "outcome")?.attributes.reason, "permission_rejected");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

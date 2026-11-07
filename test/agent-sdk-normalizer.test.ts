@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -498,6 +499,7 @@ test(`loads qualified semantic evidence with missing workspace=${missingWorkspac
     writeFileSync(manifestPath, canonicalizeMetadata(manifest));
 
     const normalized = await normalizeClaudeAgentSdkRunBundle(bundleRoot);
+    await assertNativeV2RetainedBundle(bundleRoot);
     assert.equal(normalized.events.every(({ source }) => source.harness === CLAUDE_AGENT_SDK_HARNESS), true);
     assert.equal(normalized.events.some(({ family }) => family === "outcome"), true);
     assert.deepEqual(normalized.events.find(({ source }) => source.nativeType === "assessment-mode")?.attributes,

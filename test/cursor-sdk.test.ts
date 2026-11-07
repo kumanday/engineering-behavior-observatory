@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
@@ -57,6 +58,7 @@ test("Harbor Cursor wrapper retains native retries, usage, session and workspace
     assert.equal(result.qualification, "qualified");
     assert.equal(result.nativeSessionId, AGENT_ID);
     const evidence = await createRetainedBehaviorEvidence(input.stepBundleRoot);
+    await assertNativeV2RetainedBundle(input.stepBundleRoot);
     assert.ok(evidence.dataset.events.length > 0);
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
 });

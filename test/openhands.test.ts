@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,6 +41,7 @@ test("Harbor OpenHands wrapper binds its conversation to the actual workspace", 
     const reportPath = manifest.evidence.find((e: {kind:string}) => e.kind === "capture-report").relativePath;
     assert.equal(result.qualification, "qualified-with-gaps", readFileSync(join(input.stepBundleRoot, reportPath), "utf8"));
     assert.equal(result.nativeSessionId, "conversation-1");
+    await assertNativeV2RetainedBundle(input.stepBundleRoot);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

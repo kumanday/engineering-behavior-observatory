@@ -1,0 +1,36 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { datasetV2Digest } from "../src/normalization-v2.js";
+import { digestMetadata } from "../src/artifacts.js";
+import { createRetainedBehaviorEvidence } from "../src/retained-evidence.js";
+import { createRetainedBehaviorEvidenceV2 } from "../src/native-v2.js";
+
+/** Exercise the production retained reader on the bundle an adapter's synthetic capture just wrote. */
+export async function assertNativeV2RetainedBundle(root: string): Promise<void> {
+  const manifest = readFileSync(join(root, "manifest.json"));
+  const original = await createRetainedBehaviorEvidence(root), digest = digestMetadata(original.dataset).value;
+  const projected = await createRetainedBehaviorEvidenceV2(root);
+  assert.equal(datasetV2Digest(projected.dataset), datasetV2Digest(JSON.parse(JSON.stringify(projected.dataset))), "v2 derivations are durable JSON values");
+  assert.equal(projected.dataset.schemaVersion, "ebo.normalized-dataset/v2");
+  assert.equal(projected.dataset.origin.kind, "owned");
+  assert.ok(projected.modelAliases?.length, "retained v2 readers preserve the manifest model identity");
+  assert.equal(projected.dataset.origin.qualification, original.capture.qualification);
+  if (original.dataset.adapter.harness === "factory-droid") {
+    const prompt = projected.dataset.events.find(({ facts }) => facts.message?.role.status === "known" && facts.message.role.value === "user")!;
+    assert.ok(prompt, "retained Factory captures include the owned prompt");
+    const source = original.dataset.events.find(({ id }) => id === prompt.id)!;
+    assert.equal(source.scope.kind, "session");
+    assert.equal(prompt.facts.message!.identity.status, "known");
+    if (source.scope.kind === "session" && prompt.facts.message!.identity.status === "known") assert.equal(prompt.facts.message!.identity.value.scope, `session:${source.scope.id}`);
+  }
+  assert.equal(projected.dataset.nativeRecords.length, projected.dataset.recordCoverage.length);
+  for (const reference of projected.dataset.contentReferences) {
+    const resolution = await projected.resolver.resolve(reference.reference);
+    assert.ok(resolution && typeof resolution === "object" && resolution.digest === reference.digest);
+    const value = projected.resolver.read(reference.reference);
+    if (value !== undefined) assert.equal(reference.digest, `sha256:${digestMetadata(value).value}`);
+  }
+  assert.equal(digestMetadata(original.dataset).value, digest);
+  assert.deepEqual(readFileSync(join(root, "manifest.json")), manifest);
+}
