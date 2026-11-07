@@ -93,7 +93,7 @@ export const piV2Profile: NativeProjectionProfile = {
     if (event.family === "runtime" && event.id.includes("usage-")) {
       const usage = object(message.usage ?? record.usage);
       facts.resource = resources({ inputTokens: usage.input, outputTokens: usage.output, cacheReadInputTokens: usage.cacheRead,
-        cacheCreationInputTokens: usage.cacheWrite, totalTokens: usage.totalTokens, totalCostUsd: object(usage.cost).total }, "step", "increment",
+        cacheCreationInputTokens: usage.cacheWrite, totalTokens: usage.totalTokens, reasoningTokens: usage.reasoning, totalCostUsd: object(usage.cost).total }, "step", "increment",
         text(record.id) ? known(`${scope}/message:${text(record.id)!}`) : unreported);
     }
     const origin = envelope ? message.timestamp : record.timestamp ?? message.timestamp;
