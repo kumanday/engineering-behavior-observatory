@@ -42,11 +42,12 @@ export function operationCommandV2(dataset: NormalizedDatasetV2, operation: Oper
 
 export async function createOccurrenceLedgerV2(dataset: NormalizedDatasetV2, resolver: SourceEvidenceResolverV2): Promise<OccurrenceLedgerV2> {
   await validateNormalizedDatasetV2(dataset, resolver);
+  const boundDigest = datasetV2Digest(dataset);
   const occurrences: OccurrenceV2[] = [], events = new Map(dataset.events.map((event) => [event.id, event]));
   const limitations = new Map<OccurrenceTypeV2, string>();
   const add = async (type: OccurrenceTypeV2, operations: Operation[], ids: string[], facts: OccurrenceV2["facts"], heuristic = false) => {
     const eventIds = [...new Set(ids)].sort(), operationIds = operations.map(({ id }) => id).sort();
-    const identity = { dataset: datasetV2Digest(dataset), type, operationIds, eventIds, facts };
+    const identity = { dataset: boundDigest, type, operationIds, eventIds, facts };
     occurrences.push({ schemaVersion: "ebo.occurrence/v2", id: `occurrence:${analysisDigestV2(identity).slice(7)}`, type,
       rule: { version: "2.0.0", heuristic }, operationIds, eventIds, facts,
       citations: await Promise.all(eventIds.map((id) => citeEventV2(dataset, resolver, id))) });
@@ -96,7 +97,7 @@ export async function createOccurrenceLedgerV2(dataset: NormalizedDatasetV2, res
   for (const event of dataset.events) if (event.facts.context?.type === "compaction") await add("compaction", [], [event.id], { replacementBoundaryKnown: known(event.facts.context.replacementBoundary.status === "known") });
   for (const operation of dataset.operations.filter(({ identity }) => identity.kind === "delegation")) await add("delegation", [operation], operationEventsV2(dataset, operation).map(({ id }) => id), { outcomeFailure: operation.failure });
   for (const type of OCCURRENCE_V2_TYPES) if (!occurrences.some((row) => row.type === type) && !limitations.has(type)) limitations.set(type, "RECORDED_POPULATION_COMPLETENESS_UNREPORTED");
-  return { schemaVersion: "ebo.occurrence-ledger/v2", runId: dataset.runId, attemptId: dataset.attemptId, datasetDigest: datasetV2Digest(dataset),
+  return { schemaVersion: "ebo.occurrence-ledger/v2", runId: dataset.runId, attemptId: dataset.attemptId, datasetDigest: boundDigest,
     occurrences: occurrences.sort((a, b) => a.id.localeCompare(b.id)), coverage: OCCURRENCE_V2_TYPES.map((type) => ({ type, count: occurrences.filter((row) => row.type === type).length,
       limitation: limitations.has(type) ? known(limitations.get(type)!) : unreported })) };
 }
