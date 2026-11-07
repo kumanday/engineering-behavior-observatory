@@ -36,6 +36,13 @@
       "trajectorySha256": "b4643b8abf07e4ed911aaac7290f18b582a96e46cf899ed184342971bed3d6ce"
     },
     {
+      "id": "hermes-blank-names",
+      "native": "hermes-blank-names.native.json",
+      "trajectory": "hermes-blank-names.atif.json",
+      "nativeSha256": "375cff76fd8839297804a7f4217a37aca60ab40bc71ff845c974d0e7a202f42f",
+      "trajectorySha256": "b78bfb3cfefb0ca077501be51dd3a651f93de1c38d44e8121bb35c5741c6b151"
+    },
+    {
       "id": "hermes-empty",
       "native": "hermes-empty.native.json",
       "trajectory": "hermes-empty.atif.json",

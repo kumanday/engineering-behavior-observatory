@@ -101,7 +101,7 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
     const callIds = new Set<string>();
     for (const [callIndex, call] of calls.entries()) {
       const id = call.tool_call_id, name = call.function_name;
-      if (typeof id !== "string" || !id.trim() || typeof name !== "string" || !name.trim() || frequencies.get(id) !== 1) {
+      if (typeof id !== "string" || !id.trim() || frequencies.get(id) !== 1) {
         gap = true; omitted = true; limitations.add("AMBIGUOUS_OPERATION_IDENTITY"); continue;
       }
       callIds.add(id);
@@ -112,9 +112,10 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
       const signature = profile.family === "codex" ? codexInput(extra, call, id, pointer, callPointer, calls.length)
         : { ...(argumentKeys.length && !fallbackArguments ? { inputDigest: digestValue(call.arguments) } : {}), contentPointer: `${callPointer}/arguments` };
       if (profile.family === "codex" && !signature.inputDigest) limitations.add("CONVERTER_ARGUMENT_PROVENANCE_INCOMPLETE");
-      const unknownName = profile.family !== "codex" && name === "unknown";
-      if (unknownName) limitations.add("CONVERTER_TOOL_NAME_PLACEHOLDER");
-      const operation: OperationContribution = { nativeId: id, scope: "document:#", identityClass: "converter-assigned", canonical: true, ...(unknownName ? {} : { toolName: name }), endpoint: "call", issuingInference: issued,
+      const nativeName = typeof name === "string" && name.trim() ? name : undefined;
+      const toolName = profile.family !== "codex" && nativeName === "unknown" ? undefined : nativeName;
+      if (!toolName) limitations.add(nativeName === "unknown" ? "CONVERTER_TOOL_NAME_PLACEHOLDER" : "TOOL_NAME_UNREPORTED");
+      const operation: OperationContribution = { nativeId: id, scope: "document:#", identityClass: "converter-assigned", canonical: true, ...(toolName ? { toolName } : {}), endpoint: "call", issuingInference: issued,
         ...(signature.inputDigest ? { inputDigest: signature.inputDigest } : {}) };
       emit(step, pointer, callPointer, "call", "tool", { facts: {}, clock: unreported, operation }, signature.contentPointer ?? `${callPointer}/arguments`);
       const linked = results.map((result, resultIndex) => ({ result, resultIndex })).filter(({ result }) => result.source_call_id === id);

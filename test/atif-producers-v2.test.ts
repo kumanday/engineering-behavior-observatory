@@ -237,3 +237,13 @@ test("converter-assigned unknown tool names cannot establish equal tool signatur
     assert.equal(ledger.occurrences.filter(({ type }) => type === "repeated-operation").length, 0);
   }
 });
+
+
+test("blank tool names retain identified calls and linked result endpoints", async () => {
+  const evidence = await project("hermes", undefined, "hermes-blank-names");
+  assert.deepEqual(evidence.dataset.operations.map(({ identity }) => identity.nativeId).sort(), ["call-a", "call-b"]);
+  assert.ok(evidence.dataset.operations.every(({ toolName, callEventIds, resultEventIds }) => toolName.status === "unknown" && callEventIds.length === 1 && resultEventIds.length === 1));
+  const view = await buildAtlasViewV2(evidence);
+  assert.equal(view.units.filter(({ kind }) => kind === "tool").length, 2);
+  assert.equal((await measures(evidence))["repeated-tool-operation-count"]!.status, "unknown");
+});

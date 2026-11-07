@@ -42,7 +42,8 @@
       "toolResultEndpointOrder": "unknown: converter folds results into issuing steps",
       "emptyPrimaryResponse": "pass: completion retained without a body; failure unknown",
       "argumentFallback": "unavailable input identity for ambiguous raw wrapper",
-      "toolNamePlaceholder": "unknown, excluded from identical-tool signatures"
+      "toolNamePlaceholder": "unknown, excluded from identical-tool signatures",
+      "blankToolNames": "pass: calls and results retained; name and equal-tool signatures unknown"
     },
     "openclaw": {
       "atifVersion": "ATIF-v1.8",
@@ -68,5 +69,5 @@
   "qualification": "imported",
   "crossOriginPooling": "not qualified",
   "modelCalls": 0,
-  "independentAuthoredPairs": 12
+  "independentAuthoredPairs": 13
 }

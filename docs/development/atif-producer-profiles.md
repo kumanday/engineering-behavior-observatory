@@ -76,7 +76,7 @@ and unknown aggregation semantics instead of becoming normalized native input
 usage. Replacement boundaries remain unknown, so these profiles cannot rebuild
 the model's context.
 
-`scripts/convert-atif-producer-fixtures.py` regenerates twelve authored native/ATIF
+`scripts/convert-atif-producer-fixtures.py` regenerates thirteen authored native/ATIF
 pairs twice, checks converter source digests, and verifies byte-identical output.
 `test/atif-producers-v2.test.ts` separately checks admission, offline readback,
 typed consumers, partial histories and unsupported measures. Restricted
@@ -90,7 +90,7 @@ fallback conversion reproduces its retained steps and partial marker, with zero
 recorded calls and unknown whole-attempt count. Its native session is absent,
 so paired native fidelity remains unavailable. These case-specific results do
 not authorize cross-origin pooling. The implementation's public regression gate
-passes the focused producer and import tests with pinned Harbor and board-policy runtimes; all twelve
+passes the focused producer and import tests with pinned Harbor and board-policy runtimes; all thirteen
 independent authored conversions reproduce byte for byte.
 
 Codex input signatures retain the recorded item type and raw input. Function-call
@@ -98,3 +98,7 @@ JSON objects use canonical decoded values when they agree with the converted
 arguments; custom or malformed inputs retain their raw representation. Missing
 provenance leaves the signature unknown. Converted `unknown` tool-name
 placeholders in Hermes and OpenClaw also stay unknown, preventing false repeats.
+
+A blank or missing tool name leaves `toolName` unknown while retaining the
+identified call and its linked result endpoints. Tool identity and name
+availability are independent facts.
