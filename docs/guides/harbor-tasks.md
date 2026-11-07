@@ -373,3 +373,17 @@ model records. Build the guest runtime with `--factory`.
 Run the [Factory live checks](../harnesses/factory-droid.md#verification-and-live-qualification)
 for each selected provider/image combination. The synthetic Pi Smol conformance
 suite validates infrastructure independently of Factory inference.
+
+### Task-shipped prior trajectories
+
+EBO rejects `trajectory.json` at the task root or beside a step's
+`instruction.md` with `unsupported-imported-trajectory`. The check runs during
+inspection/admission, queue compilation and execution preparation, including
+frozen tasks. Regular files, symlinks and dangling symlinks at these reserved
+locations all require seeded-context support, which the execution profile does
+not declare. Data files under a task's ordinary work directory keep their
+normal meaning.
+
+This guard also applies with Harbor 0.24.0; it does not depend on a later
+Harbor release detecting the file. Post-run ATIF analysis uses the separate
+[import admission path](../reference/atif.md#pi-imports).
