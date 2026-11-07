@@ -1,7 +1,6 @@
 # ATIF admission and EBO normalization
 
-Status: proposed. The development pilot is complete; production admission and
-the v2 normalization changes have separate implementation gates.
+Status: accepted. The additive 1.x implementation preserves existing capture and normalization contracts. EBO v2 adapter activation, consumer migration and release qualification have separate gates.
 
 ## Decisions
 
