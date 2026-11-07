@@ -27,6 +27,27 @@
       "trajectory": "openclaw.atif.json",
       "nativeSha256": "c22166867efb1bc5f678018153f94e711be7ca99c4a7455d9177350f6a0608ee",
       "trajectorySha256": "777b2a6c8b1b856198f47c54c926dec85e549875c0d29c1df37b87d33c6aacfe"
+    },
+    {
+      "id": "hermes-empty",
+      "native": "hermes-empty.native.json",
+      "trajectory": "hermes-empty.atif.json",
+      "nativeSha256": "e7da903e5379842eeab62aeb75feb127aa48127e0b77dac5be0631032920aba7",
+      "trajectorySha256": "433d01847f51d60b1cde8d1eab841ea48037d579e5891aa116d62a5b5b607f23"
+    },
+    {
+      "id": "openclaw-empty",
+      "native": "openclaw-empty.native.jsonl",
+      "trajectory": "openclaw-empty.atif.json",
+      "nativeSha256": "70c137999dea1bdc41833f70de33c97d67520e4d137cb414710533ea9b879c01",
+      "trajectorySha256": "455950cbfc6144fe7815af7a94eabda270c5b29ac365469355ddb0220a149251"
+    },
+    {
+      "id": "openclaw-late-results",
+      "native": "openclaw-late-results.native.jsonl",
+      "trajectory": "openclaw-late-results.atif.json",
+      "nativeSha256": "15ee0e5c32509213d8c9f8da219c76199308486380b5267c682ee3fa3b05adc8",
+      "trajectorySha256": "07f9572aac5108ac6be6be209fbb90f48ab4a6f0b19cfb4c669c16187dbeb9ae"
     }
   ]
 }

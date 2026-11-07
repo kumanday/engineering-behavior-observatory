@@ -16,8 +16,8 @@ const profiles = listAdditionalAtifProfilesV2();
 const fixtureRoot = new URL("../../test/fixtures/atif/producers/", import.meta.url);
 const fixture = (family: string): AtifObject => JSON.parse(readFileSync(new URL(`${family}.atif.json`, fixtureRoot), "utf8"));
 const steps = (source: AtifObject) => source.steps as AtifObject[];
-async function project(family: string, edit?: (source: AtifObject) => void) {
-  const source = fixture(family); edit?.(source);
+async function project(family: string, edit?: (source: AtifObject) => void, fixtureName = family) {
+  const source = fixture(fixtureName); edit?.(source);
   const read = inspectAtifBytes(Buffer.from(JSON.stringify(source)));
   assert.equal(read.inspection.versionPolicy.status, "supported");
   read.inspection.structural = { status: "valid", validator: "harbor", version: "0.24.0", diagnostics: [] };
@@ -159,4 +159,27 @@ test("additional producer admission reopens offline with v1 retention and v2 typ
       assert.equal((await importAtifFile({ sourcePath: file, destination: bundle, runId: "r", attemptId: "a", producer: profile.producer, pythonExecutable: process.env.EBO_ATIF_TEST_PYTHON, modelAliases: ["synthetic-model"] })).reused, true);
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("folded results never invent a follow-up before the native failure arrived", async () => {
+  // Independent conversion of call-a, call-b, failed-result-a, result-b folds results into issuing steps.
+  const evidence = await project("openclaw", undefined, "openclaw-late-results");
+  assert.ok(evidence.dataset.operations.every(({ endOrder }) => endOrder.status === "unknown"));
+  const ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
+  assert.equal(ledger.occurrences.filter(({ type }) => type === "execution-follow-up").length, 0);
+});
+
+test("empty primary OpenClaw and Hermes responses retain completion and positive error evidence", async () => {
+  for (const family of ["openclaw", "hermes"]) {
+    const evidence = await project(family, undefined, `${family}-empty`);
+    const call = evidence.dataset.operations.find(({ identity }) => identity.nativeId === "call-a")!;
+    assert.equal(call.resultEventIds.length, 1, family);
+    assert.equal(call.endOrder.status, "unknown", family);
+    assert.equal(evidence.dataset.events.find(({ id }) => id === call.resultEventIds[0])!.content.status, "unknown", family);
+    if (family === "openclaw") {
+      assert.deepEqual(call.failure, { status: "known", value: true });
+      assert.deepEqual((await measures(evidence))["tool-error-count"], { status: "lower-bound", value: 1, reason: "OPERATION_FAILURE_UNREPORTED" });
+    } else assert.equal(call.failure.status, "unknown");
+  }
 });

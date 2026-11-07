@@ -24,8 +24,10 @@ for module, digest in expected.items():
         raise SystemExit(f"Converter source drift: {module.__name__}")
 manifest = {"schemaVersion": "ebo.atif-producer-fixtures/v1", "harborVersion": version("harbor"),
             "converterDigests": {m.__name__: d for m, d in expected.items()}, "fixtures": []}
-for family, extension in [("codex", "jsonl"), ("hermes", "json"), ("openclaw", "jsonl")]:
-    source = args.root / f"{family}.native.{extension}"
+for name in ["codex", "hermes", "openclaw", "hermes-empty", "openclaw-empty", "openclaw-late-results"]:
+    family = name.split("-", 1)[0]
+    extension = "json" if family == "hermes" else "jsonl"
+    source = args.root / f"{name}.native.{extension}"
     outputs = []
     for _ in range(2):
         with tempfile.TemporaryDirectory() as tmp:
@@ -43,13 +45,13 @@ for family, extension in [("codex", "jsonl"), ("hermes", "json"), ("openclaw", "
             outputs.append((json.dumps(result.to_json_dict(), indent=2) + "\n").encode())
     if outputs[0] != outputs[1]:
         raise SystemExit(f"Non-deterministic conversion: {family}")
-    target = args.root / f"{family}.atif.json"
+    target = args.root / f"{name}.atif.json"
     if args.check:
         if target.read_bytes() != outputs[0]:
             raise SystemExit(f"Conversion drift: {family}")
     else:
         target.write_bytes(outputs[0])
-    manifest["fixtures"].append({"id": family, "native": source.name, "trajectory": target.name,
+    manifest["fixtures"].append({"id": name, "native": source.name, "trajectory": target.name,
                                  "nativeSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
                                  "trajectorySha256": hashlib.sha256(outputs[0]).hexdigest()})
 target = args.root / "manifest.json"
@@ -59,4 +61,4 @@ if args.check:
         raise SystemExit("Fixture manifest drift")
 else:
     target.write_text(data)
-print("PASS: 3 independent deterministic producer conversions")
+print("PASS: 6 independent deterministic producer conversions")

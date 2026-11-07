@@ -28,12 +28,13 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
     const event: UniformEventV2 = { schemaVersion: "ebo.uniform-event/v2", id: `${pointer}/${suffix}`, runId: input.runId, attemptId: input.attemptId,
       source: { sourceId, nativeType: `atif:${suffix}`, nativeReference: ref(pointer) }, family,
       phase: family === "tool" ? projection.operation?.endpoint === "call" ? "before" : projection.operation?.endpoint === "result" ? "after" : "instant" : "instant",
-      nativeOrder: { status: "known", domain: `${artifactId}:#`, value: Number(step.step_id) }, clock: unreported,
+      nativeOrder: projection.operation && projection.operation.endpoint !== "call" ? { status: "unknown", reason: "CONVERTER_RESULT_ORDER_UNESTABLISHED" }
+        : { status: "known", domain: `${artifactId}:#`, value: Number(step.step_id) }, clock: unreported,
       actor: { kind: family === "tool" && projection.operation?.endpoint !== "call" ? "tool" : step.source === "agent" ? "model" : step.source === "user" ? "user" : "harness" },
       scope: { kind: "session", id: "document:#" }, relations: { parent: unreported, known: [] }, attributes: {},
       content: contentPointer === undefined ? unreported : known([{ nativeReference: ref(contentPointer), role: family === "tool"
         ? projection.operation?.endpoint === "call" ? "tool-input" : "tool-result" : "message" }]), facts: projection.facts };
-    if (profile.family !== "hermes") {
+    if (profile.family !== "hermes" && (!projection.operation || projection.operation.endpoint === "call")) {
       const clock = recordedClock({ event: { ...event, schemaVersion: "ebo.uniform-event/v1", source: { harness: profile.family, nativeType: event.source.nativeType, nativeReference: event.source.nativeReference }, nativeTime: unreported }, record: step, records: [] }, step.timestamp, "producer-observation", `${sourceId}:#`);
       if (clock.status === "known") projection.clock = known({ ...clock.value, provenance: "converter-derived", source: ref(`${stepPointer}/timestamp`) });
     }
@@ -87,10 +88,12 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
       emit(step, pointer, callPointer, "call", "tool", { facts: {}, clock: unreported, operation }, `${callPointer}/arguments`);
       const linked = results.map((result, resultIndex) => ({ result, resultIndex })).filter(({ result }) => result.source_call_id === id);
       const primary = linked.filter(({ result }) => !(profile.family === "openclaw" && object(result.extra).nested_tool !== undefined));
-      if (primary.length !== 1 || primary[0]!.result.content === undefined || primary[0]!.result.content === null) limitations.add(primary.length > 1 ? "AMBIGUOUS_RESULT_LINK" : "PENDING_CALL");
+      // Codex may fabricate a result slot without an output; Hermes/OpenClaw create slots only on actual responses.
+      const hasResponse = (result: Record<string, unknown>) => profile.family !== "codex" || result.content !== undefined && result.content !== null;
+      if (primary.length !== 1 || !hasResponse(primary[0]!.result)) limitations.add(primary.length > 1 ? "AMBIGUOUS_RESULT_LINK" : "PENDING_CALL");
       for (const { result, resultIndex } of linked) {
         const nested = profile.family === "openclaw" && object(result.extra).nested_tool !== undefined;
-        const terminal = !nested && primary.length === 1 && result.content !== undefined && result.content !== null;
+        const terminal = !nested && primary.length === 1 && hasResponse(result);
         const failure = terminal && profile.family === "openclaw" && object(result.extra).is_error === true ? known(true) : unreported;
         emit(step, pointer, `${pointer}/observation/results/${resultIndex}`, "result", "tool", { facts: {}, clock: unreported,
           operation: { ...operation, endpoint: terminal ? "result" : "observation", failure } }, result.content === undefined ? undefined : `${pointer}/observation/results/${resultIndex}/content`);

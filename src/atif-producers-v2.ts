@@ -11,7 +11,7 @@ export type AdditionalAtifProfileV2 = {
 };
 export const HLB_TRAJECTORIES_REVISION = "c4a8c4cb468aa1b1e8f3e31c002d2272cc090236";
 const base = "https://huggingface.co/spaces/joelniklaus/harness-leaderboard/blob/";
-const common = ["THIRD_PARTY_SOURCE", "CAPTURE_COMPLETENESS_UNPROVEN", "NATIVE_REQUEST_IDENTITIES_UNAVAILABLE", "CONTEXT_REPLACEMENT_BOUNDARIES_UNAVAILABLE"];
+const common = ["THIRD_PARTY_SOURCE", "CAPTURE_COMPLETENESS_UNPROVEN", "NATIVE_REQUEST_IDENTITIES_UNAVAILABLE", "CONTEXT_REPLACEMENT_BOUNDARIES_UNAVAILABLE", "CONVERTER_RESULT_ORDER_UNESTABLISHED"];
 const harbor = (family: "codex" | "hermes", formatVersion: string, agentVersion: string, sourceDigest: `sha256:${string}`): AdditionalAtifProfileV2 => ({
   id: `${family}/harbor-0.24.0/${formatVersion}/agent-${agentVersion}/hlb-${HLB_PI_PILOT_REVISION}`, version: "2.0.0", family,
   producer: { formatVersion, agent: { name: family, version: agentVersion },
