@@ -1,0 +1,4 @@
+{"timestamp":"2026-11-07T00:00:01.000Z","type":"session_meta","payload":{"id":"synthetic-codex","cli_version":"0.162.1"}}
+{"timestamp":"2026-11-07T00:00:01.000Z","type":"turn_context","payload":{"model":"synthetic-model","turn_id":"synthetic-turn"}}
+{"timestamp":"2026-11-07T00:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Run checks."}]}}
+{"type":"response_item","timestamp":"2026-11-07T00:00:03.000Z","payload":{"type":"web_search_call","id":"web-a","status":"completed","action":{"type":"search","query":"synthetic"}}}

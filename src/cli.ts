@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { readAtifFile } from "./atif-reader.js";
 import { importAtifFile } from "./atif-import.js";
 import { listAtifProducerProfiles } from "./atif-profiles.js";
+import { listAtifProfilesV2 } from "./atif-producers-v2.js";
 import { importHarborTrial, inspectHarborTrial, type HarborOriginalBinding } from "./harbor-import.js";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
@@ -90,7 +91,7 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo v2 inspect <retained-bundle> <new-directory>
        ebo v2 prepare-judge <retained-bundle> <new-directory> <request.json>
        ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...
-       ebo atif profiles
+       ebo atif profiles [--v2]
        ebo atif import-harbor <trial-directory> <store> --namespace <source-id> --profile <id> [--python <executable>]
        ebo atif import-leaderboard <cohort-request.json> <store> [--python <executable>]
        ebo atif read-leaderboard <store> <cohort-digest>
@@ -549,7 +550,7 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
       values.set(flag, value);
     }
     const namespace = values.get("--namespace");
-    const profile = listAtifProducerProfiles().find(({ id }) => id === values.get("--profile"));
+    const profile = listAtifProfilesV2().find(({ id }) => id === values.get("--profile"));
     if (!namespace || importing && !profile) { write("Harbor import requires --namespace and an explicit registered --profile.\n"); return 1; }
     try {
       const document = values.has("--originals") ? readJson(values.get("--originals")!) : [];
@@ -565,6 +566,9 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
       return status === (importing ? "imported" : "eligible") ? 0 : 1;
     } catch (error) { write(`Harbor source import failed: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
   }
+  if (args[0] === "profiles" && args.length === 2 && args[1] === "--v2") {
+    write(`${JSON.stringify(listAtifProfilesV2(), null, 2)}\n`); return 0;
+  }
   if (args[0] === "profiles" && args.length === 1) {
     write(`${JSON.stringify(listAtifProducerProfiles(), null, 2)}\n`); return 0;
   }
@@ -579,7 +583,7 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
       }
       values.set(flag, value);
     }
-    const profile = listAtifProducerProfiles().find(({ id }) => id === values.get("--profile"));
+    const profile = listAtifProfilesV2().find(({ id }) => id === values.get("--profile"));
     if (!profile || !values.has("--run") || !values.has("--attempt")) { write("ATIF import requires --run, --attempt and an explicit registered --profile (see ebo atif profiles).\n"); return 1; }
     try {
       const result = await importAtifFile({ sourcePath, destination, runId: values.get("--run")!, attemptId: values.get("--attempt")!,

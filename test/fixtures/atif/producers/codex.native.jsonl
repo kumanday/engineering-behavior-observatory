@@ -1,0 +1,8 @@
+{"timestamp":"2026-11-07T00:00:01.000Z","type":"session_meta","payload":{"id":"synthetic-codex","cli_version":"0.162.1"}}
+{"timestamp":"2026-11-07T00:00:01.000Z","type":"turn_context","payload":{"model":"synthetic-model","turn_id":"synthetic-turn"}}
+{"timestamp":"2026-11-07T00:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Run checks."}]}}
+{"timestamp":"2026-11-07T00:00:03.000Z","type":"response_item","payload":{"type":"function_call","call_id":"call-a","name":"exec_command","arguments":"{\"cmd\":\"synthetic-test\"}"}}
+{"timestamp":"2026-11-07T00:00:03.000Z","type":"response_item","payload":{"type":"function_call","call_id":"call-b","name":"exec_command","arguments":"{\"cmd\":\"synthetic-lint\"}"}}
+{"timestamp":"2026-11-07T00:00:04.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-a","output":"Synthetic failure."}}
+{"timestamp":"2026-11-07T00:00:05.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-b","output":"Synthetic success."}}
+{"timestamp":"2026-11-07T00:00:06.000Z","type":"response_item","payload":{"type":"function_call","call_id":"pending","name":"exec_command","arguments":"{\"cmd\":\"synthetic-pending\"}"}}

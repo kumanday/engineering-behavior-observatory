@@ -8,6 +8,7 @@ on:
       - 'test/**'
       - 'compatibility/**'
       - 'scripts/atif-*'
+      - 'scripts/convert-atif-producer-fixtures.py'
       - 'scripts/atif-import-pilot/**'
       - 'scripts/compatibility/**'
       - 'scripts/freeze-native-baseline.mjs'
@@ -48,9 +49,10 @@ jobs:
           .atif-venv/bin/python -m pip check
         env:
           GIT_LFS_SKIP_SMUDGE: '1'
-      - name: Check independent Pi conversions and retained media
+      - name: Check independent producer conversions and retained media
         run: |
           .atif-venv/bin/python scripts/convert-pi-fixtures.py test/fixtures/atif/pi --check
+          .atif-venv/bin/python scripts/convert-atif-producer-fixtures.py test/fixtures/atif/producers --check
           .atif-venv/bin/python -B -m unittest discover -s scripts -p test_freeze_pi_pairs.py
       - name: Check import contracts on authored fixtures
         run: |

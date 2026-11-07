@@ -2,7 +2,7 @@ import { lstatSync, mkdirSync, mkdtempSync, opendirSync, renameSync, writeFileSy
 import { dirname, join, resolve } from "node:path";
 import { canonicalizeMetadata, validateArtifact } from "./artifacts.js";
 import { isSafeArtifactRelativePath } from "./contracts.js";
-import { listAtifProducerProfiles } from "./atif-profiles.js";
+import { listAtifProfilesV2 } from "./atif-producers-v2.js";
 import { readAtifImportAdmission } from "./atif-import.js";
 import { inspectHarborTrial, importHarborTrial, readHarborCapture, type HarborOriginalBinding } from "./harbor-import.js";
 import { buildCorpusIndex, readCorpusIndex, writeCorpusIndex } from "./corpus.js";
@@ -88,7 +88,7 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
     const result = inspected.result, info = result?.agent_info as Record<string, unknown> | undefined;
     const taskPath = (result?.task_id as Record<string, unknown> | undefined)?.path;
     const assessment = inspected.inspection.assessment;
-    const profile = listAtifProducerProfiles().find(({ id }) => id === binding.profileId);
+    const profile = listAtifProfilesV2().find(({ id }) => id === binding.profileId);
     if (inspected.inspection.status !== "eligible" || profile === undefined || inspected.inspection.trialId !== binding.factId.toLowerCase()
         || facts.some((fact) => fact.harness !== info?.name || fact.harness_version !== info?.version
           || fact.task !== String(taskPath ?? "").replace(/\/+$/u, "").split("/").at(-1)
