@@ -76,7 +76,7 @@ and unknown aggregation semantics instead of becoming normalized native input
 usage. Replacement boundaries remain unknown, so these profiles cannot rebuild
 the model's context.
 
-`scripts/convert-atif-producer-fixtures.py` regenerates sixteen authored native/ATIF
+`scripts/convert-atif-producer-fixtures.py` regenerates eighteen authored native/ATIF
 pairs twice, checks converter source digests, and verifies byte-identical output.
 `test/atif-producers-v2.test.ts` separately checks admission, offline readback,
 typed consumers, partial histories and unsupported measures. Restricted
@@ -90,7 +90,7 @@ fallback conversion reproduces its retained steps and partial marker, with zero
 recorded calls and unknown whole-attempt count. Its native session is absent,
 so paired native fidelity remains unavailable. These case-specific results do
 not authorize cross-origin pooling. The implementation's public regression gate
-passes the focused producer and import tests with pinned Harbor and board-policy runtimes; all sixteen
+passes the focused producer and import tests with pinned Harbor and board-policy runtimes; all eighteen
 independent authored conversions reproduce byte for byte.
 
 Codex input signatures retain the recorded item type and raw input. Function-call
@@ -109,3 +109,13 @@ fabricated for orphan results. Orphans become result-only operations with
 unknown issuing inference; orphan-only steps also withhold inference counts.
 Built-in web-search records preserve their calls and synthetic result slots as
 observations, without asserting an independently recorded response.
+
+Codex steps sharing a retained `api_call_id` contribute one converter-declared
+inference group and a common sibling identity. Conflicting or missing group
+evidence withholds the count and binding. These converter IDs are not native
+provider request IDs. Explicit Codex cost zeros remain reported observations;
+ambiguous zero-filled token fields remain unavailable.
+
+Codex resource snapshots sharing a converter API group retain the same reported
+population, so copies split across steps cannot become separate usage totals.
+Their aggregation semantics remain unknown.

@@ -56,7 +56,8 @@ test("Codex preserves grouped inference and reports conversion loss for the nati
   const [first, second] = evidence.dataset.operations;
   assert.deepEqual(first!.issuingInference, second!.issuingInference); assert.equal(first!.issuingInference.status, "known");
   assert.deepEqual(first!.startOrder, second!.startOrder);
-  assert.equal(observed["declared-inference-count"]!.status, "known"); assert.equal(observed["native-request-count"]!.status, "unknown");
+  assert.equal(observed["declared-inference-count"]!.status, "known");
+  assert.equal(evidence.capture.qualification === "imported" && evidence.capture.sourceLimitations?.includes("CONVERTER_INFERENCE_GROUP_UNAVAILABLE"), false); assert.equal(observed["native-request-count"]!.status, "unknown");
   assert.ok(evidence.dataset.events.some(({ clock }) => clock.status === "known" && clock.value.kind === "producer-observation" && clock.value.provenance === "converter-derived"));
   const event = evidence.dataset.events.find(({ clock }) => clock.status === "known")!;
   assert.equal(executionDurationMs(event, event).status, "unknown");
@@ -272,4 +273,31 @@ test("Codex built-in web search retains its call without inventing an independen
   assert.equal(operation.callEventIds.length, 1); assert.equal(operation.resultEventIds.length, 0); assert.equal(operation.observationEventIds!.length, 1);
   assert.equal(operation.failure.status, "unknown");
   assert.ok(evidence.capture.qualification === "imported" && evidence.capture.sourceLimitations?.includes("BUILTIN_RESPONSE_UNAVAILABLE"));
+});
+
+
+test("Codex split converter groups keep one declared inference and sibling identity", async () => {
+  const source = fixture("codex-split-inference");
+  const agents = steps(source).filter((step) => step.source === "agent");
+  assert.equal(agents.length, 2); assert.equal(new Set(agents.map((step) => (step.extra as AtifObject).api_call_id)).size, 1);
+  const evidence = await project("codex", undefined, "codex-split-inference");
+  assert.deepEqual((await measures(evidence))["declared-inference-count"], { status: "known", value: 1 });
+  assert.deepEqual(evidence.dataset.operations[0]!.issuingInference, evidence.dataset.operations[1]!.issuingInference);
+  assert.equal(evidence.dataset.operations[0]!.issuingInference.status, "known");
+  const resources = evidence.dataset.events.flatMap(({ facts }) => facts.resource?.scope === "step" ? [facts.resource] : []);
+  assert.equal(resources.length, 2); assert.deepEqual(resources[0]!.populationId, resources[1]!.populationId);
+  const groupUsage = (await createStructuralObservationSetV2(evidence.dataset, evidence.resolver)).observations.filter(({ measure }) => measure === "resource-prompt_tokens-unknown-converter");
+  assert.equal(groupUsage.length, 1); assert.equal(groupUsage[0]!.value.status, "unknown");
+  const conflict = await project("codex", (source) => { steps(source).filter((step) => step.source === "agent")[1]!.llm_call_count = 2; }, "codex-split-inference");
+  assert.equal((await measures(conflict))["declared-inference-count"]!.status, "unknown");
+  assert.ok(conflict.dataset.operations.every(({ issuingInference }) => issuingInference.status === "unknown"));
+});
+
+test("explicit zero-dollar Codex cost survives without zero-filling missing token fields", async () => {
+  const source = fixture("codex-zero-cost"); assert.equal((source.final_metrics as AtifObject).total_cost_usd, 0);
+  const evidence = await project("codex", undefined, "codex-zero-cost");
+  const resources = evidence.dataset.events.flatMap(({ facts }) => facts.resource ? [facts.resource] : []);
+  assert.ok(resources.some(({ values }) => values.total_cost_usd === 0));
+  const observed = await measures(evidence); assert.deepEqual(observed["resource-total_cost_usd-unknown-converter"], { status: "known", value: 0 });
+  assert.equal(resources.some(({ values }) => values.cached_tokens === 0 || values.total_cached_tokens === 0), false);
 });

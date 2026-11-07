@@ -17,7 +17,7 @@
       "pilotNativeCalls": 45,
       "pilotAtifCalls": 44,
       "pilotMissingUnansweredCalls": 1,
-      "declaredInference": "recorded steps only",
+      "declaredInference": "deduplicated converter API groups; conflicting/missing group evidence unknown",
       "nativeRequests": "unavailable",
       "toolFailures": "unavailable",
       "executionDuration": "unavailable: grouped producer-observation clocks",
@@ -27,7 +27,8 @@
       "inputSignatures": "recorded item type and raw input; unambiguous function JSON objects canonicalized; missing provenance unknown",
       "bodylessResponses": "pass: completion preserved with source provenance",
       "orphanResults": "pass: result-only operations, unknown issuing inference and orphan-only inference counts",
-      "builtinWebSearch": "call preserved; synthetic empty result slot is an observation"
+      "builtinWebSearch": "call preserved; synthetic empty result slot is an observation",
+      "zeroCost": "explicit zero retained as converter-reported cost, independently of unavailable token dimensions"
     },
     "hermes": {
       "atifVersion": "ATIF-v1.2",
@@ -72,5 +73,5 @@
   "qualification": "imported",
   "crossOriginPooling": "not qualified",
   "modelCalls": 0,
-  "independentAuthoredPairs": 16
+  "independentAuthoredPairs": 18
 }

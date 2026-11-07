@@ -38,6 +38,12 @@ function codexOriginalCall(extra: Record<string, unknown>, call: Record<string, 
     || call.function_name === "web_search_call" && Object.hasOwn(object(call.arguments), "action_type");
 }
 
+function codexOutputProven(step: Record<string, unknown>): boolean {
+  return typeof step.message === "string" && step.message.length > 0 || Array.isArray(step.message) && step.message.length > 0
+    || typeof step.reasoning_content === "string" && step.reasoning_content.length > 0
+    || array(step.tool_calls).map(object).some((call) => codexOriginalCall(object(step.extra), call));
+}
+
 /** Producer-specific interpretations over admitted bytes. No native capture authority is conferred. */
 export async function projectAdditionalAtifV2(input: { read: AtifReadResult; producer: AtifProducerFingerprint; runId: string; attemptId: string;
   manifestDigest: `sha256:${string}`; artifactId?: string }): Promise<RetainedBehaviorEvidenceV2> {
@@ -80,6 +86,17 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
       const id = object(value).tool_call_id; if (typeof id === "string") frequencies.set(id, (frequencies.get(id) ?? 0) + 1);
     }
   }
+  // The converter can flush one generated API group into multiple ATIF steps around user/system records.
+  const inferenceGroups = new Map<string, { anchor: number; proven: boolean; single: boolean }>();
+  if (profile.family === "codex") for (const [index, step] of steps.entries()) {
+    if (step.source !== "agent" || step.is_copied_context === true || object(step.extra).added_by === "hlb") continue;
+    const id = object(step.extra).api_call_id;
+    if (typeof id !== "string" || !id.trim()) continue;
+    const proven = codexOutputProven(step), previous = inferenceGroups.get(id);
+    inferenceGroups.set(id, previous ? { anchor: !previous.proven && proven ? index : previous.anchor,
+      proven: previous.proven || proven, single: previous.single && (!proven || step.llm_call_count === 1) }
+      : { anchor: index, proven, single: !proven || step.llm_call_count === 1 });
+  }
   let gap = !!object(document.extra).partial, omitted = false;
   if (gap) limitations.add("PRODUCER_PARTIAL_HISTORY");
   if (array(document.subagent_trajectories).length) { gap = true; limitations.add("CHILD_SCOPE_UNQUALIFIED"); }
@@ -101,12 +118,14 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
       emit(step, pointer, pointer, "message", "message", { facts: { message: messageFact(step.source === "agent" ? "assistant" : step.source, undefined, "canonical", known({ id: pointer, scope: "document:#", identityClass: "converter-assigned" })) }, clock: unreported }, `${pointer}/message`);
     }
     const calls = array(step.tool_calls).map(object), results = array(object(step.observation).results).map(object);
-    const outputProven = profile.family !== "codex" || typeof message === "string" && message.length > 0 || Array.isArray(message) && message.length > 0
-      || typeof step.reasoning_content === "string" && step.reasoning_content.length > 0 || calls.some((call) => codexOriginalCall(extra, call));
-    const declared = profile.family === "codex" && outputProven && integer(step.llm_call_count) ? known(step.llm_call_count) : unreported;
-    if (profile.family === "codex" && !outputProven) limitations.add("CONVERTER_ORPHAN_INFERENCE_UNAVAILABLE");
-    if (step.source === "agent") emit(step, pointer, pointer, "inference", "runtime", { facts: { inference: { llmCallCount: declared, nativeRequestId: unreported } }, clock: unreported });
-    const issued = profile.family === "codex" && step.llm_call_count === 1 ? known({ id: pointer, scope: "document:#", identityClass: "declared-single-inference" as const }) : unreported;
+    const groupId = typeof extra.api_call_id === "string" && extra.api_call_id.trim() ? extra.api_call_id : undefined;
+    const group = groupId === undefined ? undefined : inferenceGroups.get(groupId);
+    const declared = profile.family === "codex" && group?.proven && group.single ? known(1) : unreported;
+    if (profile.family === "codex" && !codexOutputProven(step) && step.source === "agent") limitations.add("CONVERTER_ORPHAN_INFERENCE_UNAVAILABLE");
+    if (profile.family === "codex" && step.source === "agent" && (!group || !group.single)) limitations.add("CONVERTER_INFERENCE_GROUP_UNAVAILABLE");
+    if (step.source === "agent" && (profile.family !== "codex" || !group || group.anchor === index)) emit(step, pointer, pointer, "inference", "runtime", { facts: { inference: { llmCallCount: declared, nativeRequestId: unreported } }, clock: unreported });
+    const issued = profile.family === "codex" && groupId !== undefined && group?.proven && group.single
+      ? known({ id: `converter-api:${groupId}`, scope: "document:#", identityClass: "declared-single-inference" as const }) : unreported;
     const callIds = new Set<string>();
     for (const [callIndex, call] of calls.entries()) {
       const id = call.tool_call_id, name = call.function_name;
@@ -149,10 +168,13 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
   // Usage is retained as converter-reported snapshots in separate populations. It is never treated as normalized native input tokens.
   for (const [index, step] of steps.entries()) {
     if (step.is_copied_context === true || object(step.extra).added_by === "hlb") continue;
-    const values = Object.fromEntries(Object.entries(object(step.metrics)).filter(([key, value]) => ["prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd"].includes(key) && typeof value === "number" && Number.isFinite(value) && value > 0));
-    if (Object.keys(values).length) emit(step, `#/steps/${index}`, `#/steps/${index}`, "usage", "runtime", { facts: { resource: { scope: "step", authority: "converter", semantics: "unknown", populationId: known(`#/steps/${index}`), values: values as Record<string, number> } }, clock: unreported });
+    const values = Object.fromEntries(Object.entries(object(step.metrics)).filter(([key, value]) => ["prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd"].includes(key) && typeof value === "number" && Number.isFinite(value) && (value > 0 || profile.family === "codex" && key === "cost_usd" && value === 0)));
+    const groupId = object(step.extra).api_call_id;
+    const populationId = profile.family === "codex" && typeof groupId === "string" && groupId.trim()
+      ? known(`converter-api:${groupId}`) : known(`#/steps/${index}`);
+    if (Object.keys(values).length) emit(step, `#/steps/${index}`, `#/steps/${index}`, "usage", "runtime", { facts: { resource: { scope: "step", authority: "converter", semantics: "unknown", populationId, values: values as Record<string, number> } }, clock: unreported });
   }
-  const final = Object.fromEntries(Object.entries(object(document.final_metrics)).filter(([key, value]) => ["total_prompt_tokens", "total_completion_tokens", "total_cached_tokens", "total_cost_usd"].includes(key) && typeof value === "number" && Number.isFinite(value) && value > 0));
+  const final = Object.fromEntries(Object.entries(object(document.final_metrics)).filter(([key, value]) => ["total_prompt_tokens", "total_completion_tokens", "total_cached_tokens", "total_cost_usd"].includes(key) && typeof value === "number" && Number.isFinite(value) && (value > 0 || profile.family === "codex" && key === "total_cost_usd" && value === 0)));
   if (Object.keys(final).length) {
     const finalEvent: UniformEventV2 = { schemaVersion: "ebo.uniform-event/v2", id: "#/final_metrics/usage", runId: input.runId, attemptId: input.attemptId,
       source: { sourceId, nativeType: "atif:final-metrics", nativeReference: ref("#") }, family: "runtime", phase: "instant", nativeOrder: unreported, clock: unreported,
