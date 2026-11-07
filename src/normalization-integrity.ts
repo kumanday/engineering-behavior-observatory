@@ -66,6 +66,8 @@ export type NormalizedDatasetInput<NativeRecord> = {
   adapterVersion: string;
   nativeType(record: NativeRecord): string;
   contentDigest?(reference: NativeEvidenceReference): DigestString | undefined;
+  /** Opt in for source JSON pointers; existing native adapters retain containing-record digest semantics. */
+  contentDigestPolicy?: "containing-record/v1" | "canonical-json-pointers/v1";
 };
 
 export type ComparisonCapability = `family:${UniformEventFamily}`
@@ -154,9 +156,11 @@ export function describeNormalizedDataset<NativeRecord>(
     for (const { nativeReference: reference } of event.content.value) {
       const key = referenceKey(reference);
       const containing = containingReference(reference);
-      const digest = nativeDigests.get(key)
-        ?? (containing === undefined ? undefined : nativeDigests.get(referenceKey(containing)))
-        ?? input.contentDigest?.(reference);
+      const digest = input.contentDigestPolicy === "canonical-json-pointers/v1" && reference.recordLocator.startsWith("#")
+        ? input.contentDigest?.(reference)
+        : nativeDigests.get(key)
+          ?? (containing === undefined ? undefined : nativeDigests.get(referenceKey(containing)))
+          ?? input.contentDigest?.(reference);
       if (digest === undefined) throw new Error(`Content reference ${formatReference(reference)} requires a trusted digest.`);
       const existing = contentReferences.get(key);
       if (existing !== undefined && existing.digest !== digest) {
