@@ -193,3 +193,10 @@ Use `ebo atif profiles` to choose an exact producer identity, then
 --profile <registered-id> [--python <executable>]`.
 The [ATIF reference](atif.md#pi-imports) defines imported qualification,
 validation requirements, repeatability and measurement limits.
+
+Use `ebo atif import-leaderboard COHORT_REQUEST STORE --python EXECUTABLE` to
+retain a bounded local snapshot, evaluate its pinned public board selection and
+admit explicitly selected native trials. `ebo atif read-leaderboard STORE DIGEST`
+verifies the resulting corpus and source bindings without Python. See the
+[leaderboard import guide](leaderboard-imports.md) for the request, runtime pins
+and refresh workflow.

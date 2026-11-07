@@ -74,8 +74,8 @@ qualification and complete-attempt measurement limits.
 
 `captures/` is a revision store rather than a selected corpus: several revisions
 may share one execution identity. Select one revision per execution for a
-cohort. The leaderboard importer owns cohort membership, source refresh and
-benchmark-specific outcome interpretation. Native-companion fidelity checks and
+cohort. The [leaderboard importer](leaderboard-imports.md) owns cohort membership,
+source refresh and benchmark-specific outcome interpretation. Native-companion fidelity checks and
 portable export policy are separate integrations.
 
 `readHarborCapture(store, captureRevision, sourceSnapshotDigest)` reopens an

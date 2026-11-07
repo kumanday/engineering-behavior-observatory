@@ -688,3 +688,7 @@ export type { OutcomeEvidenceInput, ImportedOutcomeRecord } from "./outcome-evid
 
 export * from "./harbor-import.js";
 export * from "./harbor-record-reader.js";
+export * from "./leaderboard-facts.js";
+export * from "./leaderboard-policy.js";
+export * from "./leaderboard-source.js";
+export * from "./leaderboard-import.js";

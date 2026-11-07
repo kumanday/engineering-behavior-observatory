@@ -79,3 +79,6 @@ The [evaluation reading path](evaluation/README.md) explains how the parts fit:
 For agents: read the repository's `AGENTS.md`, then the relevant guide and
 contract. CLI syntax is in [one grouped reference](reference/cli.md), not
 scattered through release history.
+
+- [Pinned Harness Leaderboard cohorts](reference/leaderboard-imports.md): local
+  snapshot receipts, protected facts, execution reuse and quarantine.
