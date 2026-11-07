@@ -304,7 +304,7 @@ test("Codex dynamic tool completions preserve native success and result content"
   }
 });
 test("DeepSeek rendered signal termination overrides the successful tool envelope", async () => {
-  const docs = [{ payload: { sessionId: "s", event: { seq: 1, type: "tool/result", data: { turn: 0, step: 1,
+  const docs = [{ payload: { sessionId: "s", event: { seq: 1, type: "tool/result", data: { name: "bash", turn: 0, step: 1,
     message: { role: "tool", toolCallId: "call", isError: false, content: [{ type: "text", text: "Stopped.\n[killed by signal: SIGTERM]" }] } } } } }];
   const { dataset } = await project(fixture("deepseek-harness", docs, [{ record: 0, family: "tool", phase: "after" }]));
   assert.deepEqual(dataset.operations[0]!.failure, { status: "known", value: true });
@@ -336,4 +336,38 @@ test("DeepSeek observed model identities include a native fallback distinct from
     message: { id: "m", role: "assistant", source: { kind: "model", provider: "provider", model: "actual-fallback" }, content: [] } } } } }], [{ record: 0, family: "message" }]);
   const result = await projectNativeEvidenceV2(evidence, { manifestDigest: hash("manifest"), harnessVersion: "fixture", modelAliases: ["declared-route"] });
   assert.deepEqual(result.modelAliases, ["actual-fallback", "declared-route"]);
+});
+
+test("resource reports without numeric dimensions remain hashable JSON derivations", async () => {
+  const cases: Array<[string, object]> = [
+    ["devin-cli", { method: "_cognition.ai/agent_stopped", payload: { stats: {} } }],
+    ["devin-cli", { payload: { update: { sessionUpdate: "usage_update", _meta: {} } } }],
+    ["factory-droid", { payload: { params: { notification: { type: "agent_turn_completed" } } } }],
+    ["codex-app-server", { method: "thread/tokenUsage/updated", payload: {} }],
+    ["claude-agent-sdk", { message: { type: "result" } }],
+  ];
+  for (const [harness, record] of cases) {
+    const { dataset } = await project(fixture(harness, [record], [{ record: 0, family: "runtime" }]));
+    assert.equal(dataset.events[0]!.facts.resource, undefined);
+    assert.equal(datasetV2Digest(dataset), datasetV2Digest(JSON.parse(JSON.stringify(dataset))));
+  }
+});
+test("DeepSeek process trailers require a uniquely bound bash tool in the same native step", async () => {
+  for (const name of ["bash", "search", undefined]) {
+    const docs: object[] = name ? [{ payload: { sessionId: "s", event: { type: "tool/call", data: { turn: 0, step: 1, callId: "call", name } } } }] : [];
+    const result = docs.length;
+    docs.push({ payload: { sessionId: "s", event: { type: "tool/result", data: { turn: 0, step: 1,
+      message: { role: "tool", toolCallId: "call", isError: false, content: [{ type: "text", text: "Quoted.\n[killed by signal: SIGTERM]" }] } } } } });
+    const { dataset } = await project(fixture("deepseek-harness", docs, [{ record: result, family: "tool", phase: "after" }]));
+    assert.deepEqual(dataset.operations[0]!.failure, { status: "known", value: name === "bash" });
+  }
+});
+test("native model switches include Pi modelId and Codex reroute identities", async () => {
+  for (const [harness, docs, expected] of [
+    ["pi-sdk", [{ type: "model_change", modelId: "pi-fallback" }], ["declared", "pi-fallback"]],
+    ["codex-app-server", [{ method: "model/rerouted", payload: { fromModel: "requested", toModel: "actual-fallback" } }], ["actual-fallback", "declared", "requested"]],
+  ] as const) {
+    const result = await projectNativeEvidenceV2(fixture(harness, [...docs], []), { manifestDigest: hash("manifest"), harnessVersion: "fixture", modelAliases: ["declared"] });
+    assert.deepEqual(result.modelAliases, [...expected]);
+  }
 });
