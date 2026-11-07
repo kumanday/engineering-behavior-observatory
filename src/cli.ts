@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+import { importLeaderboardCohort, readLeaderboardCohort, type LeaderboardCohortRequest } from "./leaderboard-import.js";
+import { parseImportJson, readClosedImportFile, type Hash as ImportHash } from "./leaderboard-source.js";
+import { redactSecrets } from "./redaction.js";
 import { createHash } from "node:crypto";
 import { readAtifFile } from "./atif-reader.js";
 import { importAtifFile } from "./atif-import.js";
@@ -85,6 +88,9 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo harbor <inspect|prepare|admit|freeze|status|doctor|compile|convert-legacy|environment|run> ...
        ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...
        ebo atif profiles
+       ebo atif import-harbor <trial-directory> <store> --namespace <source-id> --profile <id> [--python <executable>]
+       ebo atif import-leaderboard <cohort-request.json> <store> [--python <executable>]
+       ebo atif read-leaderboard <store> <cohort-digest>
        ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> --profile <id> [--python <executable>]
        ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
        ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
@@ -505,6 +511,24 @@ export function main(
 }
 
 async function runAtifInspection(args: string[], write: (message: string) => void): Promise<number> {
+  if (args[0] === "import-leaderboard" || args[0] === "read-leaderboard") {
+    const command = args[0], first = args[1], second = args[2];
+    if (!first || !second || command === "read-leaderboard" && args.length !== 3
+        || command === "import-leaderboard" && !(args.length === 3 || args.length === 5 && args[3] === "--python" && !args[4]!.startsWith("--"))) {
+      write("Usage: ebo atif import-leaderboard <cohort-request.json> <store> [--python <executable>] | read-leaderboard <store> <cohort-digest>\n"); return 1;
+    }
+    try {
+      if (command === "read-leaderboard") { write(`${JSON.stringify(readLeaderboardCohort(first, second as ImportHash).manifest, null, 2)}\n`); return 0; }
+      const path = resolve(first), base = dirname(path);
+      const request = parseImportJson(readClosedImportFile(base, basename(path), 1024 * 1024)) as unknown as LeaderboardCohortRequest;
+      const errors = validateArtifact("Leaderboard cohort request", request);
+      if (errors.length) throw new Error(errors[0]!.message);
+      const resolved: LeaderboardCohortRequest = { ...request, snapshotRoot: resolve(base, request.snapshotRoot), nativeBindings: request.nativeBindings.map((binding) => ({ ...binding,
+        directory: resolve(base, binding.directory), originals: binding.originals?.map((original) => ({ ...original, directory: resolve(base, original.directory) })) })) };
+      const result = await importLeaderboardCohort(resolved, second, args[4]);
+      write(`${JSON.stringify(result, null, 2)}\n`); return result.status === "imported" ? 0 : 1;
+    } catch (error) { write(`Leaderboard import failed: ${redactSecrets(error instanceof Error ? error.message : String(error)).text}\n`); return 1; }
+  }
   if (args[0] === "import-harbor" || args[0] === "inspect-harbor") {
     const importing = args[0] === "import-harbor";
     const directory = args[1], store = importing ? args[2] : undefined;

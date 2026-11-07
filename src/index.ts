@@ -688,6 +688,12 @@ export type { OutcomeEvidenceInput, ImportedOutcomeRecord } from "./outcome-evid
 
 export * from "./harbor-import.js";
 export * from "./harbor-record-reader.js";
+export * from "./leaderboard-facts.js";
+export * from "./leaderboard-policy.js";
+export * from "./leaderboard-source.js";
+export * from "./leaderboard-import.js";
+
+export { AtifAdmissionError } from "./atif-import.js";
 export { writeEvidenceCompanion, readEvidenceCompanion, companionArtifactId, EVIDENCE_COMPANION_LIMITS, type EvidenceCompanion, type EvidenceCompanionRequest, type CompanionRange } from "./evidence-companions.js";
 
 export { listAnalysisRuntimes, loadAnalysisRuntime, type AnalysisRuntimeIdentity, type AnalysisRuntimeSnapshot, type FrozenAnalysisRuntime } from "./analysis-runtime.js";

@@ -6,6 +6,9 @@ import { selectAtifProducerProfile, type AtifProducerFingerprint } from "./atif-
 import { normalizePiAtif } from "./atif-pi.js";
 import { readBoundedFile } from "./scheduler.js";
 
+/** Expected rejection of source structure or producer projection, distinct from store/I/O failure. */
+export class AtifAdmissionError extends Error { override name = "AtifAdmissionError"; }
+
 export const ATIF_IMPORTER_VERSION = "1.0.0";
 export type AtifImportManifest = {
   schemaVersion: "ebo.import-manifest/v1";
@@ -44,11 +47,11 @@ export async function importAtifFile(options: {
   writeFileSync(join(destination, "trajectory.json"), bytes, { flag: "wx", mode: 0o600 });
   writeJson(destination, "request.json", { importerVersion: ATIF_IMPORTER_VERSION, runId: options.runId, attemptId: options.attemptId, producer: options.producer });
   // Read the retained copy so validation and byte receipts bind exactly what admission will reopen.
-  const read = await readAtifFile(join(destination, "trajectory.json"), { pythonExecutable: options.pythonExecutable });
+  const read = await readAtifFile(join(destination, "trajectory.json"), { pythonExecutable: options.pythonExecutable, propagateReadErrors: true });
   const inspectionBytes = writeJson(destination, "inspection.json", read.inspection);
   if (inspectionBytes.length > 32 * 1024 * 1024) throw new Error("ATIF inspection exceeds the retained receipt byte limit; no manifest was admitted.");
   if (read.document === undefined || read.inspection.versionPolicy.status !== "supported" || read.inspection.structural.status !== "valid") {
-    throw new Error("ATIF admission failed; retained source and inspection remain in the destination without an admission manifest.");
+    throw new AtifAdmissionError("ATIF admission failed; retained source and inspection remain in the destination without an admission manifest.");
   }
   const selection = selectAtifProducerProfile(options.producer);
   const manifest: AtifImportManifest = { schemaVersion: "ebo.import-manifest/v1", importer: { id: "ebo.atif", version: ATIF_IMPORTER_VERSION },
@@ -58,9 +61,11 @@ export async function importAtifFile(options: {
     ...(blinding === undefined ? {} : { blinding }),
     profile: selection.status === "supported" ? { status: "supported", id: selection.profile.id, digest: selection.profileDigest } : selection };
   assertManifest(manifest);
-  const evidence = withDeclaredAliases(await normalizePiAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) }), manifest);
+  let evidence: Awaited<ReturnType<typeof normalizePiAtif>>;
+  try { evidence = withDeclaredAliases(await normalizePiAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) }), manifest); }
+  catch (cause) { throw new AtifAdmissionError("ATIF producer projection rejected the source; no admission manifest was written.", { cause }); }
   const mappingErrors = validateArtifact("Pi ATIF mapping", evidence.mapping);
-  if (mappingErrors.length) throw new Error(`Invalid generated Pi mapping: ${mappingErrors[0]!.message}`);
+  if (mappingErrors.length) throw new AtifAdmissionError(`Invalid generated Pi mapping: ${mappingErrors[0]!.message}`);
   writeJson(destination, "mapping.json", evidence.mapping);
   writeJson(destination, "manifest.json", manifest);
   return { manifest, reused: false, evidence };

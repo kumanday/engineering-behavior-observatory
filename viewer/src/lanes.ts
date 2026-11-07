@@ -11,8 +11,8 @@ import { renderTotals, type TotalsState } from "./totals";
 import { describable, provide, register, run, target } from "./registry";
 
 export interface LaneMeta {
-  attempt_id: string; task_id: string | null; condition: string; trial_id: string; harness_id: string; model_id: string;
-  terminal_state: string; failure_class: string; capture_qualification: string; t_start_ms: number | null; t_end_ms: number | null;
+  attempt_id: string; task_id: string | null; condition: string; trial_id: string | null; harness_id: string; model_id: string;
+  terminal_state: string | null; failure_class: string | null; capture_qualification: string; t_start_ms: number | null; t_end_ms: number | null;
   units: number; tools: number; errors: number | null; compactions: number; cited_units: number;
   usage_semantics: "per-turn" | "per-turn (native)" | "final-only" | "none"; tokens_total: number | null; cost_usd: number | null; context_max: number | null;
 }
@@ -42,6 +42,7 @@ export const CAT_SQL = `CASE WHEN unit_kind <> 'tool' THEN unit_kind
 // EBO occurrence types (failure-response), and the lab's earlier unit tags for lab bundles.
 const FAILURE_OCC = ["failure-response", "failure-then-same-tool", "failure-then-other-tool", "consecutive-failure", "response-to-failure"];
 
+export const trialLabel = (id: string | null | undefined) => id == null ? "trial unavailable" : `trial ${id}`;
 export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 /** A class-name token from bundle data: anything outside [A-Za-z0-9_-] becomes "_" (bundle content is untrusted). */
 export const cls = (s: unknown) => String(s ?? "").replace(/[^A-Za-z0-9_-]/g, "_");
@@ -318,8 +319,8 @@ export class SwimlanesPanel {
         const tok = esc([typeof l.cost_usd === "number" ? `$${l.cost_usd.toFixed(2)}` : "", typeof l.context_max === "number" && l.context_max ? `ctx ≤${fmtTok(l.context_max)}` : ""].filter(Boolean).join(" · "));
         const tokTitle = `${typeof l.tokens_total === "number" ? fmtTok(l.tokens_total) + " tokens processed" : "no token usage reported"}${typeof l.cost_usd === "number" ? ` · $${l.cost_usd.toFixed(2)}` : ""}${typeof l.context_max === "number" && l.context_max ? ` · largest context of one request ${l.context_max.toLocaleString()}` : ""} · usage source: ${l.usage_semantics}`;
         labels += `<div class="lane-label ${pickedIdx >= 0 ? "picked" : ""}" style="height:${LANE_H}px" data-lane="${esc(l.attempt_id)}">
-          <label class="pick"><input type="checkbox" data-pick="${esc(l.attempt_id)}" ${target("toggleLanePick", l.attempt_id)} ${pickedIdx >= 0 ? "checked" : ""} aria-label="Select trial ${esc(l.trial_id)} for alignment">${pickedIdx >= 0 ? `<b>${"AB"[pickedIdx]}</b>` : ""}</label>
-          <div class="ll-main"><span class="ll-title">trial ${esc(l.trial_id)}${l.terminal_state !== "completed" ? ` <span class="badge">${esc(l.terminal_state)}</span>` : ""} <span class="muted" title="${esc(tokTitle)}">${tok}</span></span>
+          <label class="pick"><input type="checkbox" data-pick="${esc(l.attempt_id)}" ${target("toggleLanePick", l.attempt_id)} ${pickedIdx >= 0 ? "checked" : ""} aria-label="Select ${esc(trialLabel(l.trial_id))} for alignment">${pickedIdx >= 0 ? `<b>${"AB"[pickedIdx]}</b>` : ""}</label>
+          <div class="ll-main"><span class="ll-title">${esc(trialLabel(l.trial_id))}${l.terminal_state !== "completed" ? ` <span class="badge">${esc(l.terminal_state ?? "unavailable")}</span>` : ""} <span class="muted" title="${esc(tokTitle)}">${tok}</span></span>
           <span class="ll-meta">${fmtDur(laneDurationMs(l))} · ${num(l.tools)} ${l.capture_qualification === "imported" ? "projected tools" : "tools"} · ${num(l.errors)} err${l.compactions ? ` · <span title="${num(l.compactions)} compactions">┆${num(l.compactions)}</span>` : ""}</span>
           <span class="ll-id" title="${esc(`${l.attempt_id} · cohorts: ${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).join(", ") || "—"} · token usage source: ${l.usage_semantics === "none" ? "none recorded (not zero)" : l.usage_semantics}`)}"><span class="mono">${esc(l.attempt_id.slice(0, 8))}</span>${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).map((c) => ` <span class="coh">${esc(c)}</span>`).join("")} · ${l.usage_semantics === "none" ? "<span class=\"no-usage\">no usage recorded</span>" : `usage: ${esc(l.usage_semantics)}`}</span></div>
           ${this.ev?.audit && this.ev.chainsOf(l.attempt_id).length ? `<button class="icon-btn fail-btn" data-chains="${esc(l.attempt_id)}" ${target("openChains", l.attempt_id)} title="Failure chains: failed calls and the next call of the same tool">✕ ${this.ev.chainsOf(l.attempt_id).length}</button>` : ""}
@@ -421,7 +422,7 @@ export class SwimlanesPanel {
     const lane = this.data.attempts.find((a) => a.attempt_id === u.attempt_id);
     const t0 = Math.min(...(this.byLane.get(u.attempt_id) ?? []).filter((x) => x.t0_ms != null).map((x) => x.t0_ms!));
     this.tip.innerHTML = `<div class="tip-title">${esc(unitTitle(u))}</div>
-      <div class="tip-arm">${esc(u.condition)} · trial ${esc(lane?.trial_id ?? "?")} · ${esc(u.attempt_id.slice(0, 8))} · ${(() => { const st = (this.byLane.get(u.attempt_id) ?? []).filter((x) => x.unit_kind === "tool" || x.unit_kind === "compaction"); const i = st.findIndex((x) => x.row_id === u.row_id); return i >= 0 ? `step ${i + 1} · ` : ""; })()}unit #${u.seq}</div>
+      <div class="tip-arm">${esc(u.condition)} · ${esc(trialLabel(lane?.trial_id))} · ${esc(u.attempt_id.slice(0, 8))} · ${(() => { const st = (this.byLane.get(u.attempt_id) ?? []).filter((x) => x.unit_kind === "tool" || x.unit_kind === "compaction"); const i = st.findIndex((x) => x.row_id === u.row_id); return i >= 0 ? `step ${i + 1} · ` : ""; })()}unit #${u.seq}</div>
       <table>
         <tr><td>Kind</td><td>${esc(u.unit_kind)}${u.unit_kind === "tool" ? ` · ${esc(u.cat)}` : ""}${u.status ? ` · ${esc(u.status)}` : ""}</td></tr>
         <tr><td>At</td><td>${u.t0_ms != null ? fmtDur(u.t0_ms - t0) : "—"}${u.timed ? "" : " (untimed; placed after the previous unit)"}${u.duration_seconds ? ` · ${u.duration_seconds.toFixed(1)} s` : ""}</td></tr>

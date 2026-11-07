@@ -2,7 +2,7 @@
 // records; attempt audit; unit native records). Data from p3/build.py and p3/claims.py under data/<study>/p3/.
 // Matrix counts are computed in the browser from the assessment records (exploratory) and compared with the EBO Atlas
 // report tallies where the study has them (certified).
-import { cls, esc, fmtDur, num } from "./lanes";
+import { cls, esc, fmtDur, num, trialLabel } from "./lanes";
 import { describable, provide, register, run, target, type Json } from "./registry";
 
 /** What the drawer shows, as data: enough to reopen it exactly (state round-trip, undo, links). */
@@ -20,11 +20,11 @@ const OUT_SHORT: Record<string, string> = { constructive: "C", mixed: "M", adver
 export interface NativeRec { artifact: string; locator: string; path?: string; resolved: boolean; sha256?: string; chars?: number; truncated?: boolean; text?: string; part?: string; event_key?: string }
 export interface Citation { link?: string | null; ordinal: number; event_key: string; resolved_event: boolean; row_id: number | null; unit_kind: string | null; step: number | null; seq: number | null; native: NativeRec }
 export interface Assessment {
-  id: string; attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string; category: string; dimension: string;
+  id: string; attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; category: string; dimension: string;
   outcome: string; disposition: string; confidence: number | null; rationale: string | null; alternative: string | null; review: string | null;
   evaluator: string; rubric: string; cohorts: Record<string, { included?: boolean; disputed?: boolean; review?: string }>; source: string; citations: Citation[];
 }
-export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string; harness_id: string; model_id: string; terminal_state: string; failure_class: string; cohorts: string[]; bundle: string; native_span_seconds: number | null;
+export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; harness_id: string; model_id: string; terminal_state: string | null; failure_class: string | null; cohorts: string[]; bundle: string; native_span_seconds: number | null;
   native_record_count?: number | null; unmapped_record_count?: number | null; event_count?: number | null; event_types?: Record<string, number>; units?: number; tool_calls?: number }
 interface CertCell { group: Record<string, string>; category: string; counts: Record<string, number>; denominator: number; assertions: string[]; conditions?: string[] }
 export interface AssessDoc {
@@ -34,7 +34,7 @@ export interface AssessDoc {
 interface Run { row_id: number; seq: number; step: number; t_ms: number | null; status: string | null; kinds?: string[]; exit_code?: number | null; output_redirected?: boolean; command?: string; how?: string; paths?: string[]; detected?: string }
 interface AuditAttempt {
   freshness_coverage?: "unavailable"; mutation_coverage?: "unavailable"; failure_coverage?: "unavailable";
-  attempt_id: string; short: string; condition: string; trial_id: string; cohorts: string[]; steps: number; changes: Run[]; checks: Run[];
+  attempt_id: string; short: string; condition: string; trial_id: string | null; cohorts: string[]; steps: number; changes: Run[]; checks: Run[];
   last: Record<string, null | { last: Run; last_ok: Run | null; runs: number; changes_after: number | null; first_change_after: Run | null }>;
   final: null | { row_id: number; seq: number; text: string; chars: number; claims: { text: string; kinds: string[] }[] };
   verdicts: { kind: string; status: string; text: string }[];
@@ -43,7 +43,7 @@ interface AuditAttempt {
 }
 export interface AuditDoc { attempts: Record<string, AuditAttempt> }
 interface ClaimNumber { id: string; label: string; value: number; kind: string; computed: number; ok: boolean; how: string }
-interface Claim { id: string; type: string; text: string; source_section: string; cohort?: string; caveat?: string; numbers: ClaimNumber[]; support: { id: string; short: string; condition: string; trial_id: string; dimension: string; outcome: string; citations: number }[]; citations_resolved: number; citations_total: number; ok: boolean }
+interface Claim { id: string; type: string; text: string; source_section: string; cohort?: string; caveat?: string; numbers: ClaimNumber[]; support: { id: string; short: string; condition: string; trial_id: string | null; dimension: string; outcome: string; citations: number }[]; citations_resolved: number; citations_total: number; ok: boolean }
 export interface ClaimsDoc { source: { file: string; title: string; also?: string[] }; number_kinds: Record<string, string>; claims: Claim[]; validated: boolean; failures: string[] }
 
 export interface EvidenceHooks { highlight: (rows: number[] | null) => void; showInLanes: (attemptId: string, row?: number | null) => void }
@@ -181,7 +181,7 @@ export class Evidence {
   }
   attemptLabel(id: string) {
     const m = this.meta.get(id);
-    return m ? `${m.condition} · trial ${m.trial_id} · ${m.short}${m.cohorts.length ? ` · ${m.cohorts.join(", ")}` : ""}` : id;
+    return m ? `${m.condition} · ${trialLabel(m.trial_id)} · ${m.short}${m.cohorts.length ? ` · ${m.cohorts.join(", ")}` : ""}` : id;
   }
   assessmentsOf(attemptId: string) { return this.doc.assessments.filter((a) => a.attempt_id === attemptId); }
 
@@ -258,10 +258,10 @@ export class Evidence {
       return `<p class="muted small">${typeof A.final.chars === "number" ? A.final.chars.toLocaleString() : "—"} chars · <button class="link" data-row="${num(A.final.row_id)}" ${target("openUnit", `${attemptId}:${A.final.row_id}`)}>open native record</button> · highlighted: lines that name a check with a pass word</p><pre class="rec-t final">${t}</pre>`;
     };
     const asm = this.assessmentsOf(attemptId);
-    this.drawer.open({ kind: "audit", attemptId }, `Audit · trial ${m.trial_id} ${m.short}`, () => `
+    this.drawer.open({ kind: "audit", attemptId }, `Audit · ${trialLabel(m.trial_id)} ${m.short}`, () => `
       <dl class="kv"><dt>Attempt</dt><dd class="mono small">${esc(m.attempt_id)}</dd><dt>Arm</dt><dd>${esc(m.condition)} (${esc(m.harness_id)} · ${esc(m.model_id)})</dd>
-        <dt>Task / trial</dt><dd>${esc(m.task_id)} · trial ${esc(m.trial_id)}</dd><dt>Cohorts</dt><dd>${esc(m.cohorts.join(", ") || "—")}</dd>
-        <dt>Terminal</dt><dd>${esc(m.terminal_state)}${m.failure_class && m.failure_class !== "none" ? ` (${esc(m.failure_class)})` : ""}</dd>
+        <dt>Task / trial</dt><dd>${esc(m.task_id ?? "task unavailable")} · ${esc(trialLabel(m.trial_id))}</dd><dt>Cohorts</dt><dd>${esc(m.cohorts.join(", ") || "—")}</dd>
+        <dt>Terminal</dt><dd>${esc(m.terminal_state ?? "unavailable")}${m.failure_class && m.failure_class !== "none" ? ` (${esc(m.failure_class)})` : ""}</dd>
         <dt>Steps</dt><dd>${num(A.steps)} actions (tool calls + compactions)</dd></dl>
       ${asm.length ? `<p>Judge: ${asm.map((a) => `<button class="link" data-assess="${esc(a.id)}" ${target("openAssessment", a.id)}>${esc(a.dimension)} ${outChip(a.outcome)}</button>`).join(" ")}</p>` : ""}
       <h4>Final claims vs captured checks</h4>
@@ -498,7 +498,7 @@ export class MatrixPanel {
           <tbody>${cats.map((c) => `<tr><th scope="row" class="c-label">${esc(c)}</th>${arms.map((a) => cell(c, a)).join("")}</tr>`).join("")}</tbody></table></div>
         <div class="table-wrap jl-wrap"><p class="sub">${this.sel ? `${esc(this.sel.cat)} × ${esc(this.sel.arm)} · <button class="link" data-clear ${target("selectMatrixCell", "all")}>show all</button>` : "All judgments"} (${list.length})</p>
           <table class="grid jl"><thead><tr><th>Arm</th><th>Task</th><th>Trial</th><th>Attempt</th><th>Behavior</th><th>Outcome</th><th class="num">Conf.</th><th class="num">Cites</th><th>Rationale (start)</th></tr></thead>
-          <tbody>${list.map((a) => `<tr data-id="${esc(a.id)}" ${target("openAssessment", a.id)} tabindex="0"><td>${esc(a.condition)}</td><td>${esc(a.task_id)}</td><td>${esc(a.trial_id)}</td><td class="mono">${esc(a.short)}</td><td>${esc(a.dimension)}</td>
+          <tbody>${list.map((a) => `<tr data-id="${esc(a.id)}" ${target("openAssessment", a.id)} tabindex="0"><td>${esc(a.condition)}</td><td>${esc(a.task_id)}</td><td>${esc(a.trial_id ?? "unavailable")}</td><td class="mono">${esc(a.short)}</td><td>${esc(a.dimension)}</td>
             <td>${outChip(a.outcome)}</td><td class="num">${a.confidence == null ? "—" : num(a.confidence)}</td><td class="num">${a.citations.length}</td><td class="small">${esc((a.rationale ?? "").slice(0, 140))}${(a.rationale ?? "").length > 140 ? "…" : ""}</td></tr>`).join("")}</tbody></table></div>
       </div>`;
     this.root.querySelector<HTMLSelectElement>("[data-cohort]")!.addEventListener("change", (e) => run("setMatrixCohort", { cohort: (e.target as HTMLSelectElement).value }));
@@ -538,7 +538,7 @@ export class ClaimsPanel {
           ${c.numbers.map((n) => `<tr><td>${esc(n.label)}</td><td class="num">${num(n.value)}</td><td class="num">${num(n.computed)}${n.ok ? "" : ` <span class="bad">≠</span>`}</td><td><span class="tag-${n.kind === "certified" ? "c" : "x"}">${esc(n.kind)}</span></td><td class="mono small">${esc(n.how)}</td></tr>`).join("")}
         </tbody></table>
         <p>Supporting judgments (${c.support.length}) · cited native records ${num(c.citations_resolved)}/${num(c.citations_total)} resolved:</p>
-        <ul class="sup">${c.support.map((s) => `<li><button class="link" data-assess="${esc(s.id)}" ${target("openAssessment", s.id)}>${esc(s.condition)} · trial ${esc(s.trial_id)} · ${esc(s.short)} · ${esc(s.dimension)}</button> ${outChip(s.outcome)} · ${num(s.citations)} citations</li>`).join("")}</ul>
+        <ul class="sup">${c.support.map((s) => `<li><button class="link" data-assess="${esc(s.id)}" ${target("openAssessment", s.id)}>${esc(s.condition)} · ${esc(trialLabel(s.trial_id))} · ${esc(s.short)} · ${esc(s.dimension)}</button> ${outChip(s.outcome)} · ${num(s.citations)} citations</li>`).join("")}</ul>
         ${c.caveat ? `<p class="caveat">${esc(c.caveat)}</p>` : ""}</article>`).join("")}</div>`;
     this.root.querySelectorAll<HTMLElement>("[data-assess]").forEach((b) => b.addEventListener("click", () => run("openAssessment", { id: b.dataset.assess })));
     if (this.focused) this.focus(this.focused);

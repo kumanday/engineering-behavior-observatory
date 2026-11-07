@@ -1188,6 +1188,7 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("deepseek-runtime-composition.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-admission.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-import.v1.json"));
+  ajv.addSchema(readSchema("leaderboard-import.v1.json"));
   ajv.addSchema(readSchema("analysis-runtime-snapshot.v1.json"));
   ajv.addSchema(readSchema("harbor-review.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-freeze.v1.schema.json"));
@@ -1195,6 +1196,14 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("run-queue.v2.schema.json"));
 
   return new Map([
+    ["ebo.leaderboard-request-receipt/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/requestReceipt")],
+    ["ebo.leaderboard-policy-input/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/policyInput")],
+    ["ebo.leaderboard-policy-receipt/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/policyReceipt")],
+    ["ebo.leaderboard-source-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/sourceSnapshot")],
+    ["ebo.leaderboard-cohort-request/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/request")],
+    ["ebo.leaderboard-cohort/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/cohort")],
+    ["ebo.leaderboard-acquisition/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/acquisition")],
+    ["ebo.import-scan/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/scan")],
     ["ebo.analysis-runtime-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:analysis-runtime-snapshot:v1")],
     ["ebo.harbor-trial-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/inspection")],
     ["ebo.harbor-source-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/snapshot")],

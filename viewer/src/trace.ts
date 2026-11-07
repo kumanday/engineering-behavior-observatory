@@ -1,7 +1,7 @@
 // Chrome trace JSON (legacy JSON trace format) for ui.perfetto.dev or chrome://tracing.
 // One process per arm, threads per attempt (actions, plus extra action threads for overlapping calls, and turns); every lane starts at 0 so attempts
 // line up; tool calls are complete events, messages and compactions instants, cumulative tokens and context per request as counter tracks.
-import type { LaneMeta, Unit } from "./lanes";
+import { trialLabel, type LaneMeta, type Unit } from "./lanes";
 
 export function downloadTrace(task: string, lanes: LaneMeta[], byLane: Map<string, Unit[]>, usage: Record<string, [number, number][]>, context: Record<string, [number, number][]> = {}) {
   const ev: any[] = [];
@@ -20,7 +20,7 @@ export function downloadTrace(task: string, lanes: LaneMeta[], byLane: Map<strin
       for (;; k++) {
         const key = `${group}:${k}`;
         let t = tracks.find((x) => x.name === key);
-        if (!t) { t = { name: key, ends: [] }; tracks.push(t); ev.push({ ph: "M", name: "thread_name", pid, tid: base + slot0 + k, args: { name: `trial ${l.trial_id} · ${group}${k ? " " + (k + 1) : ""}` } }, { ph: "M", name: "thread_sort_index", pid, tid: base + slot0 + k, args: { sort_index: base + slot0 + k } }); }
+        if (!t) { t = { name: key, ends: [] }; tracks.push(t); ev.push({ ph: "M", name: "thread_name", pid, tid: base + slot0 + k, args: { name: `${trialLabel(l.trial_id)} · ${group}${k ? " " + (k + 1) : ""}` } }, { ph: "M", name: "thread_sort_index", pid, tid: base + slot0 + k, args: { sort_index: base + slot0 + k } }); }
         if ((t.ends.at(-1) ?? -1) <= start) { t.ends.push(end); return base + slot0 + k; }
       }
     };
@@ -33,8 +33,8 @@ export function downloadTrace(task: string, lanes: LaneMeta[], byLane: Map<strin
       else if (u.unit_kind === "message") ev.push({ ph: "i", s: "t", name: "message", cat: "message", pid, tid: base + 50, ts: s0, args });
       else if (u.unit_kind === "compaction") ev.push({ ph: "i", s: "p", name: "compaction", cat: "compaction", pid, tid: base, ts: s0, args });
     }
-    for (const [t, v] of usage[l.attempt_id] ?? []) ev.push({ ph: "C", name: `tokens · trial ${l.trial_id}`, pid, ts: ts(t), args: { cumulative: v } });
-    for (const [t, v] of context[l.attempt_id] ?? []) ev.push({ ph: "C", name: `context · trial ${l.trial_id}`, pid, ts: ts(t), args: { tokens: v } });
+    for (const [t, v] of usage[l.attempt_id] ?? []) ev.push({ ph: "C", name: `tokens · ${trialLabel(l.trial_id)}`, pid, ts: ts(t), args: { cumulative: v } });
+    for (const [t, v] of context[l.attempt_id] ?? []) ev.push({ ph: "C", name: `context · ${trialLabel(l.trial_id)}`, pid, ts: ts(t), args: { tokens: v } });
   });
   const blob = new Blob([JSON.stringify({ traceEvents: ev, displayTimeUnit: "ms", otherData: { source: "EBO Atlas lab", task } })], { type: "application/json" });
   const a = document.createElement("a");

@@ -1,7 +1,7 @@
 // Totals view of the swimlanes panel: for the chosen task, (1) all-arm totals by action category and by tool name with
 // per-attempt means and ranges, and (2) what happens in the N actions after an anchor (compaction or failed call)
 // compared with the rest of each attempt. Exploratory: computed in the browser over the unit table.
-import { CATS, cls, esc, type LaneMeta, type Unit } from "./lanes";
+import { CATS, cls, esc, trialLabel, type LaneMeta, type Unit } from "./lanes";
 import type { Evidence } from "./p3";
 import { run, target } from "./registry";
 
@@ -80,7 +80,7 @@ export function renderTotals(view: HTMLElement, task: string, lanes: LaneMeta[],
   };
   const tbl3 = `<table class="grid tot win"><thead><tr><th>Arm / attempt</th><th class="num">Anchors</th><th class="num">Tool calls in windows / elsewhere</th>${keys.map((k) => `<th class="num"><span class="sw cat-${cls(k)}"></span> ${esc(k)}</th>`).join("")}</tr></thead><tbody>
     ${winRows.map((w) => `<tr class="arm-row" data-arm="${esc(w.a)}" ${target("highlightRows", `window:${w.a}`)} tabindex="0"><th scope="row">${esc(w.a)}</th><td class="num">${w.anchors}</td><td class="num">${w.post.length} / ${w.rest.length}</td>${keys.map((k) => dcell(w.post, w.rest, k)).join("")}</tr>
-      ${w.per.map((x) => `<tr class="att-row" data-att="${esc(x.l.attempt_id)}" ${target("highlightRows", `window:${x.l.attempt_id}`)} tabindex="0"><td class="indent">trial ${esc(x.l.trial_id)} <span class="mono muted">${esc(x.l.attempt_id.slice(0, 8))}</span></td><td class="num">${x.anchors}</td><td class="num">${x.p.length} / ${x.r.length}</td>${keys.map((k) => dcell(x.p, x.r, k)).join("")}</tr>`).join("")}`).join("")}
+      ${w.per.map((x) => `<tr class="att-row" data-att="${esc(x.l.attempt_id)}" ${target("highlightRows", `window:${x.l.attempt_id}`)} tabindex="0"><td class="indent">${esc(trialLabel(x.l.trial_id))} <span class="mono muted">${esc(x.l.attempt_id.slice(0, 8))}</span></td><td class="num">${x.anchors}</td><td class="num">${x.p.length} / ${x.r.length}</td>${keys.map((k) => dcell(x.p, x.r, k)).join("")}</tr>`).join("")}`).join("")}
     </tbody></table>`;
 
   // (3) failures by tool and error signature, across arms (same signature, different models)

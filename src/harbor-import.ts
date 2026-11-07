@@ -3,7 +3,7 @@ import { linkSync, lstatSync, mkdirSync, mkdtempSync, opendirSync, readFileSync,
 import { dirname, join, relative, resolve } from "node:path";
 import { assertNoDuplicateJsonKeys, digestBytes, digestMetadata, validateArtifact } from "./artifacts.js";
 import { isSafeArtifactRelativePath } from "./contracts.js";
-import { importAtifFile, readImportManifest, readAtifImportAdmission } from "./atif-import.js";
+import { AtifAdmissionError, importAtifFile, readImportManifest, readAtifImportAdmission } from "./atif-import.js";
 import type { AtifProducerFingerprint } from "./atif-profiles.js";
 import { readBoundedFile } from "./scheduler.js";
 
@@ -135,7 +135,7 @@ export async function inspectHarborTrial(options: { directory: string; namespace
 
 /** Immutable source snapshots, execution identities, capture revisions and assessments occupy separate records. */
 export async function importHarborTrial(options: { directory: string; store: string; namespace: string; producer: AtifProducerFingerprint;
-  originals?: readonly HarborOriginalBinding[]; pythonExecutable?: string }) {
+  originals?: readonly HarborOriginalBinding[]; pythonExecutable?: string; additionalModelAliases?: readonly string[] }) {
   const source = await inspectHarborTrial(options);
   const store = resolve(options.store);
   mkdirSync(store, { recursive: true, mode: 0o700 });
@@ -156,7 +156,13 @@ export async function importHarborTrial(options: { directory: string; store: str
   }
   const execution = source.inspection.execution;
   keepJson(join(store, "executions"), `${execution.id.slice("harbor:".length)}.json`, execution);
-  const revision = hash({ source: source.inspection.captureRevision, producer: options.producer });
+  const additional = options.additionalModelAliases ?? [];
+  if (!Array.isArray(additional) || additional.length > 256 || additional.some((value) => typeof value !== "string" || !value.trim() || value.length > 1024)) throw new Error("Harbor model alias context exceeds its limits.");
+  const modelAliases = [...new Set([...execution.modelAliases, ...additional])].sort();
+  if (modelAliases.length > 256) throw new Error("Harbor model alias context exceeds its limits.");
+  const extraAliases = modelAliases.filter((value) => !execution.modelAliases.includes(value));
+  const blindingContext = extraAliases.length ? { authority: "operator-declared" as const, modelAliases: extraAliases } : undefined;
+  const revision = hash({ source: source.inspection.captureRevision, producer: options.producer, ...(blindingContext === undefined ? {} : { blindingContext }) });
   const destination = join(store, "captures", revision.slice(7));
   assertNoStoreLinks(store, `captures/${revision.slice(7)}`);
   mkdirSync(join(store, "captures"), { recursive: true, mode: 0o700 });
@@ -171,13 +177,17 @@ export async function importHarborTrial(options: { directory: string; store: str
   let imported;
   try {
     imported = await importAtifFile({ sourcePath: join(snapshot, "agent/trajectory.json"), destination: pending === undefined ? destination : join(pending, "bundle"),
-      runId: execution.runId, attemptId: execution.attemptId, producer: options.producer, pythonExecutable: options.pythonExecutable, modelAliases: execution.modelAliases });
+      runId: execution.runId, attemptId: execution.attemptId, producer: options.producer, pythonExecutable: options.pythonExecutable, modelAliases });
     if (pending !== undefined) { renameSync(join(pending, "bundle"), destination); rmdirSync(pending); }
-  } catch (error) { throw new Error(`${error instanceof Error ? error.message : String(error)}${pending === undefined ? "" : ` Partial admission remains at ${pending}.`}`); }
+  } catch (error) {
+    if (error instanceof AtifAdmissionError) return { status: "inspect-only" as const, inspection: source.inspection, snapshot,
+      admissionFailure: "ATIF_SOURCE_ADMISSION_REJECTED" as const, ...(pending === undefined ? {} : { partialAdmissionRoot: pending }) };
+    throw new Error(`${error instanceof Error ? error.message : String(error)}${pending === undefined ? "" : ` Partial admission remains at ${pending}.`}`, { cause: error });
+  }
   const manifest = readImportManifest(destination);
   const binding = { schemaVersion: "ebo.harbor-capture-binding/v1", execution, captureRevision: revision,
     sourceCaptureDigest: source.inspection.captureRevision, importManifestDigest: hash(manifest),
-    nativeArtifacts: agentFiles(source.files), modelAliases: execution.modelAliases };
+    nativeArtifacts: agentFiles(source.files), modelAliases, ...(blindingContext === undefined ? {} : { blindingContext }) };
   keepJson(join(store, "bindings"), `${revision.slice(7)}.json`, binding);
   const inspectionDigest = hash(source.inspection);
   keepJson(join(store, "memberships", revision.slice(7), source.inspection.snapshotDigest.slice(7)), `${inspectionDigest.slice(7)}.json`, {
@@ -252,7 +262,11 @@ export function readHarborCapture(store: string, captureRevision: Hash, sourceSn
   const bundleRoot = join(store, "captures", revision);
   assertNoStoreLinks(store, `captures/${revision}/manifest.json`);
   const { manifest } = readAtifImportAdmission(bundleRoot);
-  if (sourceCaptureDigest !== binding.sourceCaptureDigest || hash({ source: sourceCaptureDigest, producer: manifest.producer }) !== captureRevision
+  const blindingContext = binding.blindingContext;
+  const expectedAliases = [...new Set([...execution.modelAliases as string[], ...(blindingContext === undefined ? [] : object(blindingContext).modelAliases as string[])])].sort();
+  if (hash(expectedAliases) !== hash(binding.modelAliases) || manifest.blinding !== undefined && hash(expectedAliases) !== hash(manifest.blinding.modelAliases)
+      || blindingContext !== undefined && manifest.blinding === undefined) throw new Error("Harbor model blinding context is stale.");
+  if (sourceCaptureDigest !== binding.sourceCaptureDigest || hash({ source: sourceCaptureDigest, producer: manifest.producer, ...(blindingContext === undefined ? {} : { blindingContext }) }) !== captureRevision
       || hash(manifest) !== binding.importManifestDigest || manifest.identity.runId !== execution.runId || manifest.identity.attemptId !== execution.attemptId
       || manifest.source.digest !== rawHash(files.get("agent/trajectory.json")!) || hash(binding.nativeArtifacts) !== hash(agentFiles(files))) throw new Error("Harbor capture binding is stale.");
   const assessment = read(`assessments/${identifier(String(membership.assessmentId))}.json`);

@@ -25,3 +25,14 @@ Converter upgrades require a new fingerprint, fixture comparisons and review.
 An unregistered fingerprint remains structurally inspectable without receiving
 behavioral mapping rules. The registry accepts no runtime plugins or arbitrary
 profile registration.
+
+## Public conformance checks
+
+The ATIF import conformance workflow runs the independent Pi converter, retained
+media checks, reader/profile gates and imported-consumer regressions on authored
+fixtures. Its production Python dependencies are pinned separately in
+`scripts/atif-import-pilot/requirements-ci.lock.txt`: the board policy and
+exploratory atif-scan tool require different Hugging Face Hub versions. The
+production gate sets both `EBO_ATIF_TEST_PYTHON` and
+`EBO_LEADERBOARD_TEST_PYTHON` so those checks execute instead of skipping.
+Private study readback and optional live captures retain their own gates.
