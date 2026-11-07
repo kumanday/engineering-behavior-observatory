@@ -41,8 +41,9 @@ export const claudeV2Profile: NativeProjectionProfile = {
     let scope = sessionScope(record, event.source.nativeReference.artifactId);
     if (event.family === "message") {
       const role = type === "assistant" ? "assistant" : type === "user" ? "user" : hook === "UserPromptSubmit" ? "user" : undefined;
-      facts.message = messageFact(role, role === "user" ? true : typeof inner.stop_reason === "string" ? true : undefined,
-        type === "assistant" || type === "user" || hook === "UserPromptSubmit" ? "canonical" : "fragment",
+      const completeness = role === "user" ? true : role === "assistant" && (message.aborted === true || inner.stop_reason === null) ? false : typeof inner.stop_reason === "string" ? true : undefined;
+      facts.message = messageFact(role, completeness,
+        role === "assistant" && completeness !== true ? "fragment" : type === "assistant" || type === "user" || hook === "UserPromptSubmit" ? "canonical" : "fragment",
         text(inner.id) ?? text(message.uuid) ? known({ id: (text(inner.id) ?? text(message.uuid))!, scope, identityClass: "source-native" }) : unreported);
       if (role === "assistant") facts.inference = { llmCallCount: unreported, nativeRequestId: text(message.request_id) ? known(text(message.request_id)!) : unreported };
     }

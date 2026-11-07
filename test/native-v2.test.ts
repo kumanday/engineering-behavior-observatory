@@ -316,3 +316,24 @@ test("native model aliases bind declared identities and producer model fields wi
   const projected = await projectNativeEvidenceV2(evidence, { manifestDigest: hash("manifest"), harnessVersion: "fixture-pin", modelAliases: ["declared-route"] });
   assert.deepEqual(projected.modelAliases, ["declared-route", "observed-model"]);
 });
+
+test("Cursor MCP tool failure overrides its successful protocol envelope", async () => {
+  const { dataset } = await project(fixture("cursor-sdk", [{ payload: { message: { type: "tool_call", name: "mcp", call_id: "call", status: "completed", result: { status: "success", value: { isError: true, content: [] } } } } }],
+    [{ record: 0, family: "tool", phase: "after" }]));
+  assert.deepEqual(dataset.operations[0]!.failure, { status: "known", value: true });
+  assert.deepEqual(dataset.events[0]!.facts.operation!.failure, { status: "known", value: true });
+});
+test("Claude aborted and nonterminal content blocks retain explicit partial-fragment facts", async () => {
+  for (const aborted of [false, true]) {
+    const { dataset } = await project(fixture("claude-agent-sdk", [{ nativeType: "assistant", sessionId: "s", message: { type: "assistant", aborted,
+      message: { id: "provider-message", content: [{ type: "text", text: "partial" }], stop_reason: aborted ? "end_turn" : null } } }], [{ record: 0, family: "message" }]));
+    assert.deepEqual(dataset.events[0]!.facts.message!.completeness, { status: "known", value: "partial" });
+    assert.equal(dataset.events[0]!.facts.message!.representation, "fragment");
+  }
+});
+test("DeepSeek observed model identities include a native fallback distinct from the declared route", async () => {
+  const evidence = fixture("deepseek-harness", [{ payload: { sessionId: "s", event: { type: "assistant/message", data: { turn: 0, step: 1,
+    message: { id: "m", role: "assistant", source: { kind: "model", provider: "provider", model: "actual-fallback" }, content: [] } } } } }], [{ record: 0, family: "message" }]);
+  const result = await projectNativeEvidenceV2(evidence, { manifestDigest: hash("manifest"), harnessVersion: "fixture", modelAliases: ["declared-route"] });
+  assert.deepEqual(result.modelAliases, ["actual-fallback", "declared-route"]);
+});

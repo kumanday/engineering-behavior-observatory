@@ -40,7 +40,7 @@ export function nativeModelAliasesV2(evidence: RetainedBehaviorEvidence, records
         break;
       case "deepseek-harness": {
         const event = object(payload.event), data = object(event.data);
-        if (event.type === "assistant/message") add(object(data.message).model);
+        if (event.type === "assistant/message") { const message = object(data.message); add(message.model); add(object(message.source).model); }
         break;
       }
       case "devin-cli": add(object(payload.models).currentModelId); break;
