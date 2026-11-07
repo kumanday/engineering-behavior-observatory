@@ -90,13 +90,30 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
       const first = scoped[index]!;
       if (!first.failed) { index += 1; continue; }
       let end = index;
-      while (end < scoped.length && scoped[end]!.failed && scoped[end]!.toolName === first.toolName) end += 1;
+      while (end < scoped.length && scoped[end]!.failed && scoped[end]!.toolName === first.toolName) {
+        if (end > index) {
+          const previous = view.get(scoped[end - 1]!.id)!.start;
+          const candidate = view.get(scoped[end]!.id)!.start;
+          // Other tools remain chain boundaries even though follow-up selection is tool-specific.
+          let separated = false;
+          for (const other of operations) {
+            if (operationScope(other) !== operationScope(first) || other.toolName === first.toolName) continue;
+            const starts = other.events.filter((event) => (event.phase === "before" || event.phase === "instant")
+              && event.nativeOrder.status === "known" && previous.nativeOrder.status === "known" && event.nativeOrder.domain === previous.nativeOrder.domain);
+            if (starts.length === 0) { failureOrderUnavailable = true; separated = true; continue; }
+            if (starts.some((start) => nativeEventPrecedence(previous, start) === -1 && nativeEventPrecedence(start, candidate) === -1)) separated = true;
+          }
+          if (separated) break;
+        }
+        end += 1;
+      }
       const failures = scoped.slice(index, end);
       const failureEnds = failures.map(({ id }) => view.get(id)!.end!);
       const failedAt = [...failureEnds].sort((a, b) => nativeEventPrecedence(a, b) ?? compareEvents(a, b)).at(-1)!;
       if (failureEnds.some((event) => event.id !== failedAt.id && nativeEventPrecedence(event, failedAt) === undefined)) failureOrderUnavailable = true;
       let next: typeof first | undefined;
       for (const candidate of scoped.slice(end)) {
+        if (candidate.toolName !== first.toolName) continue;
         const start = view.get(candidate.id)!.start;
         if (failures.some((failure) => sameDeclaredBatch(failure, candidate))) continue;
         const precedence = nativeEventPrecedence(failedAt, start);

@@ -397,3 +397,23 @@ test("inferred changes need native success, partitions use the resolved scope, D
   assert.deepEqual(of("source-change").map(({ eventIds }) => eventIds), [["event-6", "event-7"]], "an unfinished edit is not a change; a PostToolUse-confirmed one is");
   assert.deepEqual(of("compaction").map(({ eventIds }) => eventIds), [["event-20", "event-21"]], "start and end of one DeepSeek compaction form one boundary");
 });
+
+
+test("intervening tools separate source-ordered failure chains without hiding a failed retry", () => {
+  const first = call(1, "Bash", "fail", { isError: true }).operation;
+  const edit = call(2, "Edit", "change", { isError: false }).operation;
+  const retry = call(3, "Bash", "retry", { isError: true }).operation;
+  first.events = first.events.map((value) => value.phase === "after"
+    ? { ...value, nativeTime: { status: "unknown", reason: "No source clock" } } : value);
+  const { occurrences, coverage } = extract([retry, first, edit]);
+  const chains = occurrences.filter(({ type }) => type === "failure-response");
+  assert.equal(chains.length, 2);
+  const original = chains.find(({ attributes }) => attributes.lastFailureEventId === "event-11")!;
+  assert.equal(original.attributes.failures, 1);
+  assert.equal(original.attributes.responseEventId, "event-30");
+  assert.equal(original.attributes.nextOutcome, "failed");
+  const terminal = chains.find(({ attributes }) => attributes.lastFailureEventId === "event-31")!;
+  assert.equal(terminal.attributes.failures, 1);
+  assert.equal(terminal.attributes.nextOutcome, "none");
+  assert.equal(coverage.find(({ type }) => type === "failure-response")!.status, "available");
+});
