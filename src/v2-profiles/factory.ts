@@ -6,9 +6,11 @@ export const factoryV2Profile: NativeProjectionProfile = {
     const { event, record } = context, frame = object(record.payload), params = object(frame.params), notification = object(params.notification);
     const session = text(params.sessionId), scope = session ? `session:${session}` : `unresolved-document:${event.source.nativeReference.artifactId}`;
     const type = text(notification.type) ?? text(frame.method), facts: EventFactsV2 = {};
+    const messageId = frame.method === "droid.add_user_message" ? text(params.messageId)
+      : type === "assistant_text_delta" ? text(notification.messageId) : text(object(notification.message).id);
     if (event.family === "message") facts.message = messageFact(frame.method === "droid.add_user_message" ? "user" : "assistant",
       type === "create_message" || frame.method === "droid.add_user_message", type === "assistant_text_delta" ? "fragment" : "canonical",
-      text(object(notification.message).id) ? known({ id: text(object(notification.message).id)!, scope, identityClass: "source-native" }) : unreported);
+      messageId ? known({ id: messageId, scope, identityClass: "source-native" }) : unreported);
     if (event.family === "context") facts.context = contextFact(type === "session_compacted" ? "compaction" : "other");
     const usage = object(notification.tokenUsage);
     const values = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheReadInputTokens: usage.cacheReadTokens,

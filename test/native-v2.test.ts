@@ -371,3 +371,15 @@ test("native model switches include Pi modelId and Codex reroute identities", as
     assert.deepEqual(result.modelAliases, [...expected]);
   }
 });
+
+test("Factory retained prompts and partial assistant deltas preserve their explicit message identities", async () => {
+  const delta = (textDelta: string) => ({ payload: { method: "droid.session_notification", params: { sessionId: "s", notification: { type: "assistant_text_delta", messageId: "partial", blockIndex: 0, textDelta } } } });
+  const docs = [delta("first"), delta(" second"), { payload: { method: "droid.add_user_message", params: { sessionId: "s", messageId: "prompt", content: "Task" } } }];
+  const { dataset } = await project(fixture("factory-droid", docs, docs.map((_, record) => ({ record, family: "message" }))));
+  const messages = dataset.events.map(({ facts }) => facts.message!);
+  assert.deepEqual(messages[0]!.identity, { status: "known", value: { id: "partial", scope: "session:s", identityClass: "source-native" } });
+  assert.deepEqual(messages[0]!.identity, messages[1]!.identity);
+  assert.equal(messages[0]!.representation, "fragment");
+  assert.deepEqual(messages[2]!.identity, { status: "known", value: { id: "prompt", scope: "session:s", identityClass: "source-native" } });
+  assert.deepEqual(messages[2]!.role, { status: "known", value: "user" });
+});
