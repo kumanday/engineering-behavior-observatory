@@ -1,3 +1,4 @@
+import { loadAnalysisRuntime, type AnalysisRuntimeIdentity, type FrozenAnalysisRuntime } from "./analysis-runtime.js";
 import { createPointerEvidenceResolver } from "./evidence-pointers.js";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
@@ -34,7 +35,7 @@ export type AtlasBundleRequest = {
   id: string;
   title: string;
   /** Cohorts by their Atlas requests (each names an aggregation request). Paths are relative to this request. */
-  cohorts: ReadonlyArray<{ id: string; atlasRequest: string }>;
+  cohorts: ReadonlyArray<{ id: string; atlasRequest: string; analysisRuntime?: Pick<AnalysisRuntimeIdentity, "id" | "manifestDigest"> }>;
   /** Study arms: a regular expression over each run bundle's directory name with a named group `condition`. */
   condition?: { pattern: string };
   /** Study-authored claims (validated, never generated) and a directory of view specs. */
@@ -55,7 +56,7 @@ export type AtlasBundleManifest = {
   tablesVersion: typeof ATLAS_TABLES_VERSION;
   createdAt: string;
   request: { digest: `sha256:${string}` };
-  cohorts: Array<{ id: string; title: string; sourceDigest: string; cohortDigest: string; attempts: number; assertions: number; report: string }>;
+  cohorts: Array<{ id: string; title: string; sourceDigest: string; cohortDigest: string; attempts: number; assertions: number; report: string; analysisRuntime?: AnalysisRuntimeIdentity }>;
   unitsVersion: typeof ATLAS_UNITS_VERSION;
   /** A packet's shared copy of a bundle names the bundle it was derived from and the variant. */
   derivedFrom?: { bundle: string; manifestSha256: `sha256:${string}`; variant: "partner" | "restricted" };
@@ -298,7 +299,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   const tables: Record<string, Row[]> = Object.fromEntries(Object.keys(ATLAS_TABLES).filter((name) => !STREAMED.has(name)).map((name) => [name, []]));
   const stream = (name: string, row: Row) => sink.push(name, row);
   const cohorts: AtlasBundleManifest["cohorts"] = [];
-  const attempts = new Map<string, { entry: CorpusIndexEntry; bundleRoot: string; cohorts: Set<string> }>();
+  const attempts = new Map<string, { entry: CorpusIndexEntry; bundleRoot: string; cohorts: Set<string>; readers: Map<string, FrozenAnalysisRuntime | undefined> }>();
   const observationSets = new Map<string, StructuralObservationSet>();
   const assertions = new Map<string, { assertion: BehaviorAssertion; digest: string; review: string; cohorts: Set<string> }>();
   mkdirSync(join(outputRoot, "reports"), { recursive: true });
@@ -307,8 +308,10 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
 
   for (const cohort of request.cohorts) {
     const atlasPath = resolve(base, cohort.atlasRequest);
-    const source: AtlasSource = await loadAtlas(atlasPath);
-    const view: AtlasView = await queryAtlas(source);
+    const runtime = cohort.analysisRuntime === undefined ? undefined : await loadAnalysisRuntime(cohort.analysisRuntime.id);
+    if (runtime && runtime.identity.manifestDigest !== cohort.analysisRuntime!.manifestDigest) throw new Error("Atlas cohort runtime digest differs from its shipped identity.");
+    const source: AtlasSource = await (runtime?.loadAtlas ?? loadAtlas)(atlasPath);
+    const view: AtlasView = await (runtime?.queryAtlas ?? queryAtlas)(source);
     // Keep the report, not the view's cases (they carry native records for display).
     reports.set(cohort.id, { title: view.title, generatedAt: view.generatedAt, report: view.report } as AtlasView);
     // Members are the (run, attempt) identities the cohort's selection policy keeps (every selected attempt has at
@@ -318,10 +321,11 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     for (const entry of source.input.corpusEntries.filter(({ manifestKind, runId, attemptId }) => (manifestKind === "run" || manifestKind === "import") && selected.has(`${runId}\0${attemptId}`))) {
       const bundleRoot = resolve(source.corpusRoot, dirname(entry.manifestPath));
       // Cohorts may carry their own corpus copies: one attempt, one manifest digest, whichever copy is read.
-      const known = attempts.get(entry.attemptId!) ?? { entry, bundleRoot, cohorts: new Set<string>() };
+      const known = attempts.get(entry.attemptId!) ?? { entry, bundleRoot, cohorts: new Set<string>(), readers: new Map<string, FrozenAnalysisRuntime | undefined>() };
       // Atlas tables key attempts by attempt id: the same id in two different runs fails the build, never merges them.
       if (known.entry.manifestDigest !== entry.manifestDigest) throw new Error(`Attempt id ${entry.attemptId!} appears in two different run bundles (runs ${known.entry.runId ?? "?"} and ${entry.runId ?? "?"}); attempt ids must be unique in an Atlas bundle.`);
       known.cohorts.add(cohort.id);
+      known.readers.set(runtime?.identity.id ?? "current", runtime);
       attempts.set(entry.attemptId!, known);
     }
     for (const { document } of source.input.observationSets.filter(({ document: d }) => selected.has(`${d.runId}\0${d.attemptId}`))) {
@@ -342,10 +346,11 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
       tables.assessment_cohorts!.push({ assertion_id: a.id, cohort_id: cohort.id, included: a.included, disputed: a.disputed, review_outcome: a.reviewOutcome });
     }
     const report = { schemaVersion: "ebo.atlas-bundle-report/v1", cohort: cohort.id, title: view.title, mode: view.mode, generatedAt: view.generatedAt,
+      ...(runtime === undefined ? {} : { analysisRuntime: runtime.identity }),
       sourceDigest: view.sourceDigest, cohortDigest: view.cohortDigest, sourceAttempts: view.sourceAttempts, matchingCases: view.matchingCases, report: view.report };
     writeFileSync(join(outputRoot, "reports", `${cohort.id}.json`), `${JSON.stringify(report, null, 2)}\n`);
     cohorts.push({ id: cohort.id, title: view.title, sourceDigest: view.sourceDigest, cohortDigest: view.cohortDigest,
-      attempts: source.input.corpusEntries.filter(({ manifestKind }) => manifestKind === "run" || manifestKind === "import").length, assertions: source.input.assertions.length, report: `reports/${cohort.id}.json` });
+      attempts: source.input.corpusEntries.filter(({ manifestKind }) => manifestKind === "run" || manifestKind === "import").length, assertions: source.input.assertions.length, report: `reports/${cohort.id}.json`, ...(runtime === undefined ? {} : { analysisRuntime: runtime.identity }) });
     tables.cohorts!.push({ cohort_id: cohort.id, title: view.title, atlas_request: relative(base, atlasPath), report_mode: view.mode,
       cohort_digest: view.cohortDigest, source_digest: view.sourceDigest, report_generated_at: view.generatedAt, source_attempts: view.sourceAttempts,
       matching_cases: view.matchingCases, group_by: JSON.stringify(source.aggregation.groupBy), operator_narrative: source.request.operatorNarrative ?? null });
@@ -378,8 +383,14 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   const lanes: { attempts: LaneMeta[]; usage: Record<string, Array<[number, number]>>; context: Record<string, Array<[number, number]>> } = { attempts: [], usage: {}, context: {} };
   const attemptMeta: unknown[] = [];
   const assessmentDocs: unknown[] = [];
-  for (const [attemptId, { entry, bundleRoot, cohorts: memberOf }] of [...attempts].sort(([a], [b]) => a.localeCompare(b))) {
-    const evidence = await createRetainedBehaviorEvidence(bundleRoot);
+  for (const [attemptId, { entry, bundleRoot, cohorts: memberOf, readers }] of [...attempts].sort(([a], [b]) => a.localeCompare(b))) {
+    let evidence: RetainedBehaviorEvidence | undefined;
+    for (const runtime of readers.values()) {
+      const candidate = await (runtime?.createRetainedBehaviorEvidence ?? createRetainedBehaviorEvidence)(bundleRoot);
+      if (evidence) assertEquivalentAtlasProjection(evidence, candidate);
+      else evidence = candidate;
+    }
+    if (!evidence) throw new Error("Atlas attempt has no selected analysis runtime.");
     const resolveContent = contentResolver(evidence);
     const derived = deriveUnits({ attemptId, evidenceOrigin: evidence.capture.qualification === "imported" ? "imported" : "owned", events: evidence.dataset.events, occurrences: observationSets.get(attemptId)?.occurrences ?? [],
       resolveContent: (reference) => { const r = resolveContent(reference); return r.status === "resolved" ? r.value : undefined; } });
@@ -650,4 +661,11 @@ export function verifyAtlasBundle(root: string): { ok: boolean; changed: string[
     && (statSync(join(root, path)).size !== bytes || sha256(readFileSync(join(root, path))) !== digest)).map(({ path }) => path);
   const unlisted = present.filter((p) => !listed.has(p));
   return { ok: !missing.length && !changed.length && !unlisted.length, changed, missing, unlisted };
+}
+
+/** Shared attempts may reuse one projection only when every selected runtime preserves the same evidence. */
+export function assertEquivalentAtlasProjection(first: RetainedBehaviorEvidence, second: RetainedBehaviorEvidence): void {
+  const projection = (value: RetainedBehaviorEvidence) => ({ dataset: value.dataset, coverage: value.coverage,
+    qualification: value.capture.qualification, modelAliases: value.modelAliases ?? [], outcomeCapture: value.outcomeCapture });
+  if (canonicalizeMetadata(projection(first)) !== canonicalizeMetadata(projection(second))) throw new Error("An Atlas attempt has conflicting analysis-runtime projections; retain separate studies for those projections.");
 }

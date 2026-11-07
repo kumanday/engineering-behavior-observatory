@@ -54,3 +54,30 @@ shipped reader mechanism. Migration still requires deduplicating study inputs,
 comparing dataset and ledger dependencies, identifying affected assertion units
 and proposing any paid re-judge budget. Runtime selection does not authorize
 regeneration or inference.
+
+## Pin an Atlas cohort
+
+A bundle request can select the fixed runtime and its exact manifest digest for
+each cohort:
+
+```json
+{
+  "id": "retained-study",
+  "atlasRequest": "study/atlas.json",
+  "analysisRuntime": {
+    "id": "ebo-v1.4-atif-20261107",
+    "manifestDigest": "sha256:16c2da39f03f44e33eaccd8ddc9f72de6b73e3a5cf25152ae292f8e7295548c5"
+  }
+}
+```
+
+This object belongs in the bundle request's `cohorts` array. The builder loads
+and queries the cohort and reads its retained attempts through the selected
+runtime. Its manifest and cohort report retain the full source/runtime receipt.
+A cohort without a pin uses the current implementation.
+
+One attempt can belong to current and frozen cohorts when their datasets,
+coverage, qualification, model-blinding aliases and outcome inputs agree. A
+conflicting projection fails the build rather than silently choosing a reader.
+The Atlas tables v1 column contract is preserved. Runtime selection changes no
+source bundle and runs no model judgments.
