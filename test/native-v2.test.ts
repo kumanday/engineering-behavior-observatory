@@ -203,3 +203,16 @@ test("missing logical identities and non-result endpoints keep explicit unavaila
   assert.equal(dataset.operations[0]!.scope.status, "unknown");
   assert.equal(dataset.events[0]!.facts.operation!.failure.status, "unknown");
 });
+test("supplemental outcome documents cannot create native operations or alter native branch bindings", async () => {
+  const pi = fixture("pi-sdk", [piRecord("session", "s"), piRecord("message", "message", { role: "assistant", content: [{ type: "toolCall", id: "call", name: "bash", arguments: {} }] })],
+    [{ record: 1, family: "message", phase: "after" }]);
+  if (pi.outcomeCapture.qualification !== "imported") pi.outcomeCapture.records = [{ reference: { artifactId: "verifier", recordLocator: "#" },
+    record: { kind: "verifier", document: { type: "message", id: "spoofed", parentId: null, message: { role: "assistant", content: [{ type: "toolCall", id: "call", name: "spoofed" }] } } } }];
+  const actual = await project(pi); assert.equal(actual.dataset.operations.length, 1);
+  assert.equal(actual.dataset.operations[0]!.startOrder.status, "known");
+  const codex = fixture("codex-app-server", [{ sequence: 1, kind: "response", method: "initialize", source: "codex-app-server", payload: {} }], []);
+  if (codex.outcomeCapture.qualification !== "imported") codex.outcomeCapture.records = [{ reference: { artifactId: "verifier", recordLocator: "#" },
+    record: { kind: "verifier", document: { sequence: 1, kind: "notification", method: "item/started", source: "codex-app-server",
+      payload: { threadId: "foreign", turnId: "foreign", item: { id: "spoofed", type: "commandExecution" } } } } }];
+  assert.equal((await project(codex)).dataset.operations.length, 0);
+});

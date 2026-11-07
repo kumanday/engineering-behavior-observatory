@@ -74,9 +74,12 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
   const profile = profiles.find((profile) => profile.harness === harness);
   if (!profile) throw new Error("Unsupported native v2 source profile.");
   const records = new Map<string, CapturedNativeRecord<unknown>>();
+  const sourceRecords: CapturedNativeRecord<unknown>[] = [];
   for (const captured of evidence.capture.records) {
     const raw = object(captured.record), record = harness === "claude-agent-sdk" ? raw.document : captured.record;
-    records.set(referenceKey(captured.reference), { reference: captured.reference, record });
+    const sourceRecord = { reference: captured.reference, record };
+    records.set(referenceKey(captured.reference), sourceRecord);
+    if (harness !== "claude-agent-sdk" || raw.kind === "session" || raw.kind === "hook") sourceRecords.push(sourceRecord);
   }
   if (evidence.outcomeCapture.qualification !== "imported") for (const captured of evidence.outcomeCapture.records) {
     const candidate = { reference: captured.reference, record: captured.record.document };
@@ -86,13 +89,13 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
   }
   const population: ProjectionPopulation = { runId: evidence.dataset.runId, attemptId: evidence.dataset.attemptId,
     records: [...records.values()], events: evidence.dataset.events };
-  const rawRecords = population.records.map(({ record }) => object(record));
+  const rawRecords = sourceRecords.map(({ record }) => object(record));
   const context = (event: ProjectionPopulation["events"][number]) => {
     const captured = records.get(referenceKey(event.source.nativeReference));
     if (!captured) throw new Error("V2 event has no retained source record.");
     return { event, record: object(captured.record), records: rawRecords };
   };
-  const original = [...population.events, ...profile.additional?.(population) ?? []];
+  const original = [...population.events, ...profile.additional?.({ ...population, records: sourceRecords }) ?? []];
   const expanded = original.flatMap((event) => [event, ...profile.expand?.(context(event)) ?? []]);
   const projections = expanded.map((event) => profile.project(context(event)));
   const sourceId = `native:${harness}`;
