@@ -4,7 +4,7 @@ export const factoryV2Profile: NativeProjectionProfile = {
   id: "ebo.factory-native-v2", version: "2.0.0", harness: "factory-droid", module: "v2-profiles/factory.js",
   project(context) {
     const { event, record } = context, frame = object(record.payload), params = object(frame.params), notification = object(params.notification);
-    const session = text(params.sessionId), scope = session ? `session:${session}` : `unresolved-document:${event.source.nativeReference.artifactId}`;
+    const session = text(params.sessionId) ?? (event.scope.kind === "session" ? text(event.scope.id) : undefined), scope = session ? `session:${session}` : `unresolved-document:${event.source.nativeReference.artifactId}`;
     const type = text(notification.type) ?? text(frame.method), facts: EventFactsV2 = {};
     const messageId = frame.method === "droid.add_user_message" ? text(params.messageId)
       : type === "assistant_text_delta" ? text(notification.messageId) : text(object(notification.message).id);
