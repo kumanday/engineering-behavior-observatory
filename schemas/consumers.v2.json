@@ -276,7 +276,8 @@
           "additionalProperties": false,
           "required": [
             "facts",
-            "operations"
+            "operations",
+            "evidence"
           ],
           "properties": {
             "facts": {
@@ -426,6 +427,32 @@
                         "type": "boolean"
                       }
                     }
+                  }
+                }
+              }
+            },
+            "evidence": {
+              "type": "array",
+              "maxItems": 1000000,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "citationId",
+                  "content",
+                  "truncated"
+                ],
+                "properties": {
+                  "citationId": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  "content": {
+                    "type": "string",
+                    "maxLength": 110000
+                  },
+                  "truncated": {
+                    "type": "boolean"
                   }
                 }
               }
@@ -756,7 +783,8 @@
         "citationRegistry",
         "modelData",
         "modelRubric",
-        "readiness"
+        "readiness",
+        "workspaceReferences"
       ],
       "properties": {
         "schemaVersion": {
@@ -940,6 +968,35 @@
               "type": "array",
               "maxItems": 1000000,
               "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              }
+            }
+          }
+        },
+        "workspaceReferences": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "citationId",
+              "canonical",
+              "visible"
+            ],
+            "properties": {
+              "citationId": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "canonical": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              },
+              "visible": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 16384
@@ -1362,6 +1419,9 @@
               "type": "null"
             }
           ]
+        },
+        "message": {
+          "$ref": "urn:ebo:schema:normalization:v2#/$defs/event/properties/facts/properties/message"
         }
       }
     },

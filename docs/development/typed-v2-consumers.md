@@ -130,3 +130,9 @@ Backend callbacks also receive a closed response schema. Its answer body omits
 artifact versions and input-owned identifiers; EBO supplies those fields when
 it validates and records the response. `ratingAnswerSchemaV2` and
 `semanticJudgeAnswerSchemaV2` expose the same wire contracts to integrations.
+
+Owned readers bind the manifest model and producer-reported model aliases before
+preparation. Blinded workspace labels map back to one canonical cited working
+directory when an assertion is recorded. Compaction and delegation rating
+inputs include bounded source records. Atlas groups content blocks sharing a
+message identity and retains partial-message facts and every block's evidence.

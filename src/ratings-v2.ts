@@ -10,7 +10,7 @@ import type { EvidenceValue } from "./uniform-events.js";
 export type RatingInputV2 = {
   schemaVersion: "ebo.occurrence-rating-input/v2"; version: "2.0.0"; datasetDigest: HashV2; ledgerDigest: HashV2;
   occurrenceId: string; type: OccurrenceTypeV2; question: string;
-  state: { facts: OccurrenceLedgerV2["occurrences"][number]["facts"]; operations: Array<{ id: string; toolName: EvidenceValue<string>; failure: EvidenceValue<boolean>;
+  state: { evidence: Array<{ citationId: HashV2; content: string; truncated: boolean }>; facts: OccurrenceLedgerV2["occurrences"][number]["facts"]; operations: Array<{ id: string; toolName: EvidenceValue<string>; failure: EvidenceValue<boolean>;
     input: { content: string; truncated: boolean }; output: { content: string; truncated: boolean } }> };
   citations: EvidenceCitationV2[]; citationRegistry: Array<{ id: HashV2; citation: EvidenceCitationV2 }>; modelData: Record<string, unknown>; limits: { maxFieldChars: number; maxInputChars: number };
 };
@@ -41,9 +41,11 @@ const questions: Record<OccurrenceTypeV2, string> = {
 export async function prepareOccurrenceRatingInputsV2(evidence: RetainedBehaviorEvidenceV2, ledger: OccurrenceLedgerV2,
   limits = { maxFieldChars: 6000, maxInputChars: 40000 }): Promise<RatingInputV2[]> {
   await validateOccurrenceLedgerV2(ledger, evidence.dataset, evidence.resolver);
+  if (ledger.occurrences.length && !evidence.modelAliases?.length) throw new Error("V2 rating preparation requires evaluated model aliases for blinding.");
   if (!Number.isSafeInteger(limits.maxFieldChars) || limits.maxFieldChars < 256 || limits.maxFieldChars > 100000 || !Number.isSafeInteger(limits.maxInputChars)
       || limits.maxInputChars < limits.maxFieldChars || limits.maxInputChars > 1000000) throw new Error("Invalid v2 rating bounds.");
   const operations = new Map(evidence.dataset.operations.map((operation) => [operation.id, operation]));
+  const events = new Map(evidence.dataset.events.map((event) => [event.id, event]));
   const result: RatingInputV2[] = [];
   for (const occurrence of ledger.occurrences) {
     const rows: RatingInputV2["state"]["operations"] = [], citations = new Map<HashV2, EvidenceCitationV2>();
@@ -58,8 +60,16 @@ export async function prepareOccurrenceRatingInputsV2(evidence: RetainedBehavior
       };
       rows.push({ id, toolName: operation.toolName, failure: operation.failure, input: await content("tool-input"), output: await content("tool-result") });
     }
+    const quoted: RatingInputV2["state"]["evidence"] = [];
+    if (!occurrence.operationIds.length || occurrence.type === "delegation") for (const id of occurrence.eventIds) {
+      const event = events.get(id)!;
+      const citation = await citeEventV2(evidence.dataset, evidence.resolver, id);
+      const raw = evidence.resolver.read(event.source.nativeReference);
+      const bounded = boundedEvidence(raw === undefined ? { status: "unknown", reason: "RETAINED_EVENT_CONTENT_UNAVAILABLE" } : raw, limits.maxFieldChars);
+      quoted.push({ citationId: analysisDigestV2(citation), ...bounded, content: blindTextV2(bounded.content, evidence.modelAliases ?? []) });
+    }
     const input: RatingInputV2 = { schemaVersion: "ebo.occurrence-rating-input/v2", version: "2.0.0", datasetDigest: datasetV2Digest(evidence.dataset), ledgerDigest: analysisDigestV2(ledger),
-      occurrenceId: occurrence.id, type: occurrence.type, question: questions[occurrence.type], state: { facts: blindValueV2(occurrence.facts, evidence.modelAliases ?? []) as RatingInputV2["state"]["facts"], operations: rows },
+      occurrenceId: occurrence.id, type: occurrence.type, question: questions[occurrence.type], state: { evidence: quoted, facts: blindValueV2(occurrence.facts, evidence.modelAliases ?? []) as RatingInputV2["state"]["facts"], operations: rows },
       citations: [...citations.values()], citationRegistry: [...citations].map(([id, citation]) => ({ id, citation })), modelData: {}, limits };
     input.modelData = blindValueV2({ question: input.question, state: input.state, occurrenceId: input.occurrenceId, type: input.type,
       citationRegistry: input.citationRegistry }, evidence.modelAliases ?? []) as Record<string, unknown>;

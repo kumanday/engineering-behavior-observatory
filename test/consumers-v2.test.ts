@@ -225,3 +225,45 @@ test("backend response schemas match the accepted answer body and exclude input-
   assert.equal(judge(answer), true); assert.equal(judge({ ...answer, runId: "foreign" }), false);
   assert.equal(judge({ ...answer, schemaVersion: "ebo.semantic-judge-answer/v2" }), false);
 });
+
+test("owned source aliases reach judge and rating payloads without an operator fixture override", async () => {
+  const { nativeFixtureV2 } = await import("./consumers-v2-fixture.js");
+  const evidence = await nativeFixtureV2("compaction"); assert.ok(evidence.modelAliases?.includes("synthetic-model"));
+  const observations = await createStructuralObservationSetV2(evidence.dataset, evidence.resolver), ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
+  const input = await prepareSemanticJudgeInputV2(evidence, observations, ledger, { ...request, eventIds: evidence.dataset.events.filter(({ family }) => family === "message").map(({ id }) => id) });
+  assert.equal(semanticJudgePromptV2(input).includes("synthetic-model"), false);
+  const anonymous = { ...evidence, modelAliases: undefined };
+  await assert.rejects(prepareSemanticJudgeInputV2(anonymous, observations, ledger, request), /requires evaluated model aliases/u);
+  await assert.rejects(prepareOccurrenceRatingInputsV2(anonymous, ledger), /requires evaluated model aliases/u);
+});
+test("Atlas groups all canonical Claude content blocks into one reachable message unit", async () => {
+  const { claudeBlockFixtureV2 } = await import("./consumers-v2-fixture.js"), { buildAtlasViewV2 } = await import("../src/atlas-v2.js");
+  const evidence = await claudeBlockFixtureV2(), view = await buildAtlasViewV2(evidence), units = view.units.filter(({ kind }) => kind === "message");
+  assert.equal(units.length, 1); assert.equal(units[0]!.eventIds.length, 2);
+  assert.equal(units[0]!.message!.representation, "fragment"); assert.deepEqual(units[0]!.message!.completeness, { status: "known", value: "partial" });
+  const contents = JSON.stringify(view.evidence.filter(({ citation }) => units[0]!.eventIds.includes(citation.eventId)));
+  assert.match(contents, /first block/u); assert.match(contents, /second block/u);
+});
+test("native and imported compaction rating payloads include their bounded summary evidence", async () => {
+  const { nativeFixtureV2 } = await import("./consumers-v2-fixture.js");
+  for (const evidence of [await nativeFixtureV2("compaction"), await atifFixtureV2("compaction")]) {
+    const ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver), input = (await prepareOccurrenceRatingInputsV2(evidence, ledger)).find(({ type }) => type === "compaction")!;
+    assert.ok(input); assert.match(JSON.stringify(input.modelData), /Synthetic check state summary/u);
+    assert.ok(input.state.evidence.length); assert.equal(JSON.stringify(input.modelData).includes("synthetic-model"), false);
+  }
+});
+test("blinded workspace labels resolve to their one canonical cited working directory", async () => {
+  const { nativeFixtureV2 } = await import("./consumers-v2-fixture.js");
+  const canonical = "/runs/synthetic-model/work", visible = "/runs/[EVALUATED_MODEL]/work";
+  const evidence = await nativeFixtureV2("parallel-failure-cache-write", (records) => { records[0]!.cwd = canonical; });
+  const observations = await createStructuralObservationSetV2(evidence.dataset, evidence.resolver), ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
+  const header = evidence.dataset.events.find(({ source }) => source.nativeReference.recordLocator === "line:1")!;
+  const input = await prepareSemanticJudgeInputV2(evidence, observations, ledger, { ...request, eventIds: [header.id] });
+  const citation = input.citationRegistry.find(({ citation }) => citation.eventId === header.id)!;
+  assert.ok(semanticJudgePromptV2(input).includes(visible)); assert.equal(semanticJudgePromptV2(input).includes(canonical), false);
+  const answer = { assessment: "constructive" as const, confidence: 0.8, abstentionReason: null, rationale: "Explicit working directory", alternativeExplanation: "Other activity remains possible", citationIds: [citation.id],
+    claims: [{ id: "claim", text: "The session declares this working directory", citationIds: [citation.id], workspace: visible }] };
+  const assertion = parseBehaviorAssertionV2(answer, input); assert.equal(assertion.claims[0]!.workspace, canonical);
+  await validateBehaviorAssertionV2(assertion, input, evidence);
+  assert.throws(() => parseBehaviorAssertionV2({ ...answer, claims: [{ ...answer.claims[0]!, workspace: "/foreign" }] }, input), /explicit cited cwd/u);
+});

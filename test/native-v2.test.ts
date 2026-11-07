@@ -291,3 +291,49 @@ test("Pi reasoning tokens remain a separate reported subset of output tokens", a
     [{ record: 1, family: "runtime", id: "native-usage-increment" }]));
   assert.deepEqual(dataset.events[0]!.facts.resource!.values, { inputTokens: 10, outputTokens: 20, totalTokens: 30, reasoningTokens: 15 });
 });
+
+test("Codex dynamic tool completions preserve native success and result content", async () => {
+  for (const success of [true, false]) {
+    const output = [{ type: "inputText", text: "native dynamic result" }];
+    const docs = [{ source: "codex-app-server", kind: "notification", method: "item/completed", payload: { threadId: "thread", turnId: "turn",
+      item: { type: "dynamicToolCall", id: "dynamic", tool: "custom", arguments: "{}", status: "completed", success, contentItems: output } } }];
+    const { dataset, resolver } = await project(fixture("codex-app-server", docs, [{ record: 0, family: "tool", phase: "after" }]));
+    assert.deepEqual(dataset.operations[0]!.failure, { status: "known", value: !success });
+    const content = dataset.events[0]!.content; assert.equal(content.status, "known");
+    if (content.status === "known") { const result = content.value.find(({ role }) => role === "tool-result")!; assert.ok(result); assert.deepEqual(resolver.read(result.nativeReference), output); }
+  }
+});
+test("DeepSeek rendered signal termination overrides the successful tool envelope", async () => {
+  const docs = [{ payload: { sessionId: "s", event: { seq: 1, type: "tool/result", data: { turn: 0, step: 1,
+    message: { role: "tool", toolCallId: "call", isError: false, content: [{ type: "text", text: "Stopped.\n[killed by signal: SIGTERM]" }] } } } } }];
+  const { dataset } = await project(fixture("deepseek-harness", docs, [{ record: 0, family: "tool", phase: "after" }]));
+  assert.deepEqual(dataset.operations[0]!.failure, { status: "known", value: true });
+});
+
+test("native model aliases bind declared identities and producer model fields without scanning tool inputs", async () => {
+  const evidence = fixture("pi-sdk", [piRecord("session", "s"), piRecord("message", "m", { role: "assistant", model: "observed-model", content: [{ type: "toolCall", id: "call", name: "bash", arguments: { model: "candidate-data" } }] })],
+    [{ record: 1, family: "message", phase: "after" }]);
+  const projected = await projectNativeEvidenceV2(evidence, { manifestDigest: hash("manifest"), harnessVersion: "fixture-pin", modelAliases: ["declared-route"] });
+  assert.deepEqual(projected.modelAliases, ["declared-route", "observed-model"]);
+});
+
+test("Cursor MCP tool failure overrides its successful protocol envelope", async () => {
+  const { dataset } = await project(fixture("cursor-sdk", [{ payload: { message: { type: "tool_call", name: "mcp", call_id: "call", status: "completed", result: { status: "success", value: { isError: true, content: [] } } } } }],
+    [{ record: 0, family: "tool", phase: "after" }]));
+  assert.deepEqual(dataset.operations[0]!.failure, { status: "known", value: true });
+  assert.deepEqual(dataset.events[0]!.facts.operation!.failure, { status: "known", value: true });
+});
+test("Claude aborted and nonterminal content blocks retain explicit partial-fragment facts", async () => {
+  for (const aborted of [false, true]) {
+    const { dataset } = await project(fixture("claude-agent-sdk", [{ nativeType: "assistant", sessionId: "s", message: { type: "assistant", aborted,
+      message: { id: "provider-message", content: [{ type: "text", text: "partial" }], stop_reason: aborted ? "end_turn" : null } } }], [{ record: 0, family: "message" }]));
+    assert.deepEqual(dataset.events[0]!.facts.message!.completeness, { status: "known", value: "partial" });
+    assert.equal(dataset.events[0]!.facts.message!.representation, "fragment");
+  }
+});
+test("DeepSeek observed model identities include a native fallback distinct from the declared route", async () => {
+  const evidence = fixture("deepseek-harness", [{ payload: { sessionId: "s", event: { type: "assistant/message", data: { turn: 0, step: 1,
+    message: { id: "m", role: "assistant", source: { kind: "model", provider: "provider", model: "actual-fallback" }, content: [] } } } } }], [{ record: 0, family: "message" }]);
+  const result = await projectNativeEvidenceV2(evidence, { manifestDigest: hash("manifest"), harnessVersion: "fixture", modelAliases: ["declared-route"] });
+  assert.deepEqual(result.modelAliases, ["actual-fallback", "declared-route"]);
+});

@@ -20,6 +20,7 @@ export type JudgeInputV2 = {
   observations: ObservationSetV2; ledger: OccurrenceLedgerV2; ratings: RatingRecordV2[];
   evidence: Array<{ eventId: string; content: string; truncated: boolean; citation: EvidenceCitationV2; workspaceHints: string[] }>;
   omissions: string[]; modelIdentity: "blinded"; citationRegistry: Array<{ id: HashV2; citation: EvidenceCitationV2 }>;
+  workspaceReferences: Array<{ citationId: HashV2; canonical: string; visible: string }>;
   modelData: Record<string, unknown>; modelRubric: string; readiness: { status: "ready" | "requires-ratings"; missingRatingOccurrenceIds: string[] };
 };
 export type BehaviorAssertionV2 = {
@@ -33,6 +34,7 @@ export type BehaviorAnswerV2 = Pick<BehaviorAssertionV2, "assessment" | "confide
 export async function prepareSemanticJudgeInputV2(evidence: RetainedBehaviorEvidenceV2, observations: ObservationSetV2, ledger: OccurrenceLedgerV2,
   request: JudgeRequestV2, ratings: RatingRecordV2[] = []): Promise<JudgeInputV2> {
   if (validateArtifact("V2 judge request", request).length) throw new Error("Invalid v2 judge request.");
+  if (!evidence.modelAliases?.length) throw new Error("V2 judge preparation requires evaluated model aliases for blinding.");
   const vocabulary = DEFAULT_BEHAVIOR_VOCABULARY;
   if (request.behavior.vocabularyVersion !== vocabulary.version || !vocabulary.categories.some((category) => category.id === request.behavior.categoryId && category.dimensions.some(({ id }) => id === request.behavior.dimensionId))) throw new Error("V2 judge request must name a declared behavior dimension.");
   await validateStructuralObservationSetV2(observations, evidence.dataset, evidence.resolver);
@@ -51,7 +53,7 @@ export async function prepareSemanticJudgeInputV2(evidence: RetainedBehaviorEvid
   const input: JudgeInputV2 = { schemaVersion: "ebo.semantic-judge-input/v2", promptVersion: "2.0.0", runId: evidence.dataset.runId, attemptId: evidence.dataset.attemptId,
     dependencies: { dataset: datasetV2Digest(evidence.dataset), observations: analysisDigestV2(observations), ledger: analysisDigestV2(ledger), ratings: ratings.length ? analysisDigestV2(ratings) : null,
       request: analysisDigestV2(request), evaluatorConfiguration: analysisDigestV2(request.evaluator) }, origin: structuredClone(evidence.dataset.origin), request: structuredClone(request),
-    observations: structuredClone(observations), ledger: structuredClone(ledger), ratings: structuredClone(ratings), evidence: [], omissions: [], modelIdentity: "blinded", citationRegistry: [], modelData: {}, modelRubric: blindTextV2(request.rubric.instructions, evidence.modelAliases ?? []), readiness: { status: "ready", missingRatingOccurrenceIds: [] } };
+    observations: structuredClone(observations), ledger: structuredClone(ledger), ratings: structuredClone(ratings), evidence: [], omissions: [], modelIdentity: "blinded", citationRegistry: [], workspaceReferences: [], modelData: {}, modelRubric: blindTextV2(request.rubric.instructions, evidence.modelAliases ?? []), readiness: { status: "ready", missingRatingOccurrenceIds: [] } };
   for (const id of request.eventIds) {
     const event = events.get(id); if (!event) throw new Error("Unknown v2 judge selected event.");
     const record = evidence.resolver.read(event.source.nativeReference); if (record === undefined) throw new Error("V2 judge evidence cannot be read.");
@@ -62,11 +64,15 @@ export async function prepareSemanticJudgeInputV2(evidence: RetainedBehaviorEvid
   const citations = [...input.evidence.map(({ citation }) => citation), ...observations.observations.flatMap(({ citations }) => citations),
     ...ledger.occurrences.flatMap(({ citations }) => citations), ...ratings.flatMap(({ input }) => input.citations)];
   input.citationRegistry = [...new Map(citations.map((citation) => [analysisDigestV2(citation), citation]))].map(([id, citation]) => ({ id, citation }));
+  for (const { id, citation } of input.citationRegistry) {
+    const raw = evidence.resolver.read(citation.nativeReference);
+    for (const canonical of evidenceWorkspaces(raw)) input.workspaceReferences.push({ citationId: id, canonical, visible: blindTextV2(canonical, evidence.modelAliases ?? []) });
+  }
   const missing = ledger.occurrences.filter((row) => request.ratingRequirements?.types.includes(row.type) && !ratedOccurrences.has(row.id)).map(({ id }) => id);
   input.readiness = { status: missing.length ? "requires-ratings" : "ready", missingRatingOccurrenceIds: missing };
   input.modelData = blindValueV2({ behavior: request.behavior, origin: input.origin, observations, ledger, ratings,
     evidence: input.evidence.map(({ workspaceHints: _workspace, ...entry }) => entry), omissions: input.omissions, citationRegistry: input.citationRegistry,
-    readiness: input.readiness }, evidence.modelAliases ?? []) as Record<string, unknown>;
+    readiness: input.readiness, workspaceReferences: input.workspaceReferences.map(({ canonical: _canonical, citationId, visible }) => ({ citationId, workspace: visible })) }, evidence.modelAliases ?? []) as Record<string, unknown>;
   if (semanticJudgePromptV2(input).length > request.limits.maxInputChars) throw new Error("V2 judge input exceeds limits; ledger members and selected evidence cannot be silently dropped.");
   return input;
 }
@@ -85,12 +91,15 @@ export function parseBehaviorAssertionV2(answer: BehaviorAnswerV2, input: JudgeI
       || answer.claims.some((claim) => !claim.id.trim() || !claim.text.trim() || !claim.citationIds.length || claim.citationIds.some((id) => !supplied.has(id)))
       || answer.assessment !== "abstain" && (!answer.claims.length || !supplied.size)) throw new Error("Invalid v2 assertion, alternative explanation or citations.");
   if (answer.assessment === "abstain" ? answer.confidence !== null || !answer.abstentionReason?.trim() : answer.abstentionReason !== null || answer.confidence === null) throw new Error("V2 abstention and confidence are inconsistent.");
-  for (const claim of answer.claims) if (claim.workspace !== null) {
-    const workspaces = new Set(claim.citationIds.flatMap((id) => input.evidence.find(({ citation }) => analysisDigestV2(citation) === id)?.workspaceHints ?? []));
-    if (workspaces.size !== 1 || !workspaces.has(claim.workspace)) throw new Error("V2 claim workspace lacks one explicit cited cwd.");
-  }
+  const claims = answer.claims.map((claim) => {
+    if (claim.workspace === null) return structuredClone(claim);
+    const references = input.workspaceReferences.filter(({ citationId }) => claim.citationIds.includes(citationId));
+    const workspaces = new Set(references.map(({ canonical }) => canonical));
+    if (workspaces.size !== 1 || !references.some(({ canonical, visible }) => claim.workspace === canonical || claim.workspace === visible)) throw new Error("V2 claim workspace lacks one explicit cited cwd.");
+    return { ...structuredClone(claim), workspace: [...workspaces][0]! };
+  });
   const { citationIds: _ids, ...judgment } = structuredClone(answer);
-  const candidate: BehaviorAssertionV2 = { ...judgment, schemaVersion: "ebo.behavior-assertion/v2", runId: input.runId, attemptId: input.attemptId, inputDigest: analysisDigestV2(input),
+  const candidate: BehaviorAssertionV2 = { ...judgment, claims, schemaVersion: "ebo.behavior-assertion/v2", runId: input.runId, attemptId: input.attemptId, inputDigest: analysisDigestV2(input),
     behavior: structuredClone(input.request.behavior), evaluator: { id: input.request.evaluator.id, version: input.request.evaluator.version, configurationDigest: input.dependencies.evaluatorConfiguration },
     status: "proposed", citations: answer.citationIds.map((id) => structuredClone(registry.get(id)!)) };
   if (validateArtifact("V2 assertion", candidate).length) throw new Error("Invalid v2 assertion shape.");

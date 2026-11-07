@@ -1,3 +1,4 @@
+import { nativeModelAliasesV2 } from "./native-model-aliases-v2.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { digestBytes, digestMetadata } from "./artifacts.js";
@@ -66,7 +67,7 @@ export function createSourceEvidenceResolverV2(input: { runId: string; attemptId
 }
 
 /** An independent derivation over qualified source records. Original v1 dataset and manifests remain untouched. */
-export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence, binding: { manifestDigest: Hash; harnessVersion: string }): Promise<RetainedBehaviorEvidenceV2> {
+export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence, binding: { manifestDigest: Hash; harnessVersion: string; modelAliases?: readonly string[] }): Promise<RetainedBehaviorEvidenceV2> {
   if (evidence.capture.qualification === "imported" || evidence.dataset.origin?.kind === "imported") throw new Error("Native v2 projection requires owned qualified evidence; imported sources need their own profile.");
   await validateNormalizedDataset(evidence.dataset, evidence.resolver);
   if (evidence.capture.runId !== evidence.dataset.runId || evidence.capture.attemptId !== evidence.dataset.attemptId) throw new Error("V2 capture and dataset identities differ.");
@@ -138,17 +139,17 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
     }) };
   await validateNormalizedDatasetV2(dataset, resolver);
   const { dataset: _dataset, resolver: _resolver, coverage: _coverage, ...retained } = evidence;
-  return { ...retained, dataset, resolver };
+  return { ...retained, dataset, resolver, modelAliases: nativeModelAliasesV2(evidence, sourceRecords, harness, binding.modelAliases) };
 }
 
 export async function createRetainedBehaviorEvidenceV2(bundleRoot: string): Promise<RetainedBehaviorEvidenceV2> {
   const evidence = await createRetainedBehaviorEvidence(bundleRoot);
   const bytes = readBoundedFile(join(bundleRoot, "manifest.json"), "Native v2 manifest");
-  const manifest = JSON.parse(bytes.toString("utf8")) as { run?: { harness?: { version?: string } } };
+  const manifest = JSON.parse(bytes.toString("utf8")) as { run?: { harness?: { version?: string }; model?: { id?: string } } };
   if (!manifest.run?.harness?.version) throw new Error("Native v2 manifest has no executed harness version.");
-  return projectNativeEvidenceV2(evidence, { manifestDigest: `sha256:${digestBytes(bytes).value}`, harnessVersion: manifest.run.harness.version });
+  return projectNativeEvidenceV2(evidence, { manifestDigest: `sha256:${digestBytes(bytes).value}`, harnessVersion: manifest.run.harness.version, modelAliases: manifest.run.model?.id ? [manifest.run.model.id] : [] });
 }
 function implementation(profile: NativeProjectionProfile): Hash {
-  return `sha256:${digestMetadata(["native-v2.js", "projection-v2.js", "normalization-v2.js", "evidence-pointers.js", profile.module,
+  return `sha256:${digestMetadata(["native-v2.js", "native-model-aliases-v2.js", "projection-v2.js", "normalization-v2.js", "evidence-pointers.js", profile.module,
     "../../schemas/normalization.v2.json"].map((path) => ({ path, digest: digestBytes(readFileSync(new URL(path, import.meta.url))).value }))).value}`;
 }

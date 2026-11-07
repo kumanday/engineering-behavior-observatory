@@ -39,9 +39,9 @@ export const codexV2Profile: NativeProjectionProfile = {
     const endpoint = method === "item/started" ? "call" : "result";
     const input = item.command ?? item.arguments ?? item.query;
     const failure = item.status === "failed" || item.status === "declined" || item.error !== null && item.error !== undefined ? known(true)
-      : resultFailure(item.isError, item.exitCode);
+      : resultFailure(item.type === "dynamicToolCall" && typeof item.success === "boolean" ? !item.success : item.isError, item.exitCode);
     const inputKey = item.command !== undefined ? "command" : item.arguments !== undefined ? "arguments" : item.query !== undefined ? "query" : undefined;
-    const outputKey = item.aggregatedOutput !== undefined ? "aggregatedOutput" : item.result !== undefined ? "result" : undefined;
+    const outputKey = item.aggregatedOutput !== undefined ? "aggregatedOutput" : item.result !== undefined ? "result" : item.type === "dynamicToolCall" && item.contentItems !== undefined ? "contentItems" : undefined;
     const content = mergeContent(inputKey ? pointedContent(context, `/payload/item/${inputKey}`, "tool-input") : undefined,
       endpoint === "result" && outputKey ? pointedContent(context, `/payload/item/${outputKey}`, "tool-result") : undefined);
     return { facts, clock, nativeOrder, ...(content ? { content } : {}), operation: { nativeId: text(item.id), scope, endpoint, canonical: true,

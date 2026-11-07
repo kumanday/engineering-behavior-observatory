@@ -4,12 +4,12 @@ import { analysisDigestV2, citeEventV2, createStructuralObservationSetV2, type E
 import { loadAnalysisRuntime, type AnalysisRuntimeIdentity } from "./analysis-runtime.js";
 import { visibleEvidence } from "./evidence-projection.js";
 import type { RetainedBehaviorEvidenceV2 } from "./native-v2.js";
-import { datasetV2Digest, executionDurationMs } from "./normalization-v2.js";
+import { datasetV2Digest, executionDurationMs, type EventFactsV2 } from "./normalization-v2.js";
 import { createOccurrenceLedgerV2, operationCommandV2, type OccurrenceLedgerV2 } from "./occurrences-v2.js";
 import type { EvidenceValue } from "./uniform-events.js";
 
 export type AtlasUnitV2 = { id: string; kind: "tool" | "message" | "delegation" | "model-request" | "context"; sourceId: string; eventIds: string[];
-  label: string; role: EvidenceValue<string>; failure: EvidenceValue<boolean>; durationMs: EvidenceValue<number>; command: string | null };
+  message?: EventFactsV2["message"]; label: string; role: EvidenceValue<string>; failure: EvidenceValue<boolean>; durationMs: EvidenceValue<number>; command: string | null };
 export type AtlasViewV2 = { schemaVersion: "ebo.atlas-view/v2"; runtime: { id: "ebo-typed-v2"; version: "2.0.0"; datasetDigest: HashV2 };
   runId: string; attemptId: string; origin: RetainedBehaviorEvidenceV2["dataset"]["origin"]; sources: RetainedBehaviorEvidenceV2["dataset"]["sources"];
   observations: ObservationSetV2; ledger: OccurrenceLedgerV2; units: AtlasUnitV2[];
@@ -28,13 +28,26 @@ export async function buildAtlasViewV2(evidence: RetainedBehaviorEvidenceV2): Pr
       eventIds: [...operation.callEventIds, ...operation.resultEventIds, ...operation.observationEventIds ?? []], label: operation.toolName.status === "known" ? operation.toolName.value : operation.identity.kind,
       role: unknown, failure: operation.failure, durationMs, command: operationCommandV2(dataset, operation, resolver) ?? null });
   }
-  const messages = new Set<string>();
+  const messages = new Map<string, AtlasUnitV2>();
   for (const event of dataset.events) {
-    if (event.facts.message && event.facts.message.representation === "canonical") {
+    if (event.facts.message && ["canonical", "fragment"].includes(event.facts.message.representation)) {
       const identity = event.facts.message.identity, key = identity.status === "known" ? JSON.stringify([event.source.sourceId, identity.value]) : event.id;
-      if (messages.has(key)) continue; messages.add(key);
-      units.push({ id: `message:${analysisDigestV2(key).slice(7)}`, kind: "message", sourceId: event.source.sourceId, eventIds: [event.id],
-        label: event.facts.message.completeness.status === "known" ? `${event.facts.message.completeness.value} message` : "recorded message", role: event.facts.message.role, failure: unknown, durationMs: unknown, command: null });
+      const existing = messages.get(key);
+      const label = event.facts.message.completeness.status === "known" ? `${event.facts.message.completeness.value} message` : "recorded message";
+      if (existing) {
+        existing.eventIds.push(event.id);
+        if (existing.label !== label) existing.label = "recorded message";
+        if (analysisDigestV2(existing.message!.completeness) !== analysisDigestV2(event.facts.message.completeness)) existing.message!.completeness = { status: "unknown", reason: "MIXED_MESSAGE_COMPLETENESS_OBSERVATIONS" };
+        if (existing.message!.representation !== event.facts.message.representation) existing.message!.representation = "unknown";
+        if (analysisDigestV2(existing.role) !== analysisDigestV2(event.facts.message.role)) {
+          const role = { status: "unknown", reason: "CONFLICTING_MESSAGE_ROLE_OBSERVATIONS" } as const;
+          existing.role = role; existing.message!.role = role;
+        }
+        continue;
+      }
+      const unit: AtlasUnitV2 = { id: `message:${analysisDigestV2(key).slice(7)}`, kind: "message", sourceId: event.source.sourceId, eventIds: [event.id],
+        message: structuredClone(event.facts.message), label, role: event.facts.message.role, failure: unknown, durationMs: unknown, command: null };
+      messages.set(key, unit); units.push(unit);
     } else if (event.facts.context) units.push({ id: `context:${event.id}`, kind: "context", sourceId: event.source.sourceId, eventIds: [event.id], label: event.facts.context.type,
       role: unknown, failure: unknown, durationMs: unknown, command: null });
   }
