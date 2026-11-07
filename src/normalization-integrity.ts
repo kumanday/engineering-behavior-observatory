@@ -9,6 +9,7 @@ import {
   type NativeEvidenceResolution,
   type NativeEvidenceResolver,
   type NormalizationInput,
+  type ImportedNativeEvidence,
   type NormalizationResult,
   type UniformEventFamily,
 } from "./uniform-events.js";
@@ -36,6 +37,9 @@ export type NormalizedDataset = NormalizationResult & {
     harness: string;
   };
   capabilityProfile: AdapterCapabilityProfile;
+  /** Present only for third-party imports. Absence preserves native v1 digest/readback semantics. */
+  origin?: { kind: "imported"; qualification: "imported"; manifestDigest: DigestString;
+    exactAttemptMeasures: "unavailable"; reason: string };
   nativeRecords: readonly NormalizedNativeRecord[];
   contentReferences: readonly NormalizedContentReference[];
 };
@@ -144,6 +148,23 @@ export function describeNormalizedDataset<NativeRecord>(
   if (!(["qualified", "qualified-with-gaps"] as const).includes(input.capture.qualification)) {
     throw new Error("Normalized datasets require capture-qualified evidence.");
   }
+  return describeEvidenceDataset(input);
+}
+
+/** Separate entry point prevents an import from being presented as a qualified capture. */
+export function describeImportedDataset<NativeRecord>(
+  input: Omit<NormalizedDatasetInput<NativeRecord>, "capture"> & {
+    capture: ImportedNativeEvidence<NativeRecord>; origin: NonNullable<NormalizedDataset["origin"]>;
+  },
+): NormalizedDataset {
+  if (input.capture.qualification !== "imported" || input.origin.kind !== "imported" || input.origin.qualification !== "imported"
+      || input.origin.exactAttemptMeasures !== "unavailable") throw new Error("Imported datasets require imported provenance and explicit attempt-measure limits.");
+  return { ...describeEvidenceDataset(input), origin: structuredClone(input.origin) };
+}
+
+function describeEvidenceDataset<NativeRecord>(input: Omit<NormalizedDatasetInput<NativeRecord>, "capture"> & {
+  capture: NormalizationInput<NativeRecord> | ImportedNativeEvidence<NativeRecord>;
+}): NormalizedDataset {
   const nativeRecords = input.capture.records.map(({ reference, record }) => ({
     reference: structuredClone(reference),
     nativeType: required(input.nativeType(record), "Native record type"),

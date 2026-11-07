@@ -94,6 +94,18 @@ export type QualifiedNativeCapture<NativeRecord> = {
 
 export type NormalizationInput<NativeRecord> = QualifiedNativeCapture<NativeRecord>;
 
+/** Third-party evidence has no EBO-owned capture qualification. */
+export type ImportedNativeEvidence<NativeRecord> = {
+  runId: string;
+  attemptId: string;
+  qualification: "imported";
+  records: readonly CapturedNativeRecord<NativeRecord>[];
+};
+export type RetainedNormalizationInput<NativeRecord> = NormalizationInput<NativeRecord> | ImportedNativeEvidence<NativeRecord>;
+/** Outcome records retain their source class; import records cannot assert an owned terminal. */
+export type OutcomeEvidenceInput = RetainedNormalizationInput<{ kind: string; document: unknown }>;
+
+
 export type UnmappedNativeRecord = {
   reference: NativeEvidenceReference;
   reason: string;

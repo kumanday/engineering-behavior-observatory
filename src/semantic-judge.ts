@@ -1,3 +1,4 @@
+import type { RetainedNormalizationInput } from "./uniform-events.js";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -31,7 +32,7 @@ import { UNIFORM_EVENT_FAMILIES } from "./uniform-events.js";
 import { OCCURRENCE_TYPES, type OccurrenceType } from "./occurrences.js";
 import { boundedEvidence } from "./evidence-projection.js";
 import { validateOccurrenceRatings, verifyRatingRules, type OccurrenceRatings } from "./occurrence-ratings.js";
-import type { NativeEvidenceReference, NormalizationInput, UniformEvent } from "./uniform-events.js";
+import type { NativeEvidenceReference, UniformEvent } from "./uniform-events.js";
 
 type DigestString = `sha256:${string}`;
 type JsonRecord = Record<string, unknown>;
@@ -529,7 +530,7 @@ export async function runClaudeAgentSdkSemanticJudge(
 
 export function packageSemanticJudgeInput(
   events: readonly UniformEvent[],
-  capture: NormalizationInput<unknown>,
+  capture: RetainedNormalizationInput<unknown>,
   observations: StructuralObservationSet,
   request: SemanticJudgeRequest,
   datasetDigest: DigestString,
