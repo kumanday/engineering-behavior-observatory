@@ -54,7 +54,9 @@ export async function prepareOccurrenceRatingInputsV2(evidence: RetainedBehavior
     for (const id of occurrence.operationIds) {
       const operation = operations.get(id)!;
       const content = async (role: "tool-input" | "tool-result") => {
-        const read = operationContentV2(evidence.dataset, operation, evidence.resolver, role);
+        const roles: Array<"tool-input" | "tool-result" | "tool-error"> = role === "tool-result" ? ["tool-result", "tool-error"] : [role];
+        const reads = roles.map((selected) => operationContentV2(evidence.dataset, operation, evidence.resolver, selected));
+        const read = { values: reads.flatMap(({ values }) => values), citations: reads.flatMap(({ citations }) => citations) };
         for (const reference of read.citations) { const citation = await citeEventV2(evidence.dataset, evidence.resolver, reference.eventId, reference.nativeReference); citations.set(analysisDigestV2(citation), citation); }
         const bounded = boundedEvidence(read.values.length ? read.values : { status: "unknown", reason: "NORMALIZED_CONTENT_UNAVAILABLE" }, limits.maxFieldChars);
         return { ...bounded, content: blindTextV2(bounded.content, evidence.modelAliases ?? []) };

@@ -313,3 +313,44 @@ test("batched rating readback verifies every receipt and each distinct evidence 
   const input = await prepareSemanticJudgeInputV2(evidence, observations, ledger, request, records);
   assert.equal(input.ratings.length, records.length);
 });
+
+test("editor subcommands retain mutation attempts while view commands remain read-only", async () => {
+  for (const command of ["str_replace", "create", "insert", "undo_edit", "view"]) {
+    const evidence = await atifFixtureV2(undefined, (source) => {
+      for (const step of source.steps as AtifObject[]) for (const call of step.tool_calls as AtifObject[] ?? []) {
+        call.function_name = "str_replace_editor"; call.arguments = { command, path: "src/example.py", old_str: "return 1", new_str: "return 2" };
+      }
+    });
+    const ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
+    assert.equal(ledger.occurrences.filter(({ type }) => type === "source-change").length, command === "view" ? 0 : 2);
+  }
+});
+test("failure-hook diagnostics reach bounded rating output with their pointed citation", async () => {
+  const { claudeBlockFixtureV2 } = await import("./consumers-v2-fixture.js");
+  const evidence = await claudeBlockFixtureV2((capture) => {
+    capture.records = [{ reference: { artifactId: "session", recordLocator: "line:1" }, record: { kind: "session", document: { sequence: 1, nativeType: "assistant", sessionId: "s",
+      message: { type: "assistant", uuid: "m1", session_id: "s", message: { id: "o1", role: "assistant", model: "synthetic-model", content: [{ type: "tool_use", id: "call", name: "Bash", input: { command: "npm test" } }] } } } } },
+      ...capture.records.filter(({ record }) => record.kind !== "session"), { reference: { artifactId: "hooks", recordLocator: "line:2" }, record: { kind: "hook", document: { hook: "PostToolUseFailure", sequence: 2, sessionId: "s",
+        nativePayload: { session_id: "s", tool_use_id: "call", tool_name: "Bash", error: "synthetic-model: missing module example" } } } }];
+  });
+  const ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver), input = (await prepareOccurrenceRatingInputsV2(evidence, ledger))[0]!;
+  assert.ok(input); assert.match(input.state.operations[0]!.output.content, /missing module example/u);
+  assert.equal(JSON.stringify(input.modelData).includes("synthetic-model"), false);
+  assert.ok(input.citations.some(({ nativeReference }) => nativeReference.recordLocator.endsWith("#/nativePayload/error")));
+});
+test("scalar native shell commands preserve JSON-like executable names", async () => {
+  const { createRetainedBehaviorEvidence } = await import("../src/retained-evidence.js"), { createCapturedNativeEvidenceResolver } = await import("../src/normalization-integrity.js");
+  const { describeAndValidateCodexDataset } = await import("../src/codex.js"), { projectNativeEvidenceV2 } = await import("../src/native-v2.js");
+  const original = await createRetainedBehaviorEvidence("test/fixtures/codex/legacy-0.150.1");
+  for (const command of ["printf ok", "true", "false", "null", "0"]) {
+    const capture = structuredClone(original.capture) as Parameters<typeof describeAndValidateCodexDataset>[0];
+    for (const { record } of capture.records) {
+      const value = record as { payload?: { item?: { type?: string; command?: string } } };
+      if (value.payload?.item?.type === "commandExecution") value.payload.item.command = command;
+    }
+    const native = { ...original, capture, ...await describeAndValidateCodexDataset(capture), resolver: createCapturedNativeEvidenceResolver(capture), outcomeCapture: { ...original.outcomeCapture, records: [] } };
+    const evidence = await projectNativeEvidenceV2(native, { manifestDigest: analysisDigestV2("fixture"), harnessVersion: "fixture" });
+    const operation = evidence.dataset.operations.find(({ identity }) => identity.kind === "tool")!;
+    assert.equal(operationCommandV2(evidence.dataset, operation, evidence.resolver), command);
+  }
+});

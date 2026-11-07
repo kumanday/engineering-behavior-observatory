@@ -31,7 +31,7 @@ export function operationCommandV2(dataset: NormalizedDatasetV2, operation: Oper
   const commands = new Set<string>();
   for (let value of operationContentV2(dataset, operation, resolver, "tool-input").values) {
     if (typeof value === "string") {
-      try { value = JSON.parse(value) as unknown; } catch { /* A shell's canonical input can be a scalar command. */ }
+      try { const decoded: unknown = JSON.parse(value); if (decoded !== null && typeof decoded === "object") value = decoded; } catch { /* A shell's canonical input can be a scalar command. */ }
     }
     const command = typeof value === "string" && operation.toolName.status === "known" && /^(?:bash|shell|terminal|commandExecution)$/iu.test(operation.toolName.value)
       ? value : findCommand(value);
@@ -55,13 +55,14 @@ export async function createOccurrenceLedgerV2(dataset: NormalizedDatasetV2, res
   const tools = dataset.operations.filter(({ identity }) => identity.kind === "tool");
   for (const operation of tools) {
     const command = operationCommandV2(dataset, operation, resolver), ids = operationEventsV2(dataset, operation).map(({ id }) => id);
+    let sourceChange = false;
     if (command) {
       const kinds = checkKindsOf(command);
       if (kinds.length) await add("validation-run", [operation], ids, { kinds: known(kinds), outcomeFailure: operation.failure }, true);
       const writes = shellWrites(command);
-      if (writes.length) await add("source-change", [operation], ids, { paths: known(writes), stateChanged: unreported, outcomeFailure: operation.failure }, true);
+      if (writes.length) { await add("source-change", [operation], ids, { paths: known(writes), stateChanged: unreported, outcomeFailure: operation.failure }, true); sourceChange = true; }
     } else limitations.set("validation-run", "SOME_NORMALIZED_COMMAND_INPUTS_UNAVAILABLE");
-    if (operation.toolName.status === "known" && /^(?:edit|write|create|notebookedit|multiedit|apply_patch|str_replace|str_replace_editor|write_file|edit_file|patch|filechange)$/iu.test(operation.toolName.value) && !command) {
+    if (operation.toolName.status === "known" && /^(?:edit|write|create|notebookedit|multiedit|apply_patch|str_replace|str_replace_editor|write_file|edit_file|patch|filechange)$/iu.test(operation.toolName.value) && !sourceChange && (!command || !/^(?:view|read|show|list|search)$/iu.test(command))) {
       await add("source-change", [operation], ids, { stateChanged: unreported, outcomeFailure: operation.failure }, true);
     }
   }

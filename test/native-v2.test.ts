@@ -9,7 +9,7 @@ import type { RetainedBehaviorEvidence } from "../src/retained-evidence.js";
 import { UNIFORM_EVENT_FAMILIES, type AdapterCapabilityProfile, type NormalizationInput, type UniformEvent } from "../src/uniform-events.js";
 const hash = (value: unknown): `sha256:${string}` => `sha256:${digestMetadata(value).value}`;
 const unknown = { status: "unknown", reason: "UNREPORTED" } as const;
-type Spec = { record: number; family: UniformEvent["family"]; phase?: UniformEvent["phase"]; id?: string; pointer?: string; role?: string; attributes?: UniformEvent["attributes"]; domain?: string };
+type Spec = { record: number; family: UniformEvent["family"]; phase?: UniformEvent["phase"]; id?: string; pointer?: string; role?: string; attributes?: UniformEvent["attributes"]; scope?: UniformEvent["scope"]; domain?: string };
 function fixture(harness: string, documents: unknown[], specs: Spec[], owner?: { threadId: string; turnId: string }): RetainedBehaviorEvidence {
   const capture: NormalizationInput<unknown> = { runId: "run", attemptId: "attempt", qualification: "qualified-with-gaps",
     records: documents.map((record, index) => ({ record: harness === "claude-agent-sdk" ? { kind: "session", document: record } : record,
@@ -22,7 +22,7 @@ function fixture(harness: string, documents: unknown[], specs: Spec[], owner?: {
   const events: UniformEvent[] = specs.map((spec, index) => ({ schemaVersion: "ebo.uniform-event/v1", id: spec.id ?? `event-${index}`,
     runId: capture.runId, attemptId: capture.attemptId, source: { harness, nativeType: `native-${spec.record}`, nativeReference: capture.records[spec.record]!.reference },
     family: spec.family, phase: spec.phase ?? "instant", nativeOrder: { status: "known", value: spec.record, domain: spec.domain ?? "native-stream" },
-    nativeTime: unknown, actor: { kind: "harness" }, scope: { kind: "attempt", id: capture.attemptId }, relations: { parent: unknown, known: [] },
+    nativeTime: unknown, actor: { kind: "harness" }, scope: spec.scope ?? { kind: "attempt", id: capture.attemptId }, relations: { parent: unknown, known: [] },
     attributes: spec.attributes ?? {}, content: spec.pointer ? { status: "known", value: [{ nativeReference: { ...capture.records[spec.record]!.reference,
       recordLocator: `line:${spec.record + 1}#${spec.pointer}` }, ...(spec.role ? { role: spec.role } : {}) }] } : unknown }));
   const dataset = describeNormalizedDataset({ capture, normalization: { events, unmapped: capture.records.filter((_, index) => !specs.some((spec) => spec.record === index))
@@ -370,4 +370,16 @@ test("native model switches include Pi modelId and Codex reroute identities", as
     const result = await projectNativeEvidenceV2(fixture(harness, [...docs], []), { manifestDigest: hash("manifest"), harnessVersion: "fixture", modelAliases: ["declared"] });
     assert.deepEqual(result.modelAliases, [...expected]);
   }
+});
+
+test("Factory retained prompts and partial assistant deltas preserve their explicit message identities", async () => {
+  const delta = (textDelta: string) => ({ payload: { method: "droid.session_notification", params: { sessionId: "s", notification: { type: "assistant_text_delta", messageId: "partial", blockIndex: 0, textDelta } } } });
+  const docs = [delta("first"), delta(" second"), { payload: { method: "droid.add_user_message", params: { messageId: "prompt", text: "Task" } } }];
+  const { dataset } = await project(fixture("factory-droid", docs, docs.map((_, record) => ({ record, family: "message", scope: { kind: "session", id: "s" } }))));
+  const messages = dataset.events.map(({ facts }) => facts.message!);
+  assert.deepEqual(messages[0]!.identity, { status: "known", value: { id: "partial", scope: "session:s", identityClass: "source-native" } });
+  assert.deepEqual(messages[0]!.identity, messages[1]!.identity);
+  assert.equal(messages[0]!.representation, "fragment");
+  assert.deepEqual(messages[2]!.identity, { status: "known", value: { id: "prompt", scope: "session:s", identityClass: "source-native" } });
+  assert.deepEqual(messages[2]!.role, { status: "known", value: "user" });
 });
