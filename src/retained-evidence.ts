@@ -1,6 +1,6 @@
 import { digestMetadata } from "./artifacts.js";
 import { factoryModelSelection } from "./factory-model.js";
-import { FACTORY_HARNESS, FACTORY_ADAPTER_VERSION, FACTORY_SDK_VERSION, qualifyFactoryCapture, describeAndValidateFactoryDataset } from "./factory-droid.js";
+import { FACTORY_HARNESS, RETAINED_FACTORY_ADAPTER_VERSIONS, RETAINED_FACTORY_SDK_VERSIONS, qualifyFactoryCapture, describeAndValidateFactoryDataset } from "./factory-droid.js";
 import { join } from "node:path";
 import { CLAUDE_AGENT_SDK_HARNESS, readQualifiedRunCapture, createAgentSdkNativeEvidenceResolver, type AgentSdkNativeRecord } from "./agent-sdk-normalizer.js";
 import { createAgentSdkBehaviorEvidence } from "./behavior-assertions.js";
@@ -20,7 +20,8 @@ import {
   piCapabilityProfile,
   piNativeType,
   qualifyRetainedPiCapture,
-  PI_ADAPTER_VERSION,
+  PI_NORMALIZATION_ADAPTER_VERSION,
+  RETAINED_PI_ADAPTER_VERSIONS,
   PI_HARNESS,
   RETAINED_PI_SDK_VERSIONS,
   type PiNativeRecord,
@@ -62,13 +63,16 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
     const expected = new Map([
       ["pi-coding-agent", { source: "earendil-works", version: manifest.run.harness.version }],
       [PI_HARNESS, { source: "EBO", version: manifest.run.harness.version }],
-      ["pi-sdk-adapter", { source: "EBO", version: PI_ADAPTER_VERSION }],
     ]);
     for (const [name, identity] of expected) {
       const matches = manifest.run.runtime.filter((runtime) => runtime.name === name);
       if (matches.length !== 1 || matches[0]!.source !== identity.source || matches[0]!.version !== identity.version) {
         throw new Error(`Retained Pi runtime identity ${name} differs from the pinned adapter manifest.`);
       }
+    }
+    const adapters = manifest.run.runtime.filter(({ name }) => name === "pi-sdk-adapter");
+    if (adapters.length !== 1 || adapters[0]!.source !== "EBO" || !RETAINED_PI_ADAPTER_VERSIONS.includes(adapters[0]!.version)) {
+      throw new Error("Retained Pi runtime identity pi-sdk-adapter differs from the supported capture adapter manifest.");
     }
   }
   const outcomeCapture = await readQualifiedRunCapture(bundleRoot);
@@ -105,7 +109,7 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
       capture: native,
       normalization: await normalizePiCapture(native),
       capabilityProfile: piCapabilityProfile,
-      adapterVersion: PI_ADAPTER_VERSION,
+      adapterVersion: PI_NORMALIZATION_ADAPTER_VERSION,
       nativeType: piNativeType,
     });
   } else if (harness === CODEX_HARNESS) {
@@ -159,24 +163,31 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
     }
     dataset = (await describeAndValidateCodexDataset(native, manifest.run.harness.version)).dataset;
   } else if (harness === FACTORY_HARNESS) {
-    const expected = new Map([[FACTORY_HARNESS, { source: "Factory", version: manifest.run.harness.version }],
-      ["@factory/droid-sdk", { source: "Factory", version: FACTORY_SDK_VERSION }],
-      ["factory-adapter", { source: "EBO", version: FACTORY_ADAPTER_VERSION }]]);
+    const expected = new Map([[FACTORY_HARNESS, { source: "Factory", version: manifest.run.harness.version }]]);
     for (const [name, identity] of expected) {
       const matches = manifest.run.runtime.filter((runtime) => runtime.name === name);
       if (matches.length !== 1 || matches[0]!.source !== identity.source || matches[0]!.version !== identity.version) {
         throw new Error(`Retained Factory runtime identity ${name} differs from the manifest.`);
       }
     }
+    const adapters = manifest.run.runtime.filter(({ name }) => name === "factory-adapter");
+    const sdks = manifest.run.runtime.filter(({ name }) => name === "@factory/droid-sdk");
+    if (adapters.length !== 1 || adapters[0]!.source !== "EBO" || !RETAINED_FACTORY_ADAPTER_VERSIONS.includes(adapters[0]!.version)
+      || sdks.length !== 1 || sdks[0]!.source !== "Factory" || !RETAINED_FACTORY_SDK_VERSIONS.includes(sdks[0]!.version)) {
+      throw new Error("Retained Factory capture adapter or SDK version is unsupported or ambiguous.");
+    }
+    const captureAdapterVersion = adapters[0]!.version;
+    const captureSdkVersion = sdks[0]!.version;
     const runtimeDocuments = outcomeCapture.records.filter(({ record }) => record.kind === "telemetry")
       .map(({ record }) => record.document as Record<string, any> | undefined);
     const runtime = runtimeDocuments[0]?.runtime;
     if (runtimeDocuments.length !== 1 || runtimeDocuments[0]?.schemaVersion !== "ebo.factory-runtime/v1"
-      || runtime?.version !== manifest.run.harness.version || runtime?.sdkVersion !== FACTORY_SDK_VERSION
-      || runtime?.adapterVersion !== FACTORY_ADAPTER_VERSION) throw new Error("Retained Factory runtime document differs from the manifest.");
+      || runtime?.version !== manifest.run.harness.version || runtime?.sdkVersion !== captureSdkVersion
+      || runtime?.adapterVersion !== captureAdapterVersion) throw new Error("Retained Factory runtime document differs from the manifest.");
     if (runtimeDocuments[0]?.effectiveConfiguration?.model !== manifest.run.model.id) throw new Error("Retained Factory model differs from the run manifest.");
     const native = qualifyFactoryCapture(capture as NormalizationInput<ProtocolObservation>, {
       sessionId: manifest.run.native?.sessionId, expectsCompletion, cliVersion: manifest.run.harness.version, sdkVersion: runtime.sdkVersion,
+      adapterVersion: captureAdapterVersion,
     });
     const initialization = native.records.find(({ record }) => record.source === "ebo-factory-client" && record.method === "droid.initialize_session")?.record;
     const effective = runtimeDocuments[0]!.effectiveConfiguration;

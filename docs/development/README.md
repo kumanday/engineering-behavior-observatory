@@ -39,6 +39,14 @@ native composition record names (Pi `session_created`, DeepSeek composition, Fac
 only with a migration for its retained bundles. `test/retained-versions.test.ts`
 fails if any version pinned in `release/*/reproducibility.json` is rejected.
 
+Capture adapter identity and normalization version are separate pins. Pi uses
+`PI_ADAPTER_VERSION` for new capture provenance and
+`PI_NORMALIZATION_ADAPTER_VERSION` for derived datasets; Factory has the matching
+`FACTORY_*` constants. Append released capture versions to their
+`RETAINED_*_ADAPTER_VERSIONS` lists. Retained Factory composition and telemetry
+must agree with the version in the source manifest, while normalization keeps
+its own version. A normalizer update never relabels an old capture.
+
 Use [extension contracts](extension-contracts.md) when adding an adapter,
 structural extractor, rubric, verifier, or export policy. Preserve native
 records and qualified partial attempts before adding derived views.
