@@ -141,3 +141,10 @@ Readback verifies source byte hashes, policy-input binding, scan receipts,
 execution/capture/assessment identities and the selected corpus. It requires no
 Python or fetched code. Structural Atlas generation can consume the selected
 `corpus/` through the ordinary imported-evidence path.
+
+
+Acquisition contexts are content-addressed separately from cohort identity.
+They are retained before cohort completion and verified during readback. One
+cohort supports up to 128 contexts and 32 MiB of context receipt bytes. A new
+context that exceeds either budget is rejected before publication; existing
+cohorts and exact re-imports remain readable.

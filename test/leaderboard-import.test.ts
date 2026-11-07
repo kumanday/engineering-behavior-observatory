@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { importLeaderboardCohort, readLeaderboardCohort, type LeaderboardCohortRequest } from "../src/leaderboard-import.js";
-import { LEADERBOARD_BUCKET, rawHash, readLeaderboardSource, scanImportedFiles, type LeaderboardAcquisition } from "../src/leaderboard-source.js";
+import { LEADERBOARD_BUCKET, metadataHash, rawHash, readLeaderboardSource, scanImportedFiles, type LeaderboardAcquisition } from "../src/leaderboard-source.js";
 import { LEADERBOARD_PUBLIC_POLICY } from "../src/leaderboard-policy.js";
 import { listAtifProducerProfiles } from "../src/atif-profiles.js";
 const python = process.env.EBO_LEADERBOARD_TEST_PYTHON;
@@ -239,5 +239,35 @@ test('canonical UUID ordering preserves identity for multiple unselected binding
       assert.equal(second.reused, true);
       assert.deepEqual(second.cases.map(({ factId }) => factId), bindings.map(({ factId }) => factId).sort());
     }
+  } finally { f.cleanup(); }
+});
+
+
+test('rejected context appends preserve an existing cohort at the retained inventory limit', { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    const request = { ...f.request, nativeBindings: [] };
+    const first = await importLeaderboardCohort(request, f.store, python);
+    assert.equal(first.status, 'imported'); if (first.status !== 'imported') return;
+    const contexts = join(f.store, 'contexts', first.cohortId.slice(7));
+    const acquisitionRoot = join(contexts, readdirSync(contexts)[0]!);
+    const context = join(acquisitionRoot, readdirSync(acquisitionRoot)[0]!);
+    const source = readFileSync(join(context, 'source.json'));
+    const receipt = JSON.parse(readFileSync(join(context, 'request.json'), 'utf8'));
+    const scan = JSON.parse(readFileSync(join(context, 'acquisition-scan.json'), 'utf8'));
+    const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    for (let n = 1; n < 128; n++) {
+      const request = { ...receipt, withdrawnFactIds: [uuid(n)] };
+      const leaf = join(acquisitionRoot, metadataHash({ request, acquisitionScan: scan }).slice(7));
+      mkdirSync(leaf);
+      writeFileSync(join(leaf, 'source.json'), source);
+      write(join(leaf, 'request.json'), request); write(join(leaf, 'acquisition-scan.json'), scan);
+    }
+    readLeaderboardCohort(f.store, first.cohortId);
+    await assert.rejects(importLeaderboardCohort({ ...request, withdrawnFactIds: [uuid(128)] }, f.store, python), /context count exceeds/u);
+    assert.equal(readdirSync(acquisitionRoot).length, 128);
+    readLeaderboardCohort(f.store, first.cohortId);
+    const reused = await importLeaderboardCohort(request, f.store, python);
+    assert.equal(reused.status, 'imported'); if (reused.status === 'imported') assert.equal(reused.reused, true);
   } finally { f.cleanup(); }
 });

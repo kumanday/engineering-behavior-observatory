@@ -136,7 +136,10 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
   }
   // Acquisition contexts are independent of relocation-insensitive cohort identity.
   // Retain the content-addressed context before making the cohort visible as complete.
-  publishDirectory(store, `contexts/${manifest.id.slice(7)}/${source.receiptDigest.slice(7)}/${metadataHash({ request: requestReceipt, acquisitionScan: source.acquisitionScan }).slice(7)}`, new Map([["source.json", source.receiptBytes], ["request.json", jsonBytes(requestReceipt)], ["acquisition-scan.json", jsonBytes(source.acquisitionScan)]]));
+  const contextFiles = new Map([["source.json", source.receiptBytes], ["request.json", jsonBytes(requestReceipt)], ["acquisition-scan.json", jsonBytes(source.acquisitionScan)]]);
+  const addition = { acquisitionId: source.receiptDigest.slice(7), contextId: metadataHash({ request: requestReceipt, acquisitionScan: source.acquisitionScan }).slice(7), bytes: [...contextFiles.values()].reduce((total, bytes) => total + bytes.length, 0) };
+  verifyAcquisitionContexts(store, manifest, addition);
+  publishDirectory(store, `contexts/${manifest.id.slice(7)}/${addition.acquisitionId}/${addition.contextId}`, contextFiles);
   const relative = `cohorts/${manifest.id.slice(7)}`;
   const reused = publishDirectory(store, relative, files, (pending) => {
     mkdirSync(join(pending, "corpus"), { recursive: true, mode: 0o700 });
@@ -226,12 +229,14 @@ export function readLeaderboardCohort(store: string, id: Hash) {
 }
 
 /** Reopens only immutable receipts, never the operator's original local source paths. */
-function verifyAcquisitionContexts(store: string, manifest: LeaderboardCohortManifest) {
+function verifyAcquisitionContexts(store: string, manifest: LeaderboardCohortManifest, addition?: { acquisitionId: string; contextId: string; bytes: number }) {
   const relative = `contexts/${hashId(manifest.id)}`;
   noStoreLinks(store, relative);
-  let contexts = 0, entries = 0, totalBytes = 0;
-  function* directories(path: string): Generator<string> {
-    const directory = opendirSync(path);
+  let contexts = 0, entries = 0, totalBytes = 0, existingAcquisition = false, existingContext = false;
+  function* directories(path: string, allowMissing = false): Generator<string> {
+    let directory;
+    try { directory = opendirSync(path); }
+    catch (error) { if (allowMissing && (error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
     try {
       let entry;
       while ((entry = directory.readSync()) !== null) {
@@ -241,9 +246,11 @@ function verifyAcquisitionContexts(store: string, manifest: LeaderboardCohortMan
     } finally { directory.closeSync(); }
   }
   const expectedIds = manifest.cases.map(({ factId }) => factId.toLowerCase()).sort();
-  for (const acquisitionId of directories(join(store, relative))) {
+  for (const acquisitionId of directories(join(store, relative), addition !== undefined)) {
+    if (acquisitionId === addition?.acquisitionId) existingAcquisition = true;
     const acquisitionRoot = join(store, relative, acquisitionId);
     for (const contextId of directories(acquisitionRoot)) {
+      if (acquisitionId === addition?.acquisitionId && contextId === addition.contextId) existingContext = true;
       if (++contexts > 128) throw new Error("Cohort acquisition context count exceeds its limit.");
       const root = join(acquisitionRoot, contextId);
       const bytes = ["source.json", "request.json", "acquisition-scan.json"].map((path) => {
@@ -270,7 +277,10 @@ function verifyAcquisitionContexts(store: string, manifest: LeaderboardCohortMan
           || scan!.inputDigest !== metadataHash([{ path: "acquisition.json", digest: rawHash(bytes[0]!), bytes: bytes[0]!.length }])) throw new Error("Cohort acquisition provenance or request is stale.");
     }
   }
-  if (contexts === 0) throw new Error("Completed cohort has no acquisition context.");
+  if (addition !== undefined && !existingContext) {
+    if (contexts + 1 > 128 || entries + (existingAcquisition ? 1 : 2) > 256) throw new Error("Cohort acquisition context count exceeds its limit.");
+    if (totalBytes + addition.bytes > 32 * 1024 * 1024) throw new Error("Cohort acquisition context bytes exceed their limit.");
+  } else if (contexts === 0) throw new Error("Completed cohort has no acquisition context.");
 }
 
 function protectedModelAliases(input: LeaderboardPolicyInput, policy: LeaderboardPolicyReceipt, factIds: readonly string[]): string[] | undefined {
