@@ -136,3 +136,8 @@ Atlas exposes an origin facet and an imported-evidence label with source format
 and producer digest. Its existing capture-qualification column carries
 `imported`; its event and native drawers preserve canonical JSON pointers.
 Standalone imports have no trial outcome until source-context records bind one.
+
+Atlas viewer arms include their evidence origin whenever imported attempts are
+present, including arms produced by a condition pattern. Certified matrix cells
+retain that separation. The task selector treats an unavailable task as a distinct
+value and labels it explicitly.

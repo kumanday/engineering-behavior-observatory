@@ -694,3 +694,9 @@ export * from "./leaderboard-source.js";
 export * from "./leaderboard-import.js";
 
 export { AtifAdmissionError } from "./atif-import.js";
+export { writeEvidenceCompanion, readEvidenceCompanion, companionArtifactId, EVIDENCE_COMPANION_LIMITS, type EvidenceCompanion, type EvidenceCompanionRequest, type CompanionRange } from "./evidence-companions.js";
+
+export { listAnalysisRuntimes, loadAnalysisRuntime, type AnalysisRuntimeIdentity, type AnalysisRuntimeSnapshot, type FrozenAnalysisRuntime } from "./analysis-runtime.js";
+export { NORMALIZATION_V2_VERSION, precedes, executionDurationMs, operationId, datasetV2Digest, validateNormalizedDatasetV2,
+  type ClockValue, type ClockEvidence, type ClockPosition, type OrderPosition, type Precedence, type SourceIdentityV2, type OperationIdentity, type Operation,
+  type EventFactsV2, type UniformEventV2, type MeasurementV2, type RecordCoverageV2, type NormalizedDatasetV2 } from "./normalization-v2.js";

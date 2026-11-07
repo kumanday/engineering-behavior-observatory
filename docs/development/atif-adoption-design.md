@@ -1,6 +1,6 @@
 # ATIF imports and EBO v2
 
-Status: proposed design, based on the completed 2026-11-07 development pilot.
+Status: accepted architecture with an additive 1.x implementation on develop.
 The [ADR](atif-adoption-adr.md) records the decisions and the
 [pilot report](atif-import-pilot.md) records the measured limits.
 
@@ -75,8 +75,34 @@ whose qualification is `imported`. A dedicated imported-dataset constructor
 checks its import manifest, profile and source bindings, then uses the existing
 normalized-dataset validator. It does not pass an import through the
 `describeNormalizedDataset` owned-capture gate by relabelling it `qualified`.
-The pilot assembles datasets solely to test the existing projection schema and
-validator; production admission is a separate implementation gate.
+The Pi importer admits source-bound datasets through that path. The frozen fixture corpus and independent converter comparisons gate its supported profiles.
+
+## Implementation state
+
+The 1.x path includes frozen fixture gates, independent capture/normalizer
+versions, occurrence rules 1.2.0, ATIF v1.2-v1.8 inspection, two pinned Pi
+profiles, imported admission, source-bound citations, Harbor execution and
+assessment lineage, origin-separated aggregation/Atlas and supplemental evidence
+companions. Imported evidence contributes zero to capture-qualified rates.
+
+Two shipped frozen 1.x runtimes and optional Atlas cohort pins preserve exact
+source/runtime receipts. Each snapshot is reproducible and verified before
+loading. The original 1.4.0 runtime reproduces native observation digests; the
+additive runtime includes source-local ordering and imports. The explicit
+[v2 analytical contracts](normalization-v2.md) are implemented. Native v2
+adapter and consumer activation retain separate gates. Default native
+normalization remains v1.
+
+The retained native fixture inventory checks 144 bundle paths: 66 accepted
+bundles representing 41 distinct normalized datasets and 78 rejected bundles.
+The accepted dataset digests and rejection boundaries remain stable. The
+production Pi importer passes 41 independent native/converter pairs, including
+declared source losses. Existing packet and RO-Crate verification passes.
+
+Full study migration requires dependency-level accounting and a separately
+approved budget for any model judgments. Additional producer profiles require
+their own fidelity gates. Release qualification and publication follow those
+gates.
 
 ## Version and producer admission
 

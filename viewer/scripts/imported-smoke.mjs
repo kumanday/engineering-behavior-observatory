@@ -17,6 +17,19 @@ try {
   assert.doesNotMatch(totals, /No failed tool calls on this task/);
   await page.evaluate((attemptId) => window.ebo.run('openAudit', { attemptId }), lanes.lanes[0].attemptId);
   assert.match(await page.locator('body').innerText(), /freshness is unavailable|coverage unavailable/);
+  if (process.env.MIXED === '1') {
+    await page.evaluate(() => window.ebo.run('openTab', { tab: 'assessments' }));
+    await page.evaluate(() => window.ebo.run('setMatrixCohort', { cohort: 'mixed' }));
+    await page.locator('#body-assessments [data-task]').selectOption('null');
+    await page.waitForFunction(() => window.ebo.getState().assessments.task === null);
+    const partial = await page.evaluate(async () => (await window.ebo.describe()).assessments.data);
+    assert.equal(partial.cells.reduce((sum, cell) => sum + cell.judgments, 0), 1);
+    assert.ok(partial.cells.some((cell) => cell.arm === 'Imported · pi' && cell.judgments === 1 && cell.certified));
+    await page.evaluate(() => window.ebo.run('setMatrixTask', { task: 'all' }));
+    const combined = await page.evaluate(async () => (await window.ebo.describe()).assessments.data);
+    const cells = combined.cells.filter((cell) => cell.judgments > 0);
+    assert.equal(cells.length, 2); assert.ok(cells.every((cell) => cell.judgments === 1 && cell.certified));
+  }
   const state = await page.evaluate(() => window.ebo.encodeState(window.ebo.getState()));
   await page.goto(`${(process.argv[2] ?? 'http://127.0.0.1:13013/').replace(/#.*$/, '')}#state=${state}`);
   await page.reload(); await page.waitForFunction(() => document.body.dataset.eboReady === '1', null, { timeout: 60_000 });

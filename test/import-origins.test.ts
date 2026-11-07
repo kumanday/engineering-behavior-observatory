@@ -7,7 +7,7 @@ import { nativeContentResolver } from "../src/structural-observations.js";
 import { createAtlasFixture } from "./atlas-fixture.js";
 import type { BehaviorAssertion } from "../src/behavior-assertions.js";
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -135,6 +135,23 @@ test("imported Pi evidence flows through Atlas with origin labels, unknown outco
     assert.equal(JSON.parse(readFileSync(join(out, "lanes.json"), "utf8")).attempts[0].errors, null);
     assert.equal(JSON.parse(readFileSync(join(out, "claims.json"), "utf8")).validated, true);
     assert.equal(verifyAtlasBundle(out).ok, true);
+    renameSync(join(root, "corpus/excluded-owned"), join(root, "corpus/pi-owned"));
+    writeCorpusIndex(join(root, "index.jsonl"), buildCorpusIndex(join(root, "corpus")));
+    aggregation.evidenceOrigins = "separate";
+    aggregation.groupBy = ["harness", "task"];
+    aggregation.sources.assertions[1]!.bundleRoot = "corpus/pi-owned";
+    aggregation.sources.observationSets = [...aggregation.sources.observationSets, { bundleRoot: "corpus/pi-owned", path: join(ownedRoot, "observations-0.json") }];
+    writeFileSync(join(root, "mixed-aggregation.json"), JSON.stringify(aggregation));
+    writeFileSync(join(root, "mixed-atlas.json"), JSON.stringify({ schemaVersion: "ebo.atlas-request/v1", aggregationRequest: "mixed-aggregation.json", title: "Mixed origins" }));
+    writeFileSync(join(root, "mixed-bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v1", id: "mixed-test", title: "Mixed origins", claims: "claims-source.json", condition: { pattern: "(?<condition>pi)" }, cohorts: [{ id: "mixed", atlasRequest: "mixed-atlas.json" }] }));
+    const mixedOut = join(root, "mixed-atlas-bundle"); await buildAtlasBundle(join(root, "mixed-bundle.json"), mixedOut);
+    const mixedDoc = JSON.parse(readFileSync(join(mixedOut, "assessments.json"), "utf8"));
+    assert.deepEqual(new Set(mixedDoc.attempts.map(({ condition }: { condition: string }) => condition)), new Set(["Owned · pi", "Imported · pi"]));
+    assert.ok(mixedDoc.certified.mixed.cells.every(({ conditions }: { conditions: string[] }) => conditions.length === 1));
+    assert.deepEqual(new Set(mixedDoc.certified.mixed.cells.flatMap(({ conditions }: { conditions: string[] }) => conditions)), new Set(["Owned · pi", "Imported · pi"]));
+    assert.equal(verifyAtlasBundle(mixedOut).ok, true);
+    if (process.env.EBO_TEST_RETAIN_MIXED_ATLAS) cpSync(mixedOut, process.env.EBO_TEST_RETAIN_MIXED_ATLAS, { recursive: true, errorOnExist: true, force: false });
+
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

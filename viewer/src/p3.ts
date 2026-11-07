@@ -20,11 +20,11 @@ const OUT_SHORT: Record<string, string> = { constructive: "C", mixed: "M", adver
 export interface NativeRec { artifact: string; locator: string; path?: string; resolved: boolean; sha256?: string; chars?: number; truncated?: boolean; text?: string; part?: string; event_key?: string }
 export interface Citation { link?: string | null; ordinal: number; event_key: string; resolved_event: boolean; row_id: number | null; unit_kind: string | null; step: number | null; seq: number | null; native: NativeRec }
 export interface Assessment {
-  id: string; attempt_id: string; short: string; condition: string; task_id: string; trial_id: string; category: string; dimension: string;
+  id: string; attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string; category: string; dimension: string;
   outcome: string; disposition: string; confidence: number | null; rationale: string | null; alternative: string | null; review: string | null;
   evaluator: string; rubric: string; cohorts: Record<string, { included?: boolean; disputed?: boolean; review?: string }>; source: string; citations: Citation[];
 }
-export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string; trial_id: string; harness_id: string; model_id: string; terminal_state: string; failure_class: string; cohorts: string[]; bundle: string; native_span_seconds: number | null;
+export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string; harness_id: string; model_id: string; terminal_state: string; failure_class: string; cohorts: string[]; bundle: string; native_span_seconds: number | null;
   native_record_count?: number | null; unmapped_record_count?: number | null; event_count?: number | null; event_types?: Record<string, number>; units?: number; tool_calls?: number }
 interface CertCell { group: Record<string, string>; category: string; counts: Record<string, number>; denominator: number; assertions: string[]; conditions?: string[] }
 export interface AssessDoc {
@@ -396,7 +396,7 @@ export class Evidence {
 /** Behavior × arm matrix with outcome counts, denominators, certified vs exploratory marks, and the judgment list. */
 export class MatrixPanel {
   private cohort: string;
-  private task = "all";
+  private task: string | null = "all";
   private sel: { cat: string; arm: string } | null = null;
   constructor(private root: HTMLElement, private ev: Evidence) {
     const certified = ev.doc.cohorts.filter((c) => c.certified);
@@ -404,13 +404,13 @@ export class MatrixPanel {
     const obj = (properties: Record<string, unknown>, required = Object.keys(properties)) => ({ type: "object", required, properties, additionalProperties: false });
     register<{ cohort: string }>({ name: "setMatrixCohort", description: "Count assessments of one cohort (or all attempts).", args: obj({ cohort: { type: "string" } }),
       run: ({ cohort }) => { this.cohort = cohort; this.sel = null; this.render(); return `Assessments show ${cohort === "all" ? "all attempts" : `cohort ${cohort}`}.`; } });
-    register<{ task: string }>({ name: "setMatrixTask", description: "Count assessments of one task (or all tasks).", args: obj({ task: { type: "string" } }),
+    register<{ task: string | null }>({ name: "setMatrixTask", description: "Count assessments of one task (or all tasks).", args: obj({ task: { type: ["string", "null"] } }),
       run: ({ task }) => { this.task = task; this.sel = null; this.render(); return `Assessments show ${task === "all" ? "all tasks" : task}.`; } });
     register<{ category: string | null; arm?: string }>({ name: "selectMatrixCell", description: "List the judgments of one behavior × arm cell; category null shows all.",
       args: obj({ category: { type: ["string", "null"] }, arm: { type: "string" } }, ["category"]),
       run: ({ category, arm }) => { this.sel = category === null || arm === undefined ? null : { cat: category, arm }; this.render(); return this.sel ? `Listing ${category} × ${arm}.` : "Listing all judgments."; } });
     provide({ key: "assessments", get: () => ({ cohort: this.cohort, task: this.task, cell: this.sel ? { category: this.sel.cat, arm: this.sel.arm } : null }),
-      apply: (st: { cohort: string; task: string; cell: { category: string; arm: string } | null }) => { this.cohort = st.cohort; this.task = st.task; this.sel = st.cell ? { cat: st.cell.category, arm: st.cell.arm } : null; this.render(); } });
+      apply: (st: { cohort: string; task: string | null; cell: { category: string; arm: string } | null }) => { this.cohort = st.cohort; this.task = st.task; this.sel = st.cell ? { cat: st.cell.category, arm: st.cell.arm } : null; this.render(); } });
     describable("assessments", this);
     this.render();
   }
@@ -445,7 +445,7 @@ export class MatrixPanel {
     // EBO bundles record each cell's arms. Only cells covering this arm alone are comparable with it; report groups
     // partition attempts, so the arm's cells (one per task, say) add up to the arm's certified counts.
     if (c.cells.some((x) => x.conditions)) {
-      const own = c.cells.filter((x) => x.category === cat && x.conditions?.length === 1 && x.conditions[0] === arm && (this.task === "all" || x.group.task === this.task));
+      const own = c.cells.filter((x) => x.category === cat && x.conditions?.length === 1 && x.conditions[0] === arm && (this.task === "all" || x.group.task === (this.task ?? "unavailable")));
       if (!own.length || (this.task !== "all" && !own.every((x) => "task" in x.group))) return null;
       const counts: Record<string, number> = {};
       for (const x of own) for (const [k, v] of Object.entries(x.counts)) counts[k] = (counts[k] ?? 0) + v;
@@ -482,10 +482,10 @@ export class MatrixPanel {
     const list = this.sel ? pool.filter((a) => a.category === this.sel!.cat && a.condition === this.sel!.arm) : pool;
     this.root.innerHTML = `
       <div class="panel-head"><div><h2>Assessments</h2>
-        <p class="sub">${pool.length} judgments (one per attempt × behavior dimension) · ${this.cohort === "all" ? "all attempts" : `cohort ${esc(this.cohort)}`}${this.task !== "all" ? ` · ${esc(this.task)}` : ""}</p></div>
+        <p class="sub">${pool.length} judgments (one per attempt × behavior dimension) · ${this.cohort === "all" ? "all attempts" : `cohort ${esc(this.cohort)}`}${this.task !== "all" ? ` · ${esc(this.task ?? "task unavailable")}` : ""}</p></div>
         <div class="controls">
           <label class="field">Cohort <select data-cohort ${target("setMatrixCohort")}>${this.ev.doc.cohorts.map((c) => `<option value="${esc(c.id)}" ${c.id === this.cohort ? "selected" : ""}>${esc(c.id)}${c.certified ? " (EBO report)" : ""}</option>`).join("")}<option value="all" ${this.cohort === "all" ? "selected" : ""}>all attempts</option></select></label>
-          ${tasks.length > 1 ? `<label class="field">Task <select data-task ${target("setMatrixTask")}><option value="all">all tasks</option>${tasks.map((t) => `<option ${t === this.task ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>` : ""}
+          ${tasks.length > 1 ? `<label class="field">Task <select data-task ${target("setMatrixTask")}><option value="&quot;all&quot;" ${this.task === "all" ? "selected" : ""}>all tasks</option>${tasks.map((t) => `<option value="${esc(JSON.stringify(t))}" ${t === this.task ? "selected" : ""}>${esc(t ?? "task unavailable")}</option>`).join("")}</select></label>` : ""}
         </div></div>
       <p class="legend">Cells count judge assessments: one per attempt and behavior dimension, not cited units.
         <span class="lg"><span class="sw oc-constructive"></span>constructive</span> <span class="lg"><span class="sw oc-mixed"></span>mixed</span>
@@ -502,7 +502,7 @@ export class MatrixPanel {
             <td>${outChip(a.outcome)}</td><td class="num">${a.confidence == null ? "—" : num(a.confidence)}</td><td class="num">${a.citations.length}</td><td class="small">${esc((a.rationale ?? "").slice(0, 140))}${(a.rationale ?? "").length > 140 ? "…" : ""}</td></tr>`).join("")}</tbody></table></div>
       </div>`;
     this.root.querySelector<HTMLSelectElement>("[data-cohort]")!.addEventListener("change", (e) => run("setMatrixCohort", { cohort: (e.target as HTMLSelectElement).value }));
-    this.root.querySelector<HTMLSelectElement>("[data-task]")?.addEventListener("change", (e) => run("setMatrixTask", { task: (e.target as HTMLSelectElement).value }));
+    this.root.querySelector<HTMLSelectElement>("[data-task]")?.addEventListener("change", (e) => run("setMatrixTask", { task: JSON.parse((e.target as HTMLSelectElement).value) }));
     this.root.querySelector("[data-clear]")?.addEventListener("click", () => run("selectMatrixCell", { category: null }));
     this.root.querySelectorAll<HTMLElement>("td.mx[data-cat]").forEach((td) => {
       const act = () => { const on = this.sel && this.sel.cat === td.dataset.cat && this.sel.arm === td.dataset.arm; run("selectMatrixCell", on ? { category: null } : { category: td.dataset.cat, arm: td.dataset.arm }); };

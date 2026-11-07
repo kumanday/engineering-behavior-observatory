@@ -33,3 +33,12 @@ credentials/
 
 # Uncompressed media masters (web encodes are committed)
 docs/assets/*.master.*
+
+# The frozen compatibility reader is a reviewed, digest-pinned shipped artifact.
+!compatibility/ebo-v1.4-atif-20261107/dist/
+!compatibility/ebo-v1.4-atif-20261107/dist/src/
+!compatibility/ebo-v1.4-atif-20261107/dist/src/reader.mjs
+
+!compatibility/ebo-v1.4.0-86a6010/dist/
+!compatibility/ebo-v1.4.0-86a6010/dist/src/
+!compatibility/ebo-v1.4.0-86a6010/dist/src/reader.mjs
