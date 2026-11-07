@@ -46,3 +46,13 @@ producer conventions. The chosen boundary centralizes that interpretation.
 See the [design and implementation sequence](atif-adoption-design.md),
 [pilot results](atif-import-pilot.md), and
 [existing Harbor boundary](harbor-adr.md).
+
+## Source interpretation in the v2 candidate
+
+Pinned converters can fold results into issuing steps, reorder Codex outputs
+around intervening messages, insert placeholders and collapse distinct raw
+inputs. Producer profiles retain surviving raw evidence and withhold unsupported
+precedence, input equality and completion facts. A known call identity remains
+available when its tool name is unknown. These source-specific rules feed typed
+EBO operations; downstream consumers do not infer native behavior from ATIF step
+positions or default values.

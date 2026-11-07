@@ -44,3 +44,14 @@ test('the original main runtime preserves occurrence rules 1.1 alongside correct
   assert.equal(old.normalization.datasetDigest,current.normalization.datasetDigest);assert.ok(old.occurrences!.length>0);assert.ok(old.occurrences!.every(({rule})=>rule.version==='1.1.0'));assert.ok(current.occurrences!.every(({rule})=>rule.version==='1.2.0'));assert.notEqual(hash(old),hash(current));
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+
+test("fresh installs retain exact external dependency versions for fixed readers", () => {
+  const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+  for (const runtime of listAnalysisRuntimes()) {
+    const snapshot = JSON.parse(readFileSync(new URL(`../../compatibility/${runtime.id}/runtime-manifest.json`, import.meta.url), "utf8"));
+    for (const [name, version] of Object.entries(snapshot.dependencies)) {
+      assert.equal(packageJson.dependencies[name], version, `${runtime.id}: fresh installation must retain ${name}`);
+    }
+  }
+});

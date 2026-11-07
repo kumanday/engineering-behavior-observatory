@@ -4,8 +4,9 @@ The closed registry in `src/atif-profiles.ts` separates schema conformance from
 producer semantics. A profile key includes the ATIF version, agent version,
 converter package version and source digest, and any source-context revision
 and wrapper digest. Unknown fields remain explicit; an agent name alone never
-selects a profile. Profiles are `ebo.atif-producer-profile/v1` artifacts and can
-be checked with `ebo validate`.
+selects a profile. Pi profiles are `ebo.atif-producer-profile/v1` artifacts and can
+be checked with `ebo validate`. Additional v2 profile metadata is consumed by
+the typed projection registry described below.
 
 The initial profiles cover Harbor 0.24.0's Pi converter with its explicit
 `unknown` agent version, and the pilot Harness Leaderboard HFPi wrapper at
