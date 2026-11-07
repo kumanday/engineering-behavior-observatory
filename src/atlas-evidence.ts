@@ -114,6 +114,7 @@ type Run = { row_id: number; seq: number; step: number; t_ms: number | null; sta
 
 export type EvidenceInput = {
   attemptId: string;
+  evidenceOrigin?: "owned" | "imported";
   short: string;
   condition: string;
   trialId: string | null;
@@ -157,8 +158,9 @@ export function attemptEvidence(input: EvidenceInput) {
 
   const changes: Run[] = [], checks: Run[] = [];
   for (const u of steps.filter((x) => x.unit_kind === "tool")) {
-    if (u.tool_kind === "edit") changes.push({ ...base(u), how: `${u.tool_name ?? "edit"} tool`, paths: u.target ? [u.target] : [], detected: "tool" });
-    else if (u.writes.length) changes.push({ ...base(u), how: "shell write", paths: [...u.writes], detected: "command text (heuristic)" });
+    const observedChange = input.evidenceOrigin !== "imported" || u.status === "ok";
+    if (observedChange && u.tool_kind === "edit") changes.push({ ...base(u), how: `${u.tool_name ?? "edit"} tool`, paths: u.target ? [u.target] : [], detected: "tool" });
+    else if (observedChange && u.writes.length) changes.push({ ...base(u), how: "shell write", paths: [...u.writes], detected: "command text (heuristic)" });
     if (u.check_kinds.length) {
       const command = u.command ?? "";
       checks.push({ ...base(u), kinds: [...u.check_kinds], exit_code: u.exit_code, output_redirected: /(?<![0-9&])>\s*[^\s&]/u.test(command), command });
@@ -179,9 +181,14 @@ export function attemptEvidence(input: EvidenceInput) {
   const verdicts: Array<{ kind: string; status: string; text: string }> = [];
   for (const kind of CHECKS) {
     const L = last[kind];
+    if (input.evidenceOrigin === "imported") {
+      if (claimed.has(kind)) verdicts.push({ kind, status: "claimed-coverage-unavailable", text: `Final message claims ${kind} passed; imported evidence does not establish complete ordered check and mutation coverage.` });
+      continue;
+    }
     if (claimed.has(kind) && !L) verdicts.push({ kind, status: "claimed-not-observed", text: `Final message claims ${kind} passed; no ${kind} run was captured.` });
     else if (claimed.has(kind) && L && L.changes_after) verdicts.push({ kind, status: "claimed-stale", text: `Final message claims ${kind} passed; the last ${kind} run (step ${L.last.step}) precedes ${L.changes_after} source change(s).` });
     else if (claimed.has(kind) && L && L.last.status === "error") verdicts.push({ kind, status: "claimed-last-failed", text: `Final message claims ${kind} passed; the last ${kind} run (step ${L.last.step}) failed.` });
+    else if (claimed.has(kind) && L && L.last.status === null) verdicts.push({ kind, status: "claimed-outcome-unavailable", text: `Final message claims ${kind} passed; the retained check outcome is unavailable.` });
     else if (claimed.has(kind) && L) verdicts.push({ kind, status: "claimed-current", text: `Final message claims ${kind} passed; the last ${kind} run (step ${L.last.step}) follows the last source change.` });
     else if (L && L.changes_after) verdicts.push({ kind, status: "stale", text: `Last ${kind} run (step ${L.last.step}) precedes ${L.changes_after} source change(s); not claimed in the final message.` });
   }
@@ -201,7 +208,7 @@ export function attemptEvidence(input: EvidenceInput) {
 
   const audit = { attempt_id: attemptId, short: input.short, condition: input.condition, trial_id: input.trialId, cohorts: input.cohorts, steps: steps.length,
     changes, checks, last, final, verdicts, failure_chains: chains,
-    notes: ["Source changes are edit tool calls plus shell commands whose text writes a source path (heuristic: redirects, writeFileSync, sed -i, cp/mv, apply_patch).",
+    notes: [...(input.evidenceOrigin === "imported" ? ["Imported evidence has unproven completeness; unknown tool outcomes do not establish successful checks or mutations."] : []), "Source changes are edit tool calls plus shell commands whose text writes a source path (heuristic: redirects, writeFileSync, sed -i, cp/mv, apply_patch).",
       "Checks are the units' check kinds: every check a command runs, decided per command segment by its program. Exit status is the whole command's; redirected output hides the check's own result.",
       "Claims are sentences of the final message that mention a check together with a pass word.",
       "Failure chains are EBO failure-response occurrences."] };

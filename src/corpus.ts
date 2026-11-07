@@ -286,9 +286,11 @@ function projectManifest(root: string, manifestPath: string): CorpusIndexEntry {
   if (entry.manifestKind === "export") projectExport(entry, document as unknown as PortableExportManifest, manifestRoot);
   if (entry.manifestKind === "import" && entry.issues.length === 0) {
     try {
-      const { manifest } = readAtifImportAdmission(manifestRoot);
+      const { manifest, read } = readAtifImportAdmission(manifestRoot);
       const profile = selectAtifProducerProfile(manifest.producer);
       entry.runId = manifest.identity.runId; entry.attemptId = manifest.identity.attemptId;
+      const sourceAgent = isRecord(read.document?.agent) ? read.document.agent : undefined;
+      if (typeof sourceAgent?.model_name === "string" && sourceAgent.model_name.trim() && sourceAgent.model_name.length <= 1024) entry.modelId = sourceAgent.model_name;
       entry.harnessId = profile.status === "supported" ? profile.profile.harness : "atif.unregistered";
       entry.harnessVersion = manifest.producer.agent.version ?? "unavailable";
       entry.captureQualification = "imported"; entry.sharingClass = "restricted";

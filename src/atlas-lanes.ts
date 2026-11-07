@@ -12,7 +12,7 @@ import type { UniformEvent } from "./uniform-events.js";
 export type LaneMeta = {
   attempt_id: string; task_id: string | null; condition: string | null; trial_id: string | null; harness_id: string | null; model_id: string | null;
   terminal_state: string | null; failure_class: string | null; capture_qualification: string | null; t_start_ms: number | null; t_end_ms: number | null;
-  units: number; tools: number; errors: number; compactions: number; cited_units: number;
+  units: number; tools: number; errors: number | null; compactions: number; cited_units: number;
   usage_semantics: "per-turn" | "final-only" | "none"; tokens_total: number | null; cost_usd: number | null; context_max: number | null;
   output_tokens: "per-request" | "final-only" | "none";
 };
@@ -89,7 +89,7 @@ export function laneData(attempt: Attempt, units: readonly AtlasUnit[], events: 
   const lane: LaneMeta = {
     ...attempt,
     t_start_ms: starts.length ? Math.min(...starts) : null, t_end_ms: ends.length ? Math.max(...ends) : null,
-    units: steps.length, tools: steps.filter((u) => u.unit_kind === "tool").length, errors: steps.filter((u) => u.status === "error").length,
+    units: steps.length, tools: steps.filter((u) => u.unit_kind === "tool").length, errors: attempt.capture_qualification === "imported" && steps.some((u) => u.unit_kind === "tool" && u.status === null) ? null : steps.filter((u) => u.status === "error").length,
     compactions: steps.filter((u) => u.unit_kind === "compaction").length, cited_units: 0,
     usage_semantics: increments.length || snapshots.length || contextSnapshots.length ? "per-turn" : final.records ? "final-only" : "none",
     // A token total from increments only when every increment is complete (a total, or input and output): Agent SDK

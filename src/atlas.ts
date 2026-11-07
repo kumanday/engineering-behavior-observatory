@@ -113,7 +113,7 @@ export async function loadAtlas(requestPath: string): Promise<AtlasSource> {
   const secretFindings: CaseSecretFinding[] = [];
   const located = (caseKey: string, location: string) => ({ path, ...finding }: LocatedSecretFinding) => { secretFindings.push({ ...finding, caseKey, caseLocation: `${location}${path}` }); };
   const seenAssertions = new Set<string>();
-  for (const entry of corpusEntries.filter(({ manifestKind }) => manifestKind === "run" || manifestKind === "import")) {
+  for (const entry of selectAggregationAttempts(corpusEntries, "all-attempts", aggregation.evidenceOrigins)) {
     const ownAssertions = input.assertions.filter(({ document }) => attemptKey(document) === attemptKey(entry));
     const context = { origin: evidenceOrigin(entry), ...(entry.sourceFormat ? { sourceFormat: entry.sourceFormat } : {}),
       ...(entry.producerProfileDigest ? { producerProfileDigest: entry.producerProfileDigest } : {}), runId: entry.runId!, attemptId: entry.attemptId!, model: entry.modelId ?? "unavailable", harness: entry.harnessId ?? "unavailable", harnessVersion: entry.harnessVersion ?? "unavailable", task: entry.taskId ?? "unavailable", trial: entry.trialId ?? "unavailable", capture: entry.captureQualification ?? "unavailable", outcome: entry.terminalState ?? "unavailable", ...(entry.retryOf ? { retryOf: entry.retryOf } : {}) };

@@ -109,3 +109,9 @@ For Atlas and aggregation, select `evidenceOrigins: "imported"` in the
 aggregation request, or `"separate"` to include owned captures in separate
 origin groups. The default selects owned captures. See
 [evidence-origin rules](../evaluation/aggregation.md#evidence-origins).
+
+Imported Atlas tool results keep an unknown status unless retained source fields
+explicitly establish an outcome. Result text alone does not establish a successful
+exit. Error totals remain unavailable when any result has an unknown outcome.
+Imported narratives also withhold whole-attempt freshness and last-check claims
+when complete ordered history is unproven. Cited source records remain inspectable.

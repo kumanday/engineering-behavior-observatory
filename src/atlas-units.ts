@@ -187,13 +187,15 @@ const EXIT_TEXT = /(?:Exit code|Process exited with code|exit status|exited with
 
 export type UnitInput = {
   attemptId: string;
+  evidenceOrigin?: "owned" | "imported";
   events: readonly UniformEvent[];
   occurrences: readonly Occurrence[];
   resolveContent: (reference: NativeEvidenceReference) => unknown;
 };
 
 /** Derive one attempt's units and their event links. */
-export function deriveUnits({ attemptId, events, occurrences, resolveContent }: UnitInput): { units: AtlasUnit[]; links: AtlasUnitEvent[] } {
+export function deriveUnits({ attemptId, events, occurrences, resolveContent, evidenceOrigin }: UnitInput): { units: AtlasUnit[]; links: AtlasUnitEvent[] } {
+  const imported = evidenceOrigin === "imported" || events.some(({ attributes }) => attributes.evidenceOrigin === "imported");
   const index = new Map(events.map((event, i) => [event.id, i]));
   const contentOf = (event: UniformEvent) => (event.content.status === "known" ? event.content.value.map(({ nativeReference }) => resolveContent(nativeReference)).filter((v) => v !== undefined) : []);
   const occurrenceTags = new Map<string, Set<string>>();
@@ -256,9 +258,11 @@ export function deriveUnits({ attemptId, events, occurrences, resolveContent }: 
     }
     const exitCodes = ordered.flatMap(({ attributes }) => (typeof attributes.exitCode === "number" ? [attributes.exitCode] : []));
     const exitText = EXIT_TEXT.exec(outputText.slice(0, 1500));
-    unit.exit_code = exitCodes.at(-1) ?? (exitText ? Number(exitText[1]) : null);
+    unit.exit_code = exitCodes.at(-1) ?? (imported ? null : exitText ? Number(exitText[1]) : null);
     const failed = operation.failed || (unit.exit_code !== null && unit.exit_code !== 0);
-    unit.status = results.length || operation.failed ? (failed ? "error" : "ok") : null;
+    const explicitSuccess = ordered.some(({ attributes }) => attributes.isError === false || attributes.status === "completed"
+      || attributes.exitCode === 0 || attributes.hook === "PostToolUse") || unit.exit_code === 0;
+    unit.status = failed ? "error" : imported ? explicitSuccess ? "ok" : null : results.length ? "ok" : null;
     unit.error_signature = failed ? errorSignature(outputText) : null;
     unit.input_chars = input.length ? JSON.stringify(input).length : null;
     // Output size only when the result content resolved; an unresolved result is unavailable, not empty.
@@ -338,7 +342,7 @@ export function deriveUnits({ attemptId, events, occurrences, resolveContent }: 
     if (checks.length) parts.push(`checks: ${checks.map(([k]) => k).join(", ")}`);
     if (errors.length) parts.push(`hit failures${errors[0]!.error_signature ? `: ${errors[0]!.error_signature}` : ""}`);
     const draft: Draft = { ...lead, unit_id: `${attemptId}/episode/${lead.eventParts[0]![0]}`, unit_kind: "episode", t_end: tools.at(-1)!.t_end ?? tools.at(-1)!.t_start,
-      status: errors.length ? "error" : "ok", tool_count: tools.length, error_count: errors.length, eventParts: members.flatMap((m) => m.eventParts) };
+      status: errors.length ? "error" : imported && tools.some((tool) => tool.status === null) ? null : "ok", tool_count: tools.length, error_count: imported && tools.some((tool) => tool.status === null) ? null : errors.length, eventParts: members.flatMap((m) => m.eventParts) };
     for (const m of members) episodeOf.set(m, draft.unit_id);
     texts.set(draft, texts.get(lead) ?? "");
     episodeUnits.push({ draft, summary: parts.join("; "), members });
