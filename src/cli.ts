@@ -530,7 +530,7 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
       const result = importing ? await importHarborTrial({ ...options, store: store!, producer: profile!.producer }) : await inspectHarborTrial(options);
       const inspection = result.inspection;
       write(`${JSON.stringify({ status: "status" in result ? result.status : inspection.status, executionId: inspection.execution?.id,
-        captureRevision: inspection.captureRevision, assessmentId: inspection.assessment?.id, snapshotDigest: inspection.snapshotDigest,
+        sourceCaptureDigest: inspection.captureRevision, ...( "binding" in result && result.binding !== undefined ? { captureRevision: result.binding.captureRevision, inspectionDigest: result.inspectionDigest } : {}), assessmentId: inspection.assessment?.id, snapshotDigest: inspection.snapshotDigest,
         diagnostics: inspection.diagnostics, ...( "bundleRoot" in result ? { bundleRoot: result.bundleRoot, reused: result.reused } : {}) }, null, 2)}\n`);
       return inspection.status === "eligible" ? 0 : 1;
     } catch (error) { write(`Harbor source import failed: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }

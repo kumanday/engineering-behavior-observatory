@@ -7,7 +7,7 @@ import { importAtifFile, readImportManifest, readAtifImportAdmission } from "./a
 import type { AtifProducerFingerprint } from "./atif-profiles.js";
 import { readBoundedFile } from "./scheduler.js";
 
-export const HARBOR_IMPORT_LIMITS = { files: 4096, fileBytes: 64 * 1024 * 1024, totalBytes: 256 * 1024 * 1024, depth: 32, lineageDepth: 8 } as const;
+export const HARBOR_IMPORT_LIMITS = { files: 4096, fileBytes: 64 * 1024 * 1024, totalBytes: 256 * 1024 * 1024, depth: 32, lineageDepth: 8, contextBytes: 32 * 1024 * 1024 } as const;
 type ObjectValue = Record<string, unknown>;
 type Hash = `sha256:${string}`;
 type SourceFile = { path: string; digest: Hash; bytes: number; authority: "third-party-trial-record" | "third-party-agent-log" | "third-party-verifier-record" };
@@ -193,7 +193,7 @@ export function readHarborCapture(store: string, captureRevision: Hash, sourceSn
   const revision = identifier(captureRevision), snapshotId = identifier(sourceSnapshotDigest);
   const read = (path: string): ObjectValue => {
     const full = join(store, path); assertNoStoreLinks(store, path);
-    const value = parseObject(readBoundedFile(full, "Retained Harbor context", undefined, 4 * 1024 * 1024));
+    const value = parseObject(readBoundedFile(full, "Retained Harbor context", undefined, HARBOR_IMPORT_LIMITS.contextBytes));
     const errors = validateArtifact(path, value);
     if (errors.length) throw new Error(`Invalid retained Harbor context: ${errors[0]!.message}`);
     return value;
@@ -289,7 +289,7 @@ function collectTrialFiles(directory: string): Map<string, Buffer> {
     total += bytes.length; if (total > HARBOR_IMPORT_LIMITS.totalBytes) throw new Error("Harbor source inventory exceeds its byte limit.");
     files.set(path, bytes);
   };
-  for (const path of ["agent", "config.json", "lock.json", "result.json", "run.json", "verifier"]) {
+  for (const path of ["agent", "config.json", "lock.json", "result.json", "run.json", "trial.log", "exception.txt", "verifier"]) {
     try { lstatSync(join(directory, path)); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
     read(path, 0);
@@ -339,5 +339,7 @@ function retainExact(root: string, path: string, bytes: Buffer, store = root) {
 function retainJson(root: string, path: string, value: unknown, store = root) {
   const errors = validateArtifact(path, value);
   if (errors.length) throw new Error(errors.map(({ field, message }) => `${field}: ${message}`).join("\n"));
-  retainExact(root, path, Buffer.from(`${JSON.stringify(value, null, 2)}\n`), store);
+  const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+  if (bytes.length > HARBOR_IMPORT_LIMITS.contextBytes) throw new Error("Harbor context exceeds the retained metadata byte limit.");
+  retainExact(root, path, bytes, store);
 }

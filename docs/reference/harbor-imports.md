@@ -61,7 +61,7 @@ imports verify and reuse the existing capture. Failed admission remains under
 `pending`; a retry preserves that evidence and uses another pending directory.
 
 The source inventory contains named root records plus `agent/` and `verifier/`
-files. It admits at most 4,096 entries, 64 MiB per file, 256 MiB in total and
+files, plus root `trial.log` and `exception.txt` failure evidence. It admits at most 4,096 entries, 64 MiB per file, 256 MiB in total and
 32 directory levels. Links are rejected. Trial-result validation is bounded to
 4 MiB, 15 seconds and a 64 KiB validator response. Media files remain retained
 source artifacts; references cause no implicit fetch or activation.
@@ -92,3 +92,7 @@ separately. Context memberships are versioned by inspection digest. If a snapsho
 has several valid contexts, pass the returned `inspectionDigest` as the fourth
 argument to `readHarborCapture`; readback requires explicit selection. The import
 CLI returns the stored `captureRevision` and the separate `sourceCaptureDigest`.
+
+Context inventories, bindings and inspection records use a shared 32 MiB
+write/read limit. Oversized metadata fails admission while retaining source
+bytes; successful admission always fits the context readback limit.

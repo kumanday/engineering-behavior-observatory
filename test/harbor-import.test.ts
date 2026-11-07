@@ -1,3 +1,4 @@
+import { main } from "../src/cli.js";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import assert from "node:assert/strict";
@@ -288,4 +289,44 @@ test("interrupted staged source writes remain retained and a retry can finish ad
     assert.deepEqual(readdirSync(join(store, "pending-writes")), retained);
     assert.equal(readFileSync(join(store, "pending-writes", retained[0]!, "bytes")).length, 5);
   } finally { fs.writeFileSync = originalWrite; syncBuiltinESMExports(); temp.cleanup(); }
+});
+
+
+test("root trial and exception logs distinguish retained incomplete failures", async () => {
+  const temp = temporary();
+  try {
+    const directory = join(temp.root, "failure"); mkdirSync(directory);
+    writeFileSync(join(directory, "trial.log"), "Synthetic startup failure A"); writeFileSync(join(directory, "exception.txt"), "Synthetic exception A");
+    const first = await inspect(directory); writeFileSync(join(directory, "exception.txt"), "Synthetic exception B");
+    const second = await inspect(directory);
+    assert.equal(first.inspection.status, "inspect-only");
+    assert.deepEqual(first.inspection.files.map(({ path }) => path), ["exception.txt", "trial.log"]);
+    assert.notEqual(first.inspection.snapshotDigest, second.inspection.snapshotDigest);
+  } finally { temp.cleanup(); }
+});
+
+test("admitted inventories larger than four MiB remain readable under the shared context limit", { skip: !python }, async () => {
+  const temp = temporary(), store = mkdtempSync("/tmp/ebo-wide-");
+  try {
+    const source = fixture(temp.root);
+    const nested = join(source.directory, "agent", ...Array.from({ length: 4 }, () => "d".repeat(190))); mkdirSync(nested, { recursive: true });
+    for (let index = 0; index < 4000; index++) writeFileSync(join(nested, `${String(index).padStart(5, "0")}-${"f".repeat(104)}`), "");
+    const admitted = await importHarborTrial({ directory: source.directory, store, namespace: "synthetic-source", producer, pythonExecutable: python });
+    assert.equal(admitted.status, "imported"); if (admitted.status !== "imported") return;
+    assert.ok(readFileSync(join(admitted.snapshot, "inventory.json")).length > 4 * 1024 * 1024);
+    assert.equal(readHarborCapture(store, admitted.binding.captureRevision, admitted.inspection.snapshotDigest).inspection.status, "eligible");
+  } finally { temp.cleanup(); rmSync(store, { recursive: true, force: true }); }
+});
+
+
+test("the Harbor CLI returns stored capture and context identities usable for readback", { skip: !python }, async () => {
+  const temp = temporary();
+  try {
+    const source = fixture(temp.root), store = join(temp.root, "store"), output: string[] = [];
+    assert.equal(await main(["atif", "import-harbor", source.directory, store, "--namespace", "synthetic-source", "--profile", listAtifProducerProfiles()[0]!.id, "--python", python!], (text) => output.push(text)), 0);
+    const receipt = JSON.parse(output.join(""));
+    assert.notEqual(receipt.captureRevision, receipt.sourceCaptureDigest);
+    assert.match(receipt.inspectionDigest, /^sha256:/u);
+    assert.equal(readHarborCapture(store, receipt.captureRevision, receipt.snapshotDigest, receipt.inspectionDigest).inspection.status, "eligible");
+  } finally { temp.cleanup(); }
 });
