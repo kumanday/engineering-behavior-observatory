@@ -8,7 +8,7 @@ are complete.
 
 `NormalizedDatasetV2` binds the original manifest, qualification, reader code,
 source format, producer profile and executed harness independently. Native
-record and content digests retain the source evidence. Every native record has
+record and independent content digests retain the source evidence. Standalone workspace content has its own digest inventory and resolver; it need not be embedded in a native event record. Every native record has
 mapped, retained-only or unmapped coverage; every event belongs to that mapping.
 Measure coverage names its own attempt, document, session or recorded-operation
 population. Partial counts use a first-class lower bound. Imported records
@@ -39,7 +39,7 @@ behavioral precedence.
 
 Clock evidence declares execution, producer-observation or receipt time, its
 clock domain, precision, provenance and source record. `executionDurationMs` accepts positions carrying run, attempt and clock evidence. It requires source-recorded execution clocks in one domain with sufficient precision
-for an exact millisecond duration. Submillisecond timestamps that cannot be represented by that calculation remain unknown. Positions from different attempts never compare. Receipt and converter-derived times remain
+for an exact millisecond duration. Submillisecond timestamps and offset formats that cannot be represented by that calculation remain unknown. Positions from different attempts never compare. Receipt and converter-derived times remain
 useful observations without becoming execution clocks.
 
 `validateNormalizedDatasetV2` verifies the schema, source authority, explicit

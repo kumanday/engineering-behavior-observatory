@@ -111,6 +111,8 @@ export function executionDurationMs(firstPosition: ClockPosition, lastPosition: 
       || start.value.domain !== end.value.domain || start.value.provenance !== "source-recorded" || end.value.provenance !== "source-recorded") {
     return { status: "unknown", reason: "COMPARABLE_RECORDED_EXECUTION_CLOCKS_REQUIRED" };
   }
+  const supportedTimestamp = (timestamp: string) => /^\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:z|[+-]\d{2}:\d{2})$/iu.test(timestamp);
+  if (!supportedTimestamp(start.value.timestamp) || !supportedTimestamp(end.value.timestamp)) return {status:"unknown",reason:"EXACT_TIMESTAMP_FORMAT_UNSUPPORTED"};
   const submillisecond = (timestamp: string) => {
     const fraction = /\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/iu.exec(timestamp)?.[1];
     return fraction !== undefined && /[1-9]/u.test(fraction.slice(3));
@@ -162,13 +164,19 @@ export async function validateNormalizedDatasetV2(dataset: NormalizedDatasetV2, 
     if (inventory.has(key)) throw new Error("Duplicate v2 native record reference."); inventory.add(key);
   }
   const isCovered = (reference: NativeEvidenceReference) => coveringReferences(reference).some((key) => inventory.has(key));
-  const resolveReference = async (reference: NativeEvidenceReference, expectedDigest?: Hash) => {
-    if (!isCovered(reference)) throw new Error("V2 evidence reference is outside the digest-bound native inventory.");
+  const contentInventory = new Set<string>();
+  for (const record of dataset.contentReferences) {
+    const key = referenceKey(record.reference);
+    if (contentInventory.has(key)) throw new Error("Duplicate v2 content reference."); contentInventory.add(key);
+  }
+  const resolveReference = async (reference: NativeEvidenceReference, expectedDigest?: Hash, allowContent = false) => {
+    if (!isCovered(reference) && !(allowContent && coveringReferences(reference).some((key) => contentInventory.has(key)))) throw new Error("V2 evidence reference is outside the digest-bound native inventory.");
     const result = await resolver.resolve(reference);
     if (!result || result === true || result.runId !== dataset.runId || result.attemptId !== dataset.attemptId
         || expectedDigest !== undefined && result.digest !== expectedDigest) throw new Error("V2 evidence reference is unresolved, cross-attempt or stale.");
   };
-  for (const record of [...dataset.nativeRecords, ...dataset.contentReferences]) await resolveReference(record.reference, record.digest);
+  for (const record of dataset.nativeRecords) await resolveReference(record.reference, record.digest);
+  for (const record of dataset.contentReferences) await resolveReference(record.reference, record.digest, true);
   const recordCoverage = new Map(dataset.recordCoverage.map((record) => [referenceKey(record.reference), record]));
   if (recordCoverage.size !== dataset.recordCoverage.length || recordCoverage.size !== inventory.size || [...inventory].some((key) => !recordCoverage.has(key))) throw new Error("V2 native record coverage differs from its inventory.");
   const mappedEvents = new Set<string>();
@@ -187,7 +195,7 @@ export async function validateNormalizedDatasetV2(dataset: NormalizedDatasetV2, 
     if (!mappedEvents.has(event.id)) throw new Error("V2 event is absent from its native record mapping.");
     await resolveReference(event.source.nativeReference);
     if (event.clock.status === "known") await resolveReference(event.clock.value.source);
-    if (event.content.status === "known") for (const content of event.content.value) await resolveReference(content.nativeReference);
+    if (event.content.status === "known") for (const content of event.content.value) await resolveReference(content.nativeReference, undefined, true);
     const targets = [...event.relations.known.map(({ eventId }) => eventId), ...(event.relations.parent.status === "known" ? [event.relations.parent.value] : [])];
     if (targets.some((target) => !events.has(target))) throw new Error("V2 event relation is unresolved.");
     if (["tool", "model-request", "delegation"].includes(event.family)) {

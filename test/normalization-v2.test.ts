@@ -80,3 +80,14 @@ test("RFC3339 lowercase UTC markers cannot bypass fractional precision checks",(
  const clock=(timestamp:string):ClockEvidence=>({status:'known',value:{timestamp,kind:'execution',domain:'process',precisionMs:0,provenance:'source-recorded',source:reference}});
  for(const [start,end]of[['2026-11-07T00:00:00.0009z','2026-11-07T00:00:00.0011z'],['2026-11-07T00:00:00.0009z','2026-11-07T00:00:00.0001z']])assert.equal(executionDurationMs(clockPos(clock(start!)),clockPos(clock(end!))).status,'unknown');
 });
+
+test('standalone workspace content keeps its own digest-bound inventory and resolver',async()=>{
+ const{dataset}=fixture(),workspace={artifactId:'workspace',recordLocator:'#'},record={files:['result.txt']};dataset.contentReferences.push({reference:workspace,digest:hash(record)});dataset.events[0]!.content={status:'known',value:[{nativeReference:workspace}]};
+ const resolver=createPointerEvidenceResolver({runId:'r',attemptId:'a',records:[{reference,record:{tool:'shell',callId:'call-1'}},{reference:workspace,record}]});await validateNormalizedDatasetV2(dataset,resolver);
+ const stale=structuredClone(dataset);stale.contentReferences[0]!.digest=hash({wrong:true});await assert.rejects(validateNormalizedDatasetV2(stale,resolver),/stale/u);
+ const missing=structuredClone(dataset);missing.contentReferences=[];await assert.rejects(validateNormalizedDatasetV2(missing,resolver),/outside/u);
+});
+test('unsupported timestamp offset syntax never reaches lossy exact-duration parsing',()=>{
+ const clock=(timestamp:string):ClockEvidence=>({status:'known',value:{timestamp,kind:'execution',domain:'process',precisionMs:0,provenance:'source-recorded',source:reference}});
+ assert.equal(executionDurationMs(clockPos(clock('2026-11-07T00:00:00.0009+0000')),clockPos(clock('2026-11-07T00:00:00.0011+0000'))).status,'unknown');
+});
