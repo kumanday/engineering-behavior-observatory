@@ -366,11 +366,11 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     extractorsOf.set(key, (extractorsOf.get(key) ?? new Set()).add(observation.extractor.id));
   }
   // With a condition pattern every run bundle must match it; a naming mistake is an error, not a synthesized arm.
+  const separateOrigins = [...attempts.values()].some(({ entry }) => entry.manifestKind === "import");
   const armOf = (name: string, entry: CorpusIndexEntry) => {
-    if (!condition) return `${entry.modelId ?? "unavailable"} · ${entry.harnessId ?? "unavailable"}`;
-    const arm = condition.exec(name)?.groups?.condition;
+    const arm = condition ? condition.exec(name)?.groups?.condition : `${entry.modelId ?? "unavailable"} · ${entry.harnessId ?? "unavailable"}`;
     if (!arm) throw new Error(`Run bundle ${name} does not match the condition pattern ${request.condition!.pattern}.`);
-    return arm;
+    return separateOrigins ? `${entry.manifestKind === "import" ? "Imported" : "Owned"} · ${arm}` : arm;
   };
   const eventKeys = new Set<string>();
   const cloud: Array<AtlasUnit & Row & { row_id: number; t0_ms: number | null; t1_ms: number | null; timed: boolean }> = [];
