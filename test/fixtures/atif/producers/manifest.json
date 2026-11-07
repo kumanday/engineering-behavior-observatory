@@ -8,6 +8,20 @@
   },
   "fixtures": [
     {
+      "id": "codex-identical-input",
+      "native": "codex-identical-input.native.jsonl",
+      "trajectory": "codex-identical-input.atif.json",
+      "nativeSha256": "282b86a76a4486debd86e68aaf323ba7f7525bb2419422294a8120f4c4a8fcd2",
+      "trajectorySha256": "9fa9bd6e84bd06c9461a8cf0fc8846d2134de0584fbaa5d333215c66fcdd46b3"
+    },
+    {
+      "id": "codex-input-distinction",
+      "native": "codex-input-distinction.native.jsonl",
+      "trajectory": "codex-input-distinction.atif.json",
+      "nativeSha256": "c8e86930c048e37ef31f1a640af1fbc62073ebf225ef645d1b0be0fcc36b371b",
+      "trajectorySha256": "d6afc049d81f1171292d4fa27ae28bd3ff43fcd82c4f3bb448e941541a17a7a3"
+    },
+    {
       "id": "codex-interleaved",
       "native": "codex-interleaved.native.jsonl",
       "trajectory": "codex-interleaved.atif.json",
@@ -36,6 +50,13 @@
       "trajectorySha256": "ae6d02cb0af13a2f7f3e2b13f7b2bce670c14f6aa2770f6f20e34d5e2a591379"
     },
     {
+      "id": "hermes-missing-names",
+      "native": "hermes-missing-names.native.json",
+      "trajectory": "hermes-missing-names.atif.json",
+      "nativeSha256": "8f48dc9d7c6ded68da2364bb3f6bada0fbe3d53d230e88f97570dc579b776d8e",
+      "trajectorySha256": "97bfaaedef5a717a454bf3a7f9116285384a81dbf2680bb8ffe4a3504e84596d"
+    },
+    {
       "id": "hermes",
       "native": "hermes.native.json",
       "trajectory": "hermes.atif.json",
@@ -55,6 +76,13 @@
       "trajectory": "openclaw-late-results.atif.json",
       "nativeSha256": "15ee0e5c32509213d8c9f8da219c76199308486380b5267c682ee3fa3b05adc8",
       "trajectorySha256": "07f9572aac5108ac6be6be209fbb90f48ab4a6f0b19cfb4c669c16187dbeb9ae"
+    },
+    {
+      "id": "openclaw-missing-names",
+      "native": "openclaw-missing-names.native.jsonl",
+      "trajectory": "openclaw-missing-names.atif.json",
+      "nativeSha256": "72b2ecb747c147cfb742573b75792ebe3acb9457c7c5e5d8b84f775abe281306",
+      "trajectorySha256": "d850d2731cee7ffe3d3186619be80d34c187b167286027246bb8de954574be79"
     },
     {
       "id": "openclaw",

@@ -10,6 +10,28 @@ import type { AtifReadResult } from "./atif-reader.js";
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const integer = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
+/** The converter can collapse raw custom input or malformed function arguments into an object wrapper. */
+function codexInput(extra: Record<string, unknown>, call: Record<string, unknown>, id: string, stepPointer: string, callPointer: string, callCount: number): { inputDigest?: `sha256:${string}`; contentPointer?: string } {
+  const details = object(object(extra.tool_call_details)[id]);
+  const detailed = typeof details.raw_arguments === "string";
+  const raw = detailed ? details.raw_arguments : callCount === 1 ? extra.raw_arguments : undefined;
+  if (typeof raw !== "string") return {};
+  const escaped = id.replaceAll("~", "~0").replaceAll("/", "~1");
+  const rawPointer = detailed ? `${stepPointer}/extra/tool_call_details/${escaped}/raw_arguments` : `${stepPointer}/extra/raw_arguments`;
+  const itemType = details.item_type;
+  if (!raw.length || !["function_call", "custom_tool_call"].includes(String(itemType))) return { contentPointer: rawPointer };
+  let value: unknown = raw, encoding = "raw", contentPointer = rawPointer;
+  if (itemType === "function_call") {
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw); } catch { /* Exact retained raw input remains available. */ }
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      if (digestValue(parsed) !== digestValue(call.arguments)) return { contentPointer: rawPointer };
+      value = parsed; encoding = "json-object"; contentPointer = `${callPointer}/arguments`;
+    }
+  }
+  return { inputDigest: digestValue({ itemType, encoding, value }), contentPointer };
+}
+
 /** Producer-specific interpretations over admitted bytes. No native capture authority is conferred. */
 export async function projectAdditionalAtifV2(input: { read: AtifReadResult; producer: AtifProducerFingerprint; runId: string; attemptId: string;
   manifestDigest: `sha256:${string}`; artifactId?: string }): Promise<RetainedBehaviorEvidenceV2> {
@@ -86,10 +108,15 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
       const argumentsValue = object(call.arguments), argumentKeys = Object.keys(argumentsValue);
       const fallbackArguments = profile.family === "hermes" && argumentKeys.length === 1 && Object.hasOwn(argumentsValue, "raw");
       if (fallbackArguments) limitations.add("CONVERTER_ARGUMENT_FALLBACK_AMBIGUITY");
-      const operation: OperationContribution = { nativeId: id, scope: "document:#", identityClass: "converter-assigned", canonical: true, toolName: name, endpoint: "call", issuingInference: issued,
-        ...(argumentKeys.length && !fallbackArguments ? { inputDigest: digestValue(call.arguments) } : {}) };
       const callPointer = `${pointer}/tool_calls/${callIndex}`;
-      emit(step, pointer, callPointer, "call", "tool", { facts: {}, clock: unreported, operation }, `${callPointer}/arguments`);
+      const signature = profile.family === "codex" ? codexInput(extra, call, id, pointer, callPointer, calls.length)
+        : { ...(argumentKeys.length && !fallbackArguments ? { inputDigest: digestValue(call.arguments) } : {}), contentPointer: `${callPointer}/arguments` };
+      if (profile.family === "codex" && !signature.inputDigest) limitations.add("CONVERTER_ARGUMENT_PROVENANCE_INCOMPLETE");
+      const unknownName = profile.family !== "codex" && name === "unknown";
+      if (unknownName) limitations.add("CONVERTER_TOOL_NAME_PLACEHOLDER");
+      const operation: OperationContribution = { nativeId: id, scope: "document:#", identityClass: "converter-assigned", canonical: true, ...(unknownName ? {} : { toolName: name }), endpoint: "call", issuingInference: issued,
+        ...(signature.inputDigest ? { inputDigest: signature.inputDigest } : {}) };
+      emit(step, pointer, callPointer, "call", "tool", { facts: {}, clock: unreported, operation }, signature.contentPointer ?? `${callPointer}/arguments`);
       const linked = results.map((result, resultIndex) => ({ result, resultIndex })).filter(({ result }) => result.source_call_id === id);
       const primary = linked.filter(({ result }) => !(profile.family === "openclaw" && object(result.extra).nested_tool !== undefined));
       // Codex may fabricate a result slot without an output; Hermes/OpenClaw create slots only on actual responses.

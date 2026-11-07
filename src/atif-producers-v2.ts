@@ -17,8 +17,8 @@ const harbor = (family: "codex" | "hermes", formatVersion: string, agentVersion:
   producer: { formatVersion, agent: { name: family, version: agentVersion },
     converter: { id: `harbor.agents.installed.${family}.${family === "codex" ? "Codex" : "Hermes"}`, packageVersion: "0.24.0", sourceDigest },
     context: { kind: "harness-leaderboard", revision: HLB_PI_PILOT_REVISION, wrapperDigest: HLB_PI_WRAPPER_DIGEST } },
-  limitations: [...common, ...(family === "codex" ? ["CONVERTER_OMITS_PENDING_CALLS", "CONVERTER_REORDERS_MODEL_OUTPUTS", "CONVERTER_GROUPED_CLOCKS", "TOOL_FAILURE_NOT_PROJECTED"]
-    : ["INFERENCE_COUNT_UNTRACKED", "CONVERTER_MAY_ASSIGN_TOOL_IDS", "CONVERTER_ARGUMENT_FALLBACK_AMBIGUITY", "TOOL_FAILURE_NOT_PROJECTED", "USAGE_COMPONENT_COMPLETENESS_UNPROVEN"])],
+  limitations: [...common, ...(family === "codex" ? ["CONVERTER_OMITS_PENDING_CALLS", "CONVERTER_REORDERS_MODEL_OUTPUTS", "CONVERTER_ARGUMENT_NORMALIZATION_MAY_BE_LOSSY", "CONVERTER_GROUPED_CLOCKS", "TOOL_FAILURE_NOT_PROJECTED"]
+    : ["INFERENCE_COUNT_UNTRACKED", "CONVERTER_MAY_ASSIGN_TOOL_IDS", "CONVERTER_TOOL_NAME_PLACEHOLDER", "CONVERTER_ARGUMENT_FALLBACK_AMBIGUITY", "TOOL_FAILURE_NOT_PROJECTED", "USAGE_COMPONENT_COMPLETENESS_UNPROVEN"])],
   nativeAuthority: family === "codex" ? "Codex rollout response_item records, including unanswered function_call/custom_tool_call records"
     : "Hermes session export messages, including assistant tool_calls and adjacent tool messages",
   sources: ["https://pypi.org/project/harbor/0.24.0/", `${base}${HLB_PI_PILOT_REVISION}/hlb/harbor_ext/agents.py`],
@@ -30,7 +30,7 @@ const additional: AdditionalAtifProfileV2[] = [
     producer: { formatVersion: "ATIF-v1.8", agent: { name: "openclaw", version: "2026.10.4" },
       converter: { id: "hlb.harbor_ext.trajectories.openclaw", packageVersion: "0.1.1", sourceDigest: "sha256:c64c9a8e47c731d4f18337d3e05469044c470d73a57e8e10333c1c8bf004f894" },
       context: { kind: "harness-leaderboard", revision: HLB_TRAJECTORIES_REVISION, wrapperDigest: "sha256:f2170b3c69d6251bf2de44220c1ca7f59bc4d3db2c788d394cdad95ef3a9768b" } },
-    limitations: [...common, "INFERENCE_COUNT_UNTRACKED", "CONVERTER_ZERO_FILL_POSSIBLE", "NESTED_RESULTS_ARE_NOT_PARENT_COMPLETION"],
+    limitations: [...common, "INFERENCE_COUNT_UNTRACKED", "CONVERTER_ZERO_FILL_POSSIBLE", "CONVERTER_TOOL_NAME_PLACEHOLDER", "NESTED_RESULTS_ARE_NOT_PARENT_COMPLETION"],
     nativeAuthority: "OpenClaw session transcript entries; fallback openclaw.txt/instruction.txt preserve only partial history",
     sources: [`${base}${HLB_TRAJECTORIES_REVISION}/hlb/harbor_ext/trajectories.py`, `${base}${HLB_TRAJECTORIES_REVISION}/hlb/harbor_ext/agents.py`,
       `${base}${HLB_TRAJECTORIES_REVISION}/scripts/atif_backfill_trajectories.py`] },

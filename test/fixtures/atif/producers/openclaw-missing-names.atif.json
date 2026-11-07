@@ -1,0 +1,92 @@
+{
+  "schema_version": "ATIF-v1.8",
+  "session_id": "synthetic-openclaw",
+  "agent": {
+    "name": "openclaw",
+    "version": "2026.10.4",
+    "model_name": "synthetic-model"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "timestamp": "2026-11-07T00:00:01.000Z",
+      "source": "user",
+      "message": "Run checks."
+    },
+    {
+      "step_id": 2,
+      "timestamp": "2026-11-07T00:00:02.000Z",
+      "source": "system",
+      "message": "Synthetic summary.",
+      "extra": {
+        "context_management": {
+          "type": "compaction",
+          "tokens_before": 100
+        }
+      }
+    },
+    {
+      "step_id": 3,
+      "timestamp": "2026-11-07T00:00:03.000Z",
+      "source": "agent",
+      "model_name": "synthetic-model",
+      "message": "Run both.",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-a",
+          "function_name": "unknown",
+          "arguments": {
+            "command": "same"
+          }
+        },
+        {
+          "tool_call_id": "call-b",
+          "function_name": "unknown",
+          "arguments": {
+            "command": "same"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "call-b",
+            "content": "nested failure",
+            "extra": {
+              "nested_tool": "web_fetch",
+              "input": {
+                "url": "https://example.invalid"
+              },
+              "is_error": true
+            }
+          },
+          {
+            "source_call_id": "call-a",
+            "content": "Synthetic failure.",
+            "extra": {
+              "is_error": true
+            }
+          },
+          {
+            "source_call_id": "call-b",
+            "content": "Synthetic success."
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 30,
+        "completion_tokens": 5,
+        "cached_tokens": 10,
+        "extra": {
+          "cache_write_tokens": 3
+        }
+      }
+    }
+  ],
+  "final_metrics": {
+    "total_prompt_tokens": 30,
+    "total_completion_tokens": 5,
+    "total_cached_tokens": 10,
+    "total_steps": 3
+  }
+}

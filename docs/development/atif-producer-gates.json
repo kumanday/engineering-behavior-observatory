@@ -23,7 +23,8 @@
       "executionDuration": "unavailable: grouped producer-observation clocks",
       "contextReconstruction": "unsupported",
       "toolResultEndpointOrder": "unknown: converter folds results into issuing steps",
-      "nativePrecedence": "unavailable: converter may reorder model outputs around intervening messages"
+      "nativePrecedence": "unavailable: converter may reorder model outputs around intervening messages",
+      "inputSignatures": "recorded item type and raw input; unambiguous function JSON objects canonicalized; missing provenance unknown"
     },
     "hermes": {
       "atifVersion": "ATIF-v1.2",
@@ -40,7 +41,8 @@
       "contextReconstruction": "unsupported",
       "toolResultEndpointOrder": "unknown: converter folds results into issuing steps",
       "emptyPrimaryResponse": "pass: completion retained without a body; failure unknown",
-      "argumentFallback": "unavailable input identity for ambiguous raw wrapper"
+      "argumentFallback": "unavailable input identity for ambiguous raw wrapper",
+      "toolNamePlaceholder": "unknown, excluded from identical-tool signatures"
     },
     "openclaw": {
       "atifVersion": "ATIF-v1.8",
@@ -59,11 +61,12 @@
       "executionDuration": "unavailable",
       "contextReconstruction": "unsupported",
       "toolResultEndpointOrder": "unknown: converter folds results into issuing steps",
-      "emptyPrimaryErrorResponse": "pass: completion and positive failure retained without a body"
+      "emptyPrimaryErrorResponse": "pass: completion and positive failure retained without a body",
+      "toolNamePlaceholder": "unknown, excluded from identical-tool signatures"
     }
   },
   "qualification": "imported",
   "crossOriginPooling": "not qualified",
   "modelCalls": 0,
-  "independentAuthoredPairs": 8
+  "independentAuthoredPairs": 12
 }

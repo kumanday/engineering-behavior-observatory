@@ -203,3 +203,37 @@ test("Hermes missing-argument placeholders cannot establish identical native inp
   const ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
   assert.equal(ledger.occurrences.filter(({ type }) => type === "repeated-operation").length, 0);
 });
+
+
+test("Codex raw custom and function inputs preserve distinctions lost from converted arguments", async () => {
+  const source = fixture("codex-input-distinction");
+  const calls = steps(source).flatMap((step) => (step.tool_calls as AtifObject[] | undefined) ?? []);
+  assert.equal(new Set(calls.map((call) => JSON.stringify(call.arguments))).size, 1);
+  const evidence = await project("codex", undefined, "codex-input-distinction");
+  assert.ok(evidence.dataset.operations.every(({ inputDigest }) => inputDigest.status === "known"));
+  assert.equal(new Set(evidence.dataset.operations.map(({ inputDigest }) => inputDigest.status === "known" ? inputDigest.value : null)).size, 4);
+  assert.deepEqual((await measures(evidence))["repeated-tool-operation-count"], { status: "known", value: 0 });
+  const inputs = evidence.dataset.events.flatMap(({ content }) => content.status === "known" ? content.value.filter(({ role }) => role === "tool-input").map(({ nativeReference }) => evidence.resolver.read(nativeReference)) : []);
+  assert.ok(inputs.includes("echo hello")); assert.ok(inputs.includes('{"input":"echo hello"}'));
+  const same = await project("codex", undefined, "codex-identical-input");
+  assert.deepEqual((await measures(same))["repeated-tool-operation-count"], { status: "known", value: 1 });
+});
+
+test("missing Codex input provenance leaves signatures unknown", async () => {
+  const evidence = await project("codex", (source) => {
+    for (const step of steps(source)) if (step.tool_calls) delete step.extra;
+  });
+  assert.ok(evidence.dataset.operations.every(({ inputDigest }) => inputDigest.status === "unknown"));
+  assert.equal((await measures(evidence))["repeated-tool-operation-count"]!.status, "unknown");
+});
+
+test("converter-assigned unknown tool names cannot establish equal tool signatures", async () => {
+  for (const family of ["hermes", "openclaw"]) {
+    const evidence = await project(family, undefined, `${family}-missing-names`);
+    assert.equal(evidence.dataset.operations.length, 2);
+    assert.ok(evidence.dataset.operations.every(({ toolName }) => toolName.status === "unknown"));
+    assert.equal((await measures(evidence))["repeated-tool-operation-count"]!.status, "unknown");
+    const ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
+    assert.equal(ledger.occurrences.filter(({ type }) => type === "repeated-operation").length, 0);
+  }
+});
