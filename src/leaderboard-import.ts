@@ -1,6 +1,6 @@
 import { lstatSync, mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { validateArtifact } from "./artifacts.js";
+import { canonicalizeMetadata, validateArtifact } from "./artifacts.js";
 import { isSafeArtifactRelativePath } from "./contracts.js";
 import { listAtifProducerProfiles } from "./atif-profiles.js";
 import { readAtifImportAdmission } from "./atif-import.js";
@@ -21,7 +21,7 @@ export type LeaderboardCohortManifest = { schemaVersion: "ebo.leaderboard-cohort
   sourceAuthority: "third-party"; priorCohortId?: Hash; members: CohortMember[]; cases: CaseResult[];
   selectedSourceRecords: number; admittedExecutions: number };
 const jsonBytes = (value: unknown) => {
-  const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
+  const bytes = Buffer.from(`${canonicalizeMetadata(value)}\n`);
   if (bytes.length > 32 * 1024 * 1024) throw new Error("Retained cohort JSON exceeds its readback byte limit.");
   parseImportJson(bytes); // The writer and reader share numeric, depth and aggregate-node limits.
   return bytes;
@@ -179,7 +179,7 @@ export function readLeaderboardCohort(store: string, id: Hash) {
   const cases = new Map(manifest.cases.map((item) => [item.factId, item]));
   if (cases.size !== manifest.cases.length) throw new Error("Duplicate cohort case membership.");
   const importedFacts = new Set<string>(), executions = new Set<string>();
-  const ordered = (values: unknown[]) => values.map((value) => JSON.stringify(value)).sort();
+  const ordered = (values: unknown[]) => values.map((value) => canonicalizeMetadata(value)).sort();
   for (const member of manifest.members) {
     if (!/^harbor:[a-f0-9]{64}$/u.test(member.executionId) || executions.has(member.executionId) || member.corpusPath !== `corpus/${member.executionId.slice(7)}`) throw new Error("Cohort execution membership is ambiguous.");
     executions.add(member.executionId);

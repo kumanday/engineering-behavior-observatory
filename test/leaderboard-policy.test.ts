@@ -38,3 +38,9 @@ test("provider exhaustion remains pinned third-party policy rather than an EBO v
   assert.equal(result.status, "available"); assert.ok(result.rows.some(({ providerExhausted }) => providerExhausted));
   assert.equal(result.rows.filter(({ outcome }) => outcome === "fail").length, 3);
 });
+
+test('complete history never classifies facts without their run or reused executor context',async()=>{
+ for(const reused of[false,true]){const source=input();source.historyCompleteness='complete';source.facts=[source.facts[0]!];if(reused)source.facts[0]!.reused_from='missing-original';else source.runs={};
+  const receipt=await selectPinnedLeaderboardFacts(source,'/runtime-must-not-be-needed');assert.equal(receipt.status,'unavailable');assert.deepEqual(receipt.excludedSourceIndexes,[]);assert.deepEqual(receipt.diagnostics,['LEADERBOARD_RUN_OR_REUSE_CONTEXT_UNAVAILABLE']);
+ }
+});

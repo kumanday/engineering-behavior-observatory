@@ -68,6 +68,14 @@ export async function selectPinnedLeaderboardFacts(input: LeaderboardPolicyInput
     runtimePolicyDigest: `sha256:${digestBytes(Buffer.from(PROGRAM)).value}` as const, inputDigest, sourceAuthority: "third-party" as const,
     historyCompleteness: input.historyCompleteness, population: input.historyCompleteness === "complete" ? "retained-complete-source-closure" as const : "retained-subset-not-full-board" as const };
   const unavailable = (code: string): LeaderboardPolicyReceipt => ({ ...receipt, status: "unavailable", diagnostics: [code], rows: [], excludedSourceIndexes: [] });
+  if (input.historyCompleteness === "complete") {
+    const hasRun = (id: unknown) => {
+      if (typeof id !== "string" || !Object.hasOwn(input.runs, id)) return false;
+      const run = input.runs[id];
+      return run !== null && typeof run === "object" && !Array.isArray(run) && (run as Record<string, unknown>).run_id === id;
+    };
+    if (input.facts.some((fact) => !hasRun(fact.run_id) || fact.reused_from !== null && fact.reused_from !== undefined && !hasRun(fact.reused_from))) return unavailable("LEADERBOARD_RUN_OR_REUSE_CONTEXT_UNAVAILABLE");
+  }
   return new Promise((complete) => {
     const child = spawn(pythonExecutable, ["-I", "-c", PROGRAM], { stdio: ["pipe", "pipe", "pipe"] });
     const chunks: Buffer[] = []; let total = 0, done = false;

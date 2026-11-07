@@ -152,3 +152,13 @@ test("one structurally rejected ATIF source does not abort other selected trials
   assert.equal(imported.status,'imported');if(imported.status!=='imported')return;assert.equal(imported.admittedExecutions,1);assert.equal(imported.cases.find(({factId})=>factId===id)!.status,'inspect-only');assert.equal(imported.cases.find(({factId})=>factId===secondId)!.status,'imported');
  }finally{f.cleanup();}
 });
+
+test('metadata key ordering preserves reusable semantic receipts while retaining revised raw sources',{skip:!python},async()=>{
+ const f=fixture();try{
+  const first=await importLeaderboardCohort(f.request,f.store,python);assert.equal(first.status,'imported');if(first.status!=='imported')return;
+  const artifact=f.acquisition.artifacts.find(({remotePath})=>remotePath.endsWith('/run.json'))!,record=JSON.parse(readFileSync(join(f.snapshot,artifact.localPath),'utf8'));
+  const bytes=Buffer.from(JSON.stringify(Object.fromEntries(Object.entries(record).reverse())));writeFileSync(join(f.snapshot,artifact.localPath),bytes);artifact.bytes=bytes.length;artifact.sha256=rawHash(bytes).slice(7);write(join(f.snapshot,'acquisition.json'),f.acquisition);
+  const refreshed=await importLeaderboardCohort(f.request,f.store,python);assert.equal(refreshed.status,'imported');if(refreshed.status!=='imported')return;
+  const a=readLeaderboardCohort(f.store,first.cohortId).manifest,b=readLeaderboardCohort(f.store,refreshed.cohortId).manifest;assert.equal(a.selectionDigest,b.selectionDigest);assert.notEqual(a.sourceSnapshotDigest,b.sourceSnapshotDigest);assert.equal(a.members[0]!.importManifestDigest,b.members[0]!.importManifestDigest);
+ }finally{f.cleanup();}
+});

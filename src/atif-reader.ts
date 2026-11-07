@@ -38,7 +38,7 @@ export type AtifInspection = {
   fieldCoverage: Record<string, number>; limitations: string[];
 };
 export type AtifReadResult = { inspection: AtifInspection; document?: AtifObject };
-export type AtifReadOptions = { pythonExecutable?: string; retainedFiles?: readonly string[] };
+export type AtifReadOptions = { pythonExecutable?: string; retainedFiles?: readonly string[]; propagateReadErrors?: boolean };
 
 /** Inspect source bytes. This does not qualify a capture or produce behavioral measurements. */
 export function inspectAtifBytes(bytes: Uint8Array): AtifReadResult {
@@ -132,7 +132,8 @@ export function inspectAtifBytes(bytes: Uint8Array): AtifReadResult {
 export async function readAtifFile(path: string, options: AtifReadOptions = {}): Promise<AtifReadResult> {
   let bytes: Buffer;
   try { bytes = readBoundedFile(path, "ATIF document", undefined, ATIF_LIMITS.documentBytes); }
-  catch {
+  catch (error) {
+    if (options.propagateReadErrors) throw error;
     const result = inspectAtifBytes(Buffer.from("null"));
     result.inspection.source = {};
     try { const stat = lstatSync(path); result.inspection.source.bytes = stat.size; } catch { /* Missing source has no byte identity. */ }

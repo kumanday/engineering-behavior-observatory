@@ -21,6 +21,8 @@ to 32 MiB input, 16 MiB output and 15 seconds. It launches no benchmark, agent,
 verifier or model judge. Imported documents cannot supply executable policy code.
 A missing or mismatched runtime produces an inspect-only receipt.
 
+A `complete` input must retain every fact’s run record and each referenced original run. Missing closure produces an unavailable policy receipt with no definitive exclusions. Bounded subsets keep their explicit population limit.
+
 The board-policy revision is independent of each trial's execution-time
 producer/converter revision. The current board policy includes trial-specific
 invalidations, verdict overrides, setup/version gates, reused-execution ordering,

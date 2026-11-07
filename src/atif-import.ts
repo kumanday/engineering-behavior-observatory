@@ -47,7 +47,7 @@ export async function importAtifFile(options: {
   writeFileSync(join(destination, "trajectory.json"), bytes, { flag: "wx", mode: 0o600 });
   writeJson(destination, "request.json", { importerVersion: ATIF_IMPORTER_VERSION, runId: options.runId, attemptId: options.attemptId, producer: options.producer });
   // Read the retained copy so validation and byte receipts bind exactly what admission will reopen.
-  const read = await readAtifFile(join(destination, "trajectory.json"), { pythonExecutable: options.pythonExecutable });
+  const read = await readAtifFile(join(destination, "trajectory.json"), { pythonExecutable: options.pythonExecutable, propagateReadErrors: true });
   const inspectionBytes = writeJson(destination, "inspection.json", read.inspection);
   if (inspectionBytes.length > 32 * 1024 * 1024) throw new Error("ATIF inspection exceeds the retained receipt byte limit; no manifest was admitted.");
   if (read.document === undefined || read.inspection.versionPolicy.status !== "supported" || read.inspection.structural.status !== "valid") {
