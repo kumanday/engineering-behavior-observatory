@@ -13,7 +13,7 @@ export type AtlasUnitV2 = { id: string; kind: "tool" | "message" | "delegation" 
 export type AtlasViewV2 = { schemaVersion: "ebo.atlas-view/v2"; runtime: { id: "ebo-typed-v2"; version: "2.0.0"; datasetDigest: HashV2 };
   runId: string; attemptId: string; origin: RetainedBehaviorEvidenceV2["dataset"]["origin"]; sources: RetainedBehaviorEvidenceV2["dataset"]["sources"];
   observations: ObservationSetV2; ledger: OccurrenceLedgerV2; units: AtlasUnitV2[];
-  evidence: Array<{ citationId: HashV2; citation: EvidenceCitationV2; content: unknown }>;
+  evidence: Array<{ citationId: HashV2; citation: EvidenceCitationV2; content: EvidenceValue<unknown> }>;
 };
 const unknown = { status: "unknown", reason: "SOURCE_UNREPORTED" } as const;
 /** Source-independent units and exactly the citation recipe used by the semantic judge. */
@@ -46,7 +46,7 @@ export async function buildAtlasViewV2(evidence: RetainedBehaviorEvidenceV2): Pr
   }
   return { schemaVersion: "ebo.atlas-view/v2", runtime: { id: "ebo-typed-v2", version: "2.0.0", datasetDigest: datasetV2Digest(dataset) }, runId: dataset.runId, attemptId: dataset.attemptId,
     origin: structuredClone(dataset.origin), sources: structuredClone(dataset.sources), observations, ledger, units: units.sort((a, b) => a.id.localeCompare(b.id)),
-    evidence: [...citations].map(([citationId, citation]) => ({ citationId, citation, content: visibleEvidence(resolver.read(citation.nativeReference)) })) };
+    evidence: [...citations].map(([citationId, citation]) => ({ citationId, citation, content: resolver.read(citation.nativeReference) === undefined ? { status: "unknown" as const, reason: "RETAINED_REFERENCE_CONTENT_UNAVAILABLE" } : { status: "known" as const, value: visibleEvidence(resolver.read(citation.nativeReference)) } })) };
 }
 export async function validateAtlasViewV2(view: AtlasViewV2, evidence: RetainedBehaviorEvidenceV2): Promise<void> {
   if (analysisDigestV2(view) !== analysisDigestV2(await buildAtlasViewV2(evidence))) throw new Error("V2 Atlas view differs from its dataset and evidence.");
@@ -73,13 +73,13 @@ export function writeAtlasViewV2(view: AtlasViewV2, outputRoot: string): void {
   writeFileSync(join(outputRoot, "view.json"), `${JSON.stringify(view, null, 2)}\n`, { flag: "wx", mode: 0o600 });
   const data = JSON.stringify(view).replace(/</gu, "\\u003c").replace(/>/gu, "\\u003e").replace(/&/gu, "\\u0026");
   writeFileSync(join(outputRoot, "index.html"), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EBO v2 Atlas</title>
-<style>body{font:16px/1.5 system-ui;margin:0;background:#f6f5f0;color:#162e2c}header,main{max-width:1100px;margin:auto;padding:24px}h1{margin:0}input,button{font:inherit;padding:10px;border:1px solid #687b77;border-radius:5px}input{width:min(90%,500px)}button{cursor:pointer;background:white;text-align:left;width:100%}li{list-style:none;margin:8px 0}ul{padding:0}section{background:white;border:1px solid #b7c5c0;padding:16px;margin:16px 0;border-radius:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 ui-monospace,monospace}summary{cursor:pointer;font-weight:600}small{color:#425a55}</style>
+<style>body{font:16px/1.5 system-ui;margin:0;background:#f6f5f0;color:#162e2c}header,main{max-width:1100px;margin:auto;padding:24px}h1{margin:0}input,button{font:inherit;padding:10px;border:1px solid #687b77;border-radius:5px}input{width:min(90%,500px)}button{cursor:pointer;background:white;text-align:left;width:100%}li{list-style:none;margin:8px 0}ul{padding:0}section{background:white;border:1px solid #b7c5c0;padding:16px;margin:16px 0;border-radius:6px}pre{max-height:32rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 ui-monospace,monospace}summary{cursor:pointer;font-weight:600}small{color:#425a55}</style>
 <header><small>Engineering Behavior Observatory · Restricted local evidence</small><h1>Trajectory inspection</h1><p id="identity"></p><label for="search">Find units</label><br><input id="search" type="search" placeholder="Search commands, roles and tools"></header>
 <main><details><summary>Measurements and coverage</summary><pre id="measures"></pre></details><p id="count" aria-live="polite"></p><ul id="units"></ul><section id="detail" hidden><h2>Evidence</h2><pre id="content"></pre></section></main>
 <script id="data" type="application/json">${data}</script><script>
 const view=JSON.parse(document.getElementById('data').textContent), units=document.getElementById('units'), detail=document.getElementById('detail');
 document.getElementById('identity').textContent=view.runId+' / '+view.attemptId+' · '+view.origin.qualification+' · '+view.runtime.id+' '+view.runtime.version;
 document.getElementById('measures').textContent=JSON.stringify({observations:view.observations.observations,coverage:view.ledger.coverage},null,2);
-function render(){const q=document.getElementById('search').value.toLowerCase();units.replaceChildren();const rows=view.units.filter(u=>JSON.stringify(u).toLowerCase().includes(q));document.getElementById('count').textContent=rows.length+' of '+view.units.length+' recorded units';for(const u of rows){const li=document.createElement('li'),b=document.createElement('button');b.textContent=u.kind+' · '+u.label+(u.command?' · '+u.command:'');b.onclick=()=>{detail.hidden=false;document.getElementById('content').textContent=JSON.stringify({unit:u,evidence:view.evidence.filter(e=>u.eventIds.includes(e.citation.eventId))},null,2);detail.scrollIntoView({behavior:'instant',block:'start'});};li.append(b);units.append(li);}}
+function render(){const q=document.getElementById('search').value.toLowerCase();units.replaceChildren();const rows=view.units.filter(u=>JSON.stringify(u).toLowerCase().includes(q));document.getElementById('count').textContent=rows.length+' of '+view.units.length+' recorded units';for(const u of rows){const li=document.createElement('li'),b=document.createElement('button');b.textContent=u.kind+' · '+u.label+(u.command?' · '+u.command.slice(0,200)+(u.command.length>200?'…':''):'');b.onclick=()=>{detail.hidden=false;document.getElementById('content').textContent=JSON.stringify({unit:u,evidence:view.evidence.filter(e=>u.eventIds.includes(e.citation.eventId))},null,2);detail.scrollIntoView({behavior:'instant',block:'start'});};li.append(b);units.append(li);}}
 document.getElementById('search').addEventListener('input',render);render();</script></html>`, { flag: "wx", mode: 0o600 });
 }

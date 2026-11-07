@@ -36,7 +36,6 @@ export async function projectPiAtifV2(input: {
     if (original.family === "message") {
       projected.facts.message = messageFact(step.source === "agent" ? "assistant" : step.source, undefined, "canonical",
         known({ id: stepPointer, scope, identityClass: "converter-assigned" }));
-      if (step.source === "agent") projected.facts.inference = { llmCallCount: typeof step.llm_call_count === "number" ? known(step.llm_call_count) : unreported, nativeRequestId: unreported };
     }
     if (original.family === "context") projected.facts.context = contextFact(original.attributes.contextManagementType === "compaction" ? "compaction" : "summarization");
     if (original.family === "tool") {
@@ -53,6 +52,17 @@ export async function projectPiAtifV2(input: {
     const { nativeTime: _time, source: _source, ...rest } = structuredClone(original);
     events.push({ ...rest, schemaVersion: "ebo.uniform-event/v2", source: { sourceId, nativeType: original.source.nativeType, nativeReference: original.source.nativeReference },
       clock: projected.clock, facts: projected.facts }); projections.push(projected);
+  }
+  for (const step of evidence.projection.agentSteps) {
+    const selected = readEvidencePointer(document, step.pointer); if (!selected.found) throw new Error("Missing ATIF inference observation.");
+    const value = object(selected.value), documentPointer = step.pointer.slice(0, step.pointer.lastIndexOf("/steps/"));
+    const facts = { inference: { llmCallCount: step.llmCallCount === null ? unreported : known(step.llmCallCount), nativeRequestId: unreported } };
+    events.push({ schemaVersion: "ebo.uniform-event/v2", id: `${step.pointer}/declared-inference`, runId: input.runId, attemptId: input.attemptId,
+      source: { sourceId, nativeType: "atif:step", nativeReference: { artifactId: input.artifactId ?? "atif-trajectory", recordLocator: step.pointer } },
+      family: "runtime", phase: "instant", nativeOrder: { status: "known", domain: `${input.artifactId ?? "atif-trajectory"}:${documentPointer}`, value: Number(value.step_id) },
+      clock: unreported, actor: { kind: "harness" }, scope: { kind: "session", id: `document:${documentPointer}` },
+      relations: { parent: unreported, known: [] }, attributes: {}, content: unreported, facts });
+    projections.push({ clock: unreported, facts });
   }
   const operations = buildOperationsV2(events, projections);
   const implementationDigest = digestValue(["atif-v2.js", "atif-pi.js", "atif-profiles.js", "projection-v2.js", "normalization-v2.js", "evidence-pointers.js", "../../schemas/normalization.v2.json"]

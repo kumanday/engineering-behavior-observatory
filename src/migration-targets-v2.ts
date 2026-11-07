@@ -1,7 +1,7 @@
 import { analysisDigestV2, referenceKeyV2, type ObservationSetV2 } from "./analysis-v2.js";
 import { createMigrationTargetV2, type MigrationTarget, type MigrationUnit } from "./migration-accounting.js";
 import type { RetainedBehaviorEvidenceV2 } from "./native-v2.js";
-import type { OccurrenceLedgerV2 } from "./occurrences-v2.js";
+import { OCCURRENCE_V2_TYPES, type OccurrenceLedgerV2, type OccurrenceTypeV2 } from "./occurrences-v2.js";
 import type { SemanticJudgeInput, SemanticJudgmentRecord } from "./semantic-judge.js";
 import { prepareSemanticJudgeInputV2 } from "./semantic-judge-v2.js";
 
@@ -28,12 +28,14 @@ export async function prepareMigrationTargetV2(options: {
     if (!chosen) throw new Error("Original selected source reference has no v2 projection.");
     selected.add(chosen.id);
   }
+  const ratingTypes: OccurrenceTypeV2[] = [...new Set(originalInput.selection.occurrenceTypes?.map((type): OccurrenceTypeV2 => type === "failure-response" ? "execution-follow-up" : type) ?? OCCURRENCE_V2_TYPES)];
+  const ratingRequirements = unit.dependencies?.ratingsDigest ? { types: ratingTypes } : undefined;
   const input = await prepareSemanticJudgeInputV2(evidence, options.observations, options.ledger, {
     schemaVersion: "ebo.semantic-judge-request/v2", behavior: structuredClone(originalInput.behavior), rubric: structuredClone(originalInput.rubric),
     evaluator: { id: `${legacyEvaluator.provider}/${legacyEvaluator.model}`, version: legacyEvaluator.backend.version,
       configuration: { retainedLegacyEvaluator: structuredClone(legacyEvaluator), originalConfigurationDigest: unit.configurationDigest,
-        translation: "ebo.v1-to-typed-v2/2.0.0", ratings: "regenerate-before-use" } },
-    eventIds: [...selected].sort(), limits: options.limits,
+        translation: "ebo.v1-to-typed-v2/2.0.0" } },
+    eventIds: [...selected].sort(), ...(ratingRequirements ? { ratingRequirements } : {}), limits: options.limits,
   });
   return createMigrationTargetV2(unit, input, evidence);
 }

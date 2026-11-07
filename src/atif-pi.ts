@@ -29,7 +29,7 @@ const integer = (value: unknown): value is number => Number.isSafeInteger(value)
 export async function normalizePiAtif(input: {
   read: AtifReadResult; producer: AtifProducerFingerprint; runId: string; attemptId: string;
   manifestDigest: `sha256:${string}`; artifactId?: string;
-}): Promise<RetainedBehaviorEvidence & { mapping: PiAtifMappingReport }> {
+}): Promise<RetainedBehaviorEvidence & { mapping: PiAtifMappingReport; projection: { agentSteps: Array<{ pointer: string; llmCallCount: number | null }> } }> {
   const { inspection, document } = input.read;
   if (document === undefined || inspection.versionPolicy.status !== "supported" || inspection.structural.status !== "valid") {
     throw new Error("ATIF admission requires supported source versions and valid pinned structural validation.");
@@ -55,6 +55,7 @@ export async function normalizePiAtif(input: {
     signatures: [], measures: {} };
   const harness = selection.status === "supported" ? selection.profile.harness : "atif.unregistered";
   const agentSteps: AtifObject[] = [];
+  const projection: { agentSteps: Array<{ pointer: string; llmCallCount: number | null }> } = { agentSteps: [] };
   const usageDocuments: Array<{ trajectory: AtifObject; steps: AtifObject[] }> = [];
   let gap = false;
   const emit = (step: AtifObject, stepPointer: string, pointer: string, suffix: string, family: UniformEvent["family"],
@@ -121,7 +122,7 @@ export async function normalizePiAtif(input: {
       if (step.is_copied_context === true) { mapping.recorded.copiedStepsExcluded = (mapping.recorded.copiedStepsExcluded ?? 0) + 1; continue; }
       if (contextOnly) { mapping.recorded.contextOnlyStepsExcluded = (mapping.recorded.contextOnlyStepsExcluded ?? 0) + 1; continue; }
       if (extra.added_by === "hlb") { gap = true; limitations.add("CONVERSION_GAP"); continue; }
-      if (step.source === "agent") { agentSteps.push(step); documentSteps.push(step); }
+      if (step.source === "agent") { agentSteps.push(step); documentSteps.push(step); projection.agentSteps.push({ pointer: stepPointer, llmCallCount: integer(step.llm_call_count) ? step.llm_call_count : null }); }
       const contextType = extra.pi_event_type ?? object(extra.context_management).type;
       if (["compaction", "branch_summary"].includes(String(contextType))) {
         emit(step, stepPointer, stepPointer, "context", "context", "instant", { contextManagementType: String(contextType),
@@ -254,6 +255,6 @@ export async function normalizePiAtif(input: {
     for (const child of array(trajectory.subagent_trajectories)) collectAliases(object(child));
   };
   collectAliases(document);
-  return { capture, dataset, coverage, resolver, mapping, modelAliases: [...aliases].sort(),
+  return { capture, dataset, coverage, resolver, mapping, projection, modelAliases: [...aliases].sort(),
     outcomeCapture: { ...capture, records: capture.records.map(({ reference, record }) => ({ reference, record: { schemaVersion: "ebo.imported-outcome-record/v1" as const, kind: "imported-source" as const, authority: "third-party" as const, document: record } })) } };
 }

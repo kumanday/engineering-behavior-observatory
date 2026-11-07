@@ -14,6 +14,7 @@ try {
   await page.locator('#search').fill('a-query-with-no-matches'); assert.equal(await page.locator('#units button').count(), 0);
   await page.locator('#search').fill(''); assert.equal(await page.locator('#units button').count(), count);
   await page.locator('summary').click(); assert.match(await page.locator('#measures').innerText(), /coverage/);
+  assert.ok(await page.evaluate(() => document.body.scrollHeight < 20000), 'Expanded inspection stays within a usable page height');
   assert.equal(await page.evaluate(() => window.fixtureXss), undefined); assert.deepEqual(errors, []);
   if (process.argv[3]) await page.screenshot({ path: process.argv[3], fullPage: true });
   console.log(JSON.stringify({ passed: true, units: count, pointerDrilldown: true, searchRoundTrip: true, pageErrors: errors }));
