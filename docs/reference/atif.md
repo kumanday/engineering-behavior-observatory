@@ -113,3 +113,10 @@ judge inputs carry their source class, unproven completeness and producer
 limitations; these constrain absence and whole-attempt claims. Declared session
 and trajectory IDs partition child operations without manufacturing native
 request or timing identities. Ambiguous duplicate child IDs remain unavailable.
+
+Pi behavior projection requires canonical JSON booleans and integer ordinals;
+Harbor's structural coercions are not applied silently to the retained source.
+Usage from a step with an untracked or aggregated inference count stays
+unavailable unless its component completeness is established. Positive merged
+usage cannot hide a zero-filled component. Independent fixture gates record
+these cases as named source-information losses.

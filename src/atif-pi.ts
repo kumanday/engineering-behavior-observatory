@@ -161,12 +161,27 @@ export async function normalizePiAtif(input: {
     }
   };
   if (selection.status === "supported") {
+    const canonical = (trajectory: AtifObject, pointer: string) => {
+      for (const [index, value] of array(trajectory.steps).entries()) {
+        const step = object(value), location = `${pointer}/steps/${index}`;
+        if (Object.hasOwn(step, "is_copied_context") && typeof step.is_copied_context !== "boolean"
+            || !integer(step.step_id) || Number(step.step_id) < 1
+            || step.llm_call_count !== undefined && step.llm_call_count !== null && !integer(step.llm_call_count)) {
+          throw new Error(`Pi projection requires canonical flag and ordinal fields at ${location}.`);
+        }
+      }
+      for (const [index, child] of array(trajectory.subagent_trajectories).entries()) canonical(object(child), `${pointer}/subagent_trajectories/${index}`);
+    };
+    canonical(document, "#");
     mapping.recorded = { calls: 0, linkedResults: 0, copiedStepsExcluded: 0, contextOnlyStepsExcluded: 0 };
     mapping.profileDigest = selection.profileDigest;
     selection.profile.limitations.forEach((reason) => limitations.add(reason));
     visit(document, "#", false);
+    const componentsComplete = agentSteps.every((step) => step.llm_call_count === 1);
+    const usageMissingReason = !componentsComplete ? "USAGE_COMPONENT_COMPLETENESS_UNPROVEN" : "STEP_USAGE_INCOMPLETE";
+    if (!componentsComplete) limitations.add("USAGE_COMPONENT_COMPLETENESS_UNPROVEN");
     const sum = (key: string, extra = false): number | undefined => {
-      if (gap || !agentSteps.length) return undefined;
+      if (gap || !agentSteps.length || !componentsComplete) return undefined;
       const values = agentSteps.map((step) => extra ? object(object(step.metrics).extra)[key] : object(step.metrics)[key]);
       if (!values.every(integer)) return undefined;
       const total = values.reduce((left, right) => left + right, 0);
@@ -175,7 +190,7 @@ export async function normalizePiAtif(input: {
     const prompt = sum("prompt_tokens"), cached = sum("cached_tokens"), writes = sum("cache_write_tokens", true), output = sum("completion_tokens");
     const final = object(document.final_metrics);
     const stepZero = (key: string) => agentSteps.some((step) => object(step.metrics)[key] === 0);
-    const reconciled = (value: number | undefined, key: string, stepKey: string): Measure => value === undefined ? missing("STEP_USAGE_INCOMPLETE")
+    const reconciled = (value: number | undefined, key: string, stepKey: string): Measure => value === undefined ? missing(usageMissingReason)
       : final[key] !== undefined && final[key] !== value ? missing("STEP_FINAL_USAGE_CONFLICT")
         : stepZero(stepKey) ? missing("CONVERTER_ZERO_FILL_POSSIBLE") : count(value, "tokens");
     mapping.measures["tool-operation-count"] = gap ? missing("PRODUCER_PARTIAL_HISTORY") : count(mapping.recorded.calls ?? 0, "identified-logical-tool-operations");
@@ -186,7 +201,7 @@ export async function normalizePiAtif(input: {
       return integer(metrics.prompt_tokens) && integer(metrics.cached_tokens) && integer(extra.cache_write_tokens)
         && metrics.prompt_tokens - metrics.cached_tokens - extra.cache_write_tokens < 0;
     });
-    mapping.measures["input-token-count"] = prompt === undefined || cached === undefined || writes === undefined ? missing("STEP_USAGE_INCOMPLETE")
+    mapping.measures["input-token-count"] = prompt === undefined || cached === undefined || writes === undefined ? missing(usageMissingReason)
       : negativeStepInput || cached + writes > prompt ? missing("PI_INCLUSIVE_PROMPT_CONFLICT")
         : final.total_prompt_tokens !== undefined && final.total_prompt_tokens !== prompt || final.total_cached_tokens !== undefined && final.total_cached_tokens !== cached
           || object(final.extra).cache_write_tokens !== undefined && object(final.extra).cache_write_tokens !== writes ? missing("STEP_FINAL_USAGE_CONFLICT")

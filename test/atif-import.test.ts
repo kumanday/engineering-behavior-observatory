@@ -65,7 +65,7 @@ test("production Pi mapping agrees with the independently authored fixture audit
     assert.deepEqual(actual.signatures.map(({ document, id, name, failed }) => ({ id: document === "#" ? id : `${document}:${id}`, name, failed })).sort((a, b) => a.id.localeCompare(b.id)), expected.signatures, name);
     for (const id of ["tool-operation-count", "tool-error-count", "input-token-count", "output-token-count", "cache-read-input-token-count"]) {
       const value = expected.measures[id];
-      assert.equal(compareFixtureMeasurement(value, actual.measures[id]!, { allowedLossReasons: ["CONVERTER_ZERO_FILL_POSSIBLE"] }).status, "pass", `${name}:${id}`);
+      assert.equal(compareFixtureMeasurement(value, actual.measures[id]!, { allowedLossReasons: ["CONVERTER_ZERO_FILL_POSSIBLE", "USAGE_COMPONENT_COMPLETENESS_UNPROVEN"] }).status, "pass", `${name}:${id}`);
     }
   }
 });
@@ -147,13 +147,15 @@ test("usage inversion needs cache-write evidence and reconciles final totals", a
 test("zero-filled usage and null inference counts remain unavailable", async () => {
   const source = fixture();
   for (const step of steps(source)) if (step.source === "agent") {
-    step.llm_call_count = null;
     (step.metrics as AtifObject).completion_tokens = 0;
   }
   (source.final_metrics as AtifObject).total_completion_tokens = 0;
   const result = (await project(source)).mapping;
-  assert.equal(result.measures["declared-inference-count"]!.status, "unavailable");
   assert.deepEqual(result.measures["output-token-count"], { status: "unavailable", reason: "CONVERTER_ZERO_FILL_POSSIBLE" });
+  steps(source).find((step) => step.source === "agent")!.llm_call_count = null;
+  const unknownInference = (await project(source)).mapping;
+  assert.equal(unknownInference.measures["declared-inference-count"]!.status, "unavailable");
+  assert.deepEqual(unknownInference.measures["output-token-count"], { status: "unavailable", reason: "USAGE_COMPONENT_COMPLETENESS_UNPROVEN" });
 });
 
 test("compaction summaries and unbound embedded children do not become assistant behavior", async () => {
@@ -392,4 +394,23 @@ test("embedded child operations preserve declared session and trajectory scopes"
   const ambiguous = await project(source);
   assert.ok(ambiguous.mapping.limitations.includes("DUPLICATE_CHILD_TRAJECTORY_ID"));
   assert.equal(ambiguous.dataset.events.some(({ source }) => source.nativeReference.recordLocator.startsWith("#/subagent_trajectories")), false);
+});
+
+
+test("aggregated step usage cannot prove component completeness even when every total is positive", async () => {
+  const source = fixture(); steps(source)[1]!.llm_call_count = 2;
+  const evidence = await project(source);
+  for (const id of ["input-token-count", "output-token-count", "cache-read-input-token-count"]) {
+    assert.deepEqual(evidence.mapping.measures[id], { status: "unavailable", reason: "USAGE_COMPONENT_COMPLETENESS_UNPROVEN" });
+  }
+  assert.ok(evidence.mapping.limitations.includes("USAGE_COMPONENT_COMPLETENESS_UNPROVEN"));
+});
+
+test("coerced copied flags and ordinal fields are rejected before a Pi behavior projection", async () => {
+  for (const value of ["true", 1, "false", 0]) {
+    const source = fixture(); steps(source)[1]!.is_copied_context = value;
+    await assert.rejects(project(source), /canonical flag and ordinal/u);
+  }
+  const source = fixture(); steps(source)[1]!.step_id = "2";
+  await assert.rejects(project(source), /canonical flag and ordinal/u);
 });
