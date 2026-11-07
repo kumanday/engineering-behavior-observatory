@@ -70,3 +70,13 @@ test("attempt measurements and record mappings cannot name unrelated evidence",a
  const second=fixture();second.dataset.nativeRecords.push({...second.dataset.nativeRecords[0]!,reference:{artifactId:'unrelated',recordLocator:'#'}});second.dataset.recordCoverage.push({reference:{artifactId:'unrelated',recordLocator:'#'},disposition:'mapped',eventIds:['call'],reason:unknown});
  await assert.rejects(validateNormalizedDatasetV2(second.dataset,{resolve:()=>({runId:'r',attemptId:'a',digest:hash({tool:'shell',callId:'call-1'})})}),/unrelated/u);
 });
+
+test("permission lifecycle hooks retain operation association without becoming tool endpoints",async()=>{
+ const{dataset,resolver}=fixture(),permission=structuredClone(dataset.events[0]!);permission.id='permission';permission.family='permission';permission.actor.kind='harness';dataset.events.push(permission);dataset.recordCoverage[0]!.eventIds.push(permission.id);
+ await validateNormalizedDatasetV2(dataset,resolver);assert.deepEqual(dataset.operations[0]!.callEventIds,['call']);assert.deepEqual(dataset.operations[0]!.resultEventIds,[]);
+ permission.scope.id='absent';await assert.rejects(validateNormalizedDatasetV2(dataset,resolver),/unresolved/u);
+});
+test("RFC3339 lowercase UTC markers cannot bypass fractional precision checks",()=>{
+ const clock=(timestamp:string):ClockEvidence=>({status:'known',value:{timestamp,kind:'execution',domain:'process',precisionMs:0,provenance:'source-recorded',source:reference}});
+ for(const [start,end]of[['2026-11-07T00:00:00.0009z','2026-11-07T00:00:00.0011z'],['2026-11-07T00:00:00.0009z','2026-11-07T00:00:00.0001z']])assert.equal(executionDurationMs(clockPos(clock(start!)),clockPos(clock(end!))).status,'unknown');
+});

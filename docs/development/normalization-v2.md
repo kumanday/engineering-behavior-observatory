@@ -27,7 +27,7 @@ delegation operations have separate kinds. Its ID hashes the canonical
 `ebo.operation-identity/v1` object: run, attempt, source, adapter-established
 scope, operation kind, original ID and identity class. Document/session scope
 prevents equal call IDs in sibling documents from joining. Every endpoint event
-names that operation scope. Pending calls retain unknown failure; known failure
+names that operation scope. Auxiliary permission, runtime or context events can retain an operation association without becoming call/result endpoints. Pending calls retain unknown failure; known failure
 status requires a result endpoint. Operation order must be recorded on its
 endpoint events. Consumers do not reconstruct operations from attribute aliases.
 

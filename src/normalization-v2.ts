@@ -112,7 +112,7 @@ export function executionDurationMs(firstPosition: ClockPosition, lastPosition: 
     return { status: "unknown", reason: "COMPARABLE_RECORDED_EXECUTION_CLOCKS_REQUIRED" };
   }
   const submillisecond = (timestamp: string) => {
-    const fraction = /\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/u.exec(timestamp)?.[1];
+    const fraction = /\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/iu.exec(timestamp)?.[1];
     return fraction !== undefined && /[1-9]/u.test(fraction.slice(3));
   };
   if (submillisecond(start.value.timestamp) || submillisecond(end.value.timestamp)) return {status:"unknown",reason:"SUBMILLISECOND_CLOCK_PRECISION_UNSUPPORTED"};
@@ -220,7 +220,8 @@ export async function validateNormalizedDatasetV2(dataset: NormalizedDatasetV2, 
   }
   for (const event of dataset.events) if (event.scope.kind === "operation") {
     const operation = operations.get(event.scope.id ?? "");
-    if (!operation || !endpointMembership.get(operation.id)?.all.has(event.id)) throw new Error("V2 operation scope does not retain its event endpoint.");
+    if (!operation) throw new Error("V2 operation scope is unresolved.");
+    if (["tool", "model-request", "delegation"].includes(event.family) && !endpointMembership.get(operation.id)?.all.has(event.id)) throw new Error("V2 operation scope does not retain its event endpoint.");
   }
   const measurements = new Set<string>();
   for (const measure of dataset.measurements) {
