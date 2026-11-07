@@ -254,7 +254,7 @@ export async function runAgentSdkSemanticJudge(
   if (canonicalizeMetadata(observations) !== canonicalizeMetadata(expectedObservations)) {
     throw new Error("Structural observations differ from the recomputed qualified observation set.");
   }
-  const evaluatedModelId = readEvaluatedModelId(options.bundleRoot);
+  const evaluatedModelId = evidence.capture.qualification === "imported" ? [...evidence.modelAliases ?? []] : [readEvaluatedModelId(options.bundleRoot), ...evidence.modelAliases ?? []];
   const ratingsDigest = options.request.selection.occurrences?.ratingsDigest;
   if ((ratingsDigest === undefined) !== (options.ratings === undefined)) {
     throw new Error("Occurrence ratings must be supplied exactly when the request names their digest.");
@@ -534,7 +534,7 @@ export function packageSemanticJudgeInput(
   observations: StructuralObservationSet,
   request: SemanticJudgeRequest,
   datasetDigest: DigestString,
-  evaluatedModelId: string,
+  evaluatedModelId: string | readonly string[],
   ratings?: OccurrenceRatings,
 ): SemanticJudgeInput {
   validateRequest(request);
@@ -565,6 +565,10 @@ export function packageSemanticJudgeInput(
   }
   const nativeByReference = new Map(capture.records.map((value) => [referenceKey(value.reference), value.record]));
   const redact = request.blinding.evaluatedModelIdentity === "redact";
+  const modelAliases = [...new Set(typeof evaluatedModelId === "string" ? [evaluatedModelId] : evaluatedModelId)];
+  if (redact && (modelAliases.length > 256 || modelAliases.some((value) => !value.trim() || value.length > 1024))) throw new Error("Model alias inventory exceeds the blinding limits.");
+  const modelPattern = modelAliases.length === 0 ? undefined : new RegExp(modelAliases.sort((a, b) => b.length - a.length || a.localeCompare(b))
+    .map((value) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|"), "gu");
   const candidates: Array<{ item: SemanticJudgeEvidenceItem; redactions: number }> = [
     ...requestedEvents.map((event) => {
       const nativeRecord = nativeByReference.get(referenceKey(event.source.nativeReference));
@@ -635,7 +639,7 @@ export function packageSemanticJudgeInput(
     citation?: SemanticJudgeEvidenceItem["citation"],
   ): { item: SemanticJudgeEvidenceItem; redactions: number } {
     let redactions = 0;
-    const content = redact ? redactJson(value, evaluatedModelId, () => { redactions += 1; }) : value;
+    const content = redact ? redactJson(value, modelPattern, () => { redactions += 1; }) : value;
     return { item: evidenceItem(kind, id, content, request.limits.maxRecordChars, citation), redactions };
   }
 
@@ -1126,21 +1130,21 @@ function readEvaluatedModelId(bundleRoot: string): string {
   return requiredText(model.id, "Evaluated model id", 256);
 }
 
-function redactJson(value: unknown, needle: string, onRedaction: () => void): unknown {
-  if (typeof value === "string") {
-    if (!value.includes(needle)) return value;
-    onRedaction();
-    return value.split(needle).join("[EVALUATED_MODEL_REDACTED]");
-  }
-  if (Array.isArray(value)) return value.map((item) => redactJson(item, needle, onRedaction));
+function redactJson(value: unknown, pattern: RegExp | undefined, onRedaction: () => void): unknown {
+  const replace = (text: string) => {
+    if (pattern === undefined) return text;
+    const result = text.replace(pattern, "[EVALUATED_MODEL_REDACTED]");
+    if (result !== text) onRedaction();
+    return result;
+  };
+  if (typeof value === "string") return replace(value);
+  if (Array.isArray(value)) return value.map((item) => redactJson(item, pattern, onRedaction));
   if (value !== null && typeof value === "object") {
     const result = Object.create(null) as Record<string, unknown>;
     for (const [key, item] of Object.entries(value)) {
-      const redactedKey = key.includes(needle) ? key.split(needle).join("[EVALUATED_MODEL_REDACTED]") : key;
-      if (redactedKey !== key) onRedaction();
-      let retainedKey = redactedKey;
+      let retainedKey = replace(key);
       while (Object.hasOwn(result, retainedKey)) retainedKey = `${retainedKey}#redacted`;
-      result[retainedKey] = redactJson(item, needle, onRedaction);
+      result[retainedKey] = redactJson(item, pattern, onRedaction);
     }
     return result;
   }

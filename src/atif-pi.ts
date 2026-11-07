@@ -6,7 +6,7 @@ import { describeImportedDataset, validateNormalizedDataset } from "./normalizat
 import type { RetainedBehaviorEvidence } from "./retained-evidence.js";
 import { UNIFORM_EVENT_FAMILIES, type AdapterCapabilityProfile, type ImportedNativeEvidence, type UniformEvent } from "./uniform-events.js";
 
-type Measure = { status: "known"; value: number } | { status: "unavailable"; reason: string };
+type Measure = { status: "known"; value: number; unit: string } | { status: "unavailable"; reason: string };
 export type PiAtifMappingReport = {
   schemaVersion: "ebo.pi-atif-mapping/v1";
   scope: "retained-selected-trajectory";
@@ -22,7 +22,7 @@ const hash = (value: unknown): `sha256:${string}` => `sha256:${digestMetadata(va
 const object = (value: unknown): AtifObject => value !== null && typeof value === "object" && !Array.isArray(value) ? value as AtifObject : {};
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const missing = (reason: string): Measure => ({ status: "unavailable", reason });
-const count = (value: number): Measure => ({ status: "known", value });
+const count = (value: number, unit: string): Measure => ({ status: "known", value, unit });
 const integer = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
 /** Producer semantics apply only after independent structural validation and the EBO version gate. */
@@ -103,10 +103,10 @@ export async function normalizePiAtif(input: {
       const contextType = extra.pi_event_type ?? object(extra.context_management).type;
       if (["compaction", "branch_summary"].includes(String(contextType))) {
         emit(step, stepPointer, stepPointer, "context", "context", "instant", { contextManagementType: String(contextType),
-          ...(contextType === "compaction" ? { subtype: "compact_boundary" } : {}) }, typeof step.message === "string" ? `${stepPointer}/message` : undefined);
+          ...(contextType === "compaction" ? { subtype: "compact_boundary" } : {}) }, typeof step.message === "string" || Array.isArray(step.message) ? `${stepPointer}/message` : undefined);
         continue;
       }
-      if (typeof step.message === "string" && step.message.length > 0) emit(step, stepPointer, stepPointer, "message", "message", "after",
+      if ((typeof step.message === "string" || Array.isArray(step.message)) && step.message.length > 0) emit(step, stepPointer, stepPointer, "message", "message", "after",
         { role: step.source === "agent" ? "assistant" : String(step.source) }, `${stepPointer}/message`);
       const calls = array(step.tool_calls).map(object);
       mapping.recorded.calls = (mapping.recorded.calls ?? 0) + calls.length;
@@ -163,22 +163,26 @@ export async function normalizePiAtif(input: {
     };
     const prompt = sum("prompt_tokens"), cached = sum("cached_tokens"), writes = sum("cache_write_tokens", true), output = sum("completion_tokens");
     const final = object(document.final_metrics);
-    const reconciled = (value: number | undefined, key: string): Measure => value === undefined ? missing("STEP_USAGE_INCOMPLETE")
+    const stepZero = (key: string) => agentSteps.some((step) => object(step.metrics)[key] === 0);
+    const reconciled = (value: number | undefined, key: string, stepKey: string): Measure => value === undefined ? missing("STEP_USAGE_INCOMPLETE")
       : final[key] !== undefined && final[key] !== value ? missing("STEP_FINAL_USAGE_CONFLICT")
-        : value === 0 ? missing("CONVERTER_ZERO_FILL_POSSIBLE") : count(value);
-    mapping.measures["tool-operation-count"] = gap ? missing("PRODUCER_PARTIAL_HISTORY") : count(mapping.recorded.calls ?? 0);
+        : stepZero(stepKey) ? missing("CONVERTER_ZERO_FILL_POSSIBLE") : count(value, "tokens");
+    mapping.measures["tool-operation-count"] = gap ? missing("PRODUCER_PARTIAL_HISTORY") : count(mapping.recorded.calls ?? 0, "identified-logical-tool-operations");
     mapping.measures["tool-error-count"] = gap ? missing("PRODUCER_PARTIAL_HISTORY") : mapping.signatures.some(({ failed }) => failed === null)
-      ? missing("TOOL_RESULT_STATUS_INCOMPLETE") : count(mapping.signatures.filter(({ failed }) => failed).length);
+      ? missing("TOOL_RESULT_STATUS_INCOMPLETE") : count(mapping.signatures.filter(({ failed }) => failed).length, "logical-tool-operations");
     mapping.measures["input-token-count"] = prompt === undefined || cached === undefined || writes === undefined ? missing("STEP_USAGE_INCOMPLETE")
       : cached + writes > prompt ? missing("PI_INCLUSIVE_PROMPT_CONFLICT")
         : final.total_prompt_tokens !== undefined && final.total_prompt_tokens !== prompt || final.total_cached_tokens !== undefined && final.total_cached_tokens !== cached
           || object(final.extra).cache_write_tokens !== undefined && object(final.extra).cache_write_tokens !== writes ? missing("STEP_FINAL_USAGE_CONFLICT")
-          : prompt - cached - writes === 0 ? missing("CONVERTER_ZERO_FILL_POSSIBLE") : count(prompt - cached - writes);
-    mapping.measures["output-token-count"] = reconciled(output, "total_completion_tokens");
-    mapping.measures["cache-read-input-token-count"] = reconciled(cached, "total_cached_tokens");
+           : agentSteps.some((step) => {
+            const metrics = object(step.metrics);
+            return Number(metrics.prompt_tokens) - Number(metrics.cached_tokens) - Number(object(metrics.extra).cache_write_tokens) === 0;
+          }) ? missing("CONVERTER_ZERO_FILL_POSSIBLE") : count(prompt - cached - writes, "tokens");
+    mapping.measures["output-token-count"] = reconciled(output, "total_completion_tokens", "completion_tokens");
+    mapping.measures["cache-read-input-token-count"] = reconciled(cached, "total_cached_tokens", "cached_tokens");
     const inference = !gap && agentSteps.length > 0 && agentSteps.every((step) => integer(step.llm_call_count))
       ? agentSteps.reduce((sum, step) => sum + Number(step.llm_call_count), 0) : undefined;
-    mapping.measures["declared-inference-count"] = inference !== undefined && Number.isSafeInteger(inference) ? count(inference) : missing("DECLARED_INFERENCE_INCOMPLETE");
+    mapping.measures["declared-inference-count"] = inference !== undefined && Number.isSafeInteger(inference) ? count(inference, "declared-inferences") : missing("DECLARED_INFERENCE_INCOMPLETE");
   } else limitations.add("PRODUCER_PROFILE_UNREGISTERED");
   mapping.measures["model-request-count"] = missing("NATIVE_REQUEST_IDENTITIES_UNAVAILABLE");
   mapping.limitations = [...limitations].sort();
@@ -195,6 +199,16 @@ export async function normalizePiAtif(input: {
     origin: { kind: "imported", qualification: "imported", manifestDigest: input.manifestDigest, exactAttemptMeasures: "unavailable",
       reason: "Imported selected trajectory does not establish complete attempt coverage." } });
   const coverage = await validateNormalizedDataset(dataset, resolver);
-  return { capture, dataset, coverage, resolver, mapping,
+  const aliases = new Set<string>();
+  const alias = (value: unknown) => { if (typeof value === "string" && value.trim()) aliases.add(value); };
+  const collectAliases = (trajectory: AtifObject) => {
+    alias(object(trajectory.agent).model_name);
+    for (const value of array(trajectory.steps)) {
+      const step = object(value); alias(step.model_name); alias(object(step.extra).response_model);
+    }
+    for (const child of array(trajectory.subagent_trajectories)) collectAliases(object(child));
+  };
+  collectAliases(document);
+  return { capture, dataset, coverage, resolver, mapping, modelAliases: [...aliases].sort(),
     outcomeCapture: { ...capture, records: capture.records.map(({ reference, record }) => ({ reference, record: { schemaVersion: "ebo.imported-outcome-record/v1" as const, kind: "imported-source" as const, authority: "third-party" as const, document: record } })) } };
 }

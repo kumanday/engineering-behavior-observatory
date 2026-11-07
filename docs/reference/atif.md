@@ -95,7 +95,8 @@ Pending, missing and ambiguous results keep unknown status. Pi's converter can
 zero-fill a missing failure flag to false, so a false flag is retained as
 `producerIsError` without asserting native success. Empty converted arguments
 cannot establish an identical-input digest. Explicit true errors remain failure
-evidence. Zero usage totals stay unavailable, and uncached input requires
+evidence. Zero-filled per-step usage stays unavailable even when positive sibling steps
+make the sum nonzero. Uncached input requires
 cache-write fields and reconciled step/final inclusive prompt totals.
 
 The TypeScript API can also retain structurally valid unregistered producers;

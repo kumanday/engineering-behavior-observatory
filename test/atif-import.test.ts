@@ -1,3 +1,6 @@
+import { compareFixtureMeasurement } from "./atif-fixture-gate.js";
+import { runAgentSdkSemanticJudge, type SemanticJudgeRequest } from "../src/semantic-judge.js";
+import { probeClaudeAgentSdkCapabilities } from "../src/agent-sdk.js";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,8 +13,8 @@ import { normalizePiAtif } from "../src/atif-pi.js";
 import { inspectAtifBytes, type AtifObject } from "../src/atif-reader.js";
 import { listAtifProducerProfiles } from "../src/atif-profiles.js";
 import { createRetainedBehaviorEvidence } from "../src/retained-evidence.js";
-import { createStructuralObservationSet, nativeContentResolver } from "../src/structural-observations.js";
-import { buildCorpusIndex } from "../src/corpus.js";
+import { createRetainedStructuralObservationSet, createStructuralObservationSet, nativeContentResolver } from "../src/structural-observations.js";
+import { readCorpusIndex, writeCorpusIndex, buildCorpusIndex } from "../src/corpus.js";
 import { validateBehaviorAssertion, type BehaviorAssertion } from "../src/behavior-assertions.js";
 import { boundedEvidence } from "../src/evidence-projection.js";
 import { main } from "../src/cli.js";
@@ -60,15 +63,14 @@ test("production Pi mapping agrees with the independently authored fixture audit
     assert.deepEqual(actual.signatures.map(({ document, id, name, failed }) => ({ id: document === "#" ? id : `${document}:${id}`, name, failed })).sort((a, b) => a.id.localeCompare(b.id)), expected.signatures, name);
     for (const id of ["tool-operation-count", "tool-error-count", "input-token-count", "output-token-count", "cache-read-input-token-count"]) {
       const value = expected.measures[id];
-      if (value.status === "known" && value.value > 0) assert.deepEqual(actual.measures[id], { status: "known", value: value.value }, `${name}:${id}`);
-      else if (value.status === "unavailable") assert.equal(actual.measures[id]!.status, "unavailable", `${name}:${id}`);
+      assert.equal(compareFixtureMeasurement(value, actual.measures[id]!, { allowedLossReasons: ["CONVERTER_ZERO_FILL_POSSIBLE"] }).status, "pass", `${name}:${id}`);
     }
   }
 });
 
 test("imported selected-history diagnostics never become exact attempt observations", async () => {
   const evidence = await project();
-  assert.deepEqual(evidence.mapping.measures["tool-operation-count"], { status: "known", value: 2 });
+  assert.deepEqual(evidence.mapping.measures["tool-operation-count"], { status: "known", value: 2, unit: "identified-logical-tool-operations" });
   const observations = createStructuralObservationSet(evidence.dataset, evidence.coverage, evidence.outcomeCapture);
   assert.deepEqual(observations.observations.find(({ extractor }) => extractor.id === "outcome-capture-qualification")!.value,
     { status: "known", value: "imported", unit: "qualification" });
@@ -129,7 +131,7 @@ test("duplicate call identities across steps are excluded instead of merging sep
 
 test("usage inversion needs cache-write evidence and reconciles final totals", async () => {
   const baseline = await project();
-  assert.deepEqual(baseline.mapping.measures["input-token-count"], { status: "known", value: 18 });
+  assert.deepEqual(baseline.mapping.measures["input-token-count"], { status: "known", value: 18, unit: "tokens" });
   for (const variant of ["missing-write", "final-write-conflict", "final-prompt-conflict", "negative-input"]) {
     const source = fixture(), step = steps(source)[1]!, metrics = step.metrics as AtifObject;
     if (variant === "missing-write") delete (metrics.extra as AtifObject).cache_write_tokens;
@@ -197,6 +199,8 @@ test("actual admission is repeatable, restricted and dispatched through retained
     const index = buildCorpusIndex(directory);
     assert.equal(index[0]!.manifestKind, "import"); assert.equal(index[0]!.captureQualification, "imported");
     assert.deepEqual(index[0]!.issues, []);
+    writeCorpusIndex(join(directory, "index.jsonl"), index);
+    assert.deepEqual(readCorpusIndex(join(directory, "index.jsonl")), index);
     await assert.rejects(importAtifFile({ ...options, attemptId: "different" }), /another capture revision/u);
     writeFileSync(join(options.destination, "trajectory.json"), "{}");
     await assert.rejects(readImportedBehaviorEvidence(options.destination), /bytes differ/u);
@@ -276,4 +280,57 @@ test("the Pi projection satisfies the adapter event contract under a synthetic t
   };
   await assertAdapterContract(adapter, undefined, evidence.resolver);
   assert.equal(evidence.capture.qualification, "imported");
+});
+
+test("semantic judging uses every retained model/route alias and never requires a run manifest for imports", { skip: !python }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-import-blinding-"));
+  try {
+    const source = JSON.parse(readFileSync("test/fixtures/atif/pi/parallel-failure-cache-write.atif.json", "utf8"));
+    source.agent.model_name = "provider/Model[route]";
+    source.steps[1].model_name = "Model[route]";
+    source.steps[1].extra = { response_model: "served-model" };
+    source.steps[1].message = "provider/Model[route] Model[route] served-model visible";
+    const sourcePath = join(root, "source.json"); writeFileSync(sourcePath, JSON.stringify(source));
+    const bundleRoot = join(root, "import");
+    const imported = await importAtifFile({ sourcePath, destination: bundleRoot, runId: "r", attemptId: "a", producer: listAtifProducerProfiles()[0]!.producer, pythonExecutable: python });
+    assert.deepEqual(new Set(imported.evidence.modelAliases), new Set(["provider/Model[route]", "Model[route]", "served-model", "synthetic-model"]));
+    const observations = await createRetainedStructuralObservationSet(bundleRoot);
+    const event = imported.evidence.dataset.events.find(({ family, attributes }) => family === "message" && attributes.role === "assistant")!;
+    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "test", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+      rubric: { id: "r", version: "1", instructions: "Inspect source behavior." }, evaluator: { provider: "anthropic", model: "judge", effort: "low" },
+      selection: { eventIds: [event.id], structuralObservationIds: [], includeOutcomeObservations: false },
+      limits: { maxEvidenceItems: 10, maxRecordChars: 8_000, maxInputChars: 32_000, maxOutputChars: 8_192, maxCitations: 4, maxWallClockMs: 5_000, maxTurns: 1 }, blinding: { evaluatedModelIdentity: "redact" } };
+    let called = false;
+    await runAgentSdkSemanticJudge({ bundleRoot, outputRoot: join(root, "judge"), observations, request,
+      backend: { id: "claude-agent-sdk", version: probeClaudeAgentSdkCapabilities().sdkVersion, run: async (prompt) => {
+        called = true; assert.doesNotMatch(prompt, /provider\/Model\[route\]|Model\[route\]|served-model/u); assert.match(prompt, /visible/u);
+        return { status: "failed", kind: "provider", message: "Synthetic backend; no model call", raw: {} };
+      } } });
+    assert.equal(called, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("multimodal messages retain text and references without fetching media", async () => {
+  const source = fixture();
+  steps(source)[0]!.message = [{ type: "text", text: "Visible multimodal instruction" },
+    { type: "image", source: { media_type: "image/png", path: "not-admitted.png" } }];
+  const evidence = await project(source);
+  const user = evidence.dataset.events.find(({ family, attributes }) => family === "message" && attributes.role === "user")!;
+  assert.ok(user);
+  assert.equal(user.content.status, "known");
+  if (user.content.status === "known") assert.deepEqual(nativeContentResolver(evidence.outcomeCapture)(user.content.value[0]!.nativeReference), steps(source)[0]!.message);
+});
+
+test("a positive sibling step cannot hide zero-filled output or cache usage", async () => {
+  for (const field of ["completion_tokens", "cached_tokens"]) {
+    const source = fixture();
+    const agent = steps(source).filter((step) => step.source === "agent");
+    (agent[1]!.metrics as AtifObject)[field] = 0;
+    const total = agent.reduce((sum, step) => sum + Number((step.metrics as AtifObject)[field]), 0);
+    (source.final_metrics as AtifObject)[field === "completion_tokens" ? "total_completion_tokens" : "total_cached_tokens"] = total;
+    const evidence = await project(source);
+    const measure = field === "completion_tokens" ? "output-token-count" : "cache-read-input-token-count";
+    assert.deepEqual(evidence.mapping.measures[measure], { status: "unavailable", reason: "CONVERTER_ZERO_FILL_POSSIBLE" });
+  }
 });
