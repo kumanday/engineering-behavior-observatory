@@ -1173,6 +1173,7 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("normalization-integrity.v1.json"));
   ajv.addSchema(readSchema("structural-observations.v1.json"));
   ajv.addSchema(readSchema("atif-inspection.v1.json"));
+  ajv.addSchema(readSchema("evidence-companion.v1.json"));
   ajv.addSchema(readSchema("import-manifest.v1.json"));
   ajv.addSchema(readSchema("pi-atif-mapping.v1.json"));
   ajv.addSchema(readSchema("atif-producer-profile.v1.json"));
@@ -1200,6 +1201,7 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.harbor-assessment/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/assessment")],
 
     ["ebo.pi-atif-mapping/v1", requiredValidator(ajv, "urn:ebo:schema:pi-atif-mapping:v1")],
+    ["ebo.evidence-companion/v1", requiredValidator(ajv, "urn:ebo:schema:evidence-companion:v1")],
     ["ebo.import-manifest/v1", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v1")],
     ["ebo.atif-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:atif-inspection:v1")],
     ["ebo.atif-producer-profile/v1", requiredValidator(ajv, "urn:ebo:schema:atif-producer-profile:v1")],
