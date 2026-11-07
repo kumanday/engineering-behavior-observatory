@@ -1,0 +1,63 @@
+# Retained-study migration accounting
+
+Use `inventoryMigrationStudy` before changing a retained study's analysis
+runtime. A study declares its supported frozen runtime and the exact relative
+artifact paths to inventory. Discovery and archive admission belong to the
+operator's census. The report records that selection so its completeness claim
+can be assessed without treating a directory scan as a workspace-wide audit.
+
+The reader validates EBO assertions, judgments, inputs, observation sets and
+ratings. It verifies each judgment's sibling input and assertion by canonical
+content digest, run, attempt, behavior, rubric and evaluator. Reading is bounded to 100,000
+files, 64 MiB per file and 2 GiB total. Paths stay inside the declared study;
+symbolic links, invalid JSON and duplicate keys fail validation. Raw study
+content remains private, and reports contain source-relative paths and digests.
+
+Judgment units bind the declared input digest, evaluator receipt and assertion
+configuration. Copied judgments and cost receipts count once. When configuration
+identity is unavailable, distinct judgments remain distinct units. Missing input
+or assertion/configuration evidence receives a `preserve-frozen-missing-evidence`
+disposition. Integrity failures block reconciliation.
+Assertions without a retained judgment receipt receive a separate preservation
+disposition. Complementary copies can recover input and assertion files, and
+the assembled bindings are verified before those units become eligible for reuse.
+
+Historical Codex 0.162.1 relay receipts have an explicit optional reader profile,
+`codex-relay-0.162.1-no-wall-limit/v1`. Select it in `receiptProfiles` only for
+studies that used that relay. It admits the single absent `maxWallClockMs`
+field after every other current-schema check passes, and records the profile
+on the artifact row. The original evaluator receipt and its missing limit
+remain unchanged. Failed judgments may omit assertions and remain available
+for frozen preservation.
+
+```ts
+const inventory = inventoryMigrationStudy({
+  id: "study-2026-11",
+  root: studyRoot,
+  analysisRuntime: supportedRuntimePin,
+  artifacts: ["judgments/example/judgment.json", "judgments/example/assertion.json"],
+});
+const preflight = reconcileMigration(inventory);
+```
+
+Preflight leaves readable units `pending-target`. Build new deterministic
+projections and packaged judge inputs alongside the originals, then provide
+`MigrationTarget` entries to `reconcileMigration`. Each target binds one original
+unit and supplies the regenerated input, evaluator digest and configuration
+digest. Changed dataset, selection, selected evidence, rubric, prompt, ratings
+and evaluator dependencies are listed independently. Identical dependencies
+permit reuse; changed dependencies identify a `rejudge` unit. The original
+assertion remains bound to its original dataset.
+
+Forecasts use unique retained measured costs for the same evaluator receipt.
+An affected unit without a matching measured sample makes the affected-unit
+forecast null. A report always carries an authorized paid budget of zero.
+An operator must obtain a separate spending authorization before launching
+judgments. Pending targets and missing evidence remain visible alongside the
+forecast; it covers only the explicitly reconciled affected units.
+
+Frozen readers preserve existing studies while native v2 adapters and typed
+consumers are developed. Final reconciliation uses the actual target inputs
+after those implementations pass their gates. The API reads supported v1
+semantic inputs; a v2 semantic input contract must be registered before it is
+eligible as a target.

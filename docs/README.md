@@ -85,3 +85,4 @@ scattered through release history.
 - [Supplemental evidence companions](reference/evidence-companions.md) bind extra evidence to an existing attempt.
 - [Frozen analysis runtime](development/frozen-analysis-runtime.md) preserves a shipped 1.x reader and its receipts.
 - [EBO v2 analytical contracts](development/normalization-v2.md) define the explicit migration boundary.
+- [Migration accounting](development/migration-accounting.md) inventories retained studies and reconciles dependency changes before re-judging.

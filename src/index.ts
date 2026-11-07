@@ -700,3 +700,5 @@ export { listAnalysisRuntimes, loadAnalysisRuntime, type AnalysisRuntimeIdentity
 export { NORMALIZATION_V2_VERSION, precedes, executionDurationMs, operationId, datasetV2Digest, validateNormalizedDatasetV2,
   type ClockValue, type ClockEvidence, type ClockPosition, type OrderPosition, type Precedence, type SourceIdentityV2, type OperationIdentity, type Operation,
   type EventFactsV2, type UniformEventV2, type MeasurementV2, type RecordCoverageV2, type NormalizedDatasetV2 } from "./normalization-v2.js";
+export { inventoryMigrationStudy, migrationDependencies, reconcileMigration, type MigrationStudy, type MigrationDependencies,
+  type MigrationUnit, type MigrationAssertion, type MigrationInventory, type MigrationTarget, type MigrationReconciliation } from "./migration-accounting.js";
