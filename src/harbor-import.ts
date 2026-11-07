@@ -3,7 +3,7 @@ import { linkSync, lstatSync, mkdirSync, mkdtempSync, opendirSync, readFileSync,
 import { dirname, join, relative, resolve } from "node:path";
 import { assertNoDuplicateJsonKeys, digestBytes, digestMetadata, validateArtifact } from "./artifacts.js";
 import { isSafeArtifactRelativePath } from "./contracts.js";
-import { importAtifFile, readImportManifest, readAtifImportAdmission } from "./atif-import.js";
+import { AtifAdmissionError, importAtifFile, readImportManifest, readAtifImportAdmission } from "./atif-import.js";
 import type { AtifProducerFingerprint } from "./atif-profiles.js";
 import { readBoundedFile } from "./scheduler.js";
 
@@ -173,7 +173,11 @@ export async function importHarborTrial(options: { directory: string; store: str
     imported = await importAtifFile({ sourcePath: join(snapshot, "agent/trajectory.json"), destination: pending === undefined ? destination : join(pending, "bundle"),
       runId: execution.runId, attemptId: execution.attemptId, producer: options.producer, pythonExecutable: options.pythonExecutable, modelAliases: execution.modelAliases });
     if (pending !== undefined) { renameSync(join(pending, "bundle"), destination); rmdirSync(pending); }
-  } catch (error) { throw new Error(`${error instanceof Error ? error.message : String(error)}${pending === undefined ? "" : ` Partial admission remains at ${pending}.`}`); }
+  } catch (error) {
+    if (error instanceof AtifAdmissionError) return { status: "inspect-only" as const, inspection: source.inspection, snapshot,
+      admissionFailure: "ATIF_SOURCE_ADMISSION_REJECTED" as const, ...(pending === undefined ? {} : { partialAdmissionRoot: pending }) };
+    throw new Error(`${error instanceof Error ? error.message : String(error)}${pending === undefined ? "" : ` Partial admission remains at ${pending}.`}`, { cause: error });
+  }
   const manifest = readImportManifest(destination);
   const binding = { schemaVersion: "ebo.harbor-capture-binding/v1", execution, captureRevision: revision,
     sourceCaptureDigest: source.inspection.captureRevision, importManifestDigest: hash(manifest),

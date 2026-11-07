@@ -20,7 +20,12 @@ export type LeaderboardCohortManifest = { schemaVersion: "ebo.leaderboard-cohort
   sourceSnapshotDigest: Hash; selectionDigest: Hash; scannerDigest: Hash; scanDigest: Hash; historyCompleteness: "complete" | "bounded-subset";
   sourceAuthority: "third-party"; priorCohortId?: Hash; members: CohortMember[]; cases: CaseResult[];
   selectedSourceRecords: number; admittedExecutions: number };
-const jsonBytes = (value: unknown) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+const jsonBytes = (value: unknown) => {
+  const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
+  if (bytes.length > 32 * 1024 * 1024) throw new Error("Retained cohort JSON exceeds its readback byte limit.");
+  parseImportJson(bytes); // The writer and reader share numeric, depth and aggregate-node limits.
+  return bytes;
+};
 const hashId = (value: string) => { if (!/^sha256:[a-f0-9]{64}$/u.test(value)) throw new Error("Invalid cohort content identity."); return value.slice(7); };
 
 /** Structural cohort import only. No candidate, verifier, model judge or remote source is launched. */
@@ -126,7 +131,7 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
     writeCorpusIndex(join(pending, "corpus-index.jsonl"), buildCorpusIndex(join(pending, "corpus")));
   });
   const root = join(store, relative);
-  publishDirectory(store, `contexts/${manifest.id.slice(7)}/${source.receiptDigest.slice(7)}`, new Map([["source.json", source.receiptBytes], ["request.json", jsonBytes(requestReceipt)], ["acquisition-scan.json", jsonBytes(source.acquisitionScan)]]));
+  publishDirectory(store, `contexts/${manifest.id.slice(7)}/${source.receiptDigest.slice(7)}/${metadataHash(requestReceipt).slice(7)}`, new Map([["source.json", source.receiptBytes], ["request.json", jsonBytes(requestReceipt)], ["acquisition-scan.json", jsonBytes(source.acquisitionScan)]]));
   readLeaderboardCohort(store, manifest.id);
   return { status: "imported" as const, reused, cohortId: manifest.id, cohortRoot: root, selectedSourceRecords: manifest.selectedSourceRecords, admittedExecutions: manifest.admittedExecutions, cases };
 }

@@ -69,7 +69,7 @@ EBO performs no implicit network fetch or reference activation.
 The sample acquisition helper under `scripts/atif-import-pilot/` is for a small,
 purposeful source sample. A full-board claim requires the complete retained
 invalidation and reuse closure. Use `bounded-subset` for a pilot; its source
-selection counts describe only that retained population.
+selection counts describe only that retained population. Aggregate retained JSON uses the same 32 MiB byte, numeric, depth and one-million-node limits at write and read time.
 
 ## Declare the cohort
 
@@ -104,7 +104,7 @@ ebo atif read-leaderboard ./.ebo/leaderboard-store sha256:COHORT_DIGEST
 
 Native bindings are limited to 64 explicitly selected trials per request. The
 trial UUID, task, harness/version, reward and exception must agree with the
-protected source fact. Unresolved context stays inspect-only. Two selected
+protected source fact. Unresolved context and rejected ATIF admissions stay inspect-only per trial; remaining valid selections continue. Two selected
 capture revisions of one execution require an explicit choice rather than two
 attempt slots.
 
@@ -114,7 +114,7 @@ The store keeps protected source snapshots, acquisition/context receipts,
 selection receipts, native snapshots/scans, Harbor capture revisions and selected
 cohorts separately. Metadata inventories are sorted by remote path. Relocation
 and inventory ordering preserve source and cohort identity. Exact repeat imports
-verify and reuse existing bytes.
+verify and reuse existing bytes. Acquisition and request digests both participate in context identity, so distinct requests producing the same cohort can coexist.
 
 Each selected corpus contains byte-identical admission manifests, trajectories
 and inspections from the Harbor revision store, plus a verified corpus index.

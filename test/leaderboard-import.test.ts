@@ -125,3 +125,30 @@ test("linked regrades occupy one execution and every assessment binds its own sc
     assert.throws(() => readLeaderboardCohort(f.store, imported.cohortId), /native source scan/u);
   } finally { f.cleanup(); }
 });
+
+test("fact shards reject malformed UTF-8 without replacement-character normalization",()=>{
+ const f=fixture();try{
+  const artifact=f.acquisition.artifacts.find(({remotePath})=>remotePath.endsWith('.jsonl'))!;
+  const bytes=Buffer.concat([Buffer.from('{"run_id":"full","benchmark":"terminal-bench-2.1","task":"'),Buffer.from([255]),Buffer.from('"}\n')]);
+  writeFileSync(join(f.snapshot,artifact.localPath),bytes);artifact.bytes=bytes.length;artifact.sha256=rawHash(bytes).slice(7);write(join(f.snapshot,'acquisition.json'),f.acquisition);
+  assert.throws(()=>readLeaderboardSource(f.snapshot),/encoded data|UTF-8/u);
+ }finally{f.cleanup();}
+});
+test("different operator requests producing one cohort retain independent contexts",{skip:!python},async()=>{
+ const f=fixture();try{
+  const first=await importLeaderboardCohort(f.request,f.store,python),second=await importLeaderboardCohort({...f.request,withdrawnFactIds:['ffffffff-ffff-4fff-8fff-ffffffffffff']},f.store,python);
+  assert.equal(first.status,'imported');assert.equal(second.status,'imported');if(first.status!=='imported'||second.status!=='imported')return;assert.equal(first.cohortId,second.cohortId);
+  assert.equal(readLeaderboardCohort(f.store,first.cohortId).manifest.admittedExecutions,1);
+ }finally{f.cleanup();}
+});
+test("one structurally rejected ATIF source does not abort other selected trials",{skip:!python},async()=>{
+ const f=fixture();try{
+  const {cpSync}=await import('node:fs'),valid=join(f.root,'valid'),secondId='22222222-2222-4222-8222-222222222222';cpSync(f.trial,valid,{recursive:true});
+  const result=JSON.parse(readFileSync(join(valid,'result.json'),'utf8'));result.id=secondId;write(join(valid,'result.json'),result);
+  const artifact=f.acquisition.artifacts.find(({remotePath})=>remotePath.endsWith('.jsonl'))!,fact=JSON.parse(readFileSync(join(f.snapshot,artifact.localPath),'utf8'));fact.id=secondId;fact.trial='valid';
+  const bytes=Buffer.concat([readFileSync(join(f.snapshot,artifact.localPath)),Buffer.from(JSON.stringify(fact)+'\n')]);writeFileSync(join(f.snapshot,artifact.localPath),bytes);artifact.bytes=bytes.length;artifact.sha256=rawHash(bytes).slice(7);write(join(f.snapshot,'acquisition.json'),f.acquisition);
+  f.trajectory.steps='malformed';write(join(f.trial,'agent/trajectory.json'),f.trajectory);
+  const imported=await importLeaderboardCohort({...f.request,nativeBindings:[...f.request.nativeBindings,{...f.request.nativeBindings[0]!,factId:secondId,directory:valid}]},f.store,python);
+  assert.equal(imported.status,'imported');if(imported.status!=='imported')return;assert.equal(imported.admittedExecutions,1);assert.equal(imported.cases.find(({factId})=>factId===id)!.status,'inspect-only');assert.equal(imported.cases.find(({factId})=>factId===secondId)!.status,'imported');
+ }finally{f.cleanup();}
+});

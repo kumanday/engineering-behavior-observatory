@@ -95,7 +95,7 @@ export function deriveLeaderboardInput(files: ReadonlyMap<string, Buffer>) {
       if (Object.hasOwn(target, match[1]!)) throw new Error("Duplicate run metadata.");
       Object.defineProperty(target, match[1]!, { value: record, enumerable: true });
     } else if (match[4]!.endsWith(".jsonl")) {
-      for (const line of bytes.toString("utf8").split(/\r?\n/u).filter(Boolean)) {
+      for (const line of new TextDecoder("utf8", { fatal: true }).decode(bytes).split(/\r?\n/u).filter(Boolean)) {
         if (Buffer.byteLength(line) > 256 * 1024 || facts.length >= 100_000) throw new Error("Leaderboard fact population exceeds its limits.");
         const fact = parseImportJson(Buffer.from(line));
         if (fact.run_id !== match[1] || fact.benchmark !== match[3]) throw new Error("Fact source identity conflicts with its protected path.");
