@@ -1,0 +1,63 @@
+{
+  "schema_version": "ATIF-v1.7",
+  "session_id": "synthetic-continuation",
+  "agent": {
+    "name": "pi",
+    "version": "synthetic"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "agent",
+      "message": "Synthetic continuation step.",
+      "llm_call_count": 1,
+      "is_copied_context": true,
+      "tool_calls": [
+        {
+          "tool_call_id": "first",
+          "function_name": "bash",
+          "arguments": {
+            "command": "synthetic-check"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "first",
+            "content": "Synthetic result.",
+            "extra": {
+              "is_error": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "step_id": 2,
+      "source": "agent",
+      "message": "Synthetic continuation step.",
+      "llm_call_count": 1,
+      "tool_calls": [
+        {
+          "tool_call_id": "second",
+          "function_name": "bash",
+          "arguments": {
+            "command": "synthetic-check"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "second",
+            "content": "Synthetic result.",
+            "extra": {
+              "is_error": false
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

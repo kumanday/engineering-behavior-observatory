@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "ebo.atif-synthetic-fixtures/v1",
+  "producer": "harbor.agents.installed.pi.Pi",
+  "harborVersion": "0.24.0",
+  "fixtures": [
+    {
+      "id": "branched-active-selection",
+      "native": "branched-active-selection.native.jsonl",
+      "trajectory": "branched-active-selection.atif.json",
+      "nativeSha256": "9e8bb846cc390838f373e8f365f1666d7813e4cc1dad76c71a2352aa91c49b4f",
+      "trajectorySha256": "2ac62319b0cb6b54a6b3801eb95e707632faa947ed5db072d815cb130b45317b"
+    },
+    {
+      "id": "compaction",
+      "native": "compaction.native.jsonl",
+      "trajectory": "compaction.atif.json",
+      "nativeSha256": "adffb59b680a19b6791cdaa08e931b58d91078537cc3ffa40cf92e2032334ef6",
+      "trajectorySha256": "f075e82007f69d5ec537d62dfcaa481bcb5961bde115210d8ae04e7edd775786"
+    },
+    {
+      "id": "interrupted-pending",
+      "native": "interrupted-pending.native.jsonl",
+      "trajectory": "interrupted-pending.atif.json",
+      "nativeSha256": "b30e9e7e16ed4e27c5519dfedc19231e59313f7277280179b9fffeb2e612cfe8",
+      "trajectorySha256": "140f7e40d75b6febce35b357637968c5aa46da5d27cb286dcf00fb700064342c"
+    },
+    {
+      "id": "parallel-failure-cache-write",
+      "native": "parallel-failure-cache-write.native.jsonl",
+      "trajectory": "parallel-failure-cache-write.atif.json",
+      "nativeSha256": "9615bdda81374ac24fc5f223dafb1b77e183d6f35ab97ca2c40c26a60c383d86",
+      "trajectorySha256": "d6255548336f1dd7cf0cba9701b43f6036d9181df48faa49eb2579a159612ef6"
+    }
+  ]
+}
