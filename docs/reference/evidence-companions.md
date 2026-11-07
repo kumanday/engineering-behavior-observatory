@@ -15,7 +15,7 @@ run ID and attempt ID. Each original source range must resolve through the
 original attempt's verified resolver with the same identity and digest.
 
 Artifact descriptors declare IDs, relative paths, raw byte digests, sizes and
-JSON, JSONL or text media types. Files are supplied as a map from descriptor ID
+JSON, JSONL or text media types. Discovery-sensitive `manifest.json` filenames are reserved at every depth. Files are supplied as a map from descriptor ID
 to bytes. Citations use canonical JSON-pointer value digests. A JSONL line uses
 `#/lines/N`, where N is the original one-based line number; blank lines retain
 their positions. A child field can use `#/lines/N/message`. JSON and text files
@@ -33,10 +33,10 @@ the citation to that companion revision and prevents it from shadowing an
 original native artifact. Consumers must opt in to these supplemental records;
 the API does not insert them into the original dataset.
 
-The writer validates all bindings before staging files, writes the companion
+The writer checks serialized readback limits and validates all bindings before staging files outside the original attempt, writes the companion
 manifest last and publishes a new directory. Existing nonempty destinations are
 preserved. Failed staging directories remain available for inspection. Readback
-rejects stale bytes, different attempts, changed manifests, unsafe relative paths
+checks the declared aggregate byte budget before loading artifacts and rejects stale bytes, different attempts, changed manifests, unsafe relative paths
 and links within the supplied evidence roots. Limits are 64 artifacts, 16 MiB
 per artifact, 64 MiB total, 10,000 JSONL records and a 4 MiB manifest. JSON has a
 64-level, 250,000-node bound.

@@ -87,3 +87,21 @@ test("sanitized supplemental values retain resolvable citations with recomputed 
   const resolved=await read.resolver.resolve({artifactId:companionArtifactId(read.digest,"history"),recordLocator:"#/text"});assert.ok(resolved&&resolved!==true);assert.equal(resolved.digest,hash(value.text));
  }finally{f.cleanup();}
 });
+
+test("discovery-sensitive paths, unsafe numbers and unreadable manifest trees fail before publication",{skip:!python},async()=>{
+ const f=await fixture();try{
+  for(const path of ["manifest.json","nested/manifest.json"]){const request=structuredClone(f.request);request.artifacts[0]!.path=path;await assert.rejects(()=>writeEvidenceCompanion(f.base,f.companion,request,f.files),/reserved/u);}
+  const numeric=structuredClone(f.request);numeric.supplementalObservations[0]!.attributes.value=1e18;
+  await assert.rejects(()=>writeEvidenceCompanion(f.base,f.companion,numeric,f.files),/Unbounded/u);
+  const tree=structuredClone(f.request);tree.supplementalObservations=Array.from({length:2},()=>({...structuredClone(f.request.supplementalObservations[0]!),attributes:Object.fromEntries(Array.from({length:128},(_,i)=>[String(i),Array(1024).fill(0)]))}));
+  await assert.rejects(()=>writeEvidenceCompanion(f.base,f.companion,tree,f.files),/Unbounded/u);
+  await assert.rejects(()=>writeEvidenceCompanion(f.base,join(f.base,"supplement"),f.request,f.files),/outside/u);
+ }finally{f.cleanup();}
+});
+test("readback rejects excessive declared totals before reading missing artifacts",{skip:!python},async()=>{
+ const f=await fixture();try{
+  await writeEvidenceCompanion(f.base,f.companion,f.request,f.files);const path=join(f.companion,"companion.json"),manifest=JSON.parse(readFileSync(path,"utf8"));
+  manifest.artifacts=Array.from({length:64},(_,i)=>({id:`part-${i}`,path:`missing-${i}.txt`,bytes:16*1024*1024,digest:hash("irrelevant"),mediaType:"text/plain"}));writeFileSync(path,JSON.stringify(manifest));
+  await assert.rejects(()=>readEvidenceCompanion(f.base,f.companion),/total byte limit/u);
+ }finally{f.cleanup();}
+});

@@ -1,5 +1,5 @@
 import { lstatSync, mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { assertNoDuplicateJsonKeys, digestBytes, digestMetadata, validateArtifact } from "./artifacts.js";
 import { isSafeArtifactRelativePath } from "./contracts.js";
 import { createPointerEvidenceResolver } from "./evidence-pointers.js";
@@ -40,12 +40,16 @@ export async function writeEvidenceCompanion(baseRoot: string, destination: stri
     authority: "supplemental", sharingClass: "restricted", sourceRanges: request.sourceRanges, artifacts: request.artifacts,
     supplementalObservations: request.supplementalObservations, coverage: request.coverage };
   assertSchema(companion);
+  assertInventory(companion);
   await verifySourceRanges(companion, base.resolver);
   const { resolver } = verifyArtifacts(companion, files);
   for (const observation of companion.supplementalObservations) await verifyRanges(observation.citations, resolver, target);
   const bytes = Buffer.from(`${JSON.stringify(companion, null, 2)}\n`);
   if (bytes.length > EVIDENCE_COMPANION_LIMITS.manifestBytes) throw new Error("Companion manifest exceeds its byte limit.");
-  const output = resolve(destination), parent = dirname(output); assertNoLinks(parent, ""); mkdirSync(parent, {recursive:true,mode:0o700});
+  parseJson(bytes); // Never publish a manifest that the bounded reader cannot reopen.
+  const output = resolve(destination), fromBase = relative(resolve(baseRoot), output);
+  if (fromBase === "" || !fromBase.startsWith("../") && fromBase !== "..") throw new Error("Companion destination must be outside the original attempt.");
+  const parent = dirname(output); assertNoLinks(parent, ""); mkdirSync(parent, {recursive:true,mode:0o700});
   const pending = mkdtempSync(join(parent, ".companion-pending-"));
   for (const artifact of companion.artifacts) {
     const path = join(pending, artifact.path); mkdirSync(dirname(path), {recursive:true,mode:0o700}); writeFileSync(path, files.get(artifact.id)!, {flag:"wx",mode:0o600});
@@ -60,6 +64,7 @@ export async function writeEvidenceCompanion(baseRoot: string, destination: stri
 export async function readEvidenceCompanion(baseRoot: string, companionRoot: string) {
   const companion = parseJson(closedRead(companionRoot, "companion.json", EVIDENCE_COMPANION_LIMITS.manifestBytes)) as unknown as EvidenceCompanion;
   assertSchema(companion);
+  assertInventory(companion);
   const base = await createRetainedBehaviorEvidence(baseRoot), bytes = closedRead(baseRoot, "manifest.json", EVIDENCE_COMPANION_LIMITS.manifestBytes);
   if (companion.target.manifestDigest !== hash(parseJson(bytes)) || companion.target.manifestBytesDigest !== rawHash(bytes)
       || companion.target.runId !== base.capture.runId || companion.target.attemptId !== base.capture.attemptId) throw new Error("Companion belongs to a different original attempt or manifest revision.");
@@ -76,7 +81,17 @@ export async function readEvidenceCompanion(baseRoot: string, companionRoot: str
 /** Companion citations use their own namespace; they cannot shadow the attempt's native records. */
 export function companionArtifactId(companionDigest: Hash, artifactId: string): string { return `companion:${companionDigest}/${encodeURIComponent(artifactId)}`; }
 
+function assertInventory(companion: EvidenceCompanion) {
+  const ids = new Set<string>(), paths = new Set<string>(); let total = 0;
+  for (const artifact of companion.artifacts) {
+    if (!isSafeArtifactRelativePath(artifact.path) || artifact.path === "companion.json" || artifact.path.split("/").at(-1) === "manifest.json"
+        || ids.has(artifact.id) || paths.has(artifact.path)) throw new Error("Duplicate, unsafe or reserved companion artifact identity.");
+    ids.add(artifact.id); paths.add(artifact.path); total += artifact.bytes;
+    if (total > EVIDENCE_COMPANION_LIMITS.totalBytes) throw new Error("Companion exceeds its total byte limit.");
+  }
+}
 function verifyArtifacts(companion: EvidenceCompanion, files: ReadonlyMap<string, Buffer>) {
+  assertInventory(companion);
   if (files.size !== companion.artifacts.length) throw new Error("Companion file inventory differs from its manifest.");
   const ids = new Set<string>(), paths = new Set<string>(), records: Array<{reference: NativeEvidenceReference; record: unknown}> = []; let total = 0;
   for (const artifact of companion.artifacts) {
