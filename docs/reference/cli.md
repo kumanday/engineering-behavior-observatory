@@ -180,3 +180,8 @@ Factory's `ebo factory run` accepts managed and BYOK conditions through the
 [frozen model record](../harnesses/factory-droid.md#freeze-the-condition).
 Select the Fireworks endpoint and credential variable in that record; credentials
 remain environment inputs rather than CLI arguments.
+# ATIF inspection
+
+Use `ebo atif inspect <trajectory.json> [--python <executable>]
+[--retain <relative-path>]...` for offline inspection. See [ATIF source
+inspection](atif.md) for version, validation and reference limits.

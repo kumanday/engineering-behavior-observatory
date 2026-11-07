@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
+import { readAtifFile } from "./atif-reader.js";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -79,6 +80,7 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo queue inspect <queue.json>
        ebo queue validate <queue.json> [experiment.json] [--bundle-root <bundle-root>]
        ebo harbor <inspect|prepare|admit|freeze|status|doctor|compile|convert-legacy|environment|run> ...
+       ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...
        ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
        ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
        ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
@@ -140,6 +142,8 @@ export function main(
   if (args[0] === "harbor") {
     return runHarborCommand(args.slice(1), write);
   }
+
+  if (args[0] === "atif") return runAtifInspection(args.slice(1), write);
 
   if ((args[0] === "matrix" && args[1] === "compile") || args[0] === "compile") {
     return compileQueue(args[0] === "matrix" ? args.slice(2) : args.slice(1), write);
@@ -493,6 +497,28 @@ export function main(
 
   process.stderr.write(`Unknown argument: ${args[0]}\n`);
   return 1;
+}
+
+async function runAtifInspection(args: string[], write: (message: string) => void): Promise<number> {
+  if (args[0] !== "inspect" || args[1] === undefined || args[1].startsWith("--")) {
+    write("Usage: ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...\n");
+    return 1;
+  }
+  let pythonExecutable: string | undefined;
+  const retainedFiles: string[] = [];
+  for (let index = 2; index < args.length; index += 2) {
+    const flag = args[index], value = args[index + 1];
+    if (value === undefined || value.startsWith("--") || !["--python", "--retain"].includes(flag!)) {
+      write("ATIF inspection requires a value for each --python or --retain option.\n"); return 1;
+    }
+    if (flag === "--python") {
+      if (pythonExecutable !== undefined) { write("ATIF inspection accepts one Python executable.\n"); return 1; }
+      pythonExecutable = value;
+    } else retainedFiles.push(value);
+  }
+  const { inspection } = await readAtifFile(args[1], { pythonExecutable, retainedFiles });
+  write(`${JSON.stringify(inspection, null, 2)}\n`);
+  return inspection.structural.status === "valid" && inspection.versionPolicy.status === "supported" ? 0 : 1;
 }
 
 async function runAggregationCommand(args: string[], write: (message: string) => void): Promise<number> {
