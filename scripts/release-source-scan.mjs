@@ -32,3 +32,32 @@ function isSourceReference(node, ts) {
   }
   return false;
 }
+
+/** A root segment in an explicit session/document namespace is an identifier, not a filesystem home. */
+export function maskSourceLogicalRoots(source, path, ts) {
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true,
+    path.endsWith(".ts") ? ts.ScriptKind.TS : ts.ScriptKind.JS);
+  const ranges = [];
+  const namespace = (node) => ts.isConditionalExpression(node)
+    ? namespace(node.whenTrue) && namespace(node.whenFalse)
+    : ts.isTemplateExpression(node) && ["session:", "document:"].includes(node.head.text)
+      && node.templateSpans.length === 1 && node.templateSpans[0].literal.text === "";
+  const visit = (node) => {
+    if (ts.isTemplateExpression(node) && node.head.text === "" && node.templateSpans.length === 2
+        && node.templateSpans.every((span) => span.literal.text === "") && namespace(node.templateSpans[0].expression)) {
+      const suffix = node.templateSpans[1].expression;
+      if (ts.isConditionalExpression(suffix) && ts.isTemplateExpression(suffix.whenTrue)
+          && suffix.whenTrue.head.text === "/parent-tool:" && suffix.whenTrue.templateSpans.length === 1
+          && suffix.whenTrue.templateSpans[0].literal.text === ""
+          && ts.isStringLiteral(suffix.whenFalse) && suffix.whenFalse.text === "/root") {
+        ranges.push([suffix.whenFalse.getStart(file), suffix.whenFalse.end]);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  for (const [start, end] of ranges.sort(([left], [right]) => right - left)) {
+    source = `${source.slice(0, start)}"[LOGICAL_ROOT_SEGMENT]"${source.slice(end)}`;
+  }
+  return source;
+}

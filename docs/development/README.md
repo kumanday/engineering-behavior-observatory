@@ -97,7 +97,9 @@ A new release candidate needs its own package/lockfile version and
 compares the current checkout to that version's manifest. Preserve published
 manifests and tags when development changes their pinned files. Source scanning
 accepts reference-only Bearer header construction and keeps credential literals
-visible to the shared export scanner.
+visible to the shared export scanner. The source home-path scan recognizes the
+generic root segment in statically namespaced session/document identifiers.
+Filesystem home paths and credential literals retain their release checks.
 
 The ATIF conformance workflow runs the typed v2 native projection, consumer and
 migration-accounting regressions on authored fixtures. It uses the pinned Node
