@@ -32,6 +32,6 @@ export const openHandsV2Profile: NativeProjectionProfile = {
     return { facts, clock, ...(content ? { content } : {}), operation: { nativeId, scope, endpoint: call ? "call" : "result", canonical: true,
       toolName: text(native.tool_name) ?? text(related?.tool_name), ...(native.action === undefined ? {} : { inputDigest: digestValue(native.action) }),
       failure: call ? unreported : failure,
-      issuingInference: text(native.llm_response_id) ? known({ id: text(native.llm_response_id)!, scope, identityClass: "declared-single-inference" }) : unreported } };
+      issuingInference: text(native.llm_response_id) ? known({ id: text(native.llm_response_id)!, scope, identityClass: "model-output" }) : unreported } };
   },
 };

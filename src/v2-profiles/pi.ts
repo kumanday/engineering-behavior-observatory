@@ -63,10 +63,11 @@ export const piV2Profile: NativeProjectionProfile = {
       const matches = history ? [] : lookup.messages.get(messageKey(message) ?? "") ?? [];
       const matchingId = matches.length === 1 && text(record.sessionId) === lookup.sessionId ? matches[0] : undefined;
       const identity = history ? text(record.id) : matchingId;
-      facts.message = messageFact(role(message.role), history || type === "message_end" ? true : false,
+      const partial = message.role === "assistant" && ["error", "aborted"].includes(String(message.stopReason));
+      facts.message = messageFact(role(message.role), !partial && (history || type === "message_end"),
         history ? "canonical" : matchingId && type === "message_end" ? "duplicate" : "fragment",
         identity ? known({ id: identity, scope, identityClass: "source-native" }) : unreported);
-      if (message.role === "assistant" && history) facts.inference = { llmCallCount: known(1), nativeRequestId: unreported };
+      if (message.role === "assistant" && history) facts.inference = { llmCallCount: unreported, nativeRequestId: unreported };
     }
     if (event.family === "tool") {
       const position = /:tool:(\d+)$/u.exec(event.id)?.[1];
@@ -79,9 +80,9 @@ export const piV2Profile: NativeProjectionProfile = {
       operation = { nativeId: callId, scope: issuingId ? `${scope}/issuing-message:${issuingId}` : ambiguous ? `${scope}/unresolved:${event.id}` : `${scope}/${envelope ? "stream" : "unmatched-history"}`,
         ...(ambiguous && !issuingId ? { scopeStatus: "record-local" as const } : {}),
         endpoint, canonical: !envelope, toolName: text(block.name) ?? text(message.toolName) ?? text(payload.toolName),
-        ...(input === undefined ? {} : { inputDigest: digestValue(input) }),
+        ...(input === undefined || !envelope && ["error", "aborted"].includes(String(message.stopReason)) ? {} : { inputDigest: digestValue(input) }),
         failure: endpoint === "result" ? resultFailure(envelope ? payload.isError : message.isError) : unreported,
-        issuingInference: issuingId ? known({ id: issuingId, scope, identityClass: "declared-single-inference" }) : unreported };
+        issuingInference: issuingId ? known({ id: issuingId, scope, identityClass: "model-output" }) : unreported };
     }
     if (event.family === "model-request") {
       operation = { scope, nativeId: event.id, identityClass: "ebo-derived", endpoint: "call" };

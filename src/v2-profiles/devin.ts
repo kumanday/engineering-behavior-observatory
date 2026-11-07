@@ -1,4 +1,4 @@
-import { contextFact, digestValue, known, messageFact, object, pointedContent, recordedClock, resources, resultFailure, text, unreported, type NativeProjectionProfile } from "../projection-v2.js";
+import { contextFact, digestValue, known, mergeContent, messageFact, object, pointedContent, recordedClock, resources, resultFailure, text, unreported, type NativeProjectionProfile } from "../projection-v2.js";
 import type { EventFactsV2 } from "../normalization-v2.js";
 const exits = new WeakMap<readonly Record<string, unknown>[], Map<string, Array<{ sequence: number; value: Record<string, unknown> }>>>();
 export const devinV2Profile: NativeProjectionProfile = {
@@ -42,8 +42,8 @@ export const devinV2Profile: NativeProjectionProfile = {
     const failure = update.status === "failed" || meta["cognition.ai/canceled"] === true || typeof exit.signal === "string" ? known(true)
       : resultFailure(undefined, exit.exit_code);
     const outputKey = update.rawOutput !== undefined ? "rawOutput" : update.content !== undefined ? "content" : undefined;
-    const content = endpoint === "call" && update.rawInput !== undefined ? pointedContent(context, "/payload/update/rawInput", "tool-input")
-      : endpoint === "result" && outputKey ? pointedContent(context, `/payload/update/${outputKey}`, "tool-result") : undefined;
+    const content = mergeContent(update.rawInput !== undefined ? pointedContent(context, "/payload/update/rawInput", "tool-input") : undefined,
+      endpoint === "result" && outputKey ? pointedContent(context, `/payload/update/${outputKey}`, "tool-result") : undefined);
     return { facts, clock, ...(content ? { content } : {}), operation: { nativeId: text(update.toolCallId), scope, endpoint, canonical: true,
       toolName: text(meta["cognition.ai/inferenceToolName"]), ...(update.rawInput === undefined ? {} : { inputDigest: digestValue(update.rawInput) }),
       failure: endpoint === "result" ? failure : unreported } };

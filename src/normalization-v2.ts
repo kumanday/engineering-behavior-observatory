@@ -47,7 +47,7 @@ export type Operation = {
   toolName: EvidenceValue<string>;
   inputDigest: EvidenceValue<Hash>;
   failure: EvidenceValue<boolean>;
-  issuingInference: EvidenceValue<{ id: string; scope: string; identityClass: "native-request" | "declared-single-inference" }>;
+  issuingInference: EvidenceValue<{ id: string; scope: string; identityClass: "native-request" | "declared-single-inference" | "model-output" }>;
   startOrder: NativeOrderEvidence;
   endOrder: NativeOrderEvidence;
 };

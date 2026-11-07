@@ -53,9 +53,11 @@ export const claudeV2Profile: NativeProjectionProfile = {
         cacheCreationInputTokens: usage.cache_creation_input_tokens }, "step", "increment",
         text(inner.id) ? known(`${scope}/message:${text(inner.id)!}`) : unreported);
     } else if (event.family === "runtime" && type === "result") {
-      const usage = object(message.usage);
-      facts.resource = resources({ inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
-        cacheReadInputTokens: usage.cache_read_input_tokens, cacheCreationInputTokens: usage.cache_creation_input_tokens,
+      const models = Object.values(object(message.modelUsage)).map(object);
+      const summed = (field: string) => models.length && models.every((model) => typeof model[field] === "number" && Number.isFinite(model[field]) && Number(model[field]) >= 0)
+        ? models.reduce((sum, model) => sum + Number(model[field]), 0) : undefined;
+      facts.resource = resources({ inputTokens: summed("inputTokens"), outputTokens: summed("outputTokens"),
+        cacheReadInputTokens: summed("cacheReadInputTokens"), cacheCreationInputTokens: summed("cacheCreationInputTokens"),
         totalCostUsd: message.total_cost_usd }, "child-inclusive", "cumulative-final", known(`${scope}/attempt:${event.attemptId}`));
     }
     const clock = hook ? recordedClock(context, record.callbackAt, "producer-observation", "claude-hook-callback")
@@ -93,6 +95,6 @@ export const claudeV2Profile: NativeProjectionProfile = {
       ...(hook && toolId && (index(context).get(toolId)?.size ?? 0) > 1 ? { scopeStatus: "record-local" as const } : {}),
       toolName: text(block.name) ?? text(payload.tool_name), ...(input === undefined ? {} : { inputDigest: digestValue(input) }),
       failure: endpoint !== "result" ? unreported : hook === "PostToolUseFailure" ? known(true) : hook === "PostToolUse" ? known(false) : resultFailure(block.is_error),
-      issuingInference: issuing ? known({ id: issuing, scope, identityClass: "declared-single-inference" }) : unreported } };
+      issuingInference: issuing ? known({ id: issuing, scope, identityClass: "model-output" }) : unreported } };
   },
 };

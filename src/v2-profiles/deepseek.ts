@@ -33,7 +33,8 @@ export const deepSeekV2Profile: NativeProjectionProfile = {
     const parts = Array.isArray(message.content) ? message.content.map(object) : [];
     const partIndex = /:tool-part:(\d+)$/u.exec(event.id)?.[1];
     if (event.family === "tool" && type === "tool/result" && partIndex === undefined && parts.filter((part) => part.type === "tool_result").length > 1) return { facts, clock, nativeOrder, family: "runtime" };
-    const part = partIndex === undefined ? parts.find((value) => value.type === "tool_result") ?? {} : parts[Number(partIndex)] ?? {};
+    const firstClass = message.role === "tool" && text(message.toolCallId) !== undefined;
+    const part = firstClass ? message : partIndex === undefined ? parts.find((value) => value.type === "tool_result") ?? {} : parts[Number(partIndex)] ?? {};
     const output = Array.isArray(part.content) ? part.content.flatMap((block) => text(object(block).text) ?? []).join("") : text(part.content);
     const exit = output === undefined ? null : /\n?\[exit code: (-?\d+)\]\s*$/u.exec(output);
     const phase = type === "tool/call" || record.method === "subagent.started" ? "before"
@@ -46,7 +47,8 @@ export const deepSeekV2Profile: NativeProjectionProfile = {
       ? `${scope}/turn:${String(data.turn)}/step:${String(data.step)}` : scope;
     const selectedPart = partIndex === undefined ? parts.indexOf(part) : Number(partIndex);
     const content = type === "tool/call" && data.arguments !== undefined ? pointedContent(context, "/payload/event/data/arguments", "tool-input")
-      : type === "tool/result" && selectedPart >= 0 && part.content !== undefined ? pointedContent(context, `/payload/event/data/message/content/${selectedPart}/content`, "tool-result") : undefined;
+      : type === "tool/result" && firstClass && message.content !== undefined ? pointedContent(context, "/payload/event/data/message/content", "tool-result")
+        : type === "tool/result" && selectedPart >= 0 && part.content !== undefined ? pointedContent(context, `/payload/event/data/message/content/${selectedPart}/content`, "tool-result") : undefined;
     return { facts, clock, nativeOrder, phase, ...(content ? { content } : {}), operation: { nativeId: nativeId ?? (requestScope !== scope ? "request-observation" : undefined),
       ...(nativeId === undefined ? { identityClass: "ebo-derived" as const } : {}), scope: requestScope, endpoint, canonical: true,
       toolName: text(data.name), ...(data.arguments === undefined ? {} : { inputDigest: digestValue(data.arguments) }),

@@ -39,7 +39,7 @@ export type NativeProjectionProfile = {
   expand?(context: ProjectionContext): UniformEvent[];
   additional?(population: ProjectionPopulation): UniformEvent[];
 };
-export type ProjectionPopulation = { runId: string; attemptId: string; records: readonly CapturedNativeRecord<unknown>[]; events: readonly UniformEvent[] };
+export type ProjectionPopulation = { runId: string; attemptId: string; records: readonly CapturedNativeRecord<unknown>[]; events: readonly UniformEvent[]; capture?: unknown };
 export function subrecordLocator(locator: string, pointer: string): string {
   if (!pointer.startsWith("/") || !(locator === "#" || locator.startsWith("#/") || /^line:[1-9][0-9]*(?:#\/.*)?$/u.test(locator))) throw new Error("Invalid native subrecord locator.");
   return locator.startsWith("line:") && !locator.includes("#") ? `${locator}#${pointer}` : `${locator}${pointer}`;
@@ -81,6 +81,10 @@ export function messageFact(role: unknown, complete: boolean | undefined, repres
 export function pointedContent(context: ProjectionContext, pointer: string, role: "tool-input" | "tool-result"): EvidenceValue<readonly ContentReference[]> {
   return known([{ nativeReference: { ...context.event.source.nativeReference,
     recordLocator: subrecordLocator(context.event.source.nativeReference.recordLocator, pointer) }, role, mediaType: "application/json" }]);
+}
+export function mergeContent(...items: Array<EvidenceValue<readonly ContentReference[]> | undefined>): EvidenceValue<readonly ContentReference[]> | undefined {
+  const values = items.flatMap((item) => item?.status === "known" ? item.value : []);
+  return values.length ? known(values) : undefined;
 }
 export function contextFact(type: NonNullable<EventFactsV2["context"]>["type"]): EventFactsV2["context"] {
   return { type, replacementBoundary: unreported };

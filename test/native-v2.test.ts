@@ -10,10 +10,11 @@ import { UNIFORM_EVENT_FAMILIES, type AdapterCapabilityProfile, type Normalizati
 const hash = (value: unknown): `sha256:${string}` => `sha256:${digestMetadata(value).value}`;
 const unknown = { status: "unknown", reason: "UNREPORTED" } as const;
 type Spec = { record: number; family: UniformEvent["family"]; phase?: UniformEvent["phase"]; id?: string; pointer?: string; role?: string; attributes?: UniformEvent["attributes"]; domain?: string };
-function fixture(harness: string, documents: unknown[], specs: Spec[]): RetainedBehaviorEvidence {
+function fixture(harness: string, documents: unknown[], specs: Spec[], owner?: { threadId: string; turnId: string }): RetainedBehaviorEvidence {
   const capture: NormalizationInput<unknown> = { runId: "run", attemptId: "attempt", qualification: "qualified-with-gaps",
     records: documents.map((record, index) => ({ record: harness === "claude-agent-sdk" ? { kind: "session", document: record } : record,
       reference: { artifactId: "native", recordLocator: `line:${index + 1}` } })) };
+  Object.assign(capture, owner);
   const nativeType = new Map(capture.records.map(({ record }, index) => [record, `native-${index}`]));
   const profile: AdapterCapabilityProfile = { schemaVersion: "ebo.adapter-capability-profile/v1", adapterId: "fixture", harness,
     nativeTypes: [...nativeType.values()], families: Object.fromEntries(UNIFORM_EVENT_FAMILIES.map((family) => [family, { status: "available" }])) as AdapterCapabilityProfile["families"],
@@ -83,14 +84,18 @@ test("Pi scopes reused IDs to the issuing message on each recorded branch", asyn
   assert.equal(dataset.operations.length, 2); assert.equal(new Set(dataset.operations.map(({ identity }) => identity.scope)).size, 2);
   assert.deepEqual(dataset.operations.map(({ failure }) => failure.status === "known" ? failure.value : null).sort(), [false, true]);
 });
-test("Codex started items remain pending and equal item IDs in different threads never join", async () => {
+test("Codex retains owned pending starts while excluding foreign starts and completions", async () => {
   const record = (sequence: number, threadId: string, method: string, item: object) => ({ sequence, kind: "notification", source: "codex-app-server", method,
     observedAt: "2026-11-07T00:00:00.000Z", payload: { threadId, turnId: "turn", item } });
   const docs = [record(1, "one", "item/started", { id: "same", type: "commandExecution", command: "false" }),
     record(2, "two", "item/started", { id: "same", type: "commandExecution", command: "true" }),
-    record(3, "one", "item/completed", { id: "same", type: "commandExecution", exitCode: 1, completedAtMs: 1794000000000 })];
-  const { dataset } = await project(fixture("codex-app-server", docs, [{ record: 2, family: "tool", phase: "after" }]));
+    record(3, "one", "item/completed", { id: "same", type: "commandExecution", exitCode: 1, completedAtMs: 1794000000000 }),
+    record(4, "two", "item/completed", { id: "same", type: "commandExecution", exitCode: 0 }),
+    record(5, "one", "item/started", { id: "pending", type: "commandExecution", command: "pwd" })];
+  const { dataset } = await project(fixture("codex-app-server", docs, [{ record: 2, family: "tool", phase: "after" }], { threadId: "one", turnId: "turn" }));
   assert.equal(dataset.operations.length, 2); assert.equal(dataset.operations.filter(({ resultEventIds }) => !resultEventIds.length).length, 1);
+  assert.ok(dataset.operations.every(({ identity }) => identity.scope === "thread:one/turn:turn"));
+  assert.equal(dataset.recordCoverage.filter(({ reference, eventIds }) => ["line:2", "line:4"].includes(reference.recordLocator) && eventIds.length === 0).length, 2);
   const completed = dataset.operations.find(({ resultEventIds }) => resultEventIds.length)!, event = dataset.events.find(({ id }) => id === completed.resultEventIds[0])!;
   assert.deepEqual(completed.failure, { status: "known", value: true }); assert.equal(event.clock.status === "known" && event.clock.value.kind, "producer-observation");
 });
@@ -215,4 +220,34 @@ test("supplemental outcome documents cannot create native operations or alter na
     record: { kind: "verifier", document: { sequence: 1, kind: "notification", method: "item/started", source: "codex-app-server",
       payload: { threadId: "foreign", turnId: "foreign", item: { id: "spoofed", type: "commandExecution" } } } } }];
   assert.equal((await project(codex)).dataset.operations.length, 0);
+});
+
+test("Claude inclusive resource totals use every model and preserve missing dimensions", async () => {
+  const evidence = fixture("claude-agent-sdk", [{ nativeType: "result", sessionId: "s", message: { type: "result", session_id: "s", total_cost_usd: 0.3,
+    usage: { input_tokens: 10, output_tokens: 5 }, modelUsage: {
+      main: { inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 2 }, child: { inputTokens: 30, outputTokens: 20 }
+    } } }], [{ record: 0, family: "runtime", phase: "after" }]);
+  const { dataset } = await project(evidence), resource = dataset.events[0]!.facts.resource!;
+  assert.equal(resource.scope, "child-inclusive");
+  assert.deepEqual(resource.values, { inputTokens: 40, outputTokens: 25, totalCostUsd: 0.3 });
+});
+test("DeepSeek pinned tool-role messages bind explicit failure and cite their output", async () => {
+  const evidence = fixture("deepseek-harness", [{ sequence: 1, payload: { sessionId: "s", event: { seq: 1, type: "tool/result",
+    data: { message: { role: "tool", toolCallId: "call", isError: true, content: [{ type: "text", text: "failed" }] } } } } }],
+    [{ record: 0, family: "tool", phase: "after" }]);
+  const { dataset, resolver } = await project(evidence), operation = dataset.operations[0]!;
+  assert.equal(operation.identity.nativeId, "call"); assert.deepEqual(operation.failure, { status: "known", value: true });
+  const event = dataset.events[0]!; assert.equal(event.content.status, "known");
+  if (event.content.status === "known") { const ref = event.content.value[0]!.nativeReference;
+    assert.equal(ref.recordLocator, "line:1#/payload/event/data/message/content");
+    assert.deepEqual(resolver.read(ref), [{ type: "text", text: "failed" }]); }
+});
+test("Pi preparation failures preserve partial model output without inventing an inference", async () => {
+  const { dataset } = await project(fixture("pi-sdk", [piRecord("session", "s"), piRecord("message", "error", {
+    role: "assistant", stopReason: "error", errorMessage: "preparation failed", content: []
+  })], [{ record: 1, family: "message", phase: "after" }]));
+  const facts = dataset.events[0]!.facts;
+  assert.deepEqual(facts.message!.completeness, { status: "known", value: "partial" });
+  assert.equal(facts.inference!.llmCallCount.status, "unknown"); assert.equal(facts.inference!.nativeRequestId.status, "unknown");
+  assert.equal(dataset.operations.filter(({ identity }) => identity.kind === "model-request").length, 0);
 });

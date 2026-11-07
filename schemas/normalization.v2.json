@@ -336,7 +336,8 @@
                     "identityClass": {
                       "enum": [
                         "native-request",
-                        "declared-single-inference"
+                        "declared-single-inference",
+                        "model-output"
                       ]
                     }
                   }

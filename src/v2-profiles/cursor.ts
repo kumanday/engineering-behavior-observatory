@@ -1,4 +1,4 @@
-import { digestValue, known, messageFact, object, pointedContent, recordedClock, resources, resultFailure, text, unreported, type NativeProjectionProfile } from "../projection-v2.js";
+import { digestValue, known, mergeContent, messageFact, object, pointedContent, recordedClock, resources, resultFailure, text, unreported, type NativeProjectionProfile } from "../projection-v2.js";
 import type { EventFactsV2 } from "../normalization-v2.js";
 export const cursorV2Profile: NativeProjectionProfile = {
   id: "ebo.cursor-native-v2", version: "2.0.0", harness: "cursor-sdk", module: "v2-profiles/cursor.js",
@@ -19,8 +19,8 @@ export const cursorV2Profile: NativeProjectionProfile = {
     const failed = message.status === "error" || result.status === "error";
     const complete = failed || message.status === "completed" || result.status === "success";
     const endpoint = complete ? "result" : message.status === "running" ? "call" : "observation";
-    const content = complete && message.result !== undefined ? pointedContent(context, "/payload/message/result", "tool-result")
-      : message.args !== undefined ? pointedContent(context, "/payload/message/args", "tool-input") : undefined;
+    const content = mergeContent(message.args !== undefined ? pointedContent(context, "/payload/message/args", "tool-input") : undefined,
+      complete && message.result !== undefined ? pointedContent(context, "/payload/message/result", "tool-result") : undefined);
     return { facts, clock, nativeOrder, ...(content ? { content } : {}), phase: complete ? "after" : endpoint === "call" ? "before" : "during",
       operation: { nativeId: text(message.call_id), scope, endpoint, canonical: true, toolName: text(message.name),
         ...(message.args === undefined ? {} : { inputDigest: digestValue(message.args) }),

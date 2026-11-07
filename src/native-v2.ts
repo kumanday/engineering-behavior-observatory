@@ -88,7 +88,7 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
     if (!existing) records.set(referenceKey(candidate.reference), candidate);
   }
   const population: ProjectionPopulation = { runId: evidence.dataset.runId, attemptId: evidence.dataset.attemptId,
-    records: [...records.values()], events: evidence.dataset.events };
+    records: [...records.values()], events: evidence.dataset.events, capture: evidence.capture };
   const rawRecords = sourceRecords.map(({ record }) => object(record));
   const context = (event: ProjectionPopulation["events"][number]) => {
     const captured = records.get(referenceKey(event.source.nativeReference));

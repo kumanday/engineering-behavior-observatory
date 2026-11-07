@@ -1,13 +1,15 @@
-import { contextFact, digestValue, known, messageFact, object, pointedContent, recordedClock, resources, resultFailure, supplementalEvent, text, unreported, type NativeProjectionProfile } from "../projection-v2.js";
+import { contextFact, digestValue, known, mergeContent, messageFact, object, pointedContent, recordedClock, resources, resultFailure, supplementalEvent, text, unreported, type NativeProjectionProfile } from "../projection-v2.js";
 import type { EventFactsV2 } from "../normalization-v2.js";
 const toolKinds = new Set(["commandExecution", "mcpToolCall", "dynamicToolCall", "webSearch"]);
 export const codexV2Profile: NativeProjectionProfile = {
   id: "ebo.codex-native-v2", version: "2.0.0", harness: "codex-app-server", module: "v2-profiles/codex.js",
   additional(population) {
+    const owned = object(population.capture);
+    if (!text(owned.threadId) || !text(owned.turnId)) return [];
     return population.records.flatMap((captured) => {
       const record = object(captured.record), payload = object(record.payload), item = object(payload.item);
       if (record.source !== "codex-app-server" || record.kind !== "notification" || record.method !== "item/started"
-          || !text(payload.threadId) || !text(payload.turnId) || !(toolKinds.has(String(item.type)) || item.type === "collabAgentToolCall")) return [];
+          || payload.threadId !== owned.threadId || payload.turnId !== owned.turnId || !(toolKinds.has(String(item.type)) || item.type === "collabAgentToolCall")) return [];
       return [supplementalEvent(population, captured, { harness: "codex-app-server", id: `codex-v2:${String(record.sequence)}:item-started`, nativeType: "item/started",
         family: item.type === "collabAgentToolCall" ? "delegation" : "tool", phase: "before", contentPointer: "/payload/item",
         nativeOrder: Number.isSafeInteger(record.sequence) ? { status: "known", value: Number(record.sequence), domain: "codex-app-server-stdio" } : unreported })];
@@ -40,8 +42,8 @@ export const codexV2Profile: NativeProjectionProfile = {
       : resultFailure(item.isError, item.exitCode);
     const inputKey = item.command !== undefined ? "command" : item.arguments !== undefined ? "arguments" : item.query !== undefined ? "query" : undefined;
     const outputKey = item.aggregatedOutput !== undefined ? "aggregatedOutput" : item.result !== undefined ? "result" : undefined;
-    const content = endpoint === "call" && inputKey ? pointedContent(context, `/payload/item/${inputKey}`, "tool-input")
-      : endpoint === "result" && outputKey ? pointedContent(context, `/payload/item/${outputKey}`, "tool-result") : undefined;
+    const content = mergeContent(inputKey ? pointedContent(context, `/payload/item/${inputKey}`, "tool-input") : undefined,
+      endpoint === "result" && outputKey ? pointedContent(context, `/payload/item/${outputKey}`, "tool-result") : undefined);
     return { facts, clock, nativeOrder, ...(content ? { content } : {}), operation: { nativeId: text(item.id), scope, endpoint, canonical: true,
       toolName: text(item.tool) ?? text(item.name) ?? (item.type === "commandExecution" ? "shell" : text(item.type)),
       ...(input === undefined ? {} : { inputDigest: digestValue(input) }), failure: endpoint === "result" ? failure : unreported } };
