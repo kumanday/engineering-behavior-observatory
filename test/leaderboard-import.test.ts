@@ -162,3 +162,21 @@ test('metadata key ordering preserves reusable semantic receipts while retaining
   const a=readLeaderboardCohort(f.store,first.cohortId).manifest,b=readLeaderboardCohort(f.store,refreshed.cohortId).manifest;assert.equal(a.selectionDigest,b.selectionDigest);assert.notEqual(a.sourceSnapshotDigest,b.sourceSnapshotDigest);assert.equal(a.members[0]!.importManifestDigest,b.members[0]!.importManifestDigest);
  }finally{f.cleanup();}
 });
+
+test('protected canonical and route aliases reach blinded judges and revise only the derived capture context',{skip:!python},async()=>{
+ const f=fixture();try{
+  const model='zai-org/GLM-5.3-Flash',route=model+':synthetic-provider';
+  const result=JSON.parse(readFileSync(join(f.trial,'result.json'),'utf8'));result.config.agent.model_name='openai/'+model;result.agent_info.model_info.name='openai/'+model;write(join(f.trial,'result.json'),result);write(join(f.trial,'config.json'),result.config);
+  f.trajectory.steps.at(-1).message=`${model} ${route} visible report`;write(join(f.trial,'agent/trajectory.json'),f.trajectory);
+  const artifact=f.acquisition.artifacts.find(({remotePath})=>remotePath.endsWith('/run.json'))!,run=JSON.parse(readFileSync(join(f.snapshot,artifact.localPath),'utf8'));
+  const update=()=>{const bytes=Buffer.from(JSON.stringify(run));writeFileSync(join(f.snapshot,artifact.localPath),bytes);artifact.bytes=bytes.length;artifact.sha256=rawHash(bytes).slice(7);write(join(f.snapshot,'acquisition.json'),f.acquisition);};run.route={model:route};update();
+  const imported=await importLeaderboardCohort(f.request,f.store,python);assert.equal(imported.status,'imported');if(imported.status!=='imported')return;
+  const first=readLeaderboardCohort(f.store,imported.cohortId),member=first.manifest.members[0]!,bundle=join(first.root,member.corpusPath);
+  const {readImportedBehaviorEvidence}=await import('../src/atif-import.js'),{createRetainedStructuralObservationSet}=await import('../src/structural-observations.js'),{runAgentSdkSemanticJudge}=await import('../src/semantic-judge.js'),{probeClaudeAgentSdkCapabilities}=await import('../src/agent-sdk.js');
+  const evidence=await readImportedBehaviorEvidence(bundle),observations=await createRetainedStructuralObservationSet(bundle);assert.ok(evidence.modelAliases!.includes(model));assert.ok(evidence.modelAliases!.includes(route));
+  const event=evidence.dataset.events.findLast(({family,actor})=>family==='message'&&actor.kind==='model')!;let called=false;
+  await runAgentSdkSemanticJudge({bundleRoot:bundle,outputRoot:join(f.root,'judge'),observations,request:{schemaVersion:'ebo.semantic-judge-request/v1',id:'protected-model-alias',behavior:{vocabularyVersion:'1.0.0',categoryId:'verification-completion',dimensionId:'verification-completion'},rubric:{id:'r',version:'1',instructions:'Synthetic blinding check'},evaluator:{provider:'anthropic',model:'synthetic-judge',effort:'low'},selection:{eventIds:[event.id],structuralObservationIds:[],includeOutcomeObservations:false},limits:{maxEvidenceItems:8,maxRecordChars:8000,maxInputChars:32000,maxOutputChars:8192,maxCitations:4,maxWallClockMs:5000,maxTurns:1},blinding:{evaluatedModelIdentity:'redact'}},backend:{id:'claude-agent-sdk',version:probeClaudeAgentSdkCapabilities().sdkVersion,run:async(prompt)=>{called=true;assert.equal(prompt.includes(model),false);assert.match(prompt,/visible report/u);return{status:'failed',kind:'provider',message:'Synthetic backend; no model call',raw:{}};}}});assert.equal(called,true);
+  run.route.model=model+':updated-provider';update();const refreshed=await importLeaderboardCohort(f.request,f.store,python);assert.equal(refreshed.status,'imported');if(refreshed.status!=='imported')return;
+  const next=readLeaderboardCohort(f.store,refreshed.cohortId).manifest.members[0]!;assert.equal(next.executionId,member.executionId);assert.notEqual(next.captureRevision,member.captureRevision);assert.equal(readLeaderboardCohort(f.store,imported.cohortId).manifest.members[0]!.captureRevision,member.captureRevision);
+ }finally{f.cleanup();}
+});

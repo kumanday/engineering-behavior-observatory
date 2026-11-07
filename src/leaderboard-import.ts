@@ -90,6 +90,10 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
           || fact.reward !== (assessment?.rewards?.reward ?? null) || fact.exception !== assessment?.exceptionType)) {
       cases.push({ factId: binding.factId, status: "inspect-only", reason: "SOURCE_FACT_OR_PRODUCER_CONTEXT_UNRESOLVED", sourceSnapshotDigest: inspected.inspection.snapshotDigest }); continue;
     }
+    const aliases = protectedModelAliases(source.input as LeaderboardPolicyInput, selection, [binding.factId]);
+    if (aliases === undefined || new Set([...inspected.inspection.execution!.modelAliases, ...aliases]).size > 256) {
+      cases.push({factId:binding.factId,status:"inspect-only",reason:"MODEL_ALIAS_CONTEXT_UNRESOLVED",sourceSnapshotDigest:inspected.inspection.snapshotDigest}); continue;
+    }
     // Admission reads the exact immutable bytes covered by the scan, including every bound original.
     const originalSnapshots = new Map<string, string>();
     for (const retained of [...inspected.lineage, inspected]) for (const original of retained.inspection.originalBindings) {
@@ -97,7 +101,7 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
       if (originalSnapshots.has(original.sourceReference) && originalSnapshots.get(original.sourceReference) !== directory) throw new Error("Original source binding is ambiguous.");
       originalSnapshots.set(original.sourceReference, directory);
     }
-    const imported = await importHarborTrial({ directory: join(store, "native-sources", inspected.inspection.snapshotDigest.slice(7)), store: join(store, "harbor"), namespace: "huggingface-bucket:joelniklaus/harness-leaderboard", producer: profile.producer, originals: [...originalSnapshots].map(([sourceReference, directory]) => ({ sourceReference, directory })), pythonExecutable });
+    const imported = await importHarborTrial({ directory: join(store, "native-sources", inspected.inspection.snapshotDigest.slice(7)), store: join(store, "harbor"), namespace: "huggingface-bucket:joelniklaus/harness-leaderboard", producer: profile.producer, additionalModelAliases: aliases, originals: [...originalSnapshots].map(([sourceReference, directory]) => ({ sourceReference, directory })), pythonExecutable });
     if (imported.status !== "imported") { cases.push({ factId: binding.factId, status: "inspect-only", reason: "HARBOR_ADMISSION_UNAVAILABLE" }); continue; }
     readHarborCapture(join(store, "harbor"), imported.binding.captureRevision, imported.inspection.snapshotDigest, imported.inspectionDigest);
     const executionId = imported.binding.execution.id;
@@ -204,11 +208,30 @@ export function readLeaderboardCohort(store: string, id: Hash) {
       if (context.assessment.id !== assessment.assessmentId || context.inspection.trialId !== assessment.factId.toLowerCase()) throw new Error("Cohort assessment membership is stale.");
     }
     const admission = readAtifImportAdmission(join(root, member.corpusPath));
+    const requiredAliases = protectedModelAliases(policyInput, policy, member.factIds);
+    if (requiredAliases === undefined || requiredAliases.some((alias) => !admission.manifest.blinding?.modelAliases.includes(alias))) throw new Error("Cohort protected model blinding context is stale.");
     if (metadataHash(admission.manifest) !== member.importManifestDigest || retained.binding.importManifestDigest !== member.importManifestDigest
         || retained.inspection.execution!.id !== member.executionId || retained.inspection.assessment!.id !== member.assessmentId) throw new Error("Cohort capture membership is stale.");
   }
   if (manifest.cases.some((item) => item.status === "imported" && !importedFacts.has(item.factId))) throw new Error("Cohort imported case has no execution.");
   return { manifest, root };
+}
+
+function protectedModelAliases(input: LeaderboardPolicyInput, policy: LeaderboardPolicyReceipt, factIds: readonly string[]): string[] | undefined {
+  const ids = new Set(factIds), models = new Set(policy.rows.filter((row) => ids.has(row.id)).map((row) => row.group[0])), aliases = new Set<string>();
+  const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  for (const row of policy.rows) if (models.has(row.group[0])) {
+    const fact = input.facts[row.sourceIndex]!;
+    for (const id of [fact.run_id, fact.reused_from]) {
+      if (typeof id !== "string" || !Object.hasOwn(input.runs, id)) continue;
+      const run = object(input.runs[id]);
+      for (const value of [run.model, object(run.route).model]) if (typeof value === "string" && value.trim()) {
+        if (value.length > 1024) return undefined; aliases.add(value);
+        if (aliases.size > 256) return undefined;
+      }
+    }
+  }
+  return [...aliases].sort();
 }
 
 function verifyNativeScan(store: string, retained: ReturnType<typeof readHarborCapture>, scanDigest: Hash, scannerDigest: Hash) {

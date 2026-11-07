@@ -106,7 +106,9 @@ ebo atif read-leaderboard ./.ebo/leaderboard-store sha256:COHORT_DIGEST
 
 Native bindings are limited to 64 explicitly selected trials per request. The
 trial UUID, task, harness/version, reward and exception must agree with the
-protected source fact. Unresolved context and rejected ATIF admissions stay inspect-only per trial; remaining valid selections continue. Two selected
+protected source fact. Protected selected run records and their original-run records supply canonical and route-qualified model aliases. They are bound into capture blinding metadata alongside Harbor/ATIF aliases. Additional blinding context creates a new derived capture revision of the same execution; existing capture bytes remain intact.
+
+Unresolved context and rejected ATIF admissions stay inspect-only per trial; remaining valid selections continue. Two selected
 capture revisions of one execution require an explicit choice rather than two
 attempt slots.
 

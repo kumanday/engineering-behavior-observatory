@@ -108,3 +108,5 @@ capture’s operator-declared blinding metadata and unioned with ATIF aliases on
 retained readback. Regrading preserves the capture manifest and its blinding input.
 
 Expected ATIF structure or producer-projection rejection retains the partial admission and returns inspect-only. Store and I/O failures propagate as errors. A cohort can exclude the rejected source while continuing with valid selected trials.
+
+The library can bind additional operator-declared model aliases from protected source context. That context participates in derived capture-revision identity. Readback verifies the alias union against the admission manifest and execution; an updated alias inventory preserves the existing revision and creates another projection of the same execution.
