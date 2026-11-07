@@ -414,3 +414,48 @@ test("coerced copied flags and ordinal fields are rejected before a Pi behavior 
   const source = fixture(); steps(source)[1]!.step_id = "2";
   await assert.rejects(project(source), /canonical flag and ordinal/u);
 });
+
+test("imported occurrence ratings preserve unknown repair history and never infer absent follow-ups", async () => {
+  const source = fixture(), first = structuredClone(steps(source)[1]!);
+  const call = structuredClone((first.tool_calls as AtifObject[])[0]!);
+  call.function_name = "bash"; call.arguments = { command: "npm test" }; first.tool_calls = [call];
+  const result = structuredClone(((first.observation as AtifObject).results as AtifObject[])[0]!);
+  result.extra = { is_error: true }; first.observation = { results: [result] };
+  const edit = structuredClone(first); edit.step_id = 3;
+  edit.tool_calls = [{ ...call, tool_call_id: "edit-1", function_name: "edit", arguments: { path: "src/test.ts", content: "repair" } }];
+  edit.observation = { results: [{ ...result, source_call_id: "edit-1", extra: { is_error: false } }] };
+  const retry = structuredClone(first); retry.step_id = 4;
+  retry.tool_calls = [{ ...call, tool_call_id: "retry-1" }];
+  retry.observation = { results: [{ ...result, source_call_id: "retry-1", extra: { is_error: false } }] };
+  source.steps = [steps(source)[0]!, first, edit, retry];
+  const evidence = await project(source), observations = createStructuralObservationSet(evidence.dataset, evidence.coverage, evidence.outcomeCapture);
+  assert.ok(observations.occurrenceCoverage!.every(({ status }) => status === "unavailable"));
+  const response = observations.occurrences!.find(({ type }) => type === "failure-response")!;
+  assert.ok(response);
+  const request = occurrenceRequest(response, observations.occurrences!, new Map(evidence.dataset.events.map((event) => [event.id, event])), nativeContentResolver(evidence.outcomeCapture));
+  assert.equal((request.state!.facts as AtifObject).sourceChangesBetween, "unknown");
+  assert.deepEqual(request.rules, []); assert.equal((request.state!.sourceEvidence as AtifObject).completeness, "unproven");
+  source.steps = [steps(source)[0]!, first];
+  const partial = await project(source), partialObs = createStructuralObservationSet(partial.dataset, partial.coverage, partial.outcomeCapture);
+  assert.equal(partialObs.occurrences!.some(({ type }) => type === "failure-response"), false);
+});
+
+test("parent and child may share declared IDs without sharing a document-local operation scope", async () => {
+  const source = fixture(), child = fixture(); source.trajectory_id = "local-1"; child.trajectory_id = "local-1";
+  ((steps(source)[1]!.observation as AtifObject).results as AtifObject[])[0]!.subagent_trajectory_ref = [{ trajectory_id: child.trajectory_id }];
+  source.subagent_trajectories = [child];
+  const evidence = await project(source);
+  assert.equal(new Set(toolOperations(evidence.dataset.events).map(({ scope }) => scope)).size, 2);
+  assert.ok(evidence.dataset.events.every(({ attributes }) => attributes.agentId === source.trajectory_id));
+});
+
+test("malformed empty native operation identities stay retained without invalid mapping signatures", async () => {
+  for (const field of ["function_name", "tool_call_id"]) {
+    const source = fixture(); (steps(source)[1]!.tool_calls as AtifObject[])[0]![field] = "";
+    const evidence = await project(source);
+    assert.ok(evidence.mapping.limitations.includes("MALFORMED_OPERATION_IDENTITY"));
+    assert.deepEqual(validateArtifact("mapping", evidence.mapping), []);
+    assert.equal(evidence.mapping.signatures.length, 1);
+    assert.ok(evidence.dataset.unmapped.some(({ reference }) => reference.recordLocator === "#/steps/1/tool_calls/0"));
+  }
+});

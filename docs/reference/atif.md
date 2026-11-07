@@ -120,3 +120,10 @@ Usage from a step with an untracked or aggregated inference count stays
 unavailable unless its component completeness is established. Positive merged
 usage cannot hide a zero-filled component. Independent fixture gates record
 these cases as named source-information losses.
+
+Imported occurrence coverage stays unavailable for complete-attempt populations.
+Positive local occurrences remain available for cited evaluation; missing
+follow-ups do not produce automatic no-response ratings. Rating inputs mark
+source changes between calls as unknown and state their completeness limits.
+Document-local operation scopes keep repeated child identifiers distinct. The
+importer validates its generated mapping before publishing admission.

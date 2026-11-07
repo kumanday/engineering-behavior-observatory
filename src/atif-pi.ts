@@ -1,4 +1,4 @@
-import { digestMetadata } from "./artifacts.js";
+import { digestMetadata, validateArtifact } from "./artifacts.js";
 import type { AtifObject, AtifReadResult } from "./atif-reader.js";
 import { selectAtifProducerProfile, type AtifProducerFingerprint } from "./atif-profiles.js";
 import { createPointerEvidenceResolver, readEvidencePointer } from "./evidence-pointers.js";
@@ -128,7 +128,7 @@ export async function normalizePiAtif(input: {
       if (duplicates.size) { gap = true; limitations.add("DUPLICATE_OPERATION_ID"); }
       for (const [position, call] of calls.entries()) {
         const id = call.tool_call_id, name = call.function_name;
-        if (typeof id !== "string" || typeof name !== "string" || duplicates.has(id)) { gap = true; continue; }
+        if (typeof id !== "string" || !id.trim() || typeof name !== "string" || !name.trim() || duplicates.has(id)) { gap = true; limitations.add("MALFORMED_OPERATION_IDENTITY"); continue; }
         const scoped = `${pointer}:${id}`, callPointer = `${stepPointer}/tool_calls/${position}`;
         const results = resultsById.get(id) ?? [];
         const statuses = results.map(({ result }) => object(result.extra).is_error);
@@ -217,6 +217,8 @@ export async function normalizePiAtif(input: {
   } else limitations.add("PRODUCER_PROFILE_UNREGISTERED");
   mapping.measures["model-request-count"] = missing("NATIVE_REQUEST_IDENTITIES_UNAVAILABLE");
   mapping.limitations = [...limitations].sort();
+  const mappingErrors = validateArtifact("Pi ATIF mapping", mapping);
+  if (mappingErrors.length) throw new Error(`Invalid generated Pi mapping: ${mappingErrors[0]!.message}`);
   capture.sourceLimitations = mapping.limitations;
   const capabilities: AdapterCapabilityProfile = { schemaVersion: "ebo.adapter-capability-profile/v1", adapterId: "atif-pi-import", harness,
     nativeTypes: ["atif:trajectory", "atif:step", "atif:call", "atif:result"],
