@@ -22,6 +22,10 @@ identity, endpoint membership and disagreement handling. Calls, completed
 results and partial observations have separate event lists. Pending operations
 keep unknown failure. Conflicting explicit source observations also keep
 failure unknown.
+Each result carries its own failure fact, so a follow-up extractor can cite the
+endpoint that records failure. A record-local identity retains unknown logical
+scope. Resource facts identify their population independently of the numeric
+value; a missing population identifier stays unknown.
 
 | Source | Operation and evidence boundary |
 | --- | --- |

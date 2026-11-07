@@ -38,6 +38,8 @@ export type Operation = {
   schemaVersion: "ebo.operation/v1";
   id: string;
   identity: OperationIdentity;
+  /** Established logical namespace; unknown when the identity tuple only isolates an unmatched record. */
+  scope: EvidenceValue<string>;
   callEventIds: string[];
   resultEventIds: string[];
   /** Partial updates retain their association without becoming call or completed-result endpoints. */
@@ -50,6 +52,7 @@ export type Operation = {
   endOrder: NativeOrderEvidence;
 };
 export type EventFactsV2 = {
+  operation?: { endpoint: "call" | "result" | "observation"; failure: EvidenceValue<boolean> };
   message?: { role: EvidenceValue<"user" | "assistant" | "system" | "tool">; completeness: EvidenceValue<"complete" | "partial">;
     representation: "canonical" | "duplicate" | "fragment" | "unknown";
     identity: EvidenceValue<{ id: string; scope: string; identityClass: OperationIdentity["identityClass"] }> };
@@ -57,7 +60,8 @@ export type EventFactsV2 = {
     replacementBoundary: EvidenceValue<{ previousEventId: string; nextEventId: string }> };
   inference?: { llmCallCount: EvidenceValue<number>; nativeRequestId: EvidenceValue<string> };
   resource?: { scope: "attempt" | "session" | "step" | "operation" | "child-inclusive"; authority: "native" | "converter" | "estimated";
-    semantics: "increment" | "cumulative-snapshot" | "cumulative-final" | "unknown"; values: Record<string, number> };
+    semantics: "increment" | "cumulative-snapshot" | "cumulative-final" | "unknown"; values: Record<string, number>;
+    populationId: EvidenceValue<string> };
 };
 export type UniformEventV2 = Omit<UniformEvent, "schemaVersion" | "source" | "nativeTime" | "attributes"> & {
   schemaVersion: "ebo.uniform-event/v2";
@@ -206,6 +210,7 @@ export async function validateNormalizedDatasetV2(dataset: NormalizedDatasetV2, 
   for (const event of dataset.events) {
     if (event.runId !== dataset.runId || event.attemptId !== dataset.attemptId || !sources.has(event.source.sourceId)) throw new Error("V2 event source or attempt identity is unresolved.");
     if (event.facts.message && event.family !== "message" || event.facts.context && event.family !== "context") throw new Error("V2 typed facts disagree with the event family.");
+    if (event.facts.operation && !["tool", "model-request", "delegation"].includes(event.family)) throw new Error("V2 endpoint facts disagree with the event family.");
     if (!mappedEvents.has(event.id)) throw new Error("V2 event is absent from its native record mapping.");
     await resolveReference(event.source.nativeReference);
     if (event.clock.status === "known") await resolveReference(event.clock.value.source);
@@ -224,6 +229,7 @@ export async function validateNormalizedDatasetV2(dataset: NormalizedDatasetV2, 
   for (const operation of dataset.operations) {
     const identity = operation.identity;
     if (operation.id !== operationId(identity) || identity.runId !== dataset.runId || identity.attemptId !== dataset.attemptId || !sources.has(identity.sourceId)) throw new Error("V2 operation identity is stale or cross-attempt.");
+    if (operation.scope.status === "known" && operation.scope.value !== identity.scope) throw new Error("V2 logical operation scope differs from its identity namespace.");
     if (operation.failure.status === "known" && operation.resultEventIds.length === 0) throw new Error("A pending v2 operation has no known failure result.");
     const observations = operation.observationEventIds ?? [];
     const observationSet = new Set(observations);
@@ -241,6 +247,8 @@ export async function validateNormalizedDatasetV2(dataset: NormalizedDatasetV2, 
       if (!event || calls.has(id) && event.phase === "after" || results.has(id) && event.phase === "before"
           || observationSet.has(id) && (event.phase === "before" || event.phase === "after")
           || event.scope.kind !== "operation" || event.scope.id !== operation.id || event.source.sourceId !== identity.sourceId || event.family !== identity.kind) throw new Error("V2 operation endpoint does not belong to its explicit scope.");
+      if (event.facts.operation && event.facts.operation.endpoint !== (calls.has(id) ? "call" : results.has(id) ? "result" : "observation")) throw new Error("V2 endpoint facts differ from operation membership.");
+      if (event.facts.operation?.failure.status === "known" && !results.has(id)) throw new Error("V2 failure evidence requires a completed result endpoint.");
     }
   }
   for (const event of dataset.events) if (event.scope.kind === "operation") {

@@ -13,8 +13,9 @@ export const factoryV2Profile: NativeProjectionProfile = {
     const usage = object(notification.tokenUsage);
     const values = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheReadInputTokens: usage.cacheReadTokens,
       cacheCreationInputTokens: usage.cacheCreationTokens, reasoningTokens: usage.thinkingTokens, factoryCredits: usage.factoryCredits };
-    if (type === "agent_turn_completed" && event.family === "runtime") facts.resource = resources(values, "child-inclusive", "cumulative-final");
-    if (type === "session_token_usage_changed") facts.resource = resources(values, "session", "cumulative-snapshot");
+    if (type === "agent_turn_completed" && event.family === "runtime") facts.resource = resources(values, "child-inclusive", "cumulative-final",
+      session && text(notification.turnId) ? known(`${scope}/turn:${text(notification.turnId)!}`) : unreported);
+    if (type === "session_token_usage_changed") facts.resource = resources(values, "session", "cumulative-snapshot", session ? known(scope) : unreported);
     const clock = recordedClock(context, record.observedAt, "receipt", "ebo-factory-recorder");
     if (event.family !== "tool" && event.family !== "delegation") return { facts, clock };
     const tool = object(notification.toolUse), call = type === "tool_call";

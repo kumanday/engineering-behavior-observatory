@@ -19,7 +19,7 @@ export const devinV2Profile: NativeProjectionProfile = {
         const dimension = object(value), kind = object(dimension.kind), name = names[String(dimension.uid)];
         if (name && kind.type === "cumulativeMetric") values[name] = kind.value;
       }
-      facts.resource = resources(values, "attempt", "cumulative-final");
+      facts.resource = resources(values, "attempt", "cumulative-final", { status: "known", value: event.attemptId });
     }
     const clock = recordedClock(context, record.observedAt, "receipt", "ebo-devin-recorder");
     if (event.family !== "tool") return { facts, clock,

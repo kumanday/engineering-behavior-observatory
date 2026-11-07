@@ -1,9 +1,9 @@
-import { contextFact, digestValue, known, messageFact, object, pointedContent, recordedClock, resources, resultFailure, text, unreported,
+import { contextFact, digestValue, known, messageFact, object, pointedContent, recordedClock, resources, resultFailure, subrecordLocator, text, unreported,
   type NativeProjectionProfile, type ProjectionContext, type OperationContribution } from "../projection-v2.js";
 import type { EventFactsV2 } from "../normalization-v2.js";
 import type { UniformEvent } from "../uniform-events.js";
 
-type PiIndex = { byId: Map<string, Record<string, unknown>>; issuers: Map<string, string[]>; messages: Map<string, string[]>; sessionId?: string };
+type PiIndex = { byId: Map<string, Record<string, unknown>>; issuers: Map<string, string[]>; messages: Map<string, string[]>; hasFork: boolean; sessionId?: string };
 const indexes = new WeakMap<readonly Record<string, unknown>[], PiIndex>();
 function messageKey(message: Record<string, unknown>): string | undefined {
   if (text(message.responseId)) return JSON.stringify([message.role, "response", message.responseId]);
@@ -11,9 +11,14 @@ function messageKey(message: Record<string, unknown>): string | undefined {
 }
 function index(records: readonly Record<string, unknown>[]): PiIndex {
   let value = indexes.get(records); if (value) return value;
-  value = { byId: new Map(), issuers: new Map(), messages: new Map(), sessionId: records.flatMap((record) => record.type === "session" ? text(record.id) ?? [] : text(record.sessionId) ?? []).at(0) };
+  value = { byId: new Map(), issuers: new Map(), messages: new Map(), hasFork: false, sessionId: records.flatMap((record) => record.type === "session" ? text(record.id) ?? [] : text(record.sessionId) ?? []).at(0) };
+  const children = new Map<string, Set<string>>();
   for (const record of records) {
     const id = text(record.id); if (id) value.byId.set(id, record);
+    const parent = text(record.parentId) ?? "root";
+    if (id && record.type !== "session" && record.schemaVersion !== "ebo.pi-native-record/v1") {
+      const ids = children.get(parent) ?? new Set<string>(); ids.add(id); children.set(parent, ids); if (ids.size > 1) value.hasFork = true;
+    }
     const message = object(record.message);
     const key = messageKey(message);
     if (record.type === "message" && id && key) value.messages.set(key, [...value.messages.get(key) ?? [], id]);
@@ -38,7 +43,7 @@ function expand(context: ProjectionContext): UniformEvent[] {
   if (event.family !== "message" || record.type !== "message") return [];
   const make = (suffix: string, phase: UniformEvent["phase"], pointer: string): UniformEvent => ({ ...structuredClone(event), id: `${event.id}:${suffix}`,
     family: "tool", phase, content: { status: "known", value: [{ nativeReference: { ...event.source.nativeReference,
-      recordLocator: `${event.source.nativeReference.recordLocator}#${pointer}` }, role: phase === "before" ? "tool-input" : "tool-result" }] } });
+      recordLocator: subrecordLocator(event.source.nativeReference.recordLocator, pointer) }, role: phase === "before" ? "tool-input" : "tool-result" }] } });
   if (message.role === "assistant" && Array.isArray(message.content)) return message.content.flatMap((block, position) => object(block).type === "toolCall"
     ? [make(`tool:${position}`, "before", `/message/content/${position}`)] : []);
   return message.role === "toolResult" ? [make("tool-result", "after", "/message")] : [];
@@ -72,6 +77,7 @@ export const piV2Profile: NativeProjectionProfile = {
       const input = Object.hasOwn(block, "arguments") ? block.arguments : payload.args;
       const ambiguous = callId !== undefined && (lookup.issuers.get(callId)?.length ?? 0) > 1;
       operation = { nativeId: callId, scope: issuingId ? `${scope}/issuing-message:${issuingId}` : ambiguous ? `${scope}/unresolved:${event.id}` : `${scope}/${envelope ? "stream" : "unmatched-history"}`,
+        ...(ambiguous && !issuingId ? { scopeStatus: "record-local" as const } : {}),
         endpoint, canonical: !envelope, toolName: text(block.name) ?? text(message.toolName) ?? text(payload.toolName),
         ...(input === undefined ? {} : { inputDigest: digestValue(input) }),
         failure: endpoint === "result" ? resultFailure(envelope ? payload.isError : message.isError) : unreported,
@@ -86,7 +92,8 @@ export const piV2Profile: NativeProjectionProfile = {
     if (event.family === "runtime" && event.id.includes("usage-")) {
       const usage = object(message.usage ?? record.usage);
       facts.resource = resources({ inputTokens: usage.input, outputTokens: usage.output, cacheReadInputTokens: usage.cacheRead,
-        cacheCreationInputTokens: usage.cacheWrite, totalTokens: usage.totalTokens, totalCostUsd: object(usage.cost).total }, "step", "increment");
+        cacheCreationInputTokens: usage.cacheWrite, totalTokens: usage.totalTokens, totalCostUsd: object(usage.cost).total }, "step", "increment",
+        text(record.id) ? known(`${scope}/message:${text(record.id)!}`) : unreported);
     }
     const origin = envelope ? message.timestamp : record.timestamp ?? message.timestamp;
     const clock = origin !== undefined ? recordedClock(context, origin, "producer-observation", `${scope}/pi-native`)
@@ -97,6 +104,7 @@ export const piV2Profile: NativeProjectionProfile = {
         : operation?.endpoint === "result" && payload.result !== undefined ? pointedContent(context, "/payload/result", "tool-result") : undefined
       : position !== undefined && Array.isArray(message.content) && object(message.content[Number(position)]).arguments !== undefined ? pointedContent(context, `/message/content/${position}/arguments`, "tool-input")
         : message.role === "toolResult" && message.content !== undefined ? pointedContent(context, "/message/content", "tool-result") : undefined;
-    return { facts, clock, ...(operation ? { operation } : {}), ...(content ? { content } : {}) };
+    return { facts, clock, ...(operation ? { operation } : {}), ...(content ? { content } : {}),
+      ...(!envelope && lookup.hasFork ? { nativeOrder: { status: "unknown" as const, reason: "PERSISTED_BRANCH_TREE_HAS_NO_SINGLE_LINEAR_ORDER" } } : {}) };
   },
 };

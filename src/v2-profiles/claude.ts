@@ -50,17 +50,18 @@ export const claudeV2Profile: NativeProjectionProfile = {
     if (event.family === "runtime" && event.attributes.resourceSemantics === "increment") {
       const usage = object(inner.usage);
       facts.resource = resources({ inputTokens: usage.input_tokens, cacheReadInputTokens: usage.cache_read_input_tokens,
-        cacheCreationInputTokens: usage.cache_creation_input_tokens }, "step", "increment");
+        cacheCreationInputTokens: usage.cache_creation_input_tokens }, "step", "increment",
+        text(inner.id) ? known(`${scope}/message:${text(inner.id)!}`) : unreported);
     } else if (event.family === "runtime" && type === "result") {
       const usage = object(message.usage);
       facts.resource = resources({ inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
         cacheReadInputTokens: usage.cache_read_input_tokens, cacheCreationInputTokens: usage.cache_creation_input_tokens,
-        totalCostUsd: message.total_cost_usd }, "child-inclusive", "cumulative-final");
+        totalCostUsd: message.total_cost_usd }, "child-inclusive", "cumulative-final", known(`${scope}/attempt:${event.attemptId}`));
     }
     const clock = hook ? recordedClock(context, record.callbackAt, "producer-observation", "claude-hook-callback")
       : message.timestamp !== undefined ? recordedClock(context, message.timestamp, "producer-observation", "claude-native")
       : recordedClock(context, record.capturedAt, "receipt", "ebo-claude-recorder");
-    if (hook === "PostToolBatch") return { facts, clock, family: "runtime" };
+    if (hook === "PostToolBatch" || type === "tool_use_summary") return { facts, clock, family: "runtime" };
     if (!["tool", "model-request", "delegation"].includes(event.family)) {
       const nativeId = text(payload.tool_use_id) ?? text(record.toolUseId), scopes = nativeId ? index(context).get(nativeId) : undefined;
       return { facts, clock, ...(event.family === "permission" && nativeId && scopes?.size === 1
@@ -89,6 +90,7 @@ export const claudeV2Profile: NativeProjectionProfile = {
       if (base && suffix) content = known([{ ...base, nativeReference: { ...base.nativeReference, recordLocator: `${base.nativeReference.recordLocator}${suffix}` } }]);
     }
     return { facts, clock, ...(content ? { content } : {}), operation: { nativeId, scope, endpoint, canonical: !hook,
+      ...(hook && toolId && (index(context).get(toolId)?.size ?? 0) > 1 ? { scopeStatus: "record-local" as const } : {}),
       toolName: text(block.name) ?? text(payload.tool_name), ...(input === undefined ? {} : { inputDigest: digestValue(input) }),
       failure: endpoint !== "result" ? unreported : hook === "PostToolUseFailure" ? known(true) : hook === "PostToolUse" ? known(false) : resultFailure(block.is_error),
       issuingInference: issuing ? known({ id: issuing, scope, identityClass: "declared-single-inference" }) : unreported } };

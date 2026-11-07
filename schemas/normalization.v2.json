@@ -79,7 +79,8 @@
         "failure",
         "issuingInference",
         "startOrder",
-        "endOrder"
+        "endOrder",
+        "scope"
       ],
       "properties": {
         "schemaVersion": {
@@ -477,6 +478,51 @@
             "maxLength": 4096,
             "pattern": ".*\\S.*"
           }
+        },
+        "scope": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "value"
+              ],
+              "properties": {
+                "status": {
+                  "const": "known"
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": ".*\\S.*"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "reason"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "unknown",
+                    "unsupported"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": ".*\\S.*"
+                }
+              }
+            }
+          ]
         }
       }
     },
@@ -1105,7 +1151,8 @@
                 "scope",
                 "authority",
                 "semantics",
-                "values"
+                "values",
+                "populationId"
               ],
               "properties": {
                 "scope": {
@@ -1139,6 +1186,110 @@
                     "type": "number",
                     "minimum": 0
                   }
+                },
+                "populationId": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "status",
+                        "value"
+                      ],
+                      "properties": {
+                        "status": {
+                          "const": "known"
+                        },
+                        "value": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "pattern": ".*\\S.*"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "status",
+                        "reason"
+                      ],
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "unknown",
+                            "unsupported"
+                          ]
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "pattern": ".*\\S.*"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "operation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "endpoint",
+                "failure"
+              ],
+              "properties": {
+                "endpoint": {
+                  "enum": [
+                    "call",
+                    "result",
+                    "observation"
+                  ]
+                },
+                "failure": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "status",
+                        "value"
+                      ],
+                      "properties": {
+                        "status": {
+                          "const": "known"
+                        },
+                        "value": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "status",
+                        "reason"
+                      ],
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "unknown",
+                            "unsupported"
+                          ]
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "pattern": ".*\\S.*"
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }

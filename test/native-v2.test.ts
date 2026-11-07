@@ -167,3 +167,39 @@ test("v2 origin and source gates reject imported evidence and unsupported produc
   const imported = fixture("pi-sdk", [], []); imported.capture = { ...imported.capture, qualification: "imported" };
   await assert.rejects(project(imported), /owned qualified/u);
 });
+test("Claude JSON hook documents resolve canonical tool pointers from the document root", async () => {
+  const evidence = fixture("claude-agent-sdk", [{ hook: "PreToolUse", nativePayload: { session_id: "session", tool_use_id: "call", tool_name: "Read", tool_input: { path: "source.ts" } } }],
+    [{ record: 0, family: "tool", phase: "before" }]);
+  evidence.capture.records[0]!.reference.recordLocator = "#";
+  evidence.dataset.nativeRecords[0]!.reference.recordLocator = "#";
+  evidence.dataset.events[0]!.source.nativeReference.recordLocator = "#";
+  evidence.resolver = createAgentSdkNativeEvidenceResolver(evidence.capture as NormalizationInput<AgentSdkNativeRecord>);
+  const projected = await project(evidence), reference = projected.dataset.events[0]!.content;
+  assert.equal(reference.status, "known");
+  if (reference.status === "known") {
+    assert.equal(reference.value[0]!.nativeReference.recordLocator, "#/nativePayload/tool_input");
+    assert.deepEqual(await projected.resolver.resolve(reference.value[0]!.nativeReference), { runId: "run", attemptId: "attempt", digest: hash({ path: "source.ts" }) });
+  }
+});
+test("Claude tool summaries retain aggregate evidence without creating an extra operation", async () => {
+  const { dataset } = await project(fixture("claude-agent-sdk", [{ nativeType: "tool_use_summary", message: { type: "tool_use_summary", summary: "Two tools completed.", preceding_tool_use_ids: ["one", "two"] } }],
+    [{ record: 0, family: "tool", phase: "after" }]));
+  assert.equal(dataset.operations.length, 0); assert.equal(dataset.events[0]!.family, "runtime");
+});
+test("DeepSeek marks interrupted assistant output partial and retains explicit child completion status", async () => {
+  const docs = [{ sequence: 1, kind: "notification", method: "session.event", payload: { sessionId: "root", event: { type: "assistant/message", seq: 1, data: { interrupted: true, message: { id: "message", content: [{ type: "text", text: "delivered prefix" }] } } } } },
+    { sequence: 2, kind: "notification", method: "subagent.started", payload: { parentSessionId: "root", childSessionId: "child" } },
+    { sequence: 3, kind: "notification", method: "subagent.finished", payload: { parentSessionId: "root", childSessionId: "child", status: "error" } }];
+  const { dataset } = await project(fixture("deepseek-harness", docs, [{ record: 0, family: "message" }, { record: 1, family: "delegation" }, { record: 2, family: "delegation" }]));
+  assert.deepEqual(dataset.events[0]!.facts.message!.completeness, { status: "known", value: "partial" });
+  assert.deepEqual(dataset.operations[0]!.failure, { status: "known", value: true });
+  assert.deepEqual(dataset.events[2]!.facts.operation!.failure, { status: "known", value: true });
+  docs[2]!.payload.status = "ok";
+  assert.deepEqual((await project(fixture("deepseek-harness", docs, [{ record: 0, family: "message" }, { record: 1, family: "delegation" }, { record: 2, family: "delegation" }]))).dataset.operations[0]!.failure, { status: "known", value: false });
+});
+test("missing logical identities and non-result endpoints keep explicit unavailable facts", async () => {
+  const { dataset } = await project(fixture("cursor-sdk", [{ schemaVersion: "ebo.cursor-native-record/v1", sequence: 1, channel: "stream", payload: { message: { type: "tool_call", status: "running" } } }],
+    [{ record: 0, family: "tool", phase: "before" }]));
+  assert.equal(dataset.operations[0]!.scope.status, "unknown");
+  assert.equal(dataset.events[0]!.facts.operation!.failure.status, "unknown");
+});

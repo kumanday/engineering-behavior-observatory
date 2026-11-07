@@ -34,6 +34,10 @@ Partial updates have separate `observationEventIds`; an update can identify a
 pending operation without becoming a completed result. Message facts identify
 canonical records and fragments. Resource facts carry normalized dimensions,
 scope and increment/snapshot/final semantics.
+Operation scope availability, endpoint failure and resource population identity
+are explicit. Namespaces used to isolate unmatched records retain unknown
+logical scope. Persisted branch trees retain unknown linear order when their
+recorded branches cannot share one source sequence.
 
 [Native v2 adapters](native-v2-adapters.md) provide the explicit retained-bundle
 projection API and source-specific operation bindings.

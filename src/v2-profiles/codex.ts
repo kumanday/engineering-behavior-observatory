@@ -7,7 +7,7 @@ export const codexV2Profile: NativeProjectionProfile = {
     return population.records.flatMap((captured) => {
       const record = object(captured.record), payload = object(record.payload), item = object(payload.item);
       if (record.source !== "codex-app-server" || record.kind !== "notification" || record.method !== "item/started"
-          || !(toolKinds.has(String(item.type)) || item.type === "collabAgentToolCall")) return [];
+          || !text(payload.threadId) || !text(payload.turnId) || !(toolKinds.has(String(item.type)) || item.type === "collabAgentToolCall")) return [];
       return [supplementalEvent(population, captured, { harness: "codex-app-server", id: `codex-v2:${String(record.sequence)}:item-started`, nativeType: "item/started",
         family: item.type === "collabAgentToolCall" ? "delegation" : "tool", phase: "before", contentPointer: "/payload/item",
         nativeOrder: Number.isSafeInteger(record.sequence) ? { status: "known", value: Number(record.sequence), domain: "codex-app-server-stdio" } : unreported })];
@@ -25,7 +25,8 @@ export const codexV2Profile: NativeProjectionProfile = {
       const usage = object(object(payload.tokenUsage)[increment ? "last" : "total"]);
       facts.resource = resources({ inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, totalTokens: usage.totalTokens,
         cacheReadInputTokens: usage.cachedInputTokens, cacheCreationInputTokens: usage.cacheWriteInputTokens,
-        reasoningTokens: usage.reasoningOutputTokens }, increment ? "step" : "session", increment ? "increment" : "cumulative-snapshot");
+        reasoningTokens: usage.reasoningOutputTokens }, increment ? "step" : "session", increment ? "increment" : "cumulative-snapshot",
+        !increment && text(payload.threadId) ? known(`thread:${text(payload.threadId)!}`) : unreported);
     }
     const timestamp = method === "item/completed" ? payload.completedAtMs ?? item.completedAtMs : method === "item/started" ? payload.startedAtMs ?? item.startedAtMs : undefined;
     const clock = timestamp === undefined ? recordedClock(context, record.observedAt, "receipt", "ebo-codex-recorder")

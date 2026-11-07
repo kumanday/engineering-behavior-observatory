@@ -420,15 +420,15 @@ test("honors an abort latched before asynchronous capture setup", async (t) => {
   const controller = new AbortController();
   controller.abort();
   let clockReads = 0;
-  t.mock.method(performance, "now", () => clockReads++ === 0 ? 0 : 10_000);
   try {
     await mkdir(workspace);
     const scheduledDelays: number[] = [];
     const originalSetTimeout = globalThis.setTimeout;
     t.mock.method(globalThis, "setTimeout", ((callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
-      scheduledDelays.push(delay ?? 0);
+      if (new Error().stack?.includes("settleOrDelay")) scheduledDelays.push(delay ?? 0);
       return originalSetTimeout(callback, delay, ...args);
     }) as typeof setTimeout);
+    t.mock.method(performance, "now", () => clockReads++ === 0 ? 0 : 10_000);
     const capture = await captureCodexAppServer({
       runId: "run-pre-aborted",
       attemptId: "attempt-pre-aborted",

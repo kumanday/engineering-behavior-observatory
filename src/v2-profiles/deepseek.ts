@@ -1,4 +1,4 @@
-import { contextFact, digestValue, known, messageFact, object, pointedContent, recordedClock, resources, resultFailure, text, unreported, type NativeProjectionProfile } from "../projection-v2.js";
+import { contextFact, digestValue, known, messageFact, object, pointedContent, recordedClock, resources, resultFailure, subrecordLocator, text, unreported, type NativeProjectionProfile } from "../projection-v2.js";
 import type { EventFactsV2 } from "../normalization-v2.js";
 export const deepSeekV2Profile: NativeProjectionProfile = {
   id: "ebo.deepseek-native-v2", version: "2.0.0", harness: "deepseek-harness", module: "v2-profiles/deepseek.js",
@@ -7,7 +7,7 @@ export const deepSeekV2Profile: NativeProjectionProfile = {
     const parts = Array.isArray(message.content) ? message.content.map(object) : [];
     if (event.family !== "tool" || native.type !== "tool/result" || parts.filter((part) => part.type === "tool_result").length <= 1) return [];
     return parts.flatMap((part, index) => part.type !== "tool_result" ? [] : [{ ...structuredClone(event), id: `${event.id}:tool-part:${index}`,
-      content: known([{ nativeReference: { ...event.source.nativeReference, recordLocator: `${event.source.nativeReference.recordLocator}#/payload/event/data/message/content/${index}` }, role: "tool-result" }]) }]);
+      content: known([{ nativeReference: { ...event.source.nativeReference, recordLocator: subrecordLocator(event.source.nativeReference.recordLocator, `/payload/event/data/message/content/${index}`) }, role: "tool-result" }]) }]);
   },
   project(context) {
     const { event, record } = context, payload = object(record.payload), native = object(payload.event), data = object(native.data), message = object(data.message);
@@ -16,13 +16,14 @@ export const deepSeekV2Profile: NativeProjectionProfile = {
       : session ? `session:${session}` : `document:${event.source.nativeReference.artifactId}`;
     const facts: EventFactsV2 = {};
     if (event.family === "message") facts.message = messageFact(type === "user/message" ? "user" : type === "assistant/message" ? "assistant" : undefined,
-      type === "user/message" || type === "assistant/message", type === "user/message" || type === "assistant/message" ? "canonical" : "fragment",
+      (type === "user/message" || type === "assistant/message") && data.interrupted !== true, type === "user/message" || type === "assistant/message" ? "canonical" : "fragment",
       text(message.id) ? known({ id: text(message.id)!, scope, identityClass: "source-native" }) : unreported);
     if (event.family === "context") facts.context = contextFact(type?.startsWith("compaction/") ? "compaction" : "other");
     if (event.family === "runtime" && event.id.endsWith(":usage")) {
       const usage = object(data.usage);
       facts.resource = resources({ inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheReadInputTokens: usage.cacheReadTokens,
-        cacheCreationInputTokens: usage.cacheWriteTokens, reasoningTokens: usage.reasoningTokens }, "step", "increment");
+        cacheCreationInputTokens: usage.cacheWriteTokens, reasoningTokens: usage.reasoningTokens }, "step", "increment",
+        session && Number.isSafeInteger(data.turn) && Number.isSafeInteger(data.step) ? known(`${scope}/turn:${String(data.turn)}/step:${String(data.step)}`) : unreported);
     }
     const clock = native.time !== undefined ? recordedClock(context, native.time, "producer-observation", `deepseek/${scope}`)
       : recordedClock(context, record.observedAt, "receipt", "ebo-deepseek-recorder");
@@ -49,6 +50,8 @@ export const deepSeekV2Profile: NativeProjectionProfile = {
     return { facts, clock, nativeOrder, phase, ...(content ? { content } : {}), operation: { nativeId: nativeId ?? (requestScope !== scope ? "request-observation" : undefined),
       ...(nativeId === undefined ? { identityClass: "ebo-derived" as const } : {}), scope: requestScope, endpoint, canonical: true,
       toolName: text(data.name), ...(data.arguments === undefined ? {} : { inputDigest: digestValue(data.arguments) }),
-      failure: endpoint === "result" ? resultFailure(part.isError, exit ? Number(exit[1]) : undefined) : unreported } };
+      failure: endpoint !== "result" ? unreported : event.family === "delegation"
+        ? payload.status === "ok" ? known(false) : payload.status === "error" ? known(true) : unreported
+        : resultFailure(part.isError, exit ? Number(exit[1]) : undefined) } };
   },
 };

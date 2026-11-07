@@ -11,6 +11,7 @@ export type ProjectionContext = { event: UniformEvent; record: Record<string, un
 export type OperationContribution = {
   nativeId?: string;
   scope: string;
+  scopeStatus?: "established" | "record-local";
   identityClass?: OperationIdentity["identityClass"];
   endpoint: "call" | "result" | "observation";
   canonical?: boolean;
@@ -39,6 +40,10 @@ export type NativeProjectionProfile = {
   additional?(population: ProjectionPopulation): UniformEvent[];
 };
 export type ProjectionPopulation = { runId: string; attemptId: string; records: readonly CapturedNativeRecord<unknown>[]; events: readonly UniformEvent[] };
+export function subrecordLocator(locator: string, pointer: string): string {
+  if (!pointer.startsWith("/") || !(locator === "#" || locator.startsWith("#/") || /^line:[1-9][0-9]*(?:#\/.*)?$/u.test(locator))) throw new Error("Invalid native subrecord locator.");
+  return locator.startsWith("line:") && !locator.includes("#") ? `${locator}#${pointer}` : `${locator}${pointer}`;
+}
 
 export function supplementalEvent(population: ProjectionPopulation, captured: CapturedNativeRecord<unknown>, options: {
   harness: string; id: string; nativeType: string; family: UniformEvent["family"]; phase: UniformEvent["phase"];
@@ -48,7 +53,7 @@ export function supplementalEvent(population: ProjectionPopulation, captured: Ca
     source: { harness: options.harness, nativeType: options.nativeType, nativeReference: captured.reference }, nativeOrder: options.nativeOrder,
     nativeTime: unreported, actor: { kind: "harness" }, family: options.family, phase: options.phase,
     scope: { kind: "attempt", id: population.attemptId }, relations: { parent: unreported, known: [] }, attributes: {},
-    content: options.contentPointer ? known([{ nativeReference: { ...captured.reference, recordLocator: `${captured.reference.recordLocator}#${options.contentPointer}` } }]) : unreported };
+    content: options.contentPointer ? known([{ nativeReference: { ...captured.reference, recordLocator: subrecordLocator(captured.reference.recordLocator, options.contentPointer) } }]) : unreported };
 }
 
 /** Timestamp presence records a clock observation; source profiles must explicitly qualify execution time. */
@@ -75,7 +80,7 @@ export function messageFact(role: unknown, complete: boolean | undefined, repres
 }
 export function pointedContent(context: ProjectionContext, pointer: string, role: "tool-input" | "tool-result"): EvidenceValue<readonly ContentReference[]> {
   return known([{ nativeReference: { ...context.event.source.nativeReference,
-    recordLocator: `${context.event.source.nativeReference.recordLocator}#${pointer}` }, role, mediaType: "application/json" }]);
+    recordLocator: subrecordLocator(context.event.source.nativeReference.recordLocator, pointer) }, role, mediaType: "application/json" }]);
 }
 export function contextFact(type: NonNullable<EventFactsV2["context"]>["type"]): EventFactsV2["context"] {
   return { type, replacementBoundary: unreported };
@@ -86,9 +91,9 @@ export function resultFailure(value: unknown, exitCode?: unknown): EvidenceValue
   if (typeof value === "boolean") return known(value);
   return unreported;
 }
-export function resources(values: Record<string, unknown>, scope: NonNullable<EventFactsV2["resource"]>["scope"], semantics: NonNullable<EventFactsV2["resource"]>["semantics"]): EventFactsV2["resource"] {
+export function resources(values: Record<string, unknown>, scope: NonNullable<EventFactsV2["resource"]>["scope"], semantics: NonNullable<EventFactsV2["resource"]>["semantics"], populationId: NonNullable<EventFactsV2["resource"]>["populationId"] = unreported): EventFactsV2["resource"] {
   const retained = Object.fromEntries(Object.entries(values).filter(([, value]) => typeof value === "number" && Number.isFinite(value) && value >= 0)) as Record<string, number>;
-  return Object.keys(retained).length ? { scope, authority: "native", semantics, values: retained } : undefined;
+  return Object.keys(retained).length ? { scope, authority: "native", semantics, values: retained, populationId } : undefined;
 }
 
 type Contribution = { event: UniformEventV2; contribution: OperationContribution };
@@ -109,6 +114,7 @@ export function buildOperationsV2(events: UniformEventV2[], projections: readonl
       nativeId: contribution.nativeId ?? event.id, identityClass: contribution.nativeId ? contribution.identityClass ?? "source-native" : "ebo-derived" };
     const id = operationId(identity);
     event.scope = { kind: "operation", id };
+    event.facts.operation = { endpoint: contribution.endpoint, failure: contribution.endpoint === "result" ? contribution.failure ?? unreported : unreported };
     const group = groups.get(id) ?? { identity, contributions: [] };
     group.contributions.push({ event, contribution }); groups.set(id, group);
   }
@@ -135,6 +141,7 @@ export function buildOperationsV2(events: UniformEventV2[], projections: readonl
     const calls = contributions.filter(({ contribution }) => contribution.endpoint === "call");
     const results = contributions.filter(({ contribution }) => contribution.endpoint === "result");
     return { schemaVersion: "ebo.operation/v1", id, identity,
+      scope: contributions.every(({ contribution }) => contribution.nativeId && contribution.scopeStatus !== "record-local") ? known(identity.scope) : { status: "unknown", reason: "UNESTABLISHED_LOGICAL_OPERATION_SCOPE" },
       callEventIds: calls.map(({ event }) => event.id), resultEventIds: results.map(({ event }) => event.id),
       observationEventIds: contributions.filter(({ contribution }) => contribution.endpoint === "observation").map(({ event }) => event.id),
       toolName: select(contributions.map(({ contribution }) => contribution.toolName ? known(contribution.toolName) : undefined)),
