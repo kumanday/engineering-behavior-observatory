@@ -700,7 +700,7 @@ export { listAnalysisRuntimes, loadAnalysisRuntime, type AnalysisRuntimeIdentity
 export { NORMALIZATION_V2_VERSION, precedes, executionDurationMs, operationId, datasetV2Digest, validateNormalizedDatasetV2,
   type ClockValue, type ClockEvidence, type ClockPosition, type OrderPosition, type Precedence, type SourceIdentityV2, type OperationIdentity, type Operation,
   type EventFactsV2, type UniformEventV2, type MeasurementV2, type RecordCoverageV2, type NormalizedDatasetV2 } from "./normalization-v2.js";
-export { inventoryMigrationStudy, migrationDependencies, reconcileMigration, type MigrationStudy, type MigrationDependencies,
+export { inventoryMigrationStudy, migrationDependencies, reconcileMigration, createMigrationTargetV2, type MigrationStudy, type MigrationDependencies,
   type MigrationUnit, type MigrationAssertion, type MigrationInventory, type MigrationTarget, type MigrationReconciliation } from "./migration-accounting.js";
 export { createRetainedBehaviorEvidenceV2, projectNativeEvidenceV2, createSourceEvidenceResolverV2, listNativeV2Profiles,
   type RetainedBehaviorEvidenceV2, type SourceEvidenceResolverV2 } from "./native-v2.js";
@@ -715,3 +715,5 @@ export * from "./ratings-v2.js";
 export * from "./semantic-judge-v2.js";
 export * from "./atlas-v2.js";
 export { loadRetainedAnalysisV2 } from "./analysis-v2-cli.js";
+
+export { prepareMigrationTargetV2 } from "./migration-targets-v2.js";
