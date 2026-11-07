@@ -70,7 +70,7 @@ export type MigrationReconciliation = {
   studyId: string;
   inventoryDigest: Hash;
   units: Array<{ id: Hash; disposition: "preserve-frozen-missing-evidence" | "pending-target" | "reuse" | "rejudge";
-    changedDependencies: string[]; target: { inputDigest: Hash; evaluatorDigest: Hash; configurationDigest: Hash } | null }>;
+    changedDependencies: string[]; target: { inputDigest: Hash; evaluatorDigest: Hash; configurationDigest: Hash; inputSchemaVersion?: "ebo.semantic-judge-input/v2"; readiness?: "ready" | "requires-ratings" } | null }>;
   unboundAssertions: Array<{ digest: Hash; disposition: "preserve-frozen-missing-evidence" }>;
   summary: { reusableUnits: number; affectedUnits: number; pendingUnits: number; preservedMissingUnits: number;
     preservedAssertionUnits: number; measuredForecastUsd: number | null; unpricedAffectedUnits: number; authorizedPaidBudgetUsd: 0 };
@@ -252,7 +252,8 @@ export function reconcileMigration(inventory: MigrationInventory, targets: reado
       if (!samples.length) unpriced++; else forecast += samples.reduce((sum, cost) => sum + cost, 0) / samples.length;
     }
     return { id: unit.id, disposition: changed.length ? "rejudge" : "reuse", changedDependencies: changed,
-      target: { inputDigest: dependencies.inputDigest, evaluatorDigest: target.evaluatorDigest, configurationDigest: target.configurationDigest } };
+      target: { inputDigest: dependencies.inputDigest, evaluatorDigest: target.evaluatorDigest, configurationDigest: target.configurationDigest,
+        ...(target.input.schemaVersion === "ebo.semantic-judge-input/v2" ? { inputSchemaVersion: target.input.schemaVersion, readiness: target.input.readiness.status } : {}) } };
   });
   const boundAssertions = new Set(inventory.units.flatMap((unit) => unit.assertionDigests));
   const unboundAssertions = inventory.assertions.filter((assertion) => !boundAssertions.has(assertion.digest))
@@ -290,4 +291,47 @@ export async function createMigrationTargetV2(unit: MigrationUnit, input: JudgeI
   await validateSemanticJudgeInputV2(input, evidence);
   if (input.runId !== unit.runId || input.attemptId !== unit.attemptId || hash(input.request.behavior) !== hash(unit.behavior)) throw new Error("V2 migration target belongs to a different original judgment unit.");
   return { unitId: unit.id, input, evaluatorDigest: hash({ id: input.request.evaluator.id, version: input.request.evaluator.version }), configurationDigest: input.dependencies.evaluatorConfiguration };
+}
+
+
+export type MigrationPlanV2 = {
+  schemaVersion: "ebo.migration-plan/v1"; studyId: string; inventoryDigest: Hash;
+  sourceRuntime: MigrationStudy["analysisRuntime"];
+  target: { datasetSchemaVersion: "ebo.normalized-dataset/v2"; inputSchemaVersion: "ebo.semantic-judge-input/v2"; promptVersion: "2.0.0" };
+  units: Array<{ id: Hash; assertionDigests: Hash[]; disposition: "rejudge-required" | "preserve-frozen-missing-evidence";
+    proof: { dependency: "promptVersion"; previous: string; target: "2.0.0" } | null;
+    ratingDependencyRebuild: boolean; targetPreparation: "prepared" | "pending" | "preserved"; targetInputDigest: Hash | null }>;
+  unboundAssertions: MigrationReconciliation["unboundAssertions"];
+  summary: { affectedUnits: number; affectedAssertionContents: number; preservedMissingUnits: number; preservedAssertionContents: number;
+    ratingDependencyUnits: number; distinctRetainedRatingDependencies: number; preparedTargets: number; pendingTargetUnits: number;
+    measuredForecastUsd: number | null; authorizedPaidBudgetUsd: 0 };
+};
+/** A proven protocol change identifies affected units even when native rebuilds remain unavailable. */
+export function planMigrationV2(inventory: MigrationInventory, concrete?: MigrationReconciliation): MigrationPlanV2 {
+  const baseline = reconcileMigration(inventory);
+  const report = concrete ?? baseline;
+  if (validateArtifact("Migration reconciliation", report).length || report.inventoryDigest !== hash(inventory) || report.studyId !== inventory.studyId
+      || report.units.length !== inventory.units.length || new Set(report.units.map(({ id }) => id)).size !== report.units.length) throw new Error("Migration planning requires the exact original inventory reconciliation.");
+  const receipts = new Map(report.units.map((row) => [row.id, row]));
+  if (inventory.units.some(({ id }) => !receipts.has(id))) throw new Error("Migration planning has unmatched judgment units.");
+  const preserved = new Set(baseline.units.filter(({ disposition }) => disposition === "preserve-frozen-missing-evidence").map(({ id }) => id));
+  const units: MigrationPlanV2["units"] = inventory.units.map((unit) => {
+    if (preserved.has(unit.id)) return { id: unit.id, assertionDigests: [...unit.assertionDigests], disposition: "preserve-frozen-missing-evidence", proof: null,
+      ratingDependencyRebuild: false, targetPreparation: "preserved", targetInputDigest: null };
+    if (!["1.2.0", "1.3.0"].includes(unit.dependencies!.promptVersion)) throw new Error("No supported prompt-version change proof for this migration unit.");
+    const receipt = receipts.get(unit.id)!.target, prepared = receipt?.inputSchemaVersion === "ebo.semantic-judge-input/v2";
+    return { id: unit.id, assertionDigests: [...unit.assertionDigests], disposition: "rejudge-required",
+      proof: { dependency: "promptVersion", previous: unit.dependencies!.promptVersion, target: "2.0.0" },
+      ratingDependencyRebuild: unit.dependencies!.ratingsDigest !== null, targetPreparation: prepared ? "prepared" : "pending", targetInputDigest: prepared ? receipt!.inputDigest : null };
+  });
+  const affected = units.filter(({ disposition }) => disposition === "rejudge-required"), frozen = units.filter(({ disposition }) => disposition === "preserve-frozen-missing-evidence");
+  const affectedIds = new Set(affected.map(({ id }) => id));
+  const ratingDependencies = new Set(inventory.units.filter((unit) => affectedIds.has(unit.id)).flatMap((unit) => unit.dependencies!.ratingsDigest ?? []));
+  return { schemaVersion: "ebo.migration-plan/v1", studyId: inventory.studyId, inventoryDigest: hash(inventory), sourceRuntime: structuredClone(inventory.analysisRuntime),
+    target: { datasetSchemaVersion: "ebo.normalized-dataset/v2", inputSchemaVersion: "ebo.semantic-judge-input/v2", promptVersion: "2.0.0" }, units, unboundAssertions: baseline.unboundAssertions,
+    summary: { affectedUnits: affected.length, affectedAssertionContents: new Set(affected.flatMap(({ assertionDigests }) => assertionDigests)).size,
+      preservedMissingUnits: frozen.length, preservedAssertionContents: new Set([...frozen.flatMap(({ assertionDigests }) => assertionDigests), ...baseline.unboundAssertions.map(({ digest }) => digest)]).size,
+      ratingDependencyUnits: affected.filter(({ ratingDependencyRebuild }) => ratingDependencyRebuild).length, distinctRetainedRatingDependencies: ratingDependencies.size,
+      preparedTargets: affected.filter(({ targetPreparation }) => targetPreparation === "prepared").length, pendingTargetUnits: affected.filter(({ targetPreparation }) => targetPreparation === "pending").length,
+      measuredForecastUsd: affected.length ? null : 0, authorizedPaidBudgetUsd: 0 } };
 }

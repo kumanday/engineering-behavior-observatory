@@ -235,3 +235,29 @@ test("migration preparation preserves the rubric and requires the verified origi
     await assert.rejects(prepareMigrationTargetV2({ ...options, originalInput: missing, unit: { ...unit, inputDigest: hash(missing) } }), /no v2 projection/u);
   } finally { f.close(); }
 });
+
+test("the fixed v2 protocol change proves affected units before every source rebuild is available", async () => {
+  const { planMigrationV2 } = await import("../src/migration-accounting.js");
+  const f = fixture(); try {
+    const inventory = inventoryMigrationStudy(f.study), plan = planMigrationV2(inventory);
+    assert.deepEqual(validateArtifact("plan", plan), []);
+    assert.equal(plan.summary.affectedUnits, 1); assert.equal(plan.summary.pendingTargetUnits, 1); assert.equal(plan.summary.preparedTargets, 0);
+    assert.deepEqual(plan.units[0]!.proof, { dependency: "promptVersion", previous: "1.2.0", target: "2.0.0" });
+    assert.equal(plan.summary.measuredForecastUsd, null); assert.equal(plan.summary.authorizedPaidBudgetUsd, 0);
+    const unit = inventory.units[0]!;
+    const unchanged = reconcileMigration(inventory, [{ unitId: unit.id, input: f.input, evaluatorDigest: unit.evaluatorDigest, configurationDigest: unit.configurationDigest! }]);
+    assert.equal(unchanged.summary.reusableUnits, 1);
+    assert.equal(planMigrationV2(inventory, unchanged).summary.preparedTargets, 0, "v1 preservation is distinct from preparing a v2 target");
+    const foreign = { ...unchanged, inventoryDigest: hash("foreign") }; assert.throws(() => planMigrationV2(inventory, foreign), /exact original/u);
+  } finally { f.close(); }
+});
+test("v2 planning preserves missing evidence and inventories retained rating dependencies without dispatch", async () => {
+  const { planMigrationV2 } = await import("../src/migration-accounting.js");
+  const f = fixture(); try {
+    f.input.selection.ratingsDigest = hash("retained-ratings"); f.judgment.input.digest = hash(f.input); f.write();
+    const plan = planMigrationV2(inventoryMigrationStudy(f.study)); assert.equal(plan.summary.ratingDependencyUnits, 1); assert.equal(plan.summary.distinctRetainedRatingDependencies, 1);
+    rmSync(join(f.root, "input.json")); f.study.artifacts = ["judgment.json", "assertion.json"];
+    const missing = planMigrationV2(inventoryMigrationStudy(f.study)); assert.equal(missing.summary.affectedUnits, 0); assert.equal(missing.summary.preservedMissingUnits, 1);
+    assert.equal(missing.units[0]!.proof, null); assert.equal(missing.units[0]!.targetPreparation, "preserved"); assert.deepEqual(validateArtifact("plan", missing), []);
+  } finally { f.close(); }
+});
