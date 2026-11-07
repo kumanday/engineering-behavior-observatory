@@ -46,6 +46,7 @@ export async function prepareOccurrenceRatingInputsV2(evidence: RetainedBehavior
       || limits.maxInputChars < limits.maxFieldChars || limits.maxInputChars > 1000000) throw new Error("Invalid v2 rating bounds.");
   const operations = new Map(evidence.dataset.operations.map((operation) => [operation.id, operation]));
   const events = new Map(evidence.dataset.events.map((event) => [event.id, event]));
+  const datasetDigest = datasetV2Digest(evidence.dataset), ledgerDigest = analysisDigestV2(ledger);
   const result: RatingInputV2[] = [];
   for (const occurrence of ledger.occurrences) {
     const rows: RatingInputV2["state"]["operations"] = [], citations = new Map<HashV2, EvidenceCitationV2>();
@@ -68,7 +69,7 @@ export async function prepareOccurrenceRatingInputsV2(evidence: RetainedBehavior
       const bounded = boundedEvidence(raw === undefined ? { status: "unknown", reason: "RETAINED_EVENT_CONTENT_UNAVAILABLE" } : raw, limits.maxFieldChars);
       quoted.push({ citationId: analysisDigestV2(citation), ...bounded, content: blindTextV2(bounded.content, evidence.modelAliases ?? []) });
     }
-    const input: RatingInputV2 = { schemaVersion: "ebo.occurrence-rating-input/v2", version: "2.0.0", datasetDigest: datasetV2Digest(evidence.dataset), ledgerDigest: analysisDigestV2(ledger),
+    const input: RatingInputV2 = { schemaVersion: "ebo.occurrence-rating-input/v2", version: "2.0.0", datasetDigest, ledgerDigest,
       occurrenceId: occurrence.id, type: occurrence.type, question: questions[occurrence.type], state: { evidence: quoted, facts: blindValueV2(occurrence.facts, evidence.modelAliases ?? []) as RatingInputV2["state"]["facts"], operations: rows },
       citations: [...citations.values()], citationRegistry: [...citations].map(([id, citation]) => ({ id, citation })), modelData: {}, limits };
     input.modelData = blindValueV2({ question: input.question, state: input.state, occurrenceId: input.occurrenceId, type: input.type,
@@ -95,14 +96,28 @@ export async function rateOccurrenceV2(input: RatingInputV2, evaluator: RatingRe
 }
 
 export async function validateRatingRecordV2(record: RatingRecordV2, evidence: RetainedBehaviorEvidenceV2, ledger: OccurrenceLedgerV2): Promise<void> {
-  if (validateArtifact("V2 rating", record).length) throw new Error("Invalid v2 rating record.");
-  const expected = (await prepareOccurrenceRatingInputsV2(evidence, ledger, record.input.limits)).find(({ occurrenceId }) => occurrenceId === record.input.occurrenceId);
-  if (!expected || analysisDigestV2(expected) !== record.inputDigest || analysisDigestV2(record.input) !== record.inputDigest) throw new Error("V2 rating input is stale or cross-ledger.");
-  if (record.status === "failed") {
-    if (record.accepted || record.answer !== undefined || typeof record.error !== "string" || !record.error) throw new Error("Invalid failed v2 rating.");
-  } else {
-    if (!record.answer) throw new Error("Missing v2 rating answer.");
-    const verified = await rateOccurrenceV2(expected, record.evaluator, async () => record.answer!);
-    if (analysisDigestV2(verified) !== analysisDigestV2(record)) throw new Error("V2 rating acceptance or answer is invalid.");
+  await validateRatingRecordsV2([record], evidence, ledger);
+}
+
+/** Reconstruct each bounded input population once, retaining independent validation of every receipt. */
+export async function validateRatingRecordsV2(records: readonly RatingRecordV2[], evidence: RetainedBehaviorEvidenceV2, ledger: OccurrenceLedgerV2): Promise<void> {
+  const inputsByLimits = new Map<string, Map<string, RatingInputV2>>();
+  for (const record of records) {
+    if (validateArtifact("V2 rating", record).length) throw new Error("Invalid v2 rating record.");
+    const key = analysisDigestV2(record.input.limits);
+    let inputs = inputsByLimits.get(key);
+    if (!inputs) {
+      inputs = new Map((await prepareOccurrenceRatingInputsV2(evidence, ledger, record.input.limits)).map((input) => [input.occurrenceId, input]));
+      inputsByLimits.set(key, inputs);
+    }
+    const expected = inputs.get(record.input.occurrenceId);
+    if (!expected || analysisDigestV2(expected) !== record.inputDigest || analysisDigestV2(record.input) !== record.inputDigest) throw new Error("V2 rating input is stale or cross-ledger.");
+    if (record.status === "failed") {
+      if (record.accepted || record.answer !== undefined || typeof record.error !== "string" || !record.error) throw new Error("Invalid failed v2 rating.");
+    } else {
+      if (!record.answer) throw new Error("Missing v2 rating answer.");
+      const verified = await rateOccurrenceV2(expected, record.evaluator, async () => record.answer!);
+      if (analysisDigestV2(verified) !== analysisDigestV2(record)) throw new Error("V2 rating acceptance or answer is invalid.");
+    }
   }
 }

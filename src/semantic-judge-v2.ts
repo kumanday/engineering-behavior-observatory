@@ -6,7 +6,7 @@ import { boundedEvidence, evidenceWorkspaces } from "./evidence-projection.js";
 import type { RetainedBehaviorEvidenceV2 } from "./native-v2.js";
 import { datasetV2Digest } from "./normalization-v2.js";
 import { validateOccurrenceLedgerV2, type OccurrenceLedgerV2, type OccurrenceTypeV2 } from "./occurrences-v2.js";
-import { blindTextV2, blindValueV2, validateRatingRecordV2, type RatingRecordV2 } from "./ratings-v2.js";
+import { blindTextV2, blindValueV2, validateRatingRecordsV2, type RatingRecordV2 } from "./ratings-v2.js";
 
 export type JudgeRequestV2 = {
   schemaVersion: "ebo.semantic-judge-request/v2"; behavior: { vocabularyVersion: string; categoryId: string; dimensionId: string };
@@ -44,8 +44,8 @@ export async function prepareSemanticJudgeInputV2(evidence: RetainedBehaviorEvid
       || new Set(request.eventIds).size !== request.eventIds.length) throw new Error("Invalid v2 judge request bounds or selection.");
   const ratingInputs = new Set<string>();
   const ratedOccurrences = new Set<string>();
+  await validateRatingRecordsV2(ratings, evidence, ledger);
   for (const rating of ratings) {
-    await validateRatingRecordV2(rating, evidence, ledger);
     if (ratingInputs.has(rating.inputDigest) || ratedOccurrences.has(rating.input.occurrenceId)) throw new Error("V2 rating is stale, duplicated or belongs to a different ledger.");
     ratingInputs.add(rating.inputDigest); ratedOccurrences.add(rating.input.occurrenceId);
   }

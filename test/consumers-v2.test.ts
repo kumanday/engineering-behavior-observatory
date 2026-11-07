@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { analysisDigestV2, citeEventV2, createStructuralObservationSetV2, validateCitationV2, validateStructuralObservationSetV2 } from "../src/analysis-v2.js";
 import { createOccurrenceLedgerV2, validateOccurrenceLedgerV2, operationCommandV2 } from "../src/occurrences-v2.js";
-import { prepareOccurrenceRatingInputsV2, rateOccurrenceV2, validateRatingRecordV2 } from "../src/ratings-v2.js";
+import { prepareOccurrenceRatingInputsV2, rateOccurrenceV2, validateRatingRecordV2, validateRatingRecordsV2 } from "../src/ratings-v2.js";
 import { prepareSemanticJudgeInputV2, semanticJudgePromptV2, parseBehaviorAssertionV2, validateBehaviorAssertionV2, type JudgeRequestV2 } from "../src/semantic-judge-v2.js";
 import { atifFixtureV2 } from "./consumers-v2-fixture.js";
 import type { AtifObject } from "../src/atif-reader.js";
@@ -266,4 +266,50 @@ test("blinded workspace labels resolve to their one canonical cited working dire
   const assertion = parseBehaviorAssertionV2(answer, input); assert.equal(assertion.claims[0]!.workspace, canonical);
   await validateBehaviorAssertionV2(assertion, input, evidence);
   assert.throws(() => parseBehaviorAssertionV2({ ...answer, claims: [{ ...answer.claims[0]!, workspace: "/foreign" }] }, input), /explicit cited cwd/u);
+});
+
+test("canonical failure endpoints preserve follow-ups alongside passive hook copies", async () => {
+  const { claudeBlockFixtureV2 } = await import("./consumers-v2-fixture.js");
+  for (const includeHook of [false, true]) {
+    const evidence = await claudeBlockFixtureV2((capture) => {
+      const session = (sequence: number, type: string, content: object[]) => ({ reference: { artifactId: "session", recordLocator: `line:${sequence}` }, record: { kind: "session" as const,
+        document: { sequence, nativeType: type, sessionId: "s", message: { type, uuid: `m-${sequence}`, session_id: "s", message: { id: `output-${sequence}`, role: type, model: "synthetic-model", content } } } } });
+      capture.records = [session(1, "assistant", [{ type: "tool_use", id: "failed", name: "Bash", input: { command: "false" } }]),
+        session(2, "user", [{ type: "tool_result", tool_use_id: "failed", is_error: true, content: "Failed" }]),
+        session(3, "assistant", [{ type: "tool_use", id: "next", name: "Bash", input: { command: "npm test" } }]),
+        ...capture.records.filter(({ record }) => record.kind !== "session")];
+      if (includeHook) capture.records = [...capture.records, { reference: { artifactId: "hooks", recordLocator: "line:2" }, record: { kind: "hook", document: { hook: "PostToolUseFailure", sequence: 2,
+        sessionId: "s", nativePayload: { session_id: "s", tool_use_id: "failed", tool_name: "Bash", error: "Failed" } } } }];
+    });
+    const ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
+    assert.equal(ledger.occurrences.filter(({ type }) => type === "execution-follow-up").length, 1);
+    if (includeHook) assert.equal(evidence.dataset.operations.find(({ identity }) => identity.nativeId === "failed")!.resultEventIds.length, 2);
+  }
+});
+test("source-change heuristics preserve create and notebook edit attempts across registered sources", async () => {
+  for (const name of ["Create", "NotebookEdit"]) {
+    const evidence = await atifFixtureV2(undefined, (source) => {
+      for (const step of source.steps as AtifObject[]) for (const call of step.tool_calls as AtifObject[] ?? []) {
+        call.function_name = name; call.arguments = { file_path: "src/new.ts", content: "export const n = 1" };
+      }
+    });
+    const ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
+    assert.ok(ledger.occurrences.some(({ type }) => type === "source-change"), name);
+  }
+});
+test("batched rating readback verifies every receipt and each distinct evidence bound", async () => {
+  const evidence = await atifFixtureV2(undefined, (source) => {
+    const calls = (source.steps as AtifObject[])[1]!.tool_calls as AtifObject[];
+    calls.forEach((call, index) => { call.arguments = { command: `npm test -- case-${index}` }; });
+  }), ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
+  const a = await prepareOccurrenceRatingInputsV2(evidence, ledger), b = await prepareOccurrenceRatingInputsV2(evidence, ledger, { maxFieldChars: 8000, maxInputChars: 80000 });
+  const inputs = a.map((input, index) => index % 2 ? b[index]! : input);
+  assert.ok(inputs.length >= 2);
+  const records = await Promise.all(inputs.map((input) => rateOccurrenceV2(input, { id: "mock", version: "1", configurationDigest: analysisDigestV2("mock") }, async () => ({ label: "unclear", confidence: 0, rationale: "Insufficient evidence", citationIds: [] }))));
+  await validateRatingRecordsV2(records, evidence, ledger);
+  const changed = structuredClone(records); changed.at(-1)!.input.question = "Changed";
+  await assert.rejects(validateRatingRecordsV2(changed, evidence, ledger), /stale/u);
+  const observations = await createStructuralObservationSetV2(evidence.dataset, evidence.resolver);
+  const input = await prepareSemanticJudgeInputV2(evidence, observations, ledger, request, records);
+  assert.equal(input.ratings.length, records.length);
 });

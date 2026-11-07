@@ -27,7 +27,7 @@ export async function nativeFixtureV2(name: string, edit?: (records: Array<Recor
   return projectNativeEvidenceV2(evidence, { manifestDigest: analysisDigestV2("synthetic-native-manifest"), harnessVersion: "fixture-only" });
 }
 
-export async function claudeBlockFixtureV2() {
+export async function claudeBlockFixtureV2(edit?: (capture: NormalizationInput<AgentSdkNativeRecord>) => void) {
   const { claudeAgentSdkNormalizationAdapter, createAgentSdkNativeEvidenceResolver } = await import("../src/agent-sdk-normalizer.js");
   const { describeNormalizedDataset, validateNormalizedDataset } = await import("../src/normalization-integrity.js");
   const { projectNativeEvidenceV2 } = await import("../src/native-v2.js");
@@ -40,6 +40,7 @@ export async function claudeBlockFixtureV2() {
     { reference: { artifactId: "manifest", recordLocator: "#" }, record: { kind: "manifest", document: { run: { id: "run", assessmentMode: "observational" }, attempt: { id: "attempt" } } } },
     { reference: { artifactId: "manifest", recordLocator: "#/run/assessmentMode" }, record: { kind: "assessment-mode", document: "observational" } },
   ];
+  edit?.(capture);
   const normalization = await claudeAgentSdkNormalizationAdapter.normalize(capture), resolver = createAgentSdkNativeEvidenceResolver(capture);
   const refs = new Map(capture.records.map(({ record, reference }) => [record, JSON.stringify(reference)]));
   const nativeTypes = new Map(normalization.events.map(({ source }) => [JSON.stringify(source.nativeReference), source.nativeType]));
