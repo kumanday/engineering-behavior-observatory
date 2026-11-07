@@ -18,6 +18,7 @@ export type AtifImportManifest = {
   inspection: { path: "inspection.json"; digest: `sha256:${string}` };
   producer: AtifProducerFingerprint;
   producerAuthority: "operator-declared";
+  blinding?: { authority: "operator-declared"; modelAliases: string[] };
   profile: { status: "supported"; id: string; digest: `sha256:${string}` } | { status: "unsupported"; reason: "PRODUCER_PROFILE_UNREGISTERED" };
 };
 const bytesDigest = (bytes: Uint8Array): `sha256:${string}` => `sha256:${digestBytes(bytes).value}`;
@@ -26,9 +27,10 @@ const hash = (value: unknown): `sha256:${string}` => `sha256:${digestMetadata(va
 /** Retain raw evidence first; the admission manifest is written last. No trajectory code is executed. */
 export async function importAtifFile(options: {
   sourcePath: string; destination: string; runId: string; attemptId: string;
-  producer: AtifProducerFingerprint; pythonExecutable?: string;
+  producer: AtifProducerFingerprint; pythonExecutable?: string; modelAliases?: readonly string[];
 }): Promise<{ manifest: AtifImportManifest; reused: boolean; evidence: Awaited<ReturnType<typeof normalizePiAtif>> }> {
   if (![options.runId, options.attemptId].every((value) => value.trim().length > 0 && value.length <= 1024)) throw new Error("Import requires bounded run and attempt identities.");
+  const blinding = declaredBlinding(options.modelAliases);
   const destination = resolve(options.destination);
   const bytes = readBoundedFile(options.sourcePath, "ATIF source", undefined, ATIF_LIMITS.documentBytes);
   try { mkdirSync(destination, { mode: 0o700 }); }
@@ -36,7 +38,7 @@ export async function importAtifFile(options: {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     const manifest = readImportManifest(destination);
     if (manifest.source.digest !== bytesDigest(bytes) || manifest.identity.runId !== options.runId || manifest.identity.attemptId !== options.attemptId
-        || hash(manifest.producer) !== hash(options.producer)) throw new Error("Import destination retains another capture revision or identity; use a new destination.");
+        || hash(manifest.producer) !== hash(options.producer) || hash(manifest.blinding ?? null) !== hash(blinding ?? null)) throw new Error("Import destination retains another capture revision or identity; use a new destination.");
     return { manifest, reused: true, evidence: await readImportedBehaviorEvidence(destination) };
   }
   writeFileSync(join(destination, "trajectory.json"), bytes, { flag: "wx", mode: 0o600 });
@@ -53,9 +55,10 @@ export async function importAtifFile(options: {
     identity: { runId: options.runId, attemptId: options.attemptId, authority: "operator-declared" }, qualification: "imported", sharing: "restricted",
     createdAt: new Date().toISOString(), source: { artifactId: "atif-trajectory", path: "trajectory.json", digest: bytesDigest(bytes), bytes: bytes.length },
     inspection: { path: "inspection.json", digest: bytesDigest(inspectionBytes) }, producer: structuredClone(options.producer), producerAuthority: "operator-declared",
+    ...(blinding === undefined ? {} : { blinding }),
     profile: selection.status === "supported" ? { status: "supported", id: selection.profile.id, digest: selection.profileDigest } : selection };
   assertManifest(manifest);
-  const evidence = await normalizePiAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) });
+  const evidence = withDeclaredAliases(await normalizePiAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) }), manifest);
   const mappingErrors = validateArtifact("Pi ATIF mapping", evidence.mapping);
   if (mappingErrors.length) throw new Error(`Invalid generated Pi mapping: ${mappingErrors[0]!.message}`);
   writeJson(destination, "mapping.json", evidence.mapping);
@@ -77,7 +80,7 @@ export function readImportManifest(bundleRoot: string): AtifImportManifest {
 /** Reopens imported evidence without a Python dependency; validates raw bytes and the pinned admission receipt. */
 export async function readImportedBehaviorEvidence(bundleRoot: string) {
   const { manifest, read } = readAtifImportAdmission(bundleRoot);
-  return normalizePiAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) });
+  return withDeclaredAliases(await normalizePiAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) }), manifest);
 }
 
 export function readAtifImportAdmission(bundleRoot: string) {
@@ -110,4 +113,14 @@ function parseJson(bytes: Uint8Array): unknown {
 function assertManifest(value: unknown): asserts value is AtifImportManifest {
   const errors = validateArtifact("Import manifest", value);
   if (errors.length) throw new Error(errors.map(({ field, message }) => `${field}: ${message}`).join("\n"));
+}
+
+
+function declaredBlinding(aliases: readonly string[] | undefined): AtifImportManifest["blinding"] {
+  if (aliases === undefined) return undefined;
+  if (!Array.isArray(aliases) || aliases.length > 256 || aliases.some((alias) => typeof alias !== "string" || !alias.trim() || alias.length > 1024)) throw new Error("Imported model aliases exceed the blinding policy limits.");
+  return { authority: "operator-declared", modelAliases: [...new Set(aliases)].sort() };
+}
+function withDeclaredAliases(evidence: Awaited<ReturnType<typeof normalizePiAtif>>, manifest: AtifImportManifest): Awaited<ReturnType<typeof normalizePiAtif>> {
+  return manifest.blinding === undefined ? evidence : { ...evidence, modelAliases: [...new Set([...evidence.modelAliases ?? [], ...manifest.blinding.modelAliases])].sort() };
 }

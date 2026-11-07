@@ -1,3 +1,6 @@
+import { runAgentSdkSemanticJudge, type SemanticJudgeRequest } from "../src/semantic-judge.js";
+import { createRetainedStructuralObservationSet } from "../src/structural-observations.js";
+import { probeClaudeAgentSdkCapabilities } from "../src/agent-sdk.js";
 import { main } from "../src/cli.js";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
@@ -6,7 +9,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { inspectHarborTrial, importHarborTrial, readHarborCapture } from "../src/harbor-import.js";
+import { inspectHarborTrial, importHarborTrial, readHarborCapture, HARBOR_IMPORT_LIMITS } from "../src/harbor-import.js";
 import { listAtifProducerProfiles } from "../src/atif-profiles.js";
 import { readImportedBehaviorEvidence } from "../src/atif-import.js";
 
@@ -67,7 +70,10 @@ test("source namespace and TrialResult UUID define identity independently of sou
     assert.equal(first.inspection.status, "eligible");
     assert.equal(first.inspection.structural!.status, "valid");
     assert.deepEqual(first.inspection, second.inspection);
-    assert.notEqual((await inspectHarborTrial({ directory: copy, namespace: "another-source", pythonExecutable: python })).inspection.execution!.id, first.inspection.execution!.id);
+    const another = (await inspectHarborTrial({ directory: copy, namespace: "another-source", pythonExecutable: python })).inspection.execution!;
+    assert.notEqual(another.id, first.inspection.execution!.id);
+    assert.notEqual(another.attemptId, first.inspection.execution!.attemptId);
+    assert.notEqual(another.runId, first.inspection.execution!.runId);
   } finally { temp.cleanup(); }
 });
 
@@ -328,5 +334,60 @@ test("the Harbor CLI returns stored capture and context identities usable for re
     assert.notEqual(receipt.captureRevision, receipt.sourceCaptureDigest);
     assert.match(receipt.inspectionDigest, /^sha256:/u);
     assert.equal(readHarborCapture(store, receipt.captureRevision, receipt.snapshotDigest, receipt.inspectionDigest).inspection.status, "eligible");
+  } finally { temp.cleanup(); }
+});
+
+
+test("lineage traversal shares one source byte budget instead of multiplying limits per original", { skip: !python }, async () => {
+  const temp = temporary(), limit = HARBOR_IMPORT_LIMITS.totalBytes;
+  try {
+    const original = fixture(temp.root), regrade = fixture(temp.root, "regrade", ids[1]);
+    regrade.result.config.source_trial = { action: "regrade", type: "hub", trial_id: ids[0] }; save(regrade.directory, regrade.result);
+    const one = await inspect(original.directory), other = await inspect(regrade.directory);
+    const maximum = Math.max(...[one, other].map(({ inspection }) => inspection.files.reduce((sum, file) => sum + file.bytes, 0)));
+    (HARBOR_IMPORT_LIMITS as unknown as { totalBytes: number }).totalBytes = maximum + 16;
+    await assert.rejects(inspect(regrade.directory, { originals: [{ sourceReference: ids[0], directory: original.directory }] }), /byte\/file limits|byte limit/u);
+  } finally { (HARBOR_IMPORT_LIMITS as unknown as { totalBytes: number }).totalBytes = limit; temp.cleanup(); }
+});
+
+
+test("Harbor-only executed model aliases reach retained semantic blinding", { skip: !python }, async () => {
+  const temp = temporary();
+  try {
+    const source = fixture(temp.root), alias = "provider/actual-model";
+    source.result.config.agent.model_name = alias; source.result.agent_info.model_info.name = alias; save(source.directory, source.result);
+    const trajectoryPath = join(source.directory, "agent/trajectory.json");
+    const trajectory = JSON.parse(readFileSync(trajectoryPath, "utf8")); trajectory.steps.at(-1).message = `${alias} visible report`; writeFileSync(trajectoryPath, JSON.stringify(trajectory));
+    const imported = await importHarborTrial({ directory: source.directory, store: join(temp.root, "store"), namespace: "synthetic-source", producer, pythonExecutable: python });
+    assert.equal(imported.status, "imported"); if (imported.status !== "imported") return;
+    const evidence = await readImportedBehaviorEvidence(imported.bundleRoot); assert.ok(evidence.modelAliases!.includes(alias));
+    const observations = await createRetainedStructuralObservationSet(imported.bundleRoot);
+    const event = evidence.dataset.events.findLast(({ family, actor }) => family === "message" && actor.kind === "model")!;
+    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "alias", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+      rubric: { id: "r", version: "1", instructions: "Synthetic blinding check." }, evaluator: { provider: "anthropic", model: "synthetic-judge", effort: "low" },
+      selection: { eventIds: [event.id], structuralObservationIds: [], includeOutcomeObservations: false },
+      limits: { maxEvidenceItems: 8, maxRecordChars: 8000, maxInputChars: 32000, maxOutputChars: 8192, maxCitations: 4, maxWallClockMs: 5000, maxTurns: 1 }, blinding: { evaluatedModelIdentity: "redact" } };
+    let called = false;
+    await runAgentSdkSemanticJudge({ bundleRoot: imported.bundleRoot, outputRoot: join(temp.root, "judge"), observations, request,
+      backend: { id: "claude-agent-sdk", version: probeClaudeAgentSdkCapabilities().sdkVersion, run: async (prompt) => {
+        called = true; assert.equal(prompt.includes(alias), false); assert.match(prompt, /visible report/u);
+        return { status: "failed", kind: "provider", message: "Synthetic backend; no model call", raw: {} };
+      } } });
+    assert.equal(called, true);
+  } finally { temp.cleanup(); }
+});
+
+test("a backfilled regrade can resolve its original executor without an original ATIF document", { skip: !python }, async () => {
+  const temp = temporary();
+  try {
+    const original = fixture(temp.root), regrade = fixture(temp.root, "regrade", ids[1]);
+    rmSync(join(original.directory, "agent/trajectory.json"));
+    regrade.result.config.source_trial = { action: "regrade", type: "hub", trial_id: ids[0] }; save(regrade.directory, regrade.result);
+    const options = { directory: regrade.directory, store: join(temp.root, "store"), namespace: "synthetic-source", producer, pythonExecutable: python,
+      originals: [{ sourceReference: ids[0]!, directory: original.directory }] };
+    const imported = await importHarborTrial(options); assert.equal(imported.status, "imported"); if (imported.status !== "imported") return;
+    assert.equal(imported.inspection.execution!.originalTrialId, ids[0]);
+    assert.equal(imported.inspection.assessment!.kind, "regrade");
+    readHarborCapture(options.store, imported.binding.captureRevision, imported.inspection.snapshotDigest, imported.inspectionDigest);
   } finally { temp.cleanup(); }
 });
