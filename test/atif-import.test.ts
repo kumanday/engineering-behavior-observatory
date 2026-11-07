@@ -1,3 +1,8 @@
+import { occurrenceRequest, occurrenceState } from "../src/occurrence-ratings.js";
+import { prepareJudgeRequest } from "../src/judge-prepare.js";
+import { compareFixtureMeasurement } from "./atif-fixture-gate.js";
+import { runAgentSdkSemanticJudge, type SemanticJudgeRequest } from "../src/semantic-judge.js";
+import { probeClaudeAgentSdkCapabilities } from "../src/agent-sdk.js";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,8 +15,8 @@ import { normalizePiAtif } from "../src/atif-pi.js";
 import { inspectAtifBytes, type AtifObject } from "../src/atif-reader.js";
 import { listAtifProducerProfiles } from "../src/atif-profiles.js";
 import { createRetainedBehaviorEvidence } from "../src/retained-evidence.js";
-import { createStructuralObservationSet, nativeContentResolver } from "../src/structural-observations.js";
-import { buildCorpusIndex } from "../src/corpus.js";
+import { createRetainedStructuralObservationSet, createStructuralObservationSet, toolOperations, nativeContentResolver } from "../src/structural-observations.js";
+import { readCorpusIndex, writeCorpusIndex, buildCorpusIndex } from "../src/corpus.js";
 import { validateBehaviorAssertion, type BehaviorAssertion } from "../src/behavior-assertions.js";
 import { boundedEvidence } from "../src/evidence-projection.js";
 import { main } from "../src/cli.js";
@@ -60,15 +65,14 @@ test("production Pi mapping agrees with the independently authored fixture audit
     assert.deepEqual(actual.signatures.map(({ document, id, name, failed }) => ({ id: document === "#" ? id : `${document}:${id}`, name, failed })).sort((a, b) => a.id.localeCompare(b.id)), expected.signatures, name);
     for (const id of ["tool-operation-count", "tool-error-count", "input-token-count", "output-token-count", "cache-read-input-token-count"]) {
       const value = expected.measures[id];
-      if (value.status === "known" && value.value > 0) assert.deepEqual(actual.measures[id], { status: "known", value: value.value }, `${name}:${id}`);
-      else if (value.status === "unavailable") assert.equal(actual.measures[id]!.status, "unavailable", `${name}:${id}`);
+      assert.equal(compareFixtureMeasurement(value, actual.measures[id]!, { allowedLossReasons: ["CONVERTER_ZERO_FILL_POSSIBLE", "USAGE_COMPONENT_COMPLETENESS_UNPROVEN"] }).status, "pass", `${name}:${id}`);
     }
   }
 });
 
 test("imported selected-history diagnostics never become exact attempt observations", async () => {
   const evidence = await project();
-  assert.deepEqual(evidence.mapping.measures["tool-operation-count"], { status: "known", value: 2 });
+  assert.deepEqual(evidence.mapping.measures["tool-operation-count"], { status: "known", value: 2, unit: "identified-logical-tool-operations" });
   const observations = createStructuralObservationSet(evidence.dataset, evidence.coverage, evidence.outcomeCapture);
   assert.deepEqual(observations.observations.find(({ extractor }) => extractor.id === "outcome-capture-qualification")!.value,
     { status: "known", value: "imported", unit: "qualification" });
@@ -129,7 +133,7 @@ test("duplicate call identities across steps are excluded instead of merging sep
 
 test("usage inversion needs cache-write evidence and reconciles final totals", async () => {
   const baseline = await project();
-  assert.deepEqual(baseline.mapping.measures["input-token-count"], { status: "known", value: 18 });
+  assert.deepEqual(baseline.mapping.measures["input-token-count"], { status: "known", value: 18, unit: "tokens" });
   for (const variant of ["missing-write", "final-write-conflict", "final-prompt-conflict", "negative-input"]) {
     const source = fixture(), step = steps(source)[1]!, metrics = step.metrics as AtifObject;
     if (variant === "missing-write") delete (metrics.extra as AtifObject).cache_write_tokens;
@@ -143,13 +147,15 @@ test("usage inversion needs cache-write evidence and reconciles final totals", a
 test("zero-filled usage and null inference counts remain unavailable", async () => {
   const source = fixture();
   for (const step of steps(source)) if (step.source === "agent") {
-    step.llm_call_count = null;
     (step.metrics as AtifObject).completion_tokens = 0;
   }
   (source.final_metrics as AtifObject).total_completion_tokens = 0;
   const result = (await project(source)).mapping;
-  assert.equal(result.measures["declared-inference-count"]!.status, "unavailable");
   assert.deepEqual(result.measures["output-token-count"], { status: "unavailable", reason: "CONVERTER_ZERO_FILL_POSSIBLE" });
+  steps(source).find((step) => step.source === "agent")!.llm_call_count = null;
+  const unknownInference = (await project(source)).mapping;
+  assert.equal(unknownInference.measures["declared-inference-count"]!.status, "unavailable");
+  assert.deepEqual(unknownInference.measures["output-token-count"], { status: "unavailable", reason: "USAGE_COMPONENT_COMPLETENESS_UNPROVEN" });
 });
 
 test("compaction summaries and unbound embedded children do not become assistant behavior", async () => {
@@ -197,6 +203,8 @@ test("actual admission is repeatable, restricted and dispatched through retained
     const index = buildCorpusIndex(directory);
     assert.equal(index[0]!.manifestKind, "import"); assert.equal(index[0]!.captureQualification, "imported");
     assert.deepEqual(index[0]!.issues, []);
+    writeCorpusIndex(join(directory, "index.jsonl"), index);
+    assert.deepEqual(readCorpusIndex(join(directory, "index.jsonl")), index);
     await assert.rejects(importAtifFile({ ...options, attemptId: "different" }), /another capture revision/u);
     writeFileSync(join(options.destination, "trajectory.json"), "{}");
     await assert.rejects(readImportedBehaviorEvidence(options.destination), /bytes differ/u);
@@ -276,4 +284,133 @@ test("the Pi projection satisfies the adapter event contract under a synthetic t
   };
   await assertAdapterContract(adapter, undefined, evidence.resolver);
   assert.equal(evidence.capture.qualification, "imported");
+});
+
+test("semantic judging uses every retained model/route alias and never requires a run manifest for imports", { skip: !python }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-import-blinding-"));
+  try {
+    const source = JSON.parse(readFileSync("test/fixtures/atif/pi/parallel-failure-cache-write.atif.json", "utf8"));
+    source.agent.model_name = "provider/Model[route]";
+    source.steps[1].model_name = "Model[route]";
+    source.steps[1].extra = { response_model: "served-model" };
+    source.steps[1].message = "provider/Model[route] Model[route] served-model visible";
+    const sourcePath = join(root, "source.json"); writeFileSync(sourcePath, JSON.stringify(source));
+    const bundleRoot = join(root, "import");
+    const imported = await importAtifFile({ sourcePath, destination: bundleRoot, runId: "r", attemptId: "a", producer: listAtifProducerProfiles()[0]!.producer, pythonExecutable: python });
+    assert.deepEqual(new Set(imported.evidence.modelAliases), new Set(["provider/Model[route]", "Model[route]", "served-model", "synthetic-model"]));
+    const observations = await createRetainedStructuralObservationSet(bundleRoot);
+    const event = imported.evidence.dataset.events.find(({ family, attributes }) => family === "message" && attributes.role === "assistant")!;
+    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "test", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+      rubric: { id: "r", version: "1", instructions: "Inspect source behavior." }, evaluator: { provider: "anthropic", model: "judge", effort: "low" },
+      selection: { eventIds: [event.id], structuralObservationIds: [], includeOutcomeObservations: false },
+      limits: { maxEvidenceItems: 10, maxRecordChars: 8_000, maxInputChars: 32_000, maxOutputChars: 8_192, maxCitations: 4, maxWallClockMs: 5_000, maxTurns: 1 }, blinding: { evaluatedModelIdentity: "redact" } };
+    let called = false;
+    await runAgentSdkSemanticJudge({ bundleRoot, outputRoot: join(root, "judge"), observations, request,
+      backend: { id: "claude-agent-sdk", version: probeClaudeAgentSdkCapabilities().sdkVersion, run: async (prompt) => {
+        called = true; assert.match(prompt, /third-party imported evidence with unproven capture completeness/u); assert.match(prompt, /CONVERTER_ZERO_FILL_POSSIBLE/u); assert.doesNotMatch(prompt, /provider\/Model\[route\]|Model\[route\]|served-model/u); assert.match(prompt, /visible/u);
+        return { status: "failed", kind: "provider", message: "Synthetic backend; no model call", raw: {} };
+      } } });
+    assert.equal(called, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("multimodal messages retain text and references without fetching media", async () => {
+  const source = fixture();
+  steps(source)[0]!.message = [{ type: "text", text: "Visible multimodal instruction" },
+    { type: "image", source: { media_type: "image/png", path: "not-admitted.png" } }];
+  const evidence = await project(source);
+  const user = evidence.dataset.events.find(({ family, attributes }) => family === "message" && attributes.role === "user")!;
+  assert.ok(user);
+  assert.equal(user.content.status, "known");
+  if (user.content.status === "known") assert.deepEqual(nativeContentResolver(evidence.outcomeCapture)(user.content.value[0]!.nativeReference), steps(source)[0]!.message);
+});
+
+test("a positive sibling step cannot hide zero-filled output or cache usage", async () => {
+  for (const field of ["completion_tokens", "cached_tokens"]) {
+    const source = fixture();
+    const agent = steps(source).filter((step) => step.source === "agent");
+    (agent[1]!.metrics as AtifObject)[field] = 0;
+    const total = agent.reduce((sum, step) => sum + Number((step.metrics as AtifObject)[field]), 0);
+    (source.final_metrics as AtifObject)[field === "completion_tokens" ? "total_completion_tokens" : "total_cached_tokens"] = total;
+    const evidence = await project(source);
+    const measure = field === "completion_tokens" ? "output-token-count" : "cache-read-input-token-count";
+    assert.deepEqual(evidence.mapping.measures[measure], { status: "unavailable", reason: "CONVERTER_ZERO_FILL_POSSIBLE" });
+  }
+});
+
+
+test("occurrence rating state preserves pointed string output and non-shell argument objects", async () => {
+  const source = fixture(), agent = steps(source)[1]!;
+  const calls = agent.tool_calls as AtifObject[];
+  calls[0]!.arguments = { command: "npm test" };
+  calls[1]!.function_name = "read"; calls[1]!.arguments = { path: "src/example.ts" };
+  ((agent.observation as AtifObject).results as AtifObject[])[0]!.content = "FAILURE_DIAGNOSTIC";
+  steps(source).push({ step_id: 4, source: "agent", message: "Read again", llm_call_count: 1,
+    tool_calls: [{ tool_call_id: "call-c", function_name: "read", arguments: { path: "src/example.ts" } }],
+    observation: { results: [{ source_call_id: "call-c", content: "RETAINED_CONTENT", extra: { is_error: false } }] } });
+  const evidence = await project(source), observations = createStructuralObservationSet(evidence.dataset, evidence.coverage, evidence.outcomeCapture);
+  const map = new Map(evidence.dataset.events.map((event) => [event.id, event]));
+  const resolve = nativeContentResolver(evidence.outcomeCapture);
+  const validation = observations.occurrences!.find(({ type }) => type === "validation-run")!;
+  const request = occurrenceRequest(validation, observations.occurrences!, map, resolve);
+  assert.match(JSON.stringify(request.state), /FAILURE_DIAGNOSTIC/u);
+  const repetition = observations.occurrences!.find(({ type }) => type === "repeated-operation")!;
+  const rendered = occurrenceState(repetition, map, resolve).state;
+  assert.match(JSON.stringify(rendered), /src\/example.ts/u);
+  assert.match(JSON.stringify(rendered), /RETAINED_CONTENT/u);
+});
+
+test("assistant reports remain selected by the existing judge preparation policy", async () => {
+  const evidence = await project(), observations = createStructuralObservationSet(evidence.dataset, evidence.coverage, evidence.outcomeCapture);
+  const request = prepareJudgeRequest(observations, evidence.dataset.events, { schemaVersion: "ebo.judge-prepare-spec/v1", id: "p", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+    rubric: { id: "r", version: "1", instructions: "Inspect source behavior." }, evaluator: { provider: "anthropic", model: "synthetic-judge", effort: "low" },
+    occurrenceTypes: ["validation-run", "failure-response"], blinding: { evaluatedModelIdentity: "redact" },
+    limits: { maxEvidenceItems: 64, maxRecordChars: 8_000, maxInputChars: 200_000, maxOutputChars: 8_192, maxCitations: 8, maxWallClockMs: 5_000, maxTurns: 1 } });
+  const reports = evidence.dataset.events.filter(({ family, actor }) => family === "message" && actor.kind === "model");
+  assert.equal(reports.length, 2);
+  assert.ok(reports.every(({ id }) => request.selection.eventIds.includes(id)));
+});
+
+test("per-step negative uncached input cannot be hidden by a positive sibling step", async () => {
+  const source = fixture(), agents = steps(source).filter((step) => step.source === "agent");
+  const tuples = [[22, 20, 3], [18, 10, 0]];
+  agents.forEach((step, index) => { const [prompt, cache, write] = tuples[index]!;
+    const metrics = step.metrics as AtifObject; metrics.prompt_tokens = prompt; metrics.cached_tokens = cache; (metrics.extra as AtifObject).cache_write_tokens = write; });
+  const final = source.final_metrics as AtifObject; final.total_prompt_tokens = 40; final.total_cached_tokens = 30; (final.extra as AtifObject).cache_write_tokens = 3;
+  assert.deepEqual((await project(source)).mapping.measures["input-token-count"], { status: "unavailable", reason: "PI_INCLUSIVE_PROMPT_CONFLICT" });
+});
+
+test("embedded child operations preserve declared session and trajectory scopes", async () => {
+  const source = fixture(), child = fixture(); child.trajectory_id = "native-child-id";
+  ((steps(source)[1]!.observation as AtifObject).results as AtifObject[])[0]!.subagent_trajectory_ref = [{ trajectory_id: "native-child-id" }];
+  source.subagent_trajectories = [child];
+  const evidence = await project(source), operations = toolOperations(evidence.dataset.events);
+  assert.equal(operations.length, 4);
+  assert.equal(new Set(operations.map(({ scope }) => scope)).size, 2);
+  const childEvents = evidence.dataset.events.filter(({ source }) => source.nativeReference.recordLocator.startsWith("#/subagent_trajectories"));
+  assert.ok(childEvents.every(({ attributes }) => attributes.agentId === "native-child-id" && attributes.sessionId === "synthetic-pi-fixture"));
+  source.subagent_trajectories = [child, structuredClone(child)];
+  const ambiguous = await project(source);
+  assert.ok(ambiguous.mapping.limitations.includes("DUPLICATE_CHILD_TRAJECTORY_ID"));
+  assert.equal(ambiguous.dataset.events.some(({ source }) => source.nativeReference.recordLocator.startsWith("#/subagent_trajectories")), false);
+});
+
+
+test("aggregated step usage cannot prove component completeness even when every total is positive", async () => {
+  const source = fixture(); steps(source)[1]!.llm_call_count = 2;
+  const evidence = await project(source);
+  for (const id of ["input-token-count", "output-token-count", "cache-read-input-token-count"]) {
+    assert.deepEqual(evidence.mapping.measures[id], { status: "unavailable", reason: "USAGE_COMPONENT_COMPLETENESS_UNPROVEN" });
+  }
+  assert.ok(evidence.mapping.limitations.includes("USAGE_COMPONENT_COMPLETENESS_UNPROVEN"));
+});
+
+test("coerced copied flags and ordinal fields are rejected before a Pi behavior projection", async () => {
+  for (const value of ["true", 1, "false", 0]) {
+    const source = fixture(); steps(source)[1]!.is_copied_context = value;
+    await assert.rejects(project(source), /canonical flag and ordinal/u);
+  }
+  const source = fixture(); steps(source)[1]!.step_id = "2";
+  await assert.rejects(project(source), /canonical flag and ordinal/u);
 });
