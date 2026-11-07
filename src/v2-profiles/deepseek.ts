@@ -10,7 +10,7 @@ export const deepSeekV2Profile: NativeProjectionProfile = {
       content: known([{ nativeReference: { ...event.source.nativeReference, recordLocator: subrecordLocator(event.source.nativeReference.recordLocator, `/payload/event/data/message/content/${index}`) }, role: "tool-result" }]) }]);
   },
   project(context) {
-    const { event, record } = context, payload = object(record.payload), native = object(payload.event), data = object(native.data), message = object(data.message);
+    const { event, record } = context, payload = object(record.payload), native = object(payload.event), data = object(native.data), message = native.type === "user/message" ? data : object(data.message);
     const type = text(native.type), session = text(payload.sessionId) ?? text(record.sessionId);
     const scope = event.family === "delegation" && text(payload.parentSessionId) ? `session:${text(payload.parentSessionId)!}`
       : session ? `session:${session}` : `document:${event.source.nativeReference.artifactId}`;
@@ -43,16 +43,21 @@ export const deepSeekV2Profile: NativeProjectionProfile = {
     const nativeId = event.family === "tool" ? text(part.toolCallId) ?? text(data.callId) ?? text(object(message.source).callId)
       : event.family === "delegation" ? text(payload.childSessionId) : text(data.requestId);
     if (event.family === "model-request") facts.inference = { llmCallCount: unreported, nativeRequestId: nativeId ? known(nativeId) : unreported };
-    const requestScope = event.family === "model-request" && nativeId === undefined && Number.isSafeInteger(data.turn) && Number.isSafeInteger(data.step)
-      ? `${scope}/turn:${String(data.turn)}/step:${String(data.step)}` : scope;
+    const hasStep = Number.isSafeInteger(data.turn) && Number(data.turn) >= 0 && Number.isSafeInteger(data.step) && Number(data.step) >= 0;
+    const operationScope = event.family === "tool" || event.family === "model-request" && nativeId === undefined
+      ? hasStep ? `${scope}/turn:${String(data.turn)}/step:${String(data.step)}` : `${scope}/unresolved-step:${event.id}` : scope;
+    const recoveryUnknown = object(data.error).code === "TOOL_OUTCOME_UNKNOWN";
+    const effectiveEndpoint = recoveryUnknown ? "observation" : endpoint;
     const selectedPart = partIndex === undefined ? parts.indexOf(part) : Number(partIndex);
     const content = type === "tool/call" && data.arguments !== undefined ? pointedContent(context, "/payload/event/data/arguments", "tool-input")
       : type === "tool/result" && firstClass && message.content !== undefined ? pointedContent(context, "/payload/event/data/message/content", "tool-result")
         : type === "tool/result" && selectedPart >= 0 && part.content !== undefined ? pointedContent(context, `/payload/event/data/message/content/${selectedPart}/content`, "tool-result") : undefined;
-    return { facts, clock, nativeOrder, phase, ...(content ? { content } : {}), operation: { nativeId: nativeId ?? (requestScope !== scope ? "request-observation" : undefined),
-      ...(nativeId === undefined ? { identityClass: "ebo-derived" as const } : {}), scope: requestScope, endpoint, canonical: true,
+    return { facts, clock, nativeOrder, phase: recoveryUnknown ? "during" : phase, ...(content ? { content } : {}), operation: { nativeId: nativeId ?? (event.family === "model-request" && hasStep ? "request-observation" : undefined),
+      ...(nativeId === undefined ? { identityClass: "ebo-derived" as const } : {}), scope: operationScope, endpoint: effectiveEndpoint, canonical: true,
+      ...((event.family === "tool" || event.family === "model-request" && nativeId === undefined) && !hasStep ? { scopeStatus: "record-local" as const } : {}),
+      issuingInference: event.family === "tool" && hasStep ? known({ id: `turn:${String(data.turn)}/step:${String(data.step)}`, scope, identityClass: "model-output" }) : unreported,
       toolName: text(data.name), ...(data.arguments === undefined ? {} : { inputDigest: digestValue(data.arguments) }),
-      failure: endpoint !== "result" ? unreported : event.family === "delegation"
+      failure: effectiveEndpoint !== "result" ? unreported : event.family === "delegation"
         ? payload.status === "ok" ? known(false) : payload.status === "error" ? known(true) : unreported
         : resultFailure(part.isError, exit ? Number(exit[1]) : undefined) } };
   },

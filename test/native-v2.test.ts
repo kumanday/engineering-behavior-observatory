@@ -150,7 +150,7 @@ test("OpenHands action relations bind results with missing call IDs and preserve
 });
 test("DeepSeek separates multi-call results and retains nonzero exit failure despite a successful tool envelope", async () => {
   const record = (sequence: number, type: string, data: object) => ({ schemaVersion: "ebo.deepseek-native-observation/v1", sequence, method: "session.event", kind: "notification",
-    observedAt: "2026-11-07T00:00:00Z", payload: { sessionId: "s", event: { seq: sequence, type, time: 1794000000000, data } } });
+    observedAt: "2026-11-07T00:00:00Z", payload: { sessionId: "s", event: { seq: sequence, type, time: 1794000000000, data: { turn: 0, step: 1, ...data } } } });
   const docs = [record(1, "tool/call", { callId: "one", name: "bash", arguments: {} }), record(2, "tool/call", { callId: "two", name: "bash", arguments: {} }),
     record(3, "tool/result", { message: { content: [{ type: "tool_result", toolCallId: "one", isError: false, content: [{ text: "bad\n[exit code: 1]" }] },
       { type: "tool_result", toolCallId: "two", isError: false, content: [{ text: "ok\n[exit code: 0]" }] }] } })];
@@ -233,7 +233,7 @@ test("Claude inclusive resource totals use every model and preserve missing dime
 });
 test("DeepSeek pinned tool-role messages bind explicit failure and cite their output", async () => {
   const evidence = fixture("deepseek-harness", [{ sequence: 1, payload: { sessionId: "s", event: { seq: 1, type: "tool/result",
-    data: { message: { role: "tool", toolCallId: "call", isError: true, content: [{ type: "text", text: "failed" }] } } } } }],
+    data: { turn: 0, step: 1, message: { role: "tool", toolCallId: "call", isError: true, content: [{ type: "text", text: "failed" }] } } } } }],
     [{ record: 0, family: "tool", phase: "after" }]);
   const { dataset, resolver } = await project(evidence), operation = dataset.operations[0]!;
   assert.equal(operation.identity.nativeId, "call"); assert.deepEqual(operation.failure, { status: "known", value: true });
@@ -250,4 +250,29 @@ test("Pi preparation failures preserve partial model output without inventing an
   assert.deepEqual(facts.message!.completeness, { status: "known", value: "partial" });
   assert.equal(facts.inference!.llmCallCount.status, "unknown"); assert.equal(facts.inference!.nativeRequestId.status, "unknown");
   assert.equal(dataset.operations.filter(({ identity }) => identity.kind === "model-request").length, 0);
+});
+
+test("Cursor assistant stream deltas remain partial and shell exit status overrides the envelope", async () => {
+  const docs = [{ payload: { message: { type: "assistant", message: { content: [{ type: "text", text: "part" }] } } } },
+    { payload: { message: { type: "tool_call", call_id: "call", name: "shell", status: "completed", result: { status: "success", value: { exitCode: 1 } } } } }];
+  const { dataset } = await project(fixture("cursor-sdk", docs, [{ record: 0, family: "message" }, { record: 1, family: "tool", phase: "after" }]));
+  assert.deepEqual(dataset.events[0]!.facts.message!.completeness, { status: "known", value: "partial" });
+  assert.equal(dataset.events[0]!.facts.message!.representation, "fragment");
+  assert.deepEqual(dataset.operations[0]!.failure, { status: "known", value: true });
+});
+test("DeepSeek recovery has an unknown outcome and repeated IDs remain distinct across native steps", async () => {
+  const record = (seq: number, type: string, step: number, data: object) => ({ payload: { sessionId: "s", event: { seq, type, data: { turn: 0, step, ...data } } } });
+  const docs = [record(1, "tool/call", 1, { callId: "same", name: "bash", arguments: { command: "one" } }),
+    record(2, "tool/result", 1, { message: { role: "tool", toolCallId: "same", isError: true, content: [] } }),
+    record(3, "tool/call", 2, { callId: "same", name: "bash", arguments: { command: "two" } }),
+    record(4, "tool/result", 2, { error: { code: "TOOL_OUTCOME_UNKNOWN" }, message: { role: "tool", toolCallId: "same", isError: true, content: [] } }),
+    record(5, "user/message", 2, { id: "native-user", role: "user", content: [] })];
+  const { dataset } = await project(fixture("deepseek-harness", docs, [{ record: 0, family: "tool", phase: "before" }, { record: 1, family: "tool", phase: "after" },
+    { record: 2, family: "tool", phase: "before" }, { record: 3, family: "tool", phase: "after" }, { record: 4, family: "message" }]));
+  assert.equal(dataset.operations.length, 2);
+  const pending = dataset.operations.find(({ identity }) => identity.scope.endsWith("step:2"))!;
+  assert.equal(pending.failure.status, "unknown"); assert.equal(pending.resultEventIds.length, 0); assert.equal(pending.observationEventIds!.length, 1);
+  assert.equal(dataset.operations.find(({ identity }) => identity.scope.endsWith("step:1"))!.failure.status, "known");
+  const message = dataset.events.find(({ family }) => family === "message")!;
+  assert.equal(message.facts.message!.identity.status === "known" && message.facts.message!.identity.value.id, "native-user");
 });

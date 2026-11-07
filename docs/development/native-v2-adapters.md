@@ -32,10 +32,10 @@ value; a missing population identifier stays unknown.
 | Claude Agent SDK | Native tool-use IDs bind message blocks and uniquely scoped hook copies. Tool-batch callbacks remain aggregate runtime evidence. Session and parent-tool scopes distinguish child activity. |
 | Pi | Persisted issuing-message identities establish branch scope. Recorded tool calls remain visible when no execution result exists. Stream/history copies join only with an established source binding. A shared model-output boundary groups sibling calls without asserting an inference count. Preparation failures remain partial. Observer-generated provider labels are EBO-derived identities. |
 | Codex | Item identities bind within native thread and turn scopes. Owned started items survive as pending calls. Foreign thread and turn notifications remain retained evidence. Per-request usage increments and cumulative session snapshots remain separate. |
-| DeepSeek Harness | Session events retain their native sequence domain. Pinned tool-role results and retained multi-call result messages preserve their explicit tool bindings. Transport recorder order supplies no missing native precedence. |
+| DeepSeek Harness | Session events retain their native sequence domain. Pinned tool-role results and retained multi-call result messages preserve their explicit tool bindings. Turn and step distinguish reused call IDs. Recovery observations with unknown outcomes retain unknown failure. Transport recorder order supplies no missing native precedence. |
 | OpenHands | Conversation scope and native action/observation relations bind operations. Source timestamps remain producer observations. REST and WebSocket evidence keep their declared order domains. |
 | Factory Droid | Session scope binds tool-use IDs. Session snapshots and owned-turn totals inclusive of children retain separate resource scopes. |
-| Cursor | Missing tool status remains a partial observation. Collector sequence is presentation order. Tool success requires explicit source result evidence. |
+| Cursor | Missing tool status remains a partial observation. Collector sequence is presentation order. Streamed assistant deltas remain fragments. Shell process exit codes qualify the successful tool envelope. |
 | Devin CLI/ACP | Session tool-call IDs bind terminal updates, including a previously recorded terminal exit. Message chunks remain partial; receipt clocks retain their own provenance. |
 
 The derivation records the executed harness separately from source-container,
