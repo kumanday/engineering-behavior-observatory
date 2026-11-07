@@ -13,6 +13,8 @@ export type ClockValue = {
   source: NativeEvidenceReference;
 };
 export type ClockEvidence = EvidenceValue<ClockValue>;
+export type OrderPosition = { runId: string; attemptId: string; nativeOrder: NativeOrderEvidence };
+export type ClockPosition = { runId: string; attemptId: string; clock: ClockEvidence };
 export type Precedence = "before" | "after" | "same-observation" | "unknown";
 export type SourceIdentityV2 = {
   id: string;
@@ -93,18 +95,27 @@ export type NormalizedDatasetV2 = {
 };
 
 /** Source-local precedence only. Event IDs, array positions and clocks never provide missing order. */
-export function precedes(a: NativeOrderEvidence, b: NativeOrderEvidence): Precedence {
+export function precedes(first: OrderPosition, second: OrderPosition): Precedence {
+  if (first.runId !== second.runId || first.attemptId !== second.attemptId) return "unknown";
+  const a = first.nativeOrder, b = second.nativeOrder;
   if (a.status !== "known" || b.status !== "known" || a.domain !== b.domain
       || !Number.isSafeInteger(a.value) || !Number.isSafeInteger(b.value) || a.value < 0 || b.value < 0) return "unknown";
   return a.value < b.value ? "before" : a.value > b.value ? "after" : "same-observation";
 }
 
 /** Recorded execution clocks can support duration only within an explicitly shared domain. */
-export function executionDurationMs(start: ClockEvidence, end: ClockEvidence): EvidenceValue<number> {
+export function executionDurationMs(firstPosition: ClockPosition, lastPosition: ClockPosition): EvidenceValue<number> {
+  if (firstPosition.runId !== lastPosition.runId || firstPosition.attemptId !== lastPosition.attemptId) return {status:"unknown",reason:"DIFFERENT_EXECUTION_ATTEMPTS"};
+  const start = firstPosition.clock, end = lastPosition.clock;
   if (start.status !== "known" || end.status !== "known" || start.value.kind !== "execution" || end.value.kind !== "execution"
       || start.value.domain !== end.value.domain || start.value.provenance !== "source-recorded" || end.value.provenance !== "source-recorded") {
     return { status: "unknown", reason: "COMPARABLE_RECORDED_EXECUTION_CLOCKS_REQUIRED" };
   }
+  const submillisecond = (timestamp: string) => {
+    const fraction = /\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/u.exec(timestamp)?.[1];
+    return fraction !== undefined && /[1-9]/u.test(fraction.slice(3));
+  };
+  if (submillisecond(start.value.timestamp) || submillisecond(end.value.timestamp)) return {status:"unknown",reason:"SUBMILLISECOND_CLOCK_PRECISION_UNSUPPORTED"};
   const first = Date.parse(start.value.timestamp), last = Date.parse(end.value.timestamp);
   if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return { status: "unknown", reason: "INVALID_OR_REVERSED_EXECUTION_CLOCKS" };
   if (start.value.precisionMs !== 0 || end.value.precisionMs !== 0) return { status: "unknown", reason: "EXACT_DURATION_UNAVAILABLE_AT_RECORDED_PRECISION" };
@@ -132,15 +143,25 @@ export async function validateNormalizedDatasetV2(dataset: NormalizedDatasetV2, 
   if (events.size !== dataset.events.length) throw new Error("Duplicate v2 event identity.");
   const operations = new Map(dataset.operations.map((operation) => [operation.id, operation]));
   if (operations.size !== dataset.operations.length) throw new Error("Duplicate v2 operation identity.");
+  const referenceKey = (reference: NativeEvidenceReference) => JSON.stringify([reference.artifactId, reference.recordLocator]);
+  const coveringReferences = (reference: NativeEvidenceReference) => {
+    const keys: string[] = []; let locator: string | undefined = reference.recordLocator;
+    while (locator !== undefined) {
+      keys.push(referenceKey({artifactId:reference.artifactId,recordLocator:locator}));
+      if (locator === "#" || /^line:[1-9][0-9]*$/u.test(locator)) break;
+      const slash = locator.lastIndexOf("/");
+      if (locator.startsWith("#/")) locator = slash > 1 ? locator.slice(0, slash) : "#";
+      else if (/^line:[1-9][0-9]*#\//u.test(locator)) locator = slash > locator.indexOf("#") + 1 ? locator.slice(0, slash) : locator.slice(0, locator.indexOf("#"));
+      else locator = undefined;
+    }
+    return keys;
+  };
   const inventory = new Set<string>();
   for (const record of dataset.nativeRecords) {
-    const key = JSON.stringify(record.reference);
+    const key = referenceKey(record.reference);
     if (inventory.has(key)) throw new Error("Duplicate v2 native record reference."); inventory.add(key);
   }
-  const isCovered = (reference: NativeEvidenceReference) => dataset.nativeRecords.some(({reference: parent}) => parent.artifactId === reference.artifactId
-    && (parent.recordLocator === reference.recordLocator || parent.recordLocator === "#" && reference.recordLocator.startsWith("#/")
-      || parent.recordLocator.startsWith("#/") && reference.recordLocator.startsWith(`${parent.recordLocator}/`)
-      || /^line:[1-9][0-9]*$/u.test(parent.recordLocator) && reference.recordLocator.startsWith(`${parent.recordLocator}#/`)));
+  const isCovered = (reference: NativeEvidenceReference) => coveringReferences(reference).some((key) => inventory.has(key));
   const resolveReference = async (reference: NativeEvidenceReference, expectedDigest?: Hash) => {
     if (!isCovered(reference)) throw new Error("V2 evidence reference is outside the digest-bound native inventory.");
     const result = await resolver.resolve(reference);
@@ -148,20 +169,22 @@ export async function validateNormalizedDatasetV2(dataset: NormalizedDatasetV2, 
         || expectedDigest !== undefined && result.digest !== expectedDigest) throw new Error("V2 evidence reference is unresolved, cross-attempt or stale.");
   };
   for (const record of [...dataset.nativeRecords, ...dataset.contentReferences]) await resolveReference(record.reference, record.digest);
-  const recordCoverage = new Map(dataset.recordCoverage.map((record) => [JSON.stringify(record.reference), record]));
+  const recordCoverage = new Map(dataset.recordCoverage.map((record) => [referenceKey(record.reference), record]));
   if (recordCoverage.size !== dataset.recordCoverage.length || recordCoverage.size !== inventory.size || [...inventory].some((key) => !recordCoverage.has(key))) throw new Error("V2 native record coverage differs from its inventory.");
+  const mappedEvents = new Set<string>();
   for (const record of dataset.recordCoverage) {
     if (record.disposition === "mapped" ? !record.eventIds.length : record.eventIds.length !== 0 || record.reason.status !== "known") throw new Error("V2 native record coverage is inconsistent.");
-    if (new Set(record.eventIds).size !== record.eventIds.length || record.eventIds.some((id) => !events.has(id))) throw new Error("V2 native record mapping has unresolved events.");
+    if (new Set(record.eventIds).size !== record.eventIds.length) throw new Error("V2 native record mapping has duplicate events.");
+    for (const id of record.eventIds) {
+      const event = events.get(id);
+      if (!event || !coveringReferences(event.source.nativeReference).includes(referenceKey(record.reference))) throw new Error("V2 native record mapping has unresolved or unrelated events.");
+      mappedEvents.add(id);
+    }
   }
   for (const event of dataset.events) {
     if (event.runId !== dataset.runId || event.attemptId !== dataset.attemptId || !sources.has(event.source.sourceId)) throw new Error("V2 event source or attempt identity is unresolved.");
     if (event.facts.message && event.family !== "message" || event.facts.context && event.family !== "context") throw new Error("V2 typed facts disagree with the event family.");
-    if (!dataset.recordCoverage.some((record) => record.disposition === "mapped" && record.eventIds.includes(event.id)
-        && record.reference.artifactId === event.source.nativeReference.artifactId && (record.reference.recordLocator === event.source.nativeReference.recordLocator
-          || record.reference.recordLocator === "#" && event.source.nativeReference.recordLocator.startsWith("#/")
-          || record.reference.recordLocator.startsWith("#/") && event.source.nativeReference.recordLocator.startsWith(`${record.reference.recordLocator}/`)
-          || /^line:[1-9][0-9]*$/u.test(record.reference.recordLocator) && event.source.nativeReference.recordLocator.startsWith(`${record.reference.recordLocator}#/`)))) throw new Error("V2 event is absent from its native record mapping.");
+    if (!mappedEvents.has(event.id)) throw new Error("V2 event is absent from its native record mapping.");
     await resolveReference(event.source.nativeReference);
     if (event.clock.status === "known") await resolveReference(event.clock.value.source);
     if (event.content.status === "known") for (const content of event.content.value) await resolveReference(content.nativeReference);
@@ -175,11 +198,14 @@ export async function validateNormalizedDatasetV2(dataset: NormalizedDatasetV2, 
       if (!events.has(boundary.previousEventId) || !events.has(boundary.nextEventId)) throw new Error("V2 context boundary is unresolved.");
     }
   }
+  const endpointMembership = new Map<string, {calls:Set<string>;results:Set<string>;all:Set<string>}>();
   for (const operation of dataset.operations) {
     const identity = operation.identity;
     if (operation.id !== operationId(identity) || identity.runId !== dataset.runId || identity.attemptId !== dataset.attemptId || !sources.has(identity.sourceId)) throw new Error("V2 operation identity is stale or cross-attempt.");
     if (operation.failure.status === "known" && operation.resultEventIds.length === 0) throw new Error("A pending v2 operation has no known failure result.");
     const ids = [...operation.callEventIds, ...operation.resultEventIds];
+    const calls = new Set(operation.callEventIds), results = new Set(operation.resultEventIds), all = new Set(ids);
+    endpointMembership.set(operation.id, {calls,results,all});
     if (!ids.length || new Set(ids).size !== ids.length) throw new Error("V2 operation endpoints are empty or duplicated.");
     for (const [order, endpoints] of [[operation.startOrder, operation.callEventIds], [operation.endOrder, operation.resultEventIds]] as const) {
       if (order.status === "known" && !endpoints.some((id) => {
@@ -188,18 +214,19 @@ export async function validateNormalizedDatasetV2(dataset: NormalizedDatasetV2, 
     }
     for (const id of ids) {
       const event = events.get(id);
-      if (!event || operation.callEventIds.includes(id) && event.phase === "after" || operation.resultEventIds.includes(id) && event.phase === "before"
+      if (!event || calls.has(id) && event.phase === "after" || results.has(id) && event.phase === "before"
           || event.scope.kind !== "operation" || event.scope.id !== operation.id || event.source.sourceId !== identity.sourceId || event.family !== identity.kind) throw new Error("V2 operation endpoint does not belong to its explicit scope.");
     }
   }
   for (const event of dataset.events) if (event.scope.kind === "operation") {
     const operation = operations.get(event.scope.id ?? "");
-    if (!operation || ![...operation.callEventIds, ...operation.resultEventIds].includes(event.id)) throw new Error("V2 operation scope does not retain its event endpoint.");
+    if (!operation || !endpointMembership.get(operation.id)?.all.has(event.id)) throw new Error("V2 operation scope does not retain its event endpoint.");
   }
   const measurements = new Set<string>();
   for (const measure of dataset.measurements) {
-    const key = JSON.stringify([measure.id, measure.scope]);
+    const key = JSON.stringify([measure.id, measure.scope.kind, measure.scope.id]);
     if (measurements.has(key)) throw new Error("Duplicate v2 measurement scope."); measurements.add(key);
+    if (measure.scope.kind === "attempt" && measure.scope.id !== dataset.attemptId) throw new Error("V2 measurement belongs to a different attempt.");
     const expected = measure.value.status === "known" ? "exact" : measure.value.status === "lower-bound" ? "partial" : "unavailable";
     if (dataset.origin.kind === "imported" && measure.scope.kind === "attempt" && measure.value.status === "known") throw new Error("Imported evidence cannot assert exact complete-attempt measurements.");
     if (measure.coverage !== expected || measure.sourceEventIds.some((id) => !events.has(id))) throw new Error("V2 measurement coverage or citation is inconsistent.");

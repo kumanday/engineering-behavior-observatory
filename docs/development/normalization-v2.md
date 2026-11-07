@@ -31,16 +31,15 @@ names that operation scope. Pending calls retain unknown failure; known failure
 status requires a result endpoint. Operation order must be recorded on its
 endpoint events. Consumers do not reconstruct operations from attribute aliases.
 
-`precedes` compares safe ordinal positions only in the same established native
+`precedes` accepts positions carrying run, attempt and native order. It compares safe ordinal positions only in the same established native
 order domain. Equal positions mean the same observation, which covers calls
 from one declared inference. Different domains remain incomparable. Stable
 presentation order, event IDs, timestamps and receipt order supply no missing
 behavioral precedence.
 
 Clock evidence declares execution, producer-observation or receipt time, its
-clock domain, precision, provenance and source record. `executionDurationMs`
-requires source-recorded execution clocks in one domain with sufficient precision
-for an exact millisecond duration. Receipt and converter-derived times remain
+clock domain, precision, provenance and source record. `executionDurationMs` accepts positions carrying run, attempt and clock evidence. It requires source-recorded execution clocks in one domain with sufficient precision
+for an exact millisecond duration. Submillisecond timestamps that cannot be represented by that calculation remain unknown. Positions from different attempts never compare. Receipt and converter-derived times remain
 useful observations without becoming execution clocks.
 
 `validateNormalizedDatasetV2` verifies the schema, source authority, explicit
