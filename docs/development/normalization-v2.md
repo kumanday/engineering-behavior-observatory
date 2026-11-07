@@ -30,6 +30,13 @@ prevents equal call IDs in sibling documents from joining. Every endpoint event
 names that operation scope. Auxiliary permission, runtime or context events can retain an operation association without becoming call/result endpoints. Pending calls retain unknown failure; known failure
 status requires a result endpoint. Operation order must be recorded on its
 endpoint events. Consumers do not reconstruct operations from attribute aliases.
+Partial updates have separate `observationEventIds`; an update can identify a
+pending operation without becoming a completed result. Message facts identify
+canonical records and fragments. Resource facts carry normalized dimensions,
+scope and increment/snapshot/final semantics.
+
+[Native v2 adapters](native-v2-adapters.md) provide the explicit retained-bundle
+projection API and source-specific operation bindings.
 
 `precedes` accepts positions carrying run, attempt and native order. It compares safe ordinal positions only in the same established native
 order domain. Equal positions mean the same observation, which covers calls

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { createCodexHarborExecutor } from "../src/harbor/harnesses.js";
 import { harborStepFixture } from "./harbor-step-helper.js";
 
@@ -10,10 +11,11 @@ test("Harbor Codex wrapper captures native app-server evidence from its exact wo
     const input = harborStepFixture(root, "codex-app-server");
     const result = await createCodexHarborExecutor({ studyRoot: queueFixture.bundleRoot,
       configuration: { ...queue.entries[0].configuration, captureProfile: queue.captureProfile },
-      probeRuntime: async () => ({ path: process.execPath, version: `codex-cli ${CODEX_APP_SERVER_VERSION}` }), executableArgs: [fixture] })(input);
+      probeRuntime: async () => ({ path: process.execPath, version: `codex-cli ${CODEX_APP_SERVER_VERSION}` }), executableArgs: [fixture, `--codex-version=${CODEX_APP_SERVER_VERSION}`] })(input);
     assert.equal(result.terminal.state, "completed");
     assert.equal(result.qualification, "qualified");
     assert.equal(result.nativeSessionId, "thread-1");
+    await assertNativeV2RetainedBundle(input.stepBundleRoot);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 import { spawn } from "node:child_process";

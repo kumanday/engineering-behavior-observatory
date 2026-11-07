@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -48,6 +49,7 @@ test("Harbor DeepSeek wrapper qualifies official-client session and workspace ev
     assert.equal(result.qualification, "qualified");
     assert.equal(result.nativeSessionId, "harbor-attempt-step-1");
     assert.ok((await createRetainedBehaviorEvidence(input.stepBundleRoot)).dataset.events.length > 0);
+    await assertNativeV2RetainedBundle(input.stepBundleRoot);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

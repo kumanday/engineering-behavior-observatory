@@ -40,6 +40,8 @@ export type Operation = {
   identity: OperationIdentity;
   callEventIds: string[];
   resultEventIds: string[];
+  /** Partial updates retain their association without becoming call or completed-result endpoints. */
+  observationEventIds?: string[];
   toolName: EvidenceValue<string>;
   inputDigest: EvidenceValue<Hash>;
   failure: EvidenceValue<boolean>;
@@ -48,11 +50,14 @@ export type Operation = {
   endOrder: NativeOrderEvidence;
 };
 export type EventFactsV2 = {
-  message?: { role: EvidenceValue<"user" | "assistant" | "system" | "tool">; completeness: EvidenceValue<"complete" | "partial"> };
+  message?: { role: EvidenceValue<"user" | "assistant" | "system" | "tool">; completeness: EvidenceValue<"complete" | "partial">;
+    representation: "canonical" | "duplicate" | "fragment" | "unknown";
+    identity: EvidenceValue<{ id: string; scope: string; identityClass: OperationIdentity["identityClass"] }> };
   context?: { type: "compaction" | "summarization" | "delegation" | "conversion-gap" | "other";
     replacementBoundary: EvidenceValue<{ previousEventId: string; nextEventId: string }> };
   inference?: { llmCallCount: EvidenceValue<number>; nativeRequestId: EvidenceValue<string> };
-  resource?: { scope: "attempt" | "session" | "step" | "operation" | "child-inclusive"; authority: "native" | "converter" | "estimated" };
+  resource?: { scope: "attempt" | "session" | "step" | "operation" | "child-inclusive"; authority: "native" | "converter" | "estimated";
+    semantics: "increment" | "cumulative-snapshot" | "cumulative-final" | "unknown"; values: Record<string, number> };
 };
 export type UniformEventV2 = Omit<UniformEvent, "schemaVersion" | "source" | "nativeTime" | "attributes"> & {
   schemaVersion: "ebo.uniform-event/v2";
@@ -220,7 +225,9 @@ export async function validateNormalizedDatasetV2(dataset: NormalizedDatasetV2, 
     const identity = operation.identity;
     if (operation.id !== operationId(identity) || identity.runId !== dataset.runId || identity.attemptId !== dataset.attemptId || !sources.has(identity.sourceId)) throw new Error("V2 operation identity is stale or cross-attempt.");
     if (operation.failure.status === "known" && operation.resultEventIds.length === 0) throw new Error("A pending v2 operation has no known failure result.");
-    const ids = [...operation.callEventIds, ...operation.resultEventIds];
+    const observations = operation.observationEventIds ?? [];
+    const observationSet = new Set(observations);
+    const ids = [...operation.callEventIds, ...operation.resultEventIds, ...observations];
     const calls = new Set(operation.callEventIds), results = new Set(operation.resultEventIds), all = new Set(ids);
     endpointMembership.set(operation.id, {calls,results,all});
     if (!ids.length || new Set(ids).size !== ids.length) throw new Error("V2 operation endpoints are empty or duplicated.");
@@ -232,12 +239,14 @@ export async function validateNormalizedDatasetV2(dataset: NormalizedDatasetV2, 
     for (const id of ids) {
       const event = events.get(id);
       if (!event || calls.has(id) && event.phase === "after" || results.has(id) && event.phase === "before"
+          || observationSet.has(id) && (event.phase === "before" || event.phase === "after")
           || event.scope.kind !== "operation" || event.scope.id !== operation.id || event.source.sourceId !== identity.sourceId || event.family !== identity.kind) throw new Error("V2 operation endpoint does not belong to its explicit scope.");
     }
   }
   for (const event of dataset.events) if (event.scope.kind === "operation") {
     const operation = operations.get(event.scope.id ?? "");
     if (!operation) throw new Error("V2 operation scope is unresolved.");
+    if (operation.identity.sourceId !== event.source.sourceId) throw new Error("V2 operation association belongs to another source.");
     if (["tool", "model-request", "delegation"].includes(event.family) && !endpointMembership.get(operation.id)?.all.has(event.id)) throw new Error("V2 operation scope does not retain its event endpoint.");
   }
   const measurements = new Set<string>();

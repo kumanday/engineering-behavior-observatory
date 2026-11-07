@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -76,6 +77,7 @@ test("runs a frozen observational Pi entry through capture, export, retained eva
     assert.deepEqual(composition.tools.active, ["read", "bash", "edit", "write"]);
 
     const evidence = await createRetainedBehaviorEvidence(summary.bundlePath);
+    await assertNativeV2RetainedBundle(summary.bundlePath);
     assert.equal(evidence.dataset.adapter.harness, PI_HARNESS);
     assert.equal(evidence.dataset.adapter.version, PI_NORMALIZATION_ADAPTER_VERSION);
     assert.equal(manifest.run.runtime.find(({ name }) => name === "pi-sdk-adapter")?.version, PI_ADAPTER_VERSION);

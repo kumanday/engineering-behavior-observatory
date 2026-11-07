@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -489,6 +490,7 @@ test("captureDevinCliRun retains a crashed child as a valid failed partial bundl
     assert.equal(result.qualification.status, "qualified-with-gaps");
     assert.equal((await qualifyRunBundle(bundleRoot, { startingWorkspacePath: startingWorkspace, semanticEvidenceKinds: ["session"], relatedSessionIds: [] })).status, "qualified-with-gaps");
     const evidence = await createRetainedBehaviorEvidence(bundleRoot);
+    await assertNativeV2RetainedBundle(bundleRoot);
     assert.equal(evidence.capture.qualification, "qualified-with-gaps");
     assert.equal(evidence.dataset.events.some(({ family }) => family === "outcome"), false, "no invented terminal without an owned prompt response");
     await createRetainedStructuralObservationSet(bundleRoot);

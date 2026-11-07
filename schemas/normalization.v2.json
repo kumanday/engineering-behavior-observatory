@@ -467,6 +467,16 @@
               }
             }
           ]
+        },
+        "observationEventIds": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": ".*\\S.*"
+          }
         }
       }
     },
@@ -721,107 +731,7 @@
           "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/content"
         },
         "clock": {
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "value"
-              ],
-              "properties": {
-                "status": {
-                  "const": "known"
-                },
-                "value": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "timestamp",
-                    "kind",
-                    "domain",
-                    "precisionMs",
-                    "provenance",
-                    "source"
-                  ],
-                  "properties": {
-                    "timestamp": {
-                      "type": "string",
-                      "format": "date-time"
-                    },
-                    "kind": {
-                      "enum": [
-                        "execution",
-                        "producer-observation",
-                        "receipt"
-                      ]
-                    },
-                    "domain": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 4096,
-                      "pattern": ".*\\S.*"
-                    },
-                    "precisionMs": {
-                      "type": "number",
-                      "minimum": 0
-                    },
-                    "provenance": {
-                      "enum": [
-                        "source-recorded",
-                        "converter-derived",
-                        "ebo-derived"
-                      ]
-                    },
-                    "source": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": [
-                        "artifactId",
-                        "recordLocator"
-                      ],
-                      "properties": {
-                        "artifactId": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 4096,
-                          "pattern": ".*\\S.*"
-                        },
-                        "recordLocator": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 4096,
-                          "pattern": ".*\\S.*"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "reason"
-              ],
-              "properties": {
-                "status": {
-                  "enum": [
-                    "unknown",
-                    "unsupported"
-                  ]
-                },
-                "reason": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 4096,
-                  "pattern": ".*\\S.*"
-                }
-              }
-            }
-          ]
+          "$ref": "#/$defs/clock"
         },
         "facts": {
           "type": "object",
@@ -833,7 +743,9 @@
               "additionalProperties": false,
               "required": [
                 "role",
-                "completeness"
+                "completeness",
+                "representation",
+                "identity"
               ],
               "properties": {
                 "role": {
@@ -901,6 +813,83 @@
                             "complete",
                             "partial"
                           ]
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "status",
+                        "reason"
+                      ],
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "unknown",
+                            "unsupported"
+                          ]
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "pattern": ".*\\S.*"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "representation": {
+                  "enum": [
+                    "canonical",
+                    "duplicate",
+                    "fragment",
+                    "unknown"
+                  ]
+                },
+                "identity": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "status",
+                        "value"
+                      ],
+                      "properties": {
+                        "status": {
+                          "const": "known"
+                        },
+                        "value": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "id",
+                            "scope",
+                            "identityClass"
+                          ],
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096,
+                              "pattern": ".*\\S.*"
+                            },
+                            "scope": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096,
+                              "pattern": ".*\\S.*"
+                            },
+                            "identityClass": {
+                              "enum": [
+                                "source-native",
+                                "converter-assigned",
+                                "ebo-derived"
+                              ]
+                            }
+                          }
                         }
                       }
                     },
@@ -1114,7 +1103,9 @@
               "additionalProperties": false,
               "required": [
                 "scope",
-                "authority"
+                "authority",
+                "semantics",
+                "values"
               ],
               "properties": {
                 "scope": {
@@ -1132,6 +1123,22 @@
                     "converter",
                     "estimated"
                   ]
+                },
+                "semantics": {
+                  "enum": [
+                    "increment",
+                    "cumulative-snapshot",
+                    "cumulative-final",
+                    "unknown"
+                  ]
+                },
+                "values": {
+                  "type": "object",
+                  "maxProperties": 64,
+                  "additionalProperties": {
+                    "type": "number",
+                    "minimum": 0
+                  }
                 }
               }
             }
@@ -1458,1223 +1465,21 @@
           "type": "array",
           "maxItems": 1000000,
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "schemaVersion",
-              "id",
-              "runId",
-              "attemptId",
-              "source",
-              "nativeOrder",
-              "actor",
-              "family",
-              "phase",
-              "scope",
-              "relations",
-              "attributes",
-              "content",
-              "clock",
-              "facts"
-            ],
-            "properties": {
-              "schemaVersion": {
-                "const": "ebo.uniform-event/v2"
-              },
-              "id": {
-                "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/identifier"
-              },
-              "runId": {
-                "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/identifier"
-              },
-              "attemptId": {
-                "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/identifier"
-              },
-              "source": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "sourceId",
-                  "nativeType",
-                  "nativeReference"
-                ],
-                "properties": {
-                  "sourceId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096,
-                    "pattern": ".*\\S.*"
-                  },
-                  "nativeType": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096,
-                    "pattern": ".*\\S.*"
-                  },
-                  "nativeReference": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "artifactId",
-                      "recordLocator"
-                    ],
-                    "properties": {
-                      "artifactId": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      },
-                      "recordLocator": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  }
-                }
-              },
-              "nativeOrder": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "value",
-                      "domain"
-                    ],
-                    "properties": {
-                      "status": {
-                        "const": "known"
-                      },
-                      "value": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      "domain": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "reason"
-                    ],
-                    "properties": {
-                      "status": {
-                        "enum": [
-                          "unknown",
-                          "unsupported"
-                        ]
-                      },
-                      "reason": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  }
-                ]
-              },
-              "actor": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "user",
-                      "agent",
-                      "model",
-                      "tool",
-                      "harness",
-                      "operator",
-                      "system"
-                    ]
-                  },
-                  "id": {
-                    "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/identifier"
-                  }
-                }
-              },
-              "family": {
-                "enum": [
-                  "message",
-                  "model-request",
-                  "tool",
-                  "context",
-                  "permission",
-                  "delegation",
-                  "artifact",
-                  "validation",
-                  "runtime",
-                  "outcome"
-                ]
-              },
-              "phase": {
-                "enum": [
-                  "before",
-                  "during",
-                  "after",
-                  "instant"
-                ]
-              },
-              "scope": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "run",
-                      "attempt",
-                      "session",
-                      "turn",
-                      "operation",
-                      "workspace",
-                      "artifact"
-                    ]
-                  },
-                  "id": {
-                    "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/identifier"
-                  }
-                }
-              },
-              "relations": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "parent",
-                  "known"
-                ],
-                "properties": {
-                  "parent": {
-                    "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/eventIdentity"
-                  },
-                  "known": {
-                    "type": "array",
-                    "maxItems": 131072,
-                    "items": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": [
-                        "kind",
-                        "eventId"
-                      ],
-                      "properties": {
-                        "kind": {
-                          "enum": [
-                            "child",
-                            "caused-by",
-                            "correlates-with"
-                          ]
-                        },
-                        "eventId": {
-                          "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/identifier"
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              "attributes": {
-                "type": "object",
-                "maxProperties": 32,
-                "propertyNames": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 64,
-                  "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"
-                },
-                "additionalProperties": {
-                  "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/attributeValue"
-                }
-              },
-              "content": {
-                "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/content"
-              },
-              "clock": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "value"
-                    ],
-                    "properties": {
-                      "status": {
-                        "const": "known"
-                      },
-                      "value": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "timestamp",
-                          "kind",
-                          "domain",
-                          "precisionMs",
-                          "provenance",
-                          "source"
-                        ],
-                        "properties": {
-                          "timestamp": {
-                            "type": "string",
-                            "format": "date-time"
-                          },
-                          "kind": {
-                            "enum": [
-                              "execution",
-                              "producer-observation",
-                              "receipt"
-                            ]
-                          },
-                          "domain": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 4096,
-                            "pattern": ".*\\S.*"
-                          },
-                          "precisionMs": {
-                            "type": "number",
-                            "minimum": 0
-                          },
-                          "provenance": {
-                            "enum": [
-                              "source-recorded",
-                              "converter-derived",
-                              "ebo-derived"
-                            ]
-                          },
-                          "source": {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "artifactId",
-                              "recordLocator"
-                            ],
-                            "properties": {
-                              "artifactId": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 4096,
-                                "pattern": ".*\\S.*"
-                              },
-                              "recordLocator": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 4096,
-                                "pattern": ".*\\S.*"
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "reason"
-                    ],
-                    "properties": {
-                      "status": {
-                        "enum": [
-                          "unknown",
-                          "unsupported"
-                        ]
-                      },
-                      "reason": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  }
-                ]
-              },
-              "facts": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [],
-                "properties": {
-                  "message": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "role",
-                      "completeness"
-                    ],
-                    "properties": {
-                      "role": {
-                        "oneOf": [
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "status",
-                              "value"
-                            ],
-                            "properties": {
-                              "status": {
-                                "const": "known"
-                              },
-                              "value": {
-                                "enum": [
-                                  "user",
-                                  "assistant",
-                                  "system",
-                                  "tool"
-                                ]
-                              }
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "status",
-                              "reason"
-                            ],
-                            "properties": {
-                              "status": {
-                                "enum": [
-                                  "unknown",
-                                  "unsupported"
-                                ]
-                              },
-                              "reason": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 4096,
-                                "pattern": ".*\\S.*"
-                              }
-                            }
-                          }
-                        ]
-                      },
-                      "completeness": {
-                        "oneOf": [
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "status",
-                              "value"
-                            ],
-                            "properties": {
-                              "status": {
-                                "const": "known"
-                              },
-                              "value": {
-                                "enum": [
-                                  "complete",
-                                  "partial"
-                                ]
-                              }
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "status",
-                              "reason"
-                            ],
-                            "properties": {
-                              "status": {
-                                "enum": [
-                                  "unknown",
-                                  "unsupported"
-                                ]
-                              },
-                              "reason": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 4096,
-                                "pattern": ".*\\S.*"
-                              }
-                            }
-                          }
-                        ]
-                      }
-                    }
-                  },
-                  "context": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "type",
-                      "replacementBoundary"
-                    ],
-                    "properties": {
-                      "type": {
-                        "enum": [
-                          "compaction",
-                          "summarization",
-                          "delegation",
-                          "conversion-gap",
-                          "other"
-                        ]
-                      },
-                      "replacementBoundary": {
-                        "oneOf": [
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "status",
-                              "value"
-                            ],
-                            "properties": {
-                              "status": {
-                                "const": "known"
-                              },
-                              "value": {
-                                "type": "object",
-                                "additionalProperties": false,
-                                "required": [
-                                  "previousEventId",
-                                  "nextEventId"
-                                ],
-                                "properties": {
-                                  "previousEventId": {
-                                    "type": "string",
-                                    "minLength": 1,
-                                    "maxLength": 4096,
-                                    "pattern": ".*\\S.*"
-                                  },
-                                  "nextEventId": {
-                                    "type": "string",
-                                    "minLength": 1,
-                                    "maxLength": 4096,
-                                    "pattern": ".*\\S.*"
-                                  }
-                                }
-                              }
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "status",
-                              "reason"
-                            ],
-                            "properties": {
-                              "status": {
-                                "enum": [
-                                  "unknown",
-                                  "unsupported"
-                                ]
-                              },
-                              "reason": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 4096,
-                                "pattern": ".*\\S.*"
-                              }
-                            }
-                          }
-                        ]
-                      }
-                    }
-                  },
-                  "inference": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "llmCallCount",
-                      "nativeRequestId"
-                    ],
-                    "properties": {
-                      "llmCallCount": {
-                        "oneOf": [
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "status",
-                              "value"
-                            ],
-                            "properties": {
-                              "status": {
-                                "const": "known"
-                              },
-                              "value": {
-                                "type": "integer",
-                                "minimum": 0,
-                                "maximum": 9007199254740991
-                              }
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "status",
-                              "reason"
-                            ],
-                            "properties": {
-                              "status": {
-                                "enum": [
-                                  "unknown",
-                                  "unsupported"
-                                ]
-                              },
-                              "reason": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 4096,
-                                "pattern": ".*\\S.*"
-                              }
-                            }
-                          }
-                        ]
-                      },
-                      "nativeRequestId": {
-                        "oneOf": [
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "status",
-                              "value"
-                            ],
-                            "properties": {
-                              "status": {
-                                "const": "known"
-                              },
-                              "value": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 4096,
-                                "pattern": ".*\\S.*"
-                              }
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "status",
-                              "reason"
-                            ],
-                            "properties": {
-                              "status": {
-                                "enum": [
-                                  "unknown",
-                                  "unsupported"
-                                ]
-                              },
-                              "reason": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 4096,
-                                "pattern": ".*\\S.*"
-                              }
-                            }
-                          }
-                        ]
-                      }
-                    }
-                  },
-                  "resource": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "scope",
-                      "authority"
-                    ],
-                    "properties": {
-                      "scope": {
-                        "enum": [
-                          "attempt",
-                          "session",
-                          "step",
-                          "operation",
-                          "child-inclusive"
-                        ]
-                      },
-                      "authority": {
-                        "enum": [
-                          "native",
-                          "converter",
-                          "estimated"
-                        ]
-                      }
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/$defs/event"
           }
         },
         "operations": {
           "type": "array",
           "maxItems": 1000000,
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "schemaVersion",
-              "id",
-              "identity",
-              "callEventIds",
-              "resultEventIds",
-              "toolName",
-              "inputDigest",
-              "failure",
-              "issuingInference",
-              "startOrder",
-              "endOrder"
-            ],
-            "properties": {
-              "schemaVersion": {
-                "const": "ebo.operation/v1"
-              },
-              "id": {
-                "type": "string",
-                "pattern": "^operation:[a-f0-9]{64}$"
-              },
-              "identity": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "runId",
-                  "attemptId",
-                  "sourceId",
-                  "scope",
-                  "kind",
-                  "nativeId",
-                  "identityClass"
-                ],
-                "properties": {
-                  "runId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096,
-                    "pattern": ".*\\S.*"
-                  },
-                  "attemptId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096,
-                    "pattern": ".*\\S.*"
-                  },
-                  "sourceId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096,
-                    "pattern": ".*\\S.*"
-                  },
-                  "scope": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096,
-                    "pattern": ".*\\S.*"
-                  },
-                  "kind": {
-                    "enum": [
-                      "tool",
-                      "model-request",
-                      "delegation"
-                    ]
-                  },
-                  "nativeId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096,
-                    "pattern": ".*\\S.*"
-                  },
-                  "identityClass": {
-                    "enum": [
-                      "source-native",
-                      "converter-assigned",
-                      "ebo-derived"
-                    ]
-                  }
-                }
-              },
-              "callEventIds": {
-                "type": "array",
-                "maxItems": 1000000,
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 4096,
-                  "pattern": ".*\\S.*"
-                }
-              },
-              "resultEventIds": {
-                "type": "array",
-                "maxItems": 1000000,
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 4096,
-                  "pattern": ".*\\S.*"
-                }
-              },
-              "toolName": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "value"
-                    ],
-                    "properties": {
-                      "status": {
-                        "const": "known"
-                      },
-                      "value": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "reason"
-                    ],
-                    "properties": {
-                      "status": {
-                        "enum": [
-                          "unknown",
-                          "unsupported"
-                        ]
-                      },
-                      "reason": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  }
-                ]
-              },
-              "inputDigest": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "value"
-                    ],
-                    "properties": {
-                      "status": {
-                        "const": "known"
-                      },
-                      "value": {
-                        "type": "string",
-                        "pattern": "^sha256:[a-f0-9]{64}$"
-                      }
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "reason"
-                    ],
-                    "properties": {
-                      "status": {
-                        "enum": [
-                          "unknown",
-                          "unsupported"
-                        ]
-                      },
-                      "reason": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  }
-                ]
-              },
-              "failure": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "value"
-                    ],
-                    "properties": {
-                      "status": {
-                        "const": "known"
-                      },
-                      "value": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "reason"
-                    ],
-                    "properties": {
-                      "status": {
-                        "enum": [
-                          "unknown",
-                          "unsupported"
-                        ]
-                      },
-                      "reason": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  }
-                ]
-              },
-              "issuingInference": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "value"
-                    ],
-                    "properties": {
-                      "status": {
-                        "const": "known"
-                      },
-                      "value": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "id",
-                          "scope",
-                          "identityClass"
-                        ],
-                        "properties": {
-                          "id": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 4096,
-                            "pattern": ".*\\S.*"
-                          },
-                          "scope": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 4096,
-                            "pattern": ".*\\S.*"
-                          },
-                          "identityClass": {
-                            "enum": [
-                              "native-request",
-                              "declared-single-inference"
-                            ]
-                          }
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "reason"
-                    ],
-                    "properties": {
-                      "status": {
-                        "enum": [
-                          "unknown",
-                          "unsupported"
-                        ]
-                      },
-                      "reason": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  }
-                ]
-              },
-              "startOrder": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "value",
-                      "domain"
-                    ],
-                    "properties": {
-                      "status": {
-                        "const": "known"
-                      },
-                      "value": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      "domain": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "reason"
-                    ],
-                    "properties": {
-                      "status": {
-                        "enum": [
-                          "unknown",
-                          "unsupported"
-                        ]
-                      },
-                      "reason": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  }
-                ]
-              },
-              "endOrder": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "value",
-                      "domain"
-                    ],
-                    "properties": {
-                      "status": {
-                        "const": "known"
-                      },
-                      "value": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      "domain": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "reason"
-                    ],
-                    "properties": {
-                      "status": {
-                        "enum": [
-                          "unknown",
-                          "unsupported"
-                        ]
-                      },
-                      "reason": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  }
-                ]
-              }
-            }
+            "$ref": "#/$defs/operation"
           }
         },
         "measurements": {
           "type": "array",
           "maxItems": 100000,
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "scope",
-              "unit",
-              "value",
-              "coverage",
-              "sourceEventIds"
-            ],
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4096,
-                "pattern": ".*\\S.*"
-              },
-              "scope": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "kind",
-                  "id"
-                ],
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "attempt",
-                      "recorded-document",
-                      "recorded-operations",
-                      "session"
-                    ]
-                  },
-                  "id": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096,
-                    "pattern": ".*\\S.*"
-                  }
-                }
-              },
-              "unit": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4096,
-                "pattern": ".*\\S.*"
-              },
-              "value": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "value"
-                    ],
-                    "properties": {
-                      "status": {
-                        "const": "known"
-                      },
-                      "value": {
-                        "type": [
-                          "string",
-                          "boolean",
-                          "number"
-                        ]
-                      }
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "value",
-                      "reason"
-                    ],
-                    "properties": {
-                      "status": {
-                        "const": "lower-bound"
-                      },
-                      "value": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "reason": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "status",
-                      "reason"
-                    ],
-                    "properties": {
-                      "status": {
-                        "enum": [
-                          "unknown",
-                          "unsupported"
-                        ]
-                      },
-                      "reason": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": ".*\\S.*"
-                      }
-                    }
-                  }
-                ]
-              },
-              "coverage": {
-                "enum": [
-                  "exact",
-                  "partial",
-                  "unavailable"
-                ]
-              },
-              "sourceEventIds": {
-                "type": "array",
-                "maxItems": 1000000,
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 4096,
-                  "pattern": ".*\\S.*"
-                }
-              }
-            }
+            "$ref": "#/$defs/measurement"
           }
         },
         "nativeRecords": {

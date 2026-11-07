@@ -702,3 +702,5 @@ export { NORMALIZATION_V2_VERSION, precedes, executionDurationMs, operationId, d
   type EventFactsV2, type UniformEventV2, type MeasurementV2, type RecordCoverageV2, type NormalizedDatasetV2 } from "./normalization-v2.js";
 export { inventoryMigrationStudy, migrationDependencies, reconcileMigration, type MigrationStudy, type MigrationDependencies,
   type MigrationUnit, type MigrationAssertion, type MigrationInventory, type MigrationTarget, type MigrationReconciliation } from "./migration-accounting.js";
+export { createRetainedBehaviorEvidenceV2, projectNativeEvidenceV2, createSourceEvidenceResolverV2, listNativeV2Profiles,
+  type RetainedBehaviorEvidenceV2, type SourceEvidenceResolverV2 } from "./native-v2.js";
