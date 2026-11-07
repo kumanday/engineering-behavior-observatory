@@ -127,3 +127,8 @@ follow-ups do not produce automatic no-response ratings. Rating inputs mark
 source changes between calls as unknown and state their completeness limits.
 Document-local operation scopes keep repeated child identifiers distinct. The
 importer validates its generated mapping before publishing admission.
+
+Embedded-document usage is reconciled against each document’s own final metrics
+before summing admitted local totals. Judge preparation reserves the final-report
+tier for root-document reports; child traversal order does not replace the
+evaluated agent’s final answer.

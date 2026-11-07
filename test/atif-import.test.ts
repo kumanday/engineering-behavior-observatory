@@ -459,3 +459,22 @@ test("malformed empty native operation identities stay retained without invalid 
     assert.ok(evidence.dataset.unmapped.some(({ reference }) => reference.recordLocator === "#/steps/1/tool_calls/0"));
   }
 });
+
+test("embedded documents reconcile their own usage and preserve the root final report", async () => {
+  const source = fixture(), child = fixture(); source.trajectory_id = "root"; child.trajectory_id = "child";
+  const baseline = await project();
+  ((steps(source)[1]!.observation as AtifObject).results as AtifObject[])[0]!.subagent_trajectory_ref = [{ trajectory_id: "child" }];
+  source.subagent_trajectories = [child];
+  const evidence = await project(source), observations = createStructuralObservationSet(evidence.dataset, evidence.coverage, evidence.outcomeCapture);
+  for (const id of ["input-token-count", "output-token-count", "cache-read-input-token-count"]) {
+    const expected = baseline.mapping.measures[id]!; assert.equal(expected.status, "known");
+    if (expected.status === "known") assert.deepEqual(evidence.mapping.measures[id], { ...expected, value: expected.value * 2 });
+  }
+  const request = prepareJudgeRequest(observations, evidence.dataset.events, { schemaVersion: "ebo.judge-prepare-spec/v1", id: "p", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+    rubric: { id: "r", version: "1", instructions: "Inspect source behavior." }, evaluator: { provider: "anthropic", model: "synthetic-judge", effort: "low" }, occurrenceTypes: ["validation-run", "failure-response"], blinding: { evaluatedModelIdentity: "redact" },
+    limits: { maxEvidenceItems: 64, maxRecordChars: 8_000, maxInputChars: 200_000, maxOutputChars: 8_192, maxCitations: 8, maxWallClockMs: 5_000, maxTurns: 1 } });
+  const rootReports = evidence.dataset.events.filter(({ family, actor, attributes }) => family === "message" && actor.kind === "model" && attributes.documentScope === "#");
+  assert.ok(rootReports.every(({ id }) => request.selection.eventIds.includes(id)));
+  (child.final_metrics as AtifObject).total_completion_tokens = 999;
+  assert.deepEqual((await project(source)).mapping.measures["output-token-count"], { status: "unavailable", reason: "STEP_FINAL_USAGE_CONFLICT" });
+});
