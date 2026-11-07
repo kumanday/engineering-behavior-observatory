@@ -32,6 +32,12 @@ function codexInput(extra: Record<string, unknown>, call: Record<string, unknown
   return { inputDigest: digestValue({ itemType, encoding, value }), contentPointer };
 }
 
+function codexOriginalCall(extra: Record<string, unknown>, call: Record<string, unknown>): boolean {
+  const itemType = object(object(extra.tool_call_details)[String(call.tool_call_id)]).item_type;
+  return itemType === "function_call" || itemType === "custom_tool_call"
+    || call.function_name === "web_search_call" && Object.hasOwn(object(call.arguments), "action_type");
+}
+
 /** Producer-specific interpretations over admitted bytes. No native capture authority is conferred. */
 export async function projectAdditionalAtifV2(input: { read: AtifReadResult; producer: AtifProducerFingerprint; runId: string; attemptId: string;
   manifestDigest: `sha256:${string}`; artifactId?: string }): Promise<RetainedBehaviorEvidenceV2> {
@@ -94,9 +100,12 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
     if ((typeof message === "string" || Array.isArray(message)) && message.length > 0 && !placeholder) {
       emit(step, pointer, pointer, "message", "message", { facts: { message: messageFact(step.source === "agent" ? "assistant" : step.source, undefined, "canonical", known({ id: pointer, scope: "document:#", identityClass: "converter-assigned" })) }, clock: unreported }, `${pointer}/message`);
     }
-    const declared = profile.family === "codex" && integer(step.llm_call_count) ? known(step.llm_call_count) : unreported;
-    if (step.source === "agent") emit(step, pointer, pointer, "inference", "runtime", { facts: { inference: { llmCallCount: declared, nativeRequestId: unreported } }, clock: unreported });
     const calls = array(step.tool_calls).map(object), results = array(object(step.observation).results).map(object);
+    const outputProven = profile.family !== "codex" || typeof message === "string" && message.length > 0 || Array.isArray(message) && message.length > 0
+      || typeof step.reasoning_content === "string" && step.reasoning_content.length > 0 || calls.some((call) => codexOriginalCall(extra, call));
+    const declared = profile.family === "codex" && outputProven && integer(step.llm_call_count) ? known(step.llm_call_count) : unreported;
+    if (profile.family === "codex" && !outputProven) limitations.add("CONVERTER_ORPHAN_INFERENCE_UNAVAILABLE");
+    if (step.source === "agent") emit(step, pointer, pointer, "inference", "runtime", { facts: { inference: { llmCallCount: declared, nativeRequestId: unreported } }, clock: unreported });
     const issued = profile.family === "codex" && step.llm_call_count === 1 ? known({ id: pointer, scope: "document:#", identityClass: "declared-single-inference" as const }) : unreported;
     const callIds = new Set<string>();
     for (const [callIndex, call] of calls.entries()) {
@@ -115,14 +124,18 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
       const nativeName = typeof name === "string" && name.trim() ? name : undefined;
       const toolName = profile.family !== "codex" && nativeName === "unknown" ? undefined : nativeName;
       if (!toolName) limitations.add(nativeName === "unknown" ? "CONVERTER_TOOL_NAME_PLACEHOLDER" : "TOOL_NAME_UNREPORTED");
-      const operation: OperationContribution = { nativeId: id, scope: "document:#", identityClass: "converter-assigned", canonical: true, ...(toolName ? { toolName } : {}), endpoint: "call", issuingInference: issued,
+      const originalCall = profile.family !== "codex" || codexOriginalCall(extra, call);
+      if (!originalCall) { gap = true; limitations.add("ORIGINAL_CALL_UNAVAILABLE"); }
+      const operation: OperationContribution = { nativeId: id, scope: "document:#", identityClass: "converter-assigned", canonical: true, ...(toolName ? { toolName } : {}), endpoint: "call", issuingInference: originalCall ? issued : unreported,
         ...(signature.inputDigest ? { inputDigest: signature.inputDigest } : {}) };
-      emit(step, pointer, callPointer, "call", "tool", { facts: {}, clock: unreported, operation }, signature.contentPointer ?? `${callPointer}/arguments`);
+      if (originalCall) emit(step, pointer, callPointer, "call", "tool", { facts: {}, clock: unreported, operation }, signature.contentPointer ?? `${callPointer}/arguments`);
       const linked = results.map((result, resultIndex) => ({ result, resultIndex })).filter(({ result }) => result.source_call_id === id);
       const primary = linked.filter(({ result }) => !(profile.family === "openclaw" && object(result.extra).nested_tool !== undefined));
-      // Codex may fabricate a result slot without an output; Hermes/OpenClaw create slots only on actual responses.
-      const hasResponse = (result: Record<string, unknown>) => profile.family !== "codex" || result.content !== undefined && result.content !== null;
-      if (primary.length !== 1 || !hasResponse(primary[0]!.result)) limitations.add(primary.length > 1 ? "AMBIGUOUS_RESULT_LINK" : "PENDING_CALL");
+      // Codex function/custom entries survive only after a response, including bodyless ones.
+      // A built-in web-search item has a synthetic empty result slot rather than an independent response.
+      const builtinPlaceholder = profile.family === "codex" && originalCall && call.function_name === "web_search_call" && !["function_call", "custom_tool_call"].includes(String(object(object(extra.tool_call_details)[id]).item_type));
+      const hasResponse = (result: Record<string, unknown>) => !builtinPlaceholder || result.content !== undefined && result.content !== null;
+      if (primary.length !== 1 || !hasResponse(primary[0]!.result)) limitations.add(primary.length > 1 ? "AMBIGUOUS_RESULT_LINK" : builtinPlaceholder ? "BUILTIN_RESPONSE_UNAVAILABLE" : "PENDING_CALL");
       for (const { result, resultIndex } of linked) {
         const nested = profile.family === "openclaw" && object(result.extra).nested_tool !== undefined;
         const terminal = !nested && primary.length === 1 && hasResponse(result);
@@ -148,10 +161,10 @@ export async function projectAdditionalAtifV2(input: { read: AtifReadResult; pro
     events.push(finalEvent); projections.push({ facts: finalEvent.facts, clock: unreported });
   }
   const operations = buildOperationsV2(events, projections);
-  const callCount = operations.filter(({ callEventIds }) => callEventIds.length).length;
+  const operationCount = operations.length;
   const sourceReason = gap || omitted ? "PRODUCER_PARTIAL_HISTORY" : profile.family === "codex" ? "CONVERTER_OMITS_PENDING_CALLS" : "CAPTURE_COMPLETENESS_UNPROVEN";
   const measurements: MeasurementV2[] = [{ id: "source-attempt-tool-operation-count", scope: { kind: "attempt", id: input.attemptId }, unit: "identified-logical-tool-operations",
-    value: callCount > 0 ? { status: "lower-bound", value: callCount, reason: sourceReason } : { status: "unknown", reason: sourceReason }, coverage: callCount > 0 ? "partial" : "unavailable", sourceEventIds: operations.flatMap(({ callEventIds }) => callEventIds) },
+    value: operationCount > 0 ? { status: "lower-bound", value: operationCount, reason: sourceReason } : { status: "unknown", reason: sourceReason }, coverage: operationCount > 0 ? "partial" : "unavailable", sourceEventIds: operations.flatMap(({ callEventIds, resultEventIds }) => [...callEventIds, ...resultEventIds]) },
     { id: "source-context-reconstruction", scope: { kind: "recorded-document", id: "#" }, unit: "availability", value: { status: "unsupported", reason: "CONTEXT_REPLACEMENT_BOUNDARIES_UNAVAILABLE" }, coverage: "unavailable", sourceEventIds: [] }];
   const nativeRecords = await Promise.all(capture.records.map(async ({ reference }) => {
     const result = await resolver.resolve(reference); if (!result || result === true) throw new Error("Unresolved ATIF record.");

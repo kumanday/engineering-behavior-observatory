@@ -24,7 +24,10 @@
       "contextReconstruction": "unsupported",
       "toolResultEndpointOrder": "unknown: converter folds results into issuing steps",
       "nativePrecedence": "unavailable: converter may reorder model outputs around intervening messages",
-      "inputSignatures": "recorded item type and raw input; unambiguous function JSON objects canonicalized; missing provenance unknown"
+      "inputSignatures": "recorded item type and raw input; unambiguous function JSON objects canonicalized; missing provenance unknown",
+      "bodylessResponses": "pass: completion preserved with source provenance",
+      "orphanResults": "pass: result-only operations, unknown issuing inference and orphan-only inference counts",
+      "builtinWebSearch": "call preserved; synthetic empty result slot is an observation"
     },
     "hermes": {
       "atifVersion": "ATIF-v1.2",
@@ -69,5 +72,5 @@
   "qualification": "imported",
   "crossOriginPooling": "not qualified",
   "modelCalls": 0,
-  "independentAuthoredPairs": 13
+  "independentAuthoredPairs": 16
 }

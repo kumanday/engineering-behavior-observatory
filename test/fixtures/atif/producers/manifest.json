@@ -8,6 +8,13 @@
   },
   "fixtures": [
     {
+      "id": "codex-empty-response",
+      "native": "codex-empty-response.native.jsonl",
+      "trajectory": "codex-empty-response.atif.json",
+      "nativeSha256": "8c23f5734c961a52ae7efc50805f9e3e6123ace191b8c7bf5645f2a6de5c847f",
+      "trajectorySha256": "cb4606e3b5e06f78fdad338af5d2f40868d0dd95e38e1bf962b7b51ad465dc41"
+    },
+    {
       "id": "codex-identical-input",
       "native": "codex-identical-input.native.jsonl",
       "trajectory": "codex-identical-input.atif.json",
@@ -27,6 +34,20 @@
       "trajectory": "codex-interleaved.atif.json",
       "nativeSha256": "b5b24373be735c00e24aea10c0e02c34929907d218d950ef5b666b0079a09fe5",
       "trajectorySha256": "ced427dbf043597d71a7a6039e0ba2075600cc84fb3bf35883dbafa275db7221"
+    },
+    {
+      "id": "codex-orphan-results",
+      "native": "codex-orphan-results.native.jsonl",
+      "trajectory": "codex-orphan-results.atif.json",
+      "nativeSha256": "91f0c8a9a7885d273e7364ff1a0cde61547ac3d5102e532a8f3ff0df2d8af51d",
+      "trajectorySha256": "0c3a0b1da178cf57aa46a110b2e8f323f1b350a95bb1124448dd4abc73883d51"
+    },
+    {
+      "id": "codex-web-search",
+      "native": "codex-web-search.native.jsonl",
+      "trajectory": "codex-web-search.atif.json",
+      "nativeSha256": "3762d7106109c13818e7e207b8e319389de5c18a091fb2cea76530096bec385a",
+      "trajectorySha256": "637e6037c4ce60931619e19d525fa10432d016071920c1875086bc5e1eda8991"
     },
     {
       "id": "codex",

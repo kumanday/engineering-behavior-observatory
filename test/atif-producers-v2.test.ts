@@ -103,7 +103,7 @@ test("pending, shared, unlinked, copied and duplicate identities never invent co
     const evidence = await project("codex", (source) => {
       const step = steps(source).find((s) => s.tool_calls)!;
       const observation = step.observation as { results: AtifObject[] };
-      if (variant === "pending") observation.results[0]!.content = null;
+      if (variant === "pending") observation.results.splice(0, 1);
       if (variant === "shared") observation.results.push(structuredClone(observation.results[0]!));
       if (variant === "unlinked") observation.results[0]!.source_call_id = "unknown";
       if (variant === "copied") step.is_copied_context = true;
@@ -246,4 +246,30 @@ test("blank tool names retain identified calls and linked result endpoints", asy
   const view = await buildAtlasViewV2(evidence);
   assert.equal(view.units.filter(({ kind }) => kind === "tool").length, 2);
   assert.equal((await measures(evidence))["repeated-tool-operation-count"]!.status, "unknown");
+});
+
+
+test("Codex bodyless responses retain completion through original-call provenance", async () => {
+  const evidence = await project("codex", undefined, "codex-empty-response");
+  assert.equal(evidence.dataset.operations.length, 2);
+  assert.ok(evidence.dataset.operations.every(({ callEventIds, resultEventIds }) => callEventIds.length === 1 && resultEventIds.length === 1));
+  assert.equal(evidence.capture.qualification === "imported" && evidence.capture.sourceLimitations?.includes("PENDING_CALL"), false);
+});
+
+test("Codex orphan outputs retain result-only operations and unknown inference", async () => {
+  const evidence = await project("codex", undefined, "codex-orphan-results");
+  assert.equal(evidence.dataset.operations.length, 2);
+  assert.ok(evidence.dataset.operations.every(({ callEventIds, resultEventIds, issuingInference }) => callEventIds.length === 0 && resultEventIds.length === 1 && issuingInference.status === "unknown"));
+  assert.equal((await measures(evidence))["declared-inference-count"]!.status, "unknown");
+  assert.equal(evidence.dataset.events.some(({ family, phase }) => family === "tool" && phase === "before"), false);
+  assert.equal((await measures(evidence))["source-attempt-tool-operation-count"]!.status, "lower-bound");
+});
+
+test("Codex built-in web search retains its call without inventing an independent response", async () => {
+  const evidence = await project("codex", undefined, "codex-web-search");
+  assert.equal(evidence.dataset.operations.length, 1);
+  const operation = evidence.dataset.operations[0]!;
+  assert.equal(operation.callEventIds.length, 1); assert.equal(operation.resultEventIds.length, 0); assert.equal(operation.observationEventIds!.length, 1);
+  assert.equal(operation.failure.status, "unknown");
+  assert.ok(evidence.capture.qualification === "imported" && evidence.capture.sourceLimitations?.includes("BUILTIN_RESPONSE_UNAVAILABLE"));
 });

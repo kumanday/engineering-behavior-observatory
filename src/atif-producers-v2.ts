@@ -17,7 +17,7 @@ const harbor = (family: "codex" | "hermes", formatVersion: string, agentVersion:
   producer: { formatVersion, agent: { name: family, version: agentVersion },
     converter: { id: `harbor.agents.installed.${family}.${family === "codex" ? "Codex" : "Hermes"}`, packageVersion: "0.24.0", sourceDigest },
     context: { kind: "harness-leaderboard", revision: HLB_PI_PILOT_REVISION, wrapperDigest: HLB_PI_WRAPPER_DIGEST } },
-  limitations: [...common, ...(family === "codex" ? ["CONVERTER_OMITS_PENDING_CALLS", "CONVERTER_REORDERS_MODEL_OUTPUTS", "CONVERTER_ARGUMENT_NORMALIZATION_MAY_BE_LOSSY", "CONVERTER_GROUPED_CLOCKS", "TOOL_FAILURE_NOT_PROJECTED"]
+  limitations: [...common, ...(family === "codex" ? ["CONVERTER_OMITS_PENDING_CALLS", "CONVERTER_REORDERS_MODEL_OUTPUTS", "CONVERTER_ARGUMENT_NORMALIZATION_MAY_BE_LOSSY", "CONVERTER_MAY_FABRICATE_CALLS_FOR_ORPHAN_RESULTS", "BUILTIN_RESULT_SLOTS_MAY_BE_SYNTHETIC", "CONVERTER_GROUPED_CLOCKS", "TOOL_FAILURE_NOT_PROJECTED"]
     : ["INFERENCE_COUNT_UNTRACKED", "CONVERTER_MAY_ASSIGN_TOOL_IDS", "CONVERTER_TOOL_NAME_PLACEHOLDER", "CONVERTER_ARGUMENT_FALLBACK_AMBIGUITY", "TOOL_FAILURE_NOT_PROJECTED", "USAGE_COMPONENT_COMPLETENESS_UNPROVEN"])],
   nativeAuthority: family === "codex" ? "Codex rollout response_item records, including unanswered function_call/custom_tool_call records"
     : "Hermes session export messages, including assistant tool_calls and adjacent tool messages",

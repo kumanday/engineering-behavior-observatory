@@ -67,8 +67,8 @@ Recorded operations are distinguishable from whole-attempt totals. Positive
 source attempt counts are lower bounds; zero recorded calls never proves zero
 calls executed. Missing or duplicate results preserve unknown outcomes. Folded results retain unknown
 endpoint order because the issuing step ordinal does not establish when its
-result arrived. A bodyless Hermes or OpenClaw primary result still records a
-response; Codex empty slots can be converter placeholders. Copied
+result arrived. A bodyless primary result still records a response when the producer retains
+its response provenance. Codex built-in web-search slots can be placeholders. Copied
 steps and unqualified children produce no new behavior. Child contents remain
 retained; parent final usage has its own source-reported population and is never
 added to child totals. Step and final usage preserve the converter's field names
@@ -76,7 +76,7 @@ and unknown aggregation semantics instead of becoming normalized native input
 usage. Replacement boundaries remain unknown, so these profiles cannot rebuild
 the model's context.
 
-`scripts/convert-atif-producer-fixtures.py` regenerates thirteen authored native/ATIF
+`scripts/convert-atif-producer-fixtures.py` regenerates sixteen authored native/ATIF
 pairs twice, checks converter source digests, and verifies byte-identical output.
 `test/atif-producers-v2.test.ts` separately checks admission, offline readback,
 typed consumers, partial histories and unsupported measures. Restricted
@@ -90,7 +90,7 @@ fallback conversion reproduces its retained steps and partial marker, with zero
 recorded calls and unknown whole-attempt count. Its native session is absent,
 so paired native fidelity remains unavailable. These case-specific results do
 not authorize cross-origin pooling. The implementation's public regression gate
-passes the focused producer and import tests with pinned Harbor and board-policy runtimes; all thirteen
+passes the focused producer and import tests with pinned Harbor and board-policy runtimes; all sixteen
 independent authored conversions reproduce byte for byte.
 
 Codex input signatures retain the recorded item type and raw input. Function-call
@@ -102,3 +102,10 @@ placeholders in Hermes and OpenClaw also stay unknown, preventing false repeats.
 A blank or missing tool name leaves `toolName` unknown while retaining the
 identified call and its linked result endpoints. Tool identity and name
 availability are independent facts.
+
+Codex function/custom responses retain completion even when conversion removes
+the body. Original item-type provenance distinguishes real calls from entries
+fabricated for orphan results. Orphans become result-only operations with
+unknown issuing inference; orphan-only steps also withhold inference counts.
+Built-in web-search records preserve their calls and synthetic result slots as
+observations, without asserting an independently recorded response.
