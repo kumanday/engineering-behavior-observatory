@@ -1,8 +1,6 @@
 # ATIF import pilot: 2026-11-07
 
-The pilot supports an additive Pi import path with separate qualification. It
-also supplies an occurrence-ordering regression for imported events. Production admission and full-corpus
-evaluation are implementation tasks in the ATIF/v2 planning wave.
+The pilot validates an additive Pi import path with separate qualification and a source-local occurrence-ordering correction. Production Pi admission, Harbor context import and origin-aware Atlas consumers are implemented. Full-corpus semantic evaluation remains a separately scoped study.
 
 ## Sample and method
 
@@ -84,6 +82,34 @@ zero matches. That result makes no claim about token-ID arrays, unknown
 extensions, binary media, or redistribution rights. Raw sample files and private
 Pi pairs remain outside Git.
 
+## Production import qualification
+
+The frozen native inventory contains 144 bundle paths: 66 accepted bundles
+representing 41 distinct normalized datasets, plus 78 rejected bundles. The
+capture-version guard and additive import implementation preserve each recorded
+readback decision and accepted dataset digest.
+
+The production Pi mapping passes all 41 independently converted fixture pairs.
+Across five selected measures, 136 comparisons are known-equal and 69 record
+an explicitly permitted source loss, with zero failures. Tool operation
+signatures pass independently. Missing or zero-filled converter fields remain
+unavailable; these diagnostic agreements do not confer owned capture
+qualification or exact complete-attempt measures on an import.
+
+The importer retains raw bytes first and admits a manifest after validation.
+Readback verifies source, inspection, profile and pointer bindings. Harbor
+source-context tests cover original execution identity, capture backfills,
+regrades, revision membership, model blinding and interrupted writes. Atlas
+browser checks cover imported unknown outcomes, missing tasks, origin-separated
+arms, certification and state restoration.
+
+The frozen original 1.4.0 runtime reproduces all 66 accepted native dataset
+and observation digests. The additive runtime preserves native dataset digests
+and readback decisions. Existing 1.x packet verification passes, including
+regenerated RO-Crate equality. Fixture sources and
+public trial bytes remain in restricted local stores. Public CI uses authored
+synthetic fixtures.
+
 ## Compatibility accounting
 
 The inventory inspects two named study roots with explicit directory and 2 MiB
@@ -101,6 +127,15 @@ Its file-level receipts are in `compatibility-inventory.json` under the private
 pilot directory. Full attempt/dimension/evaluator dependency accounting remains
 an implementation gate.
 
+
+The dependency audit reads the same 651 retained records with EBO's canonical
+digest recipe. It identifies 298 distinct declared input/evaluator/configuration judgment
+units. Retained inputs are digest-verified for 224 units; every copy is missing
+for 74. No measured judgment cost is recorded. Six inventory files are source
+test fixtures. A missing evaluator configuration digest retains its own
+unit rather than implying equivalence to a configured judgment. These gaps keep the v2 affected-unit and paid re-judge forecasts
+unavailable until the missing inputs and target projections are resolved.
+
 ## Reproduction and limits
 
 The [development tooling README](https://github.com/kumanday/engineering-behavior-observatory/tree/develop/scripts/atif-import-pilot)
@@ -111,10 +146,7 @@ failure, baseline ordering, version-label mismatch, partial histories and
 reference confinement, interrupted acquisition retention and emitted evaluation
 schema inventory and unavailable usage totals.
 
-The pilot changes no runtime source, releases no package, executes no candidate
-code and makes zero model calls. It does not implement `ebo atif import`, a
-production import manifest, full profile qualification, final Atlas/aggregation
-integration, the complete native readback census or a semantic judge study.
+The tooling executes no candidate code and makes zero model calls. The production import and Atlas paths have independent tests and code reviews. The pilot establishes mapping fidelity for the registered Pi profiles; a semantic judge study and a complete workspace migration census require separate inputs and budgets.
 
 Public source cases:
 
