@@ -142,3 +142,8 @@ passive hook copies have a different clock domain. All source copies remain
 citable. Source-change heuristics include file creation and notebook edits as
 attempts. Rating batch readback reconstructs each distinct bounds configuration
 once and verifies every retained receipt against its original occurrence.
+
+Rating output includes normalized tool-result and tool-error evidence with
+pointed citations. Editor subcommands retain mutation attempts; explicit view
+commands remain read-only. Scalar shell commands retain their native text even
+when that text also parses as a JSON primitive.

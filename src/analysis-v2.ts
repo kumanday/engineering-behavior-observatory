@@ -37,7 +37,7 @@ export function operationEventsV2(dataset: NormalizedDatasetV2, operation: Opera
 
 /** Consumers read normalized content roles; absent roles stay unavailable. */
 export function operationContentV2(dataset: NormalizedDatasetV2, operation: Operation, resolver: SourceEvidenceResolverV2,
-  role: "tool-input" | "tool-result"): { values: unknown[]; citations: Array<{ eventId: string; nativeReference: NativeEvidenceReference }> } {
+  role: "tool-input" | "tool-result" | "tool-error"): { values: unknown[]; citations: Array<{ eventId: string; nativeReference: NativeEvidenceReference }> } {
   const values: unknown[] = [], citations: Array<{ eventId: string; nativeReference: NativeEvidenceReference }> = [];
   const retained = new Set<string>();
   for (const event of operationEventsV2(dataset, operation)) if (event.content.status === "known") for (const content of event.content.value) {
