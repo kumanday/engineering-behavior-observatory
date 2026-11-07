@@ -190,3 +190,54 @@ test('UUID case variants cannot bypass withdrawals, selection or duplicate bindi
   await assert.rejects(importLeaderboardCohort({...f.request,nativeBindings:[...f.request.nativeBindings,{...f.request.nativeBindings[0]!,factId:uuid.toUpperCase()}]},f.store,python),/unique bounded trial/u);
  }finally{f.cleanup();}
 });
+
+test('completed cohorts require intact content-addressed acquisition contexts', { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    const imported = await importLeaderboardCohort(f.request, f.store, python);
+    assert.equal(imported.status, 'imported'); if (imported.status !== 'imported') return;
+    const contexts = join(f.store, 'contexts', imported.cohortId.slice(7));
+    const acquisitionRoot = join(contexts, readdirSync(contexts)[0]!);
+    const context = join(acquisitionRoot, readdirSync(acquisitionRoot)[0]!);
+    for (const path of ['source.json', 'request.json', 'acquisition-scan.json']) {
+      const file = join(context, path), original = readFileSync(file);
+      rmSync(file);
+      assert.throws(() => readLeaderboardCohort(f.store, imported.cohortId));
+      writeFileSync(file, original);
+      const value = JSON.parse(original.toString('utf8'));
+      if (path === 'source.json') value.attribution = 'Changed attribution';
+      else if (path === 'request.json') value.factIds = [];
+      else value.inputDigest = `sha256:${'f'.repeat(64)}`;
+      write(file, value);
+      assert.throws(() => readLeaderboardCohort(f.store, imported.cohortId), /context identity/u);
+      writeFileSync(file, original);
+    }
+    assert.equal(readLeaderboardCohort(f.store, imported.cohortId).manifest.admittedExecutions, 1);
+    rmSync(contexts, { recursive: true });
+    assert.throws(() => readLeaderboardCohort(f.store, imported.cohortId));
+  } finally { f.cleanup(); }
+});
+
+test('a context publication failure leaves no completed cohort', { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    mkdirSync(f.store); writeFileSync(join(f.store, 'contexts'), 'blocked context destination');
+    await assert.rejects(importLeaderboardCohort(f.request, f.store, python));
+    assert.equal(existsSync(join(f.store, 'cohorts')), false);
+  } finally { f.cleanup(); }
+});
+
+test('canonical UUID ordering preserves identity for multiple unselected bindings', { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    const bindings = ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'].map((factId) => ({ ...f.request.nativeBindings[0]!, factId }));
+    const first = await importLeaderboardCohort({ ...f.request, nativeBindings: bindings }, f.store, python);
+    const second = await importLeaderboardCohort({ ...f.request, nativeBindings: [{ ...bindings[0]!, factId: bindings[0]!.factId.toUpperCase() }, bindings[1]!] }, f.store, python);
+    assert.equal(first.status, 'imported'); assert.equal(second.status, 'imported');
+    if (first.status === 'imported' && second.status === 'imported') {
+      assert.equal(first.cohortId, second.cohortId);
+      assert.equal(second.reused, true);
+      assert.deepEqual(second.cases.map(({ factId }) => factId), bindings.map(({ factId }) => factId).sort());
+    }
+  } finally { f.cleanup(); }
+});

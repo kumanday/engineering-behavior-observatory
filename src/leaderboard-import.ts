@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, opendirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { canonicalizeMetadata, validateArtifact } from "./artifacts.js";
 import { isSafeArtifactRelativePath } from "./contracts.js";
@@ -37,7 +37,7 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
       && (!Array.isArray(request.withdrawnFactIds) || request.withdrawnFactIds.length > 100_000 || !request.withdrawnFactIds.every((id) => typeof id === "string" && id.length <= 128))) throw new Error("Invalid or unbounded leaderboard cohort request.");
   const store = resolve(storeDirectory); mkdirSync(store, { recursive: true, mode: 0o700 }); noStoreLinks(store, "");
   const requestReceipt = { schemaVersion: "ebo.leaderboard-request-receipt/v1", policyRevision: request.policyRevision, historyCompleteness: request.historyCompleteness,
-    factIds: request.nativeBindings.map(({ factId }) => factId).sort(), withdrawnFactIds: [...request.withdrawnFactIds ?? []].sort(), priorCohortId: request.priorCohortId ?? null };
+    factIds: request.nativeBindings.map(({ factId }) => factId.toLowerCase()).sort(), withdrawnFactIds: [...new Set((request.withdrawnFactIds ?? []).map((id) => id.toLowerCase()))].sort(), priorCohortId: request.priorCohortId ?? null };
   const acquisitionBytes = readClosedImportFile(request.snapshotRoot, request.acquisitionPath ?? "acquisition.json", 4 * 1024 * 1024);
   publishDirectory(store, `acquisitions/${rawHash(acquisitionBytes).slice(7)}`, new Map([["acquisition.json", acquisitionBytes]]));
   const source = readLeaderboardSource(request.snapshotRoot, request.acquisitionPath, request.historyCompleteness);
@@ -56,8 +56,8 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
   const selectedIds = new Map<string, Set<string>>();
   for (const row of selection.rows) { const uuid = row.id.toLowerCase(); const ids = selectedIds.get(uuid) ?? new Set<string>(); ids.add(row.id); selectedIds.set(uuid, ids); }
   const withdrawn = new Set((request.withdrawnFactIds ?? []).map((id) => id.toLowerCase())), seen = new Set<string>(), members = new Map<string, CohortMember>(), cases: CaseResult[] = [];
-  for (const declaredBinding of [...request.nativeBindings].sort((a, b) => a.factId < b.factId ? -1 : a.factId > b.factId ? 1 : 0)) {
-    const binding = { ...declaredBinding };
+  for (const declaredBinding of [...request.nativeBindings].sort((a, b) => a.factId.toLowerCase() < b.factId.toLowerCase() ? -1 : a.factId.toLowerCase() > b.factId.toLowerCase() ? 1 : 0)) {
+    const binding = { ...declaredBinding, factId: declaredBinding.factId.toLowerCase() };
     if (!binding || typeof binding.factId !== "string" || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(binding.factId)
         || typeof binding.directory !== "string" || typeof binding.profileId !== "string" || seen.has(binding.factId.toLowerCase())) throw new Error("Native source bindings require unique bounded trial identities.");
     const uuid = binding.factId.toLowerCase(), sourceIds = selectedIds.get(uuid);
@@ -134,13 +134,15 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
   for (const member of orderedMembers) for (const path of ["manifest.json", "trajectory.json", "inspection.json"]) {
     files.set(`${member.corpusPath}/${path}`, readClosedImportFile(join(store, "harbor", "captures", member.captureRevision.slice(7)), path, path === "trajectory.json" ? 64 * 1024 * 1024 : 32 * 1024 * 1024));
   }
+  // Acquisition contexts are independent of relocation-insensitive cohort identity.
+  // Retain the content-addressed context before making the cohort visible as complete.
+  publishDirectory(store, `contexts/${manifest.id.slice(7)}/${source.receiptDigest.slice(7)}/${metadataHash({ request: requestReceipt, acquisitionScan: source.acquisitionScan }).slice(7)}`, new Map([["source.json", source.receiptBytes], ["request.json", jsonBytes(requestReceipt)], ["acquisition-scan.json", jsonBytes(source.acquisitionScan)]]));
   const relative = `cohorts/${manifest.id.slice(7)}`;
   const reused = publishDirectory(store, relative, files, (pending) => {
     mkdirSync(join(pending, "corpus"), { recursive: true, mode: 0o700 });
     writeCorpusIndex(join(pending, "corpus-index.jsonl"), buildCorpusIndex(join(pending, "corpus")));
   });
   const root = join(store, relative);
-  publishDirectory(store, `contexts/${manifest.id.slice(7)}/${source.receiptDigest.slice(7)}/${metadataHash(requestReceipt).slice(7)}`, new Map([["source.json", source.receiptBytes], ["request.json", jsonBytes(requestReceipt)], ["acquisition-scan.json", jsonBytes(source.acquisitionScan)]]));
   readLeaderboardCohort(store, manifest.id);
   return { status: "imported" as const, reused, cohortId: manifest.id, cohortRoot: root, selectedSourceRecords: manifest.selectedSourceRecords, admittedExecutions: manifest.admittedExecutions, cases };
 }
@@ -154,6 +156,7 @@ export function readLeaderboardCohort(store: string, id: Hash) {
   const { id: recorded, ...body } = manifest;
   if (manifest.schemaVersion !== "ebo.leaderboard-cohort/v1" || recorded !== id || metadataHash(body) !== id || manifest.sharing !== "restricted"
       || manifest.sourceAuthority !== "third-party" || !Array.isArray(manifest.members) || manifest.members.length > 64 || manifest.members.length !== manifest.admittedExecutions || !Array.isArray(manifest.cases) || manifest.cases.length > 64) throw new Error("Invalid or stale leaderboard cohort.");
+  verifyAcquisitionContexts(store, manifest);
   const selection = parseImportJson(readClosedImportFile(root, "selection.json", 32 * 1024 * 1024));
   const input = parseImportJson(readClosedImportFile(root, "input.json", 32 * 1024 * 1024));
   const scan = parseImportJson(readClosedImportFile(root, "scan.json", 32 * 1024 * 1024));
@@ -220,6 +223,54 @@ export function readLeaderboardCohort(store: string, id: Hash) {
   }
   if (manifest.cases.some((item) => item.status === "imported" && !importedFacts.has(item.factId))) throw new Error("Cohort imported case has no execution.");
   return { manifest, root };
+}
+
+/** Reopens only immutable receipts, never the operator's original local source paths. */
+function verifyAcquisitionContexts(store: string, manifest: LeaderboardCohortManifest) {
+  const relative = `contexts/${hashId(manifest.id)}`;
+  noStoreLinks(store, relative);
+  let contexts = 0, entries = 0, totalBytes = 0;
+  function* directories(path: string): Generator<string> {
+    const directory = opendirSync(path);
+    try {
+      let entry;
+      while ((entry = directory.readSync()) !== null) {
+        if (++entries > 256 || !entry.isDirectory() || !/^[a-f0-9]{64}$/u.test(entry.name)) throw new Error("Invalid or unbounded cohort acquisition context inventory.");
+        yield entry.name;
+      }
+    } finally { directory.closeSync(); }
+  }
+  const expectedIds = manifest.cases.map(({ factId }) => factId.toLowerCase()).sort();
+  for (const acquisitionId of directories(join(store, relative))) {
+    const acquisitionRoot = join(store, relative, acquisitionId);
+    for (const contextId of directories(acquisitionRoot)) {
+      if (++contexts > 128) throw new Error("Cohort acquisition context count exceeds its limit.");
+      const root = join(acquisitionRoot, contextId);
+      const bytes = ["source.json", "request.json", "acquisition-scan.json"].map((path) => {
+        const bytes = readClosedImportFile(root, path, 4 * 1024 * 1024);
+        totalBytes += bytes.length;
+        if (totalBytes > 32 * 1024 * 1024) throw new Error("Cohort acquisition context bytes exceed their limit.");
+        return bytes;
+      });
+      const [acquisition, request, scan] = bytes.map(parseImportJson);
+      for (const value of [acquisition!, request!, scan!]) {
+        const errors = validateArtifact("Retained acquisition context", value);
+        if (errors.length) throw new Error(`Invalid cohort acquisition context: ${errors[0]!.message}`);
+      }
+      if (acquisition!.schemaVersion !== "ebo.leaderboard-acquisition/v1" || request!.schemaVersion !== "ebo.leaderboard-request-receipt/v1" || scan!.schemaVersion !== "ebo.import-scan/v1"
+          || rawHash(bytes[0]!) !== `sha256:${acquisitionId}` || metadataHash({ request, acquisitionScan: scan }) !== `sha256:${contextId}`) throw new Error("Cohort acquisition context identity is stale.");
+      const artifacts = acquisition!.artifacts as Array<Record<string, unknown>>;
+      const snapshot = { source: acquisition!.source, artifacts: artifacts.map(({ localPath: _local, ...artifact }) => artifact).sort((a, b) => String(a.remotePath) < String(b.remotePath) ? -1 : String(a.remotePath) > String(b.remotePath) ? 1 : 0) };
+      const factIds = (request!.factIds as string[]).map((id) => id.toLowerCase()).sort();
+      const withdrawn = new Set((request!.withdrawnFactIds as string[]).map((id) => id.toLowerCase()));
+      if (metadataHash(snapshot) !== manifest.sourceSnapshotDigest || request!.policyRevision !== LEADERBOARD_PUBLIC_POLICY.revision || request!.historyCompleteness !== manifest.historyCompleteness
+          || request!.priorCohortId !== (manifest.priorCohortId ?? null) || metadataHash(factIds) !== metadataHash(expectedIds)
+          || manifest.cases.some(({ factId, status }) => withdrawn.has(factId.toLowerCase()) !== (status === "withdrawn"))
+          || scan!.status !== "clean" || (scan!.findings as unknown[]).length !== 0 || scan!.scannerDigest !== manifest.scannerDigest || metadataHash(scan!.scanner) !== scan!.scannerDigest
+          || scan!.inputDigest !== metadataHash([{ path: "acquisition.json", digest: rawHash(bytes[0]!), bytes: bytes[0]!.length }])) throw new Error("Cohort acquisition provenance or request is stale.");
+    }
+  }
+  if (contexts === 0) throw new Error("Completed cohort has no acquisition context.");
 }
 
 function protectedModelAliases(input: LeaderboardPolicyInput, policy: LeaderboardPolicyReceipt, factIds: readonly string[]): string[] | undefined {
