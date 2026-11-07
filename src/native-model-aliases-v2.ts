@@ -16,7 +16,7 @@ export function nativeModelAliasesV2(evidence: RetainedBehaviorEvidence, records
     switch (harness) {
       case "pi-sdk":
         if (message.role === "assistant") add(message.model);
-        if (record.type === "model_change") add(record.model);
+        if (record.type === "model_change") { add(record.model); add(record.modelId); }
         if (record.nativeType === "session_created") add(object(payload.model).model ?? payload.model);
         break;
       case "claude-agent-sdk":
@@ -26,6 +26,7 @@ export function nativeModelAliasesV2(evidence: RetainedBehaviorEvidence, records
         add(object(record.nativePayload).requested_model);
         break;
       case "codex-app-server":
+        if (record.method === "model/rerouted") { add(payload.fromModel); add(payload.toModel); }
         if (/^(?:thread|turn)\/(?:start|resume|fork|read)$/u.test(String(record.method))) {
           add(payload.model); add(object(payload.params).model); add(object(payload.result).model);
         }

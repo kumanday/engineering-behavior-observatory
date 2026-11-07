@@ -106,6 +106,8 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
       clock: projected.clock, facts: projected.facts, family: projected.family ?? event.family, phase: projected.phase ?? event.phase,
       nativeOrder: projected.nativeOrder ?? event.nativeOrder, content: projected.content ?? event.content };
   });
+  // Optional resource reports with no admitted dimensions carry no resource fact.
+  for (const event of events) if (event.facts.resource === undefined) delete event.facts.resource;
   const operations = buildOperationsV2(events, projections);
   const implementationDigest = implementation(profile);
   const sourceTypes = new Map(evidence.dataset.nativeRecords.map((record) => [referenceKey(record.reference), record.nativeType]));

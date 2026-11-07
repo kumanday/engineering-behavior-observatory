@@ -1,5 +1,24 @@
 import { contextFact, digestValue, known, messageFact, object, pointedContent, recordedClock, resources, resultFailure, subrecordLocator, text, unreported, type NativeProjectionProfile } from "../projection-v2.js";
 import type { EventFactsV2 } from "../normalization-v2.js";
+const callNames = new WeakMap<readonly Record<string, unknown>[], Map<string, Set<string>>>();
+function callKey(session: unknown, data: Record<string, unknown>, id: unknown): string {
+  return JSON.stringify([session ?? null, data.turn ?? null, data.step ?? null, id ?? null]);
+}
+function originatingTool(records: readonly Record<string, unknown>[], session: unknown, data: Record<string, unknown>, id: unknown): string | undefined {
+  let names = callNames.get(records);
+  if (!names) {
+    names = new Map();
+    for (const record of records) {
+      const payload = object(record.payload), event = object(payload.event), call = object(event.data), name = text(call.name);
+      if (event.type !== "tool/call" || !name || !text(call.callId)) continue;
+      const key = callKey(payload.sessionId ?? record.sessionId, call, call.callId), values = names.get(key) ?? new Set<string>();
+      values.add(name); names.set(key, values);
+    }
+    callNames.set(records, names);
+  }
+  const values = names.get(callKey(session, data, id));
+  return values?.size === 1 ? [...values][0] : undefined;
+}
 export const deepSeekV2Profile: NativeProjectionProfile = {
   id: "ebo.deepseek-native-v2", version: "2.0.0", harness: "deepseek-harness", module: "v2-profiles/deepseek.js",
   expand({ event, record }) {
@@ -36,12 +55,14 @@ export const deepSeekV2Profile: NativeProjectionProfile = {
     const firstClass = message.role === "tool" && text(message.toolCallId) !== undefined;
     const part = firstClass ? message : partIndex === undefined ? parts.find((value) => value.type === "tool_result") ?? {} : parts[Number(partIndex)] ?? {};
     const output = Array.isArray(part.content) ? part.content.flatMap((block) => text(object(block).text) ?? []).join("") : text(part.content);
-    const killed = output !== undefined && /\n\[killed by signal: [^\]\n]+\]\s*$/u.test(output);
-    const exit = output === undefined ? null : /\n?\[exit code: (-?\d+)\]\s*$/u.exec(output);
+    const toolId = text(part.toolCallId) ?? text(data.callId) ?? text(object(message.source).callId);
+    const toolName = text(data.name) ?? originatingTool(context.records, payload.sessionId ?? record.sessionId, data, toolId);
+    const killed = toolName === "bash" && output !== undefined && /\n\[killed by signal: [^\]\n]+\]\s*$/u.test(output);
+    const exit = toolName !== "bash" || output === undefined ? null : /\n?\[exit code: (-?\d+)\]\s*$/u.exec(output);
     const phase = type === "tool/call" || record.method === "subagent.started" ? "before"
       : type === "tool/result" || record.method === "subagent.finished" ? "after" : event.phase;
     const endpoint = phase === "before" ? "call" : phase === "after" ? "result" : "observation";
-    const nativeId = event.family === "tool" ? text(part.toolCallId) ?? text(data.callId) ?? text(object(message.source).callId)
+    const nativeId = event.family === "tool" ? toolId
       : event.family === "delegation" ? text(payload.childSessionId) : text(data.requestId);
     if (event.family === "model-request") facts.inference = { llmCallCount: unreported, nativeRequestId: nativeId ? known(nativeId) : unreported };
     const hasStep = Number.isSafeInteger(data.turn) && Number(data.turn) >= 0 && Number.isSafeInteger(data.step) && Number(data.step) >= 0;
@@ -57,7 +78,7 @@ export const deepSeekV2Profile: NativeProjectionProfile = {
       ...(nativeId === undefined ? { identityClass: "ebo-derived" as const } : {}), scope: operationScope, endpoint: effectiveEndpoint, canonical: true,
       ...((event.family === "tool" || event.family === "model-request" && nativeId === undefined) && !hasStep ? { scopeStatus: "record-local" as const } : {}),
       issuingInference: event.family === "tool" && hasStep ? known({ id: `turn:${String(data.turn)}/step:${String(data.step)}`, scope, identityClass: "model-output" }) : unreported,
-      toolName: text(data.name), ...(data.arguments === undefined ? {} : { inputDigest: digestValue(data.arguments) }),
+      toolName, ...(data.arguments === undefined ? {} : { inputDigest: digestValue(data.arguments) }),
       failure: effectiveEndpoint !== "result" ? unreported : event.family === "delegation"
         ? payload.status === "ok" ? known(false) : payload.status === "error" ? known(true) : unreported
         : resultFailure(killed ? true : part.isError, exit ? Number(exit[1]) : undefined) } };
