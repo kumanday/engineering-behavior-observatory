@@ -157,6 +157,7 @@
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
         "manifestDigest": { "$ref": "#/$defs/digest" },
+        "evidenceOrigin": { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "enum": ["owned", "imported"] }, "profileDigest": { "$ref": "#/$defs/digest" } } },
         "adapterVersion": { "$ref": "#/$defs/identifier" },
         "task": { "$ref": "#/$defs/condition" },
         "fixture": { "$ref": "#/$defs/condition" },
@@ -233,7 +234,7 @@
       "required": ["code", "dimension", "detail"],
       "properties": {
         "code": {
-          "enum": ["task-mismatch", "fixture-mismatch", "material-configuration-mismatch", "undeclared-model-difference", "declared-model-difference", "undeclared-harness-difference", "declared-harness-difference", "capability-unsupported", "capability-partial"]
+          "enum": ["evidence-origin-mismatch", "producer-profile-mismatch", "task-mismatch", "fixture-mismatch", "material-configuration-mismatch", "undeclared-model-difference", "declared-model-difference", "undeclared-harness-difference", "declared-harness-difference", "capability-unsupported", "capability-partial"]
         },
         "dimension": { "$ref": "#/$defs/identifier" },
         "detail": { "type": "string", "minLength": 1, "maxLength": 1024 }

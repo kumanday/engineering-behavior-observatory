@@ -195,6 +195,16 @@ export async function normalizePiAtif(input: {
     origin: { kind: "imported", qualification: "imported", manifestDigest: input.manifestDigest, exactAttemptMeasures: "unavailable",
       reason: "Imported selected trajectory does not establish complete attempt coverage." } });
   const coverage = await validateNormalizedDataset(dataset, resolver);
-  return { capture, dataset, coverage, resolver, mapping,
+  const aliases = new Set<string>();
+  const alias = (value: unknown) => { if (typeof value === "string" && value.trim()) aliases.add(value); };
+  const collectAliases = (trajectory: AtifObject) => {
+    alias(object(trajectory.agent).model_name);
+    for (const value of array(trajectory.steps)) {
+      const step = object(value); alias(step.model_name); alias(object(step.extra).response_model);
+    }
+    for (const child of array(trajectory.subagent_trajectories)) collectAliases(object(child));
+  };
+  collectAliases(document);
+  return { capture, dataset, coverage, resolver, mapping, modelAliases: [...aliases].sort(),
     outcomeCapture: { ...capture, records: capture.records.map(({ reference, record }) => ({ reference, record: { schemaVersion: "ebo.imported-outcome-record/v1" as const, kind: "imported-source" as const, authority: "third-party" as const, document: record } })) } };
 }

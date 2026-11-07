@@ -315,7 +315,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     // least one case): superseded retries, their observations and their assessments stay out, as they stay out of
     // the certified report.
     const selected = new Set(view.cases.map(({ runId, attemptId }) => `${runId}\0${attemptId}`));
-    for (const entry of source.input.corpusEntries.filter(({ manifestKind, runId, attemptId }) => manifestKind === "run" && selected.has(`${runId}\0${attemptId}`))) {
+    for (const entry of source.input.corpusEntries.filter(({ manifestKind, runId, attemptId }) => (manifestKind === "run" || manifestKind === "import") && selected.has(`${runId}\0${attemptId}`))) {
       const bundleRoot = resolve(source.corpusRoot, dirname(entry.manifestPath));
       // Cohorts may carry their own corpus copies: one attempt, one manifest digest, whichever copy is read.
       const known = attempts.get(entry.attemptId!) ?? { entry, bundleRoot, cohorts: new Set<string>() };
@@ -345,7 +345,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
       sourceDigest: view.sourceDigest, cohortDigest: view.cohortDigest, sourceAttempts: view.sourceAttempts, matchingCases: view.matchingCases, report: view.report };
     writeFileSync(join(outputRoot, "reports", `${cohort.id}.json`), `${JSON.stringify(report, null, 2)}\n`);
     cohorts.push({ id: cohort.id, title: view.title, sourceDigest: view.sourceDigest, cohortDigest: view.cohortDigest,
-      attempts: source.input.corpusEntries.filter(({ manifestKind }) => manifestKind === "run").length, assertions: source.input.assertions.length, report: `reports/${cohort.id}.json` });
+      attempts: source.input.corpusEntries.filter(({ manifestKind }) => manifestKind === "run" || manifestKind === "import").length, assertions: source.input.assertions.length, report: `reports/${cohort.id}.json` });
     tables.cohorts!.push({ cohort_id: cohort.id, title: view.title, atlas_request: relative(base, atlasPath), report_mode: view.mode,
       cohort_digest: view.cohortDigest, source_digest: view.sourceDigest, report_generated_at: view.generatedAt, source_attempts: view.sourceAttempts,
       matching_cases: view.matchingCases, group_by: JSON.stringify(source.aggregation.groupBy), operator_narrative: source.request.operatorNarrative ?? null });

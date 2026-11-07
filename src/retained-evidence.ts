@@ -31,6 +31,8 @@ import {
 
 export type RetainedBehaviorEvidence = {
   capture: RetainedNormalizationInput<unknown>;
+  /** Known source model and route aliases, used together for evaluator blinding. */
+  modelAliases?: readonly string[];
   /** Verified bundle metadata for outcome import; never replaces native session records. */
   outcomeCapture: OutcomeEvidenceInput;
   dataset: NormalizedDataset;

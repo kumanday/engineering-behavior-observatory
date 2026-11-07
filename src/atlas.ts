@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { aggregateEvaluation, selectAggregationAttempts, type BehaviorAggregate, type AggregationInput, type AggregationReport, type AggregationRequest } from "./aggregation.js";
+import { aggregateEvaluation, evidenceOrigin, selectAggregationAttempts, type BehaviorAggregate, type AggregationInput, type AggregationReport, type AggregationRequest } from "./aggregation.js";
 import { assertNoDuplicateJsonKeys, canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
 import type { BehaviorAssertion } from "./behavior-assertions.js";
 import type { AgentSdkNativeRecord } from "./agent-sdk-normalizer.js";
@@ -18,7 +18,7 @@ import { renderAtlas } from "./atlas-html.js";
 import { writeAtlasGrafana } from "./atlas-grafana.js";
 
 type Digest = `sha256:${string}`;
-export const ATLAS_FILTERS = ["model", "harness", "task", "trial", "capture", "outcome", "review", "category", "assessment", "q"] as const;
+export const ATLAS_FILTERS = ["model", "harness", "task", "trial", "capture", "origin", "outcome", "review", "category", "assessment", "q"] as const;
 export type AtlasFilters = Partial<Record<typeof ATLAS_FILTERS[number], string>>;
 export type AtlasRequest = {
   schemaVersion: "ebo.atlas-request/v1";
@@ -36,6 +36,9 @@ export type AtlasCase = {
   key: string; runId: string; attemptId: string; model: string; harness: string; task: string; trial: string;
   capture: string; outcome: string; review: string; category: string; assessment: string;
   harnessVersion?: string;
+  origin?: "owned" | "imported";
+  sourceFormat?: string;
+  producerProfileDigest?: Digest;
   assertion?: BehaviorAssertion; assertionDigest?: Digest; decisions: readonly ReviewDecision[];
   citations: ReadonlyArray<{ eventId: string; nativeReference: unknown; normalizedEvent: unknown; nativeRecord: unknown }>;
   trace?: { href: string; originalStart: string; replayStart?: string };
@@ -110,9 +113,10 @@ export async function loadAtlas(requestPath: string): Promise<AtlasSource> {
   const secretFindings: CaseSecretFinding[] = [];
   const located = (caseKey: string, location: string) => ({ path, ...finding }: LocatedSecretFinding) => { secretFindings.push({ ...finding, caseKey, caseLocation: `${location}${path}` }); };
   const seenAssertions = new Set<string>();
-  for (const entry of corpusEntries.filter(({ manifestKind }) => manifestKind === "run")) {
+  for (const entry of corpusEntries.filter(({ manifestKind }) => manifestKind === "run" || manifestKind === "import")) {
     const ownAssertions = input.assertions.filter(({ document }) => attemptKey(document) === attemptKey(entry));
-    const context = { runId: entry.runId!, attemptId: entry.attemptId!, model: entry.modelId ?? "unavailable", harness: entry.harnessId ?? "unavailable", harnessVersion: entry.harnessVersion ?? "unavailable", task: entry.taskId ?? "unavailable", trial: entry.trialId ?? "unavailable", capture: entry.captureQualification ?? "unavailable", outcome: entry.terminalState ?? "unavailable", ...(entry.retryOf ? { retryOf: entry.retryOf } : {}) };
+    const context = { origin: evidenceOrigin(entry), ...(entry.sourceFormat ? { sourceFormat: entry.sourceFormat } : {}),
+      ...(entry.producerProfileDigest ? { producerProfileDigest: entry.producerProfileDigest } : {}), runId: entry.runId!, attemptId: entry.attemptId!, model: entry.modelId ?? "unavailable", harness: entry.harnessId ?? "unavailable", harnessVersion: entry.harnessVersion ?? "unavailable", task: entry.taskId ?? "unavailable", trial: entry.trialId ?? "unavailable", capture: entry.captureQualification ?? "unavailable", outcome: entry.terminalState ?? "unavailable", ...(entry.retryOf ? { retryOf: entry.retryOf } : {}) };
     let trace: AtlasCase["trace"];
     const traceSource = request.traces?.find((item) => attemptKey(item) === attemptKey(entry));
     if (traceSource) {
@@ -149,7 +153,7 @@ export async function loadAtlas(requestPath: string): Promise<AtlasSource> {
 export async function queryAtlas(source: AtlasSource, filters: AtlasFilters = {}): Promise<AtlasView> {
   exactKeys(filters, [...ATLAS_FILTERS]);
   for (const value of Object.values(filters)) if (typeof value !== "string" || value.length > 500) throw new Error("Invalid Atlas filter.");
-  const eligible = selectAggregationAttempts(source.input.corpusEntries, source.aggregation.selectedAttemptPolicy);
+  const eligible = selectAggregationAttempts(source.input.corpusEntries, source.aggregation.selectedAttemptPolicy, source.aggregation.evidenceOrigins);
   const eligibleIds = new Set(eligible.map(attemptKey));
   const eligibleCases = source.cases.filter((item) => eligibleIds.has(attemptKey(item)));
   const matches = eligibleCases.filter((item) => Object.entries(filters).every(([key, value]) => !value || (key === "q" ? [item.runId, item.attemptId, item.model, item.task, item.assertion?.judgment.rationale ?? "", item.category].join(" ").toLocaleLowerCase().includes(value.toLocaleLowerCase()) : item[key as keyof AtlasCase] === value)));
@@ -159,7 +163,7 @@ export async function queryAtlas(source: AtlasSource, filters: AtlasFilters = {}
   const corpusEntries = source.input.corpusEntries.filter((entry) => ids.has(attemptKey(entry)));
   const report = await aggregateEvaluation({ ...source.input, lineage: { ...source.input.lineage, corpusIndexDigest: digest(corpusEntries) }, corpusEntries, observationSets: source.input.observationSets.filter(({ document }) => ids.has(attemptKey(document))), assertions: source.input.assertions.filter(({ document }) => ids.has(attemptKey(document))) }, source.aggregation);
   const filterOptions = Object.fromEntries(ATLAS_FILTERS.filter((key) => key !== "q").map((key) => [key, [...new Set(eligibleCases.map((item) => String(item[key])))].sort()]));
-  const sourceAttempts = new Set(source.input.corpusEntries.filter(({ manifestKind }) => manifestKind === "run").map(attemptKey)).size;
+  const sourceAttempts = new Set(source.input.corpusEntries.filter(({ manifestKind }) => manifestKind === "run" || manifestKind === "import").map(attemptKey)).size;
   const caseIndex = new Map(matches.map(({ key }, index) => [key, index]));
   const findings: AtlasSecretFinding[] = source.secretFindings.flatMap(({ caseLocation, ...finding }) => {
     const index = caseIndex.get(finding.caseKey);

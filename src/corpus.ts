@@ -75,6 +75,9 @@ export type CorpusIndexEntry = {
   verifierStatuses: string[];
   captureArtifactIds: string[];
   captureQualification?: string;
+  evidenceOrigin?: "owned" | "imported";
+  sourceFormat?: string;
+  producerProfileDigest?: DigestString;
   exportArtifactIds: string[];
   exportStatus?: string;
   sharingClass?: string;
@@ -289,6 +292,8 @@ function projectManifest(root: string, manifestPath: string): CorpusIndexEntry {
       entry.harnessId = profile.status === "supported" ? profile.profile.harness : "atif.unregistered";
       entry.harnessVersion = manifest.producer.agent.version ?? "unavailable";
       entry.captureQualification = "imported"; entry.sharingClass = "restricted";
+      entry.evidenceOrigin = "imported"; entry.sourceFormat = manifest.producer.formatVersion;
+      if (profile.status === "supported") entry.producerProfileDigest = profile.profileDigest;
       entry.captureArtifactIds = [manifest.source.artifactId];
     } catch (error) { entry.issues.push({ field: "/source", message: errorMessage(error) }); }
   }
@@ -601,17 +606,18 @@ function assertCorpusIndexEntry(value: unknown, line: number): asserts value is 
     value.bundleId, value.runId, value.trialId, value.attemptId, value.retryOf, value.taskId, value.fixtureId,
     value.modelProvider, value.modelId, value.harnessId, value.harnessVersion, value.assessmentMode, value.terminalState,
     value.failureClass, value.stopReason, value.verifierLocator, value.captureQualification, value.exportStatus,
-    value.sharingClass, value.captureAssessmentMode,
+    value.sharingClass, value.captureAssessmentMode, value.sourceFormat,
   ];
   if (value.schemaVersion !== INDEX_SCHEMA_VERSION
-      || !["run", "export", "unknown"].includes(String(value.manifestKind))
+      || !["run", "export", "import", "unknown"].includes(String(value.manifestKind))
       || typeof value.manifestPath !== "string" || !isSafeArtifactRelativePath(value.manifestPath)
       || digestValue(value.manifestDigest) === undefined
       || stringArrays.some((items) => !Array.isArray(items) || items.some((item) => typeof item !== "string"))
       || optionalStrings.some((item) => item !== undefined && typeof item !== "string")
+      || value.evidenceOrigin !== undefined && !["owned", "imported"].includes(String(value.evidenceOrigin))
       || (value.attemptNumber !== undefined && (typeof value.attemptNumber !== "number"
         || !Number.isSafeInteger(value.attemptNumber) || value.attemptNumber < 1))
-      || [value.manifestDigest, value.configurationDigest, value.verifierDigest, value.policyDigest, value.sourceManifestDigest]
+      || [value.manifestDigest, value.configurationDigest, value.verifierDigest, value.policyDigest, value.sourceManifestDigest, value.producerProfileDigest]
         .some((digest) => digest !== undefined && digestValue(digest) === undefined)
       || !Array.isArray(value.issues)
       || value.issues.some((issue) => !isRecord(issue) || typeof issue.field !== "string" || typeof issue.message !== "string")) {
