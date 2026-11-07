@@ -122,6 +122,8 @@ test("imported Pi evidence flows through Atlas with origin labels, unknown outco
     assert.ok(manifest.tables.events!.rows > 0);
     const audit = JSON.parse(readFileSync(join(out, "audit.json"), "utf8")).attempts["imported-attempt"];
     assert.equal(audit.last.test.last_ok, null);
+    assert.equal(audit.last.test.changes_after, null);
+    assert.equal(audit.freshness_coverage, "unavailable");
     assert.ok(audit.checks.some(({ status }: { status: unknown }) => status === null));
     assert.ok(audit.verdicts.some(({ status }: { status: string }) => status === "claimed-coverage-unavailable"));
     assert.equal(JSON.parse(readFileSync(join(out, "lanes.json"), "utf8")).attempts[0].errors, null);

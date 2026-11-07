@@ -32,6 +32,10 @@ function windows(actions: Unit[], anchor: TotalsState["anchor"], n: number) {
 
 export function renderTotals(view: HTMLElement, task: string, lanes: LaneMeta[], byLane: Map<string, Unit[]>, st: TotalsState,
                              onHighlight: (rows: number[] | null) => void, ev: Evidence | null = null) {
+  const unknownFailures = lanes.some((lane) => lane.errors === null);
+  const failureCell = (arm: string) => lanesOf(arm).some((lane) => lane.errors === null)
+    ? `<td class="num">unavailable<span class="meta">${lanesOf(arm).reduce((sum, lane) => sum + acts(lane.attempt_id).filter((unit) => unit.status === "error").length, 0)} confirmed failures in retained records</span></td>`
+    : cell(lanesOf(arm).map((lane) => acts(lane.attempt_id).filter((unit) => unit.status === "error").length));
   const arms = [...new Set(lanes.map((l) => l.condition))].sort();
   const lanesOf = (arm: string) => lanes.filter((l) => l.condition === arm);
   const acts = (id: string) => (byLane.get(id) ?? []).filter(isAction);
@@ -46,7 +50,7 @@ export function renderTotals(view: HTMLElement, task: string, lanes: LaneMeta[],
   const tbl1 = `<table class="grid tot"><thead><tr><th>Action category</th>${arms.map((a) => `<th class="num">${esc(a)}<span class="meta">${lanesOf(a).length} attempts</span></th>`).join("")}</tr></thead><tbody>
     ${rows().map((r) => `<tr><th scope="row"><span class="sw cat-${r.key === "compaction" ? "comp" : r.key}"></span> ${esc(r.label)}</th>${arms.map((a) => cell(lanesOf(a).map((l) => catCount(l.attempt_id, r.key)))).join("")}</tr>`).join("")}
     <tr class="sum"><th scope="row">all actions</th>${arms.map((a) => cell(lanesOf(a).map((l) => acts(l.attempt_id).length))).join("")}</tr>
-    <tr><th scope="row">failed tool calls</th>${arms.map((a) => cell(lanesOf(a).map((l) => acts(l.attempt_id).filter((u) => u.status === "error").length))).join("")}</tr>
+    <tr><th scope="row">failed tool calls</th>${arms.map((a) => failureCell(a)).join("")}</tr>
     </tbody></table>`;
   const tbl2 = `<table class="grid tot"><thead><tr><th>Tool (native name)</th>${arms.map((a) => `<th class="num">${esc(a)}</th>`).join("")}</tr></thead><tbody>
     ${toolNames.slice(0, 12).map((t) => `<tr><th scope="row" class="mono">${esc(t)}</th>${arms.map((a) => cell(lanesOf(a).map((l) => acts(l.attempt_id).filter((u) => u.unit_kind === "tool" && toolOf(u) === t).length))).join("")}</tr>`).join("")}
@@ -117,11 +121,12 @@ export function renderTotals(view: HTMLElement, task: string, lanes: LaneMeta[],
     </tbody></table>` : `<p class="muted">No attempt metadata (run p3/build.py).</p>`;
 
   view.innerHTML = `<div class="totals">
+    ${lanes.some((lane) => lane.capture_qualification === "imported") ? `<p class="legend">Imported evidence: activity counts describe retained records. Complete-attempt totals and unknown failure outcomes remain unavailable. Failure windows use confirmed failures only.</p>` : ""}
     <p class="legend">All arms on <b>${esc(task)}</b>, every attempt (the arm filter and cloud selection do not apply). Each cell: total over the arm's attempts, then mean per attempt and the range across attempts. Actions = tool calls + compactions; categories as in the lane legend (shell commands that write source files count as edit / write). Exploratory.</p>
     <div class="tot-grid"><div><h3>By action category</h3>${tbl1}</div><div><h3>By tool</h3>${tbl2}</div></div>
     <h3>Failures by tool and error</h3>
     <p class="legend">Failed tool calls grouped by tool and the first line of the error (paths and numbers masked), per arm: count, then attempts with at least one. Click a count for those failure chains: the failed call next to the next call of the same tool, arguments and results from the native records.</p>
-    ${fails.length ? tbl4 : `<p class="empty">No failed tool calls on this task.</p>`}
+    ${fails.length ? tbl4 : `<p class="empty">${unknownFailures ? "Failure totals unavailable; no confirmed failure signature in retained records." : "No failed tool calls on this task."}</p>`}
     <h3>Recording grain: native records → events → units → tool calls</h3>
     <p class="legend">How much each harness writes per attempt, and what is left after normalization: native records (lines the harness logged, including streaming chunks and progress updates), the normalized events EBO maps them to (largest types shown), behavior units, and tool calls (one per logical operation). Compare activity on the tool-call row, not on raw records. Token usage: attempts with recorded usage; "no usage recorded" means not measured, not zero.</p>
     ${tbl5}
@@ -129,7 +134,7 @@ export function renderTotals(view: HTMLElement, task: string, lanes: LaneMeta[],
       <select data-anchor ${target("setTotalsAnchor")}><option value="compaction" ${st.anchor === "compaction" ? "selected" : ""}>each compaction</option><option value="failure" ${st.anchor === "failure" ? "selected" : ""}>each failed tool call</option></select>
       — the next <select data-n ${target("setTotalsWindow")}>${[5, 10, 20, 50].map((n) => `<option ${n === st.n ? "selected" : ""}>${n}</option>`).join("")}</select> actions vs the rest of the attempt</h3>
     <p class="legend">Share of tool calls in each category inside the windows vs elsewhere in the same attempts; bars show the difference in percentage points (blue = more in the windows, red = fewer). Overlapping windows are counted once. Attempts without anchors have no windows. Click an arm or attempt row to highlight its window tool calls in the cloud.</p>
-    ${winRows.every((w) => !w.anchors) ? `<p class="empty">No ${st.anchor === "compaction" ? "compactions" : "failed tool calls"} on this task.</p>` : tbl3}
+    ${winRows.every((w) => !w.anchors) ? `<p class="empty">${st.anchor === "failure" && unknownFailures ? "Failure anchor population unavailable; no confirmed anchors in retained records." : `No ${st.anchor === "compaction" ? "compactions" : "failed tool calls"} on this task.`}</p>` : tbl3}
   </div>`;
   view.querySelector<HTMLSelectElement>("[data-anchor]")!.addEventListener("change", (e) => run("setTotalsAnchor", { anchor: (e.target as HTMLSelectElement).value }));
   view.querySelector<HTMLSelectElement>("[data-n]")!.addEventListener("change", (e) => run("setTotalsWindow", { n: Number((e.target as HTMLSelectElement).value) }));
