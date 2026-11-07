@@ -1,11 +1,12 @@
 import type { AdapterCapability, NativeEvidenceReference, UniformAttributeValue, UniformEvent } from "./uniform-events.js";
+import { compareEventDisplayOrder as compareEvents, mergeNativeEventStreams, nativeEventPrecedence, sameInference } from "./event-order.js";
 
 /**
  * Instance-level occurrences: one failure and the response to it, one validation run, one source change, one
  * repeated operation, one compaction, one delegation. Each cites exactly its own events. Rules that read command
  * text are labeled heuristic.
  */
-export const OCCURRENCE_RULES_VERSION = "1.1.0";
+export const OCCURRENCE_RULES_VERSION = "1.2.0";
 export const OCCURRENCE_TYPES = ["failure-response", "validation-run", "source-change", "repeated-operation", "compaction", "delegation"] as const;
 export type OccurrenceType = typeof OCCURRENCE_TYPES[number];
 
@@ -13,7 +14,7 @@ export type Occurrence = {
   schemaVersion: "ebo.occurrence/v1";
   id: string;
   type: OccurrenceType;
-  rule: { id: string; version: typeof OCCURRENCE_RULES_VERSION; heuristic: boolean };
+  rule: { id: string; version: "1.0.0" | "1.1.0" | typeof OCCURRENCE_RULES_VERSION; heuristic: boolean };
   eventIds: string[];
   citations: NativeEvidenceReference[];
   attributes: Record<string, UniformAttributeValue>;
@@ -55,13 +56,16 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
   const details = new Map(operations.map((operation) => [operation.id, describe(operation, input.resolveContent)]));
   const eventsById = new Map(operations.flatMap(({ events }) => events.map((event) => [event.id, event] as const)));
   const occurrences: Occurrence[] = [];
-  const add = (type: OccurrenceType, heuristic: boolean, events: readonly UniformEvent[], attributes: Record<string, UniformAttributeValue | undefined>) => {
+  let failureOrderUnavailable = false;
+  let repeatedOrderUnavailable = false;
+  let compactionOrderUnavailable = false;
+  const add = (type: OccurrenceType, heuristic: boolean, events: readonly UniformEvent[], attributes: Record<string, UniformAttributeValue | undefined>, anchorId?: string) => {
     const sorted = ordered(uniqueEvents(events));
     const times = sorted.flatMap(({ nativeTime }) => nativeTime.status === "known" && Number.isFinite(Date.parse(nativeTime.value)) ? [nativeTime.value] : [])
       .sort((left, right) => Date.parse(left) - Date.parse(right));
     occurrences.push({
       schemaVersion: "ebo.occurrence/v1",
-      id: `${input.attemptId}/occ/${type}/${sorted[0]!.id}`,
+      id: `${input.attemptId}/occ/${type}/${anchorId ?? sorted[0]!.id}`,
       type,
       rule: { id: type, version: OCCURRENCE_RULES_VERSION, heuristic },
       eventIds: sorted.map(({ id }) => id),
@@ -71,30 +75,44 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
     });
   };
 
-  // Within each session and order domain: consecutive failures of one tool, then the next operation of that tool
-  // that starts after the last failure ended (a parallel call that was already running is not a response).
+  // Within each resolved session: source order establishes an execution follow-up, not model causality.
+  // A call in the same inference batch or one already running cannot be a response to its sibling's failure.
   const scopes = new Map<string, typeof operations>();
-  for (const operation of operations) scopes.set(operationScope(operation), [...scopes.get(operationScope(operation)) ?? [], operation]);
-  for (const scoped of scopes.values()) {
+  for (const operation of operations) {
+    const key = JSON.stringify([operationScope(operation), operation.toolName]);
+    scopes.set(key, [...scopes.get(key) ?? [], operation]);
+  }
+  for (const group of scopes.values()) {
+    const view = commonOperationView(group);
+    if (view === undefined) { if (group.some(({ failed }) => failed)) failureOrderUnavailable = true; continue; }
+    const scoped = [...group].sort((a, b) => nativeEventPrecedence(view.get(a.id)!.start, view.get(b.id)!.start) ?? compareEvents(view.get(a.id)!.start, view.get(b.id)!.start));
     for (let index = 0; index < scoped.length;) {
       const first = scoped[index]!;
       if (!first.failed) { index += 1; continue; }
       let end = index;
       while (end < scoped.length && scoped[end]!.failed && scoped[end]!.toolName === first.toolName) end += 1;
       const failures = scoped.slice(index, end);
-      const failedAt = failures.flatMap(({ events }) => events).sort(compareEvents).at(-1)!;
-      const next = scoped.slice(end).find((operation) => operation.toolName === first.toolName && compareEvents(operation.events[0]!, failedAt) > 0);
-      add("failure-response", false, [...failures, ...(next === undefined ? [] : [next])].flatMap(({ events }) => events), {
+      const failureEnds = failures.map(({ id }) => view.get(id)!.end!);
+      const failedAt = [...failureEnds].sort((a, b) => nativeEventPrecedence(a, b) ?? compareEvents(a, b)).at(-1)!;
+      if (failureEnds.some((event) => event.id !== failedAt.id && nativeEventPrecedence(event, failedAt) === undefined)) failureOrderUnavailable = true;
+      let next: typeof first | undefined;
+      for (const candidate of scoped.slice(end)) {
+        const start = view.get(candidate.id)!.start;
+        if (failures.some((failure) => sameDeclaredBatch(failure, candidate))) continue;
+        const precedence = nativeEventPrecedence(failedAt, start);
+        if (precedence === undefined) { failureOrderUnavailable = true; continue; }
+        if (precedence < 0) { next = candidate; break; }
+      }
+      add("failure-response", true, [...failures, ...(next === undefined ? [] : [next])].flatMap(({ events }) => events), {
         toolName: first.toolName, failures: failures.length, lastFailureEventId: failedAt.id,
         nextOutcome: next === undefined ? "none" : details.get(next.id)!.result,
-        responseEventId: next?.events[0]!.id,
-      });
+        responseEventId: next === undefined ? undefined : view.get(next.id)!.start.id,
+      }, view.get(first.id)!.start.id);
       index = end;
     }
   }
   occurrences.sort((left, right) => compareEvents(eventsById.get(left.eventIds[0]!)!, eventsById.get(right.eventIds[0]!)!));
 
-  const seen = new Map<string, OccurrenceOperation>();
   for (const operation of operations) {
     const detail = details.get(operation.id)!;
     const validation = detail.checkKinds.filter((kind) => VALIDATION_KINDS.has(kind));
@@ -109,11 +127,22 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
         toolName: operation.toolName, detectedBy: detail.change, paths: limited(detail.writes),
       });
     }
-    if (operation.toolName !== undefined && operation.inputDigest !== undefined) {
-      const signature = JSON.stringify([operation.toolName, operation.inputDigest]);
-      const earlier = seen.get(signature);
-      if (earlier === undefined) seen.set(signature, operation);
-      else add("repeated-operation", false, operation.events, { toolName: operation.toolName, firstEventId: earlier.events[0]!.id });
+  }
+  const signatures = new Map<string, typeof operations>();
+  for (const operation of operations) if (operation.toolName !== undefined && operation.inputDigest !== undefined) {
+    const key = JSON.stringify([operationScope(operation), operation.toolName, operation.inputDigest]);
+    signatures.set(key, [...signatures.get(key) ?? [], operation]);
+  }
+  for (const group of signatures.values()) {
+    if (group.length < 2) continue;
+    const view = commonOperationView(group);
+    if (view === undefined) { repeatedOrderUnavailable = true; continue; }
+    const sorted = [...group].sort((a, b) => nativeEventPrecedence(view.get(a.id)!.start, view.get(b.id)!.start) ?? compareEvents(view.get(a.id)!.start, view.get(b.id)!.start));
+    const first = view.get(sorted[0]!.id)!.start;
+    for (const operation of sorted.slice(1)) {
+      if (nativeEventPrecedence(first, view.get(operation.id)!.start) !== -1) { repeatedOrderUnavailable = true; continue; }
+      add("repeated-operation", false, operation.events, { toolName: operation.toolName, firstEventId: first.id,
+        repeatedEventId: view.get(operation.id)!.start.id });
     }
   }
 
@@ -134,12 +163,21 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
   };
   const compactionKind = (event: UniformEvent) => JSON.stringify([event.source.nativeType, event.attributes.hook ?? event.attributes.subtype
     ?? event.attributes.eventType ?? event.attributes.method ?? event.attributes.lifecycle ?? ""]);
-  for (const event of ordered(input.events)) {
+  let preceding: UniformEvent | undefined;
+  const compactionInputs = input.events.filter((event) => input.isCompaction(event) || event.family === "tool"
+    || event.family === "message" && event.actor.kind !== "harness");
+  const compactionTraversal = mergeNativeEventStreams(compactionInputs);
+  for (const event of compactionTraversal) {
+    if (preceding !== undefined && (boundary.length > 0 || input.isCompaction(event)) && !knownCompactionAdjacency(preceding, event)) {
+      compactionOrderUnavailable = true;
+      closeBoundary();
+    }
     if (input.isCompaction(event)) {
       if (boundary.some((part) => compactionKind(part) === compactionKind(event))) closeBoundary();
       boundary.push(event);
     // Harness-authored messages (the continuation summary a compaction writes) belong to the boundary.
     } else if (event.family === "tool" || event.family === "message" && event.actor.kind !== "harness") closeBoundary();
+    preceding = event;
   }
   closeBoundary();
 
@@ -163,8 +201,10 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
   const coverage: OccurrenceCoverage[] = OCCURRENCE_TYPES.map((type) => {
     const reason = type === "delegation" && !delegationAvailable
       ? input.delegationCapability.detail ?? "The adapter does not expose delegation."
-      : ["failure-response", "repeated-operation"].includes(type) ? toolReason
-        : ["validation-run", "source-change"].includes(type) ? toolReason ?? contentReason : undefined;
+      : type === "failure-response" ? toolReason ?? (failureOrderUnavailable ? "Native source order cannot establish the failure follow-up population." : undefined)
+        : type === "repeated-operation" ? toolReason ?? (repeatedOrderUnavailable ? "Native source order cannot establish repeated-operation precedence." : undefined)
+        : type === "compaction" && compactionOrderUnavailable ? "Native order and source clocks cannot establish compaction adjacency."
+          : ["validation-run", "source-change"].includes(type) ? toolReason ?? contentReason : undefined;
     return reason === undefined ? { type, status: "available", count: count(type) } : { type, status: "unavailable", reason };
   });
   const unavailable = new Set(coverage.filter(({ status }) => status === "unavailable").map(({ type }) => type));
@@ -322,25 +362,53 @@ function stripQuotes(value: string): string {
   return value.replace(/^['"]|['"]$/gu, "");
 }
 
-/** Resolved session and agent of an operation, and the native-order domain of its first event. */
+/** Resolved session and agent. Order domains are compared separately, never used to hide an unknown order. */
 function operationScope(operation: OccurrenceOperation): string {
   const first = operation.events[0]!;
   const session = operation.scope
     ?? text(first.attributes.sessionId) ?? (first.scope.kind === "session" ? text(first.scope.id) : undefined) ?? "";
-  return JSON.stringify([session, first.nativeOrder.status === "known" ? first.nativeOrder.domain : ""]);
+  return session;
 }
 
 function ordered(events: readonly UniformEvent[]): UniformEvent[] {
   return [...events].sort(compareEvents);
 }
 
-function compareEvents(left: UniformEvent, right: UniformEvent): number {
-  const leftTime = left.nativeTime.status === "known" ? Date.parse(left.nativeTime.value) : Number.POSITIVE_INFINITY;
-  const rightTime = right.nativeTime.status === "known" ? Date.parse(right.nativeTime.value) : Number.POSITIVE_INFINITY;
-  if (leftTime !== rightTime) return leftTime < rightTime ? -1 : 1;
-  const leftOrder = left.nativeOrder.status === "known" ? left.nativeOrder.value : Number.POSITIVE_INFINITY;
-  const rightOrder = right.nativeOrder.status === "known" ? right.nativeOrder.value : Number.POSITIVE_INFINITY;
-  return leftOrder === rightOrder ? left.id.localeCompare(right.id) : leftOrder < rightOrder ? -1 : 1;
+/** One complete native view shared by logical operations, even when each has duplicate hook/session records. */
+function commonOperationView(operations: readonly OccurrenceOperation[]): Map<string, { start: UniformEvent; end?: UniformEvent }> | undefined {
+  const views = operations.map((operation) => {
+    const byDomain = new Map<string, UniformEvent[]>();
+    for (const event of operation.events) if (event.nativeOrder.status === "known") {
+      byDomain.set(event.nativeOrder.domain, [...byDomain.get(event.nativeOrder.domain) ?? [], event]);
+    }
+    return new Map([...byDomain].flatMap(([domain, events]) => {
+      const sorted = [...events].sort((a, b) => nativeEventPrecedence(a, b) ?? compareEvents(a, b));
+      const start = sorted.find(({ phase }) => phase === "before" || phase === "instant");
+      const end = sorted.filter(({ phase }) => phase === "after" || phase === "instant").at(-1);
+      return start === undefined || operation.failed && end === undefined ? [] : [[domain, { start, end }] as const];
+    }));
+  });
+  const common = [...views[0]?.keys() ?? []].sort().find((domain) => views.every((view) => view.has(domain)));
+  return common === undefined ? undefined : new Map(operations.map(({ id }, index) => [id, views[index]!.get(common)!]));
+}
+
+/** A declaration retained in any view takes precedence over serial execution callbacks in another view. */
+function sameDeclaredBatch(left: OccurrenceOperation, right: OccurrenceOperation): boolean {
+  const starts = (operation: OccurrenceOperation) => operation.events.filter(({ phase }) => phase === "before" || phase === "instant");
+  return starts(left).some((a) => starts(right).some((b) => sameInference(a, b)
+    || a.source.nativeReference.artifactId === b.source.nativeReference.artifactId
+      && a.source.nativeReference.recordLocator === b.source.nativeReference.recordLocator));
+}
+
+/** Cross-source compaction grouping is heuristic and requires source clocks, never receipt clocks. */
+function knownCompactionAdjacency(left: UniformEvent, right: UniformEvent): boolean {
+  const precedence = nativeEventPrecedence(left, right);
+  if (precedence !== undefined) return precedence < 0;
+  if (left.nativeOrder.status === "known" && right.nativeOrder.status === "known" && left.nativeOrder.domain === right.nativeOrder.domain) return false;
+  const nativeClock = (event: UniformEvent) => event.nativeTime.status === "known" && Number.isFinite(Date.parse(event.nativeTime.value))
+    && !["capture-receipt", "adapter-receipt", "hook-callback"].includes(String(event.attributes.nativeTimeSource));
+  return nativeClock(left) && nativeClock(right) && left.nativeTime.status === "known" && right.nativeTime.status === "known"
+    && Date.parse(left.nativeTime.value) < Date.parse(right.nativeTime.value);
 }
 
 function uniqueEvents(events: readonly UniformEvent[]): UniformEvent[] {
