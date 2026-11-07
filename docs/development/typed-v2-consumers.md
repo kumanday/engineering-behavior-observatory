@@ -136,3 +136,9 @@ preparation. Blinded workspace labels map back to one canonical cited working
 directory when an assertion is recorded. Compaction and delegation rating
 inputs include bounded source records. Atlas groups content blocks sharing a
 message identity and retains partial-message facts and every block's evidence.
+
+Occurrence extraction uses adapter-established canonical endpoint order when
+passive hook copies have a different clock domain. All source copies remain
+citable. Source-change heuristics include file creation and notebook edits as
+attempts. Rating batch readback reconstructs each distinct bounds configuration
+once and verifies every retained receipt against its original occurrence.

@@ -61,16 +61,16 @@ export async function createOccurrenceLedgerV2(dataset: NormalizedDatasetV2, res
       const writes = shellWrites(command);
       if (writes.length) await add("source-change", [operation], ids, { paths: known(writes), stateChanged: unreported, outcomeFailure: operation.failure }, true);
     } else limitations.set("validation-run", "SOME_NORMALIZED_COMMAND_INPUTS_UNAVAILABLE");
-    if (operation.toolName.status === "known" && /^(?:edit|write|multiedit|apply_patch|str_replace|str_replace_editor|write_file|edit_file|patch|filechange)$/iu.test(operation.toolName.value) && !command) {
+    if (operation.toolName.status === "known" && /^(?:edit|write|create|notebookedit|multiedit|apply_patch|str_replace|str_replace_editor|write_file|edit_file|patch|filechange)$/iu.test(operation.toolName.value) && !command) {
       await add("source-change", [operation], ids, { stateChanged: unreported, outcomeFailure: operation.failure }, true);
     }
   }
   // Choose only a uniquely earliest, comparable call after an explicit failed endpoint.
   for (const failed of tools.filter(({ failure }) => failure.status === "known" && failure.value)) {
     const endpoints = failed.resultEventIds.map((id) => events.get(id)!).filter((event) => event.facts.operation?.endpoint === "result" && event.facts.operation.failure.status === "known" && event.facts.operation.failure.value);
-    const ends = endpoints.filter((event) => event.nativeOrder.status === "known");
-    const end = ends.find((candidate) => ends.every((other) => ["before", "same-observation"].includes(precedes(other, candidate))));
-    if (!end || ends.length !== endpoints.length || !operationScopeV2(failed)) { limitations.set("execution-follow-up", "FAILURE_ENDPOINT_ORDER_OR_SCOPE_UNAVAILABLE"); continue; }
+    const end = endpoints.find((event) => event.nativeOrder.status === "known" && failed.endOrder.status === "known"
+      && event.nativeOrder.domain === failed.endOrder.domain && event.nativeOrder.value === failed.endOrder.value);
+    if (!end || !operationScopeV2(failed)) { limitations.set("execution-follow-up", "FAILURE_ENDPOINT_ORDER_OR_SCOPE_UNAVAILABLE"); continue; }
     const population = tools.filter((candidate) => candidate.id !== failed.id && compatible(failed, candidate) && !sameOutput(failed, candidate));
     if (population.some((candidate) => candidate.startOrder.status !== "known" || precedes(end, position(dataset, candidate.startOrder)) === "unknown")) {
       limitations.set("execution-follow-up", "INCOMPARABLE_FOLLOW_UP_POPULATION"); continue;
