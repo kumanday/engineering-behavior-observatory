@@ -98,3 +98,8 @@ compares the current checkout to that version's manifest. Preserve published
 manifests and tags when development changes their pinned files. Source scanning
 accepts reference-only Bearer header construction and keeps credential literals
 visible to the shared export scanner.
+
+The ATIF conformance workflow runs the typed v2 native projection, consumer and
+migration-accounting regressions on authored fixtures. It uses the pinned Node
+and Python runtimes and does not dispatch model inference. Private paired-source
+checks and optional live capture checks remain separate verification lanes.
