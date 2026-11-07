@@ -36,6 +36,9 @@ test("projection is deterministic and unknown result status is preserved", async
   assert.equal(Object.hasOwn(result.attributes, "isError"), false);
 });
 
-test("records the current source-order defect as a release blocker", () => {
-  assert.equal(orderingProbe().defectReproduced, true, "update this baseline probe when the ordering fix lands");
+test("associates follow-up calls by source order when a result lacks a timestamp", () => {
+  const probe = orderingProbe();
+  assert.equal(probe.defectReproduced, false);
+  assert.equal(probe.observedResponseEventId, "call-b");
+  assert.equal(probe.ruleVersion, "1.2.0");
 });

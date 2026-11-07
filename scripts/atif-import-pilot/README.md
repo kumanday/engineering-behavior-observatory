@@ -78,9 +78,9 @@ node --test scripts/atif-import-pilot/project.test.mjs
 "$pilot_root/.venv/bin/python" -m unittest discover -s scripts/atif-import-pilot -p 'test_*.py'
 ```
 
-One Node test intentionally records the current occurrence-order defect as a
-baseline blocker. Replace that expectation with the corrected behavior in the
-ordering-fix slice. The Python version-policy probe is a pilot subset, not the
+The Node ordering regression requires the later source-ordered call to be
+associated even when the failed result has no timestamp. The frozen baseline
+receipt records the 1.1.0 rule behavior. The Python version-policy probe is a pilot subset, not the
 complete product version table. The JSON-pointer and reference-resolution checks
 are development evidence, not a complete production admission boundary.
 
