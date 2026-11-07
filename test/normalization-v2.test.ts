@@ -91,3 +91,9 @@ test('unsupported timestamp offset syntax never reaches lossy exact-duration par
  const clock=(timestamp:string):ClockEvidence=>({status:'known',value:{timestamp,kind:'execution',domain:'process',precisionMs:0,provenance:'source-recorded',source:reference}});
  assert.equal(executionDurationMs(clockPos(clock('2026-11-07T00:00:00.0009+0000')),clockPos(clock('2026-11-07T00:00:00.0011+0000'))).status,'unknown');
 });
+
+test('calendar rollover and invalid clock fields remain unknown before exact subtraction',()=>{
+ const clock=(timestamp:string):ClockEvidence=>({status:'known',value:{timestamp,kind:'execution',domain:'process',precisionMs:0,provenance:'source-recorded',source:reference}});
+ for(const invalid of['2026-02-30T00:00:00Z','2025-02-29T00:00:00Z','2026-12-31T24:00:00Z','2026-03-02T00:00:00+24:00'])assert.equal(executionDurationMs(clockPos(clock(invalid)),clockPos(clock('2026-03-02T00:00:01Z'))).status,'unknown');
+ assert.deepEqual(executionDurationMs(clockPos(clock('2024-02-29T00:00:00Z')),clockPos(clock('2024-02-29T00:00:01Z'))),{status:'known',value:1000});
+});

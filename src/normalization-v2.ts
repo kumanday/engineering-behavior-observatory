@@ -111,7 +111,16 @@ export function executionDurationMs(firstPosition: ClockPosition, lastPosition: 
       || start.value.domain !== end.value.domain || start.value.provenance !== "source-recorded" || end.value.provenance !== "source-recorded") {
     return { status: "unknown", reason: "COMPARABLE_RECORDED_EXECUTION_CLOCKS_REQUIRED" };
   }
-  const supportedTimestamp = (timestamp: string) => /^\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:z|[+-]\d{2}:\d{2})$/iu.test(timestamp);
+  const supportedTimestamp = (timestamp: string) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})t(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:z|[+-]\d{2}:\d{2})$/iu.exec(timestamp);
+    if (!match) return false;
+    const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number) as [number, number, number, number, number, number];
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    const offset = /[+-](\d{2}):(\d{2})$/u.exec(timestamp);
+    return month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1]! && hour < 24 && minute < 60 && second < 60
+      && (offset === null || Number(offset[1]) < 24 && Number(offset[2]) < 60);
+  };
   if (!supportedTimestamp(start.value.timestamp) || !supportedTimestamp(end.value.timestamp)) return {status:"unknown",reason:"EXACT_TIMESTAMP_FORMAT_UNSUPPORTED"};
   const submillisecond = (timestamp: string) => {
     const fraction = /\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/iu.exec(timestamp)?.[1];
