@@ -105,3 +105,12 @@ test("readback rejects excessive declared totals before reading missing artifact
   await assert.rejects(()=>readEvidenceCompanion(f.base,f.companion),/total byte limit/u);
  }finally{f.cleanup();}
 });
+
+test("actual files cannot exceed declared read sizes and malformed Unicode IDs cannot be published",{skip:!python},async()=>{
+ const f=await fixture();try{
+  const malformed=structuredClone(f.request);malformed.artifacts[0]!.id='\ud800';
+  await assert.rejects(()=>writeEvidenceCompanion(f.base,f.companion,malformed,new Map([['\ud800',f.bytes]])),/encodable Unicode/u);
+  await writeEvidenceCompanion(f.base,f.companion,f.request,f.files);const path=join(f.companion,'companion.json'),manifest=JSON.parse(readFileSync(path,'utf8'));manifest.artifacts[0].bytes=0;writeFileSync(path,JSON.stringify(manifest));
+  await assert.rejects(()=>readEvidenceCompanion(f.base,f.companion),/byte limit of 0/u);
+ }finally{f.cleanup();}
+});
