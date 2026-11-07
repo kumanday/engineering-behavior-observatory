@@ -291,3 +291,28 @@ test("Pi reasoning tokens remain a separate reported subset of output tokens", a
     [{ record: 1, family: "runtime", id: "native-usage-increment" }]));
   assert.deepEqual(dataset.events[0]!.facts.resource!.values, { inputTokens: 10, outputTokens: 20, totalTokens: 30, reasoningTokens: 15 });
 });
+
+test("Codex dynamic tool completions preserve native success and result content", async () => {
+  for (const success of [true, false]) {
+    const output = [{ type: "inputText", text: "native dynamic result" }];
+    const docs = [{ source: "codex-app-server", kind: "notification", method: "item/completed", payload: { threadId: "thread", turnId: "turn",
+      item: { type: "dynamicToolCall", id: "dynamic", tool: "custom", arguments: "{}", status: "completed", success, contentItems: output } } }];
+    const { dataset, resolver } = await project(fixture("codex-app-server", docs, [{ record: 0, family: "tool", phase: "after" }]));
+    assert.deepEqual(dataset.operations[0]!.failure, { status: "known", value: !success });
+    const content = dataset.events[0]!.content; assert.equal(content.status, "known");
+    if (content.status === "known") { const result = content.value.find(({ role }) => role === "tool-result")!; assert.ok(result); assert.deepEqual(resolver.read(result.nativeReference), output); }
+  }
+});
+test("DeepSeek rendered signal termination overrides the successful tool envelope", async () => {
+  const docs = [{ payload: { sessionId: "s", event: { seq: 1, type: "tool/result", data: { turn: 0, step: 1,
+    message: { role: "tool", toolCallId: "call", isError: false, content: [{ type: "text", text: "Stopped.\n[killed by signal: SIGTERM]" }] } } } } }];
+  const { dataset } = await project(fixture("deepseek-harness", docs, [{ record: 0, family: "tool", phase: "after" }]));
+  assert.deepEqual(dataset.operations[0]!.failure, { status: "known", value: true });
+});
+
+test("native model aliases bind declared identities and producer model fields without scanning tool inputs", async () => {
+  const evidence = fixture("pi-sdk", [piRecord("session", "s"), piRecord("message", "m", { role: "assistant", model: "observed-model", content: [{ type: "toolCall", id: "call", name: "bash", arguments: { model: "candidate-data" } }] })],
+    [{ record: 1, family: "message", phase: "after" }]);
+  const projected = await projectNativeEvidenceV2(evidence, { manifestDigest: hash("manifest"), harnessVersion: "fixture-pin", modelAliases: ["declared-route"] });
+  assert.deepEqual(projected.modelAliases, ["declared-route", "observed-model"]);
+});

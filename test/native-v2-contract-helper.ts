@@ -12,6 +12,7 @@ export async function assertNativeV2RetainedBundle(root: string): Promise<void> 
   const projected = await createRetainedBehaviorEvidenceV2(root);
   assert.equal(projected.dataset.schemaVersion, "ebo.normalized-dataset/v2");
   assert.equal(projected.dataset.origin.kind, "owned");
+  assert.ok(projected.modelAliases?.length, "retained v2 readers preserve the manifest model identity");
   assert.equal(projected.dataset.origin.qualification, original.capture.qualification);
   assert.equal(projected.dataset.nativeRecords.length, projected.dataset.recordCoverage.length);
   for (const reference of projected.dataset.contentReferences) {
