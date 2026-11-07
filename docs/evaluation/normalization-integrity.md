@@ -78,3 +78,31 @@ The schema is
 [`schemas/normalization-integrity.v1.json`](../../schemas/normalization-integrity.v1.json).
 Exact-match and incompatible-fixture examples live under
 `test/fixtures/comparison` in the source repository.
+
+## JSON-pointer evidence records
+
+Imported source readers can retain records at `#` or `#/...` locators. The
+`createPointerEvidenceResolver` utility finds the longest retained ancestor in
+the same artifact, checks nested records against their containing values, and
+returns the canonical digest of the requested value. It distinguishes that
+digest from the containing record's digest and the source file's byte digest.
+
+Pointer segments use JSON-pointer escaping (`~0` for `~`, `~1` for `/`). Percent
+characters are literal in EBO record locators. Array indices must use canonical
+decimal spelling. Sibling records, foreign artifacts, missing values, malformed
+escapes, inherited properties and accessors do not resolve. Duplicate or
+contradictory retained records fail before citation readback.
+Retained values must be plain, acyclic JSON data with dense arrays and
+enumerable data properties, within depth 128. Validation precedes cloning, so
+computed accessors do not become retained content.
+
+Adapters using pointed digests select
+`contentDigestPolicy: "canonical-json-pointers/v1"` when constructing the dataset
+and supply `contentDigest: ref => resolver.read(ref)?.pointedDigest`. The builder
+then requires that digest for `#` locators instead of substituting a containing
+record hash. The default policy retains existing native dataset digests.
+
+This utility supplies pointer lookup within the retained evidence boundary.
+Import admission and consumer dispatch remain responsible for source origin,
+qualification, completeness and semantic eligibility. Existing line-based
+native evidence keeps its retained digest rules.
