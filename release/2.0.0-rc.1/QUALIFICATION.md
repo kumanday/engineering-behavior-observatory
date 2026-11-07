@@ -24,12 +24,17 @@ suite, checks source and packaged documentation links, scans for restricted or
 machine-local content, and compares two byte-identical archives. Keep the
 checkout unchanged until the check ends. The command publishes nothing.
 
-Extract the resulting archive into a fresh local directory, install its declared
-dependencies, and invoke the packaged CLI with Node:
+Install the resulting archive as a dependency in a fresh local project. From the
+source checkout where acceptance produced the archive:
 
 ```sh
-node package/dist/src/cli.js atif profiles --v2
-node package/dist/src/cli.js v2 inspect RETAINED_BUNDLE NEW_OUTPUT
+ebo_candidate_archive="$PWD/.ebo/releases/2.0.0-rc.1/engineering-behavior-observatory-2.0.0-rc.1.tgz"
+ebo_cold_directory="$(mktemp -d)"
+cd "$ebo_cold_directory"
+npm init -y
+npm install "$ebo_candidate_archive" --omit=dev --registry=https://registry.npmjs.org/
+node node_modules/engineering-behavior-observatory/dist/src/cli.js atif profiles --v2
+node node_modules/engineering-behavior-observatory/dist/src/cli.js v2 inspect /absolute/path/to/retained-bundle /absolute/path/to/new-analysis
 ```
 
 Select a retained admitted import or owned source bundle. The analysis command
