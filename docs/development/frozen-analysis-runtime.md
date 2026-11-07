@@ -1,4 +1,4 @@
-# Frozen 1.x analysis runtime
+# Frozen 1.x analysis runtimes
 
 `ebo-v1.4-atif-20261107` preserves the 1.x read and analysis implementation at
 `fb1dfd7397836de1eab370090534433f0383f45f`. It contains the reviewed capture-version
@@ -26,7 +26,21 @@ a later dependency upgrade must retain a compatible installation or qualify a
 new runtime identity. Snapshot files are ordinary shipped EBO code under the
 repository's license.
 
-## Reproduce the snapshot
+## Reproduce the native 1.4 baseline
+
+`ebo-v1.4.0-86a6010` binds the original 1.4.0 source at
+`86a601079a51243756fe52798365a9cbf69cfe6f`, including occurrence rules 1.1.0.
+Use it to reproduce native studies and observation digests created with that
+implementation. Use `ebo-v1.4-atif-20261107` for refreshed source-local ordering
+and additive ATIF imports. Both are fixed shipped implementations with their
+own source, asset and dependency receipts.
+
+The legacy runtime supports the native manifest formats present at its source
+revision. Select the additive runtime for imported trajectories. Per-cohort pins
+allow different retained studies to keep their original reader; shared attempts
+still require equivalent projections and observation sets.
+
+## Reproduce the snapshots
 
 From a source checkout with Node 24.19.0 and installed dependencies:
 
@@ -34,7 +48,7 @@ From a source checkout with Node 24.19.0 and installed dependencies:
 npm run compatibility:verify
 ```
 
-The builder archives the exact trusted Git commit into a temporary directory,
+The builder verifies both registered snapshots. It archives each exact trusted Git commit into a temporary directory,
 bundles the named read APIs with the installed esbuild, copies the source
 assets, and constructs a raw-byte inventory. It compares an existing capsule
 byte for byte and never overwrites it. A different source, builder or dependency

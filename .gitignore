@@ -38,3 +38,7 @@ docs/assets/*.master.*
 !compatibility/ebo-v1.4-atif-20261107/dist/
 !compatibility/ebo-v1.4-atif-20261107/dist/src/
 !compatibility/ebo-v1.4-atif-20261107/dist/src/reader.mjs
+
+!compatibility/ebo-v1.4.0-86a6010/dist/
+!compatibility/ebo-v1.4.0-86a6010/dist/src/
+!compatibility/ebo-v1.4.0-86a6010/dist/src/reader.mjs
