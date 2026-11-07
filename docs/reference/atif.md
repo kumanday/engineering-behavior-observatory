@@ -139,3 +139,15 @@ builds observations and an Atlas bundle, and verifies its retained evidence.
 Serve `NEW_OUTPUT/atlas` with `ebo atlas serve --bundle NEW_OUTPUT/atlas`.
 The viewer supports unavailable task identities; imported audit freshness and
 unknown failure totals remain unavailable in Swimlanes and Totals.
+
+Imported occurrence coverage stays unavailable for complete-attempt populations.
+Positive local occurrences remain available for cited evaluation; missing
+follow-ups do not produce automatic no-response ratings. Rating inputs mark
+source changes between calls as unknown and state their completeness limits.
+Document-local operation scopes keep repeated child identifiers distinct. The
+importer validates its generated mapping before publishing admission.
+
+Embedded-document usage is reconciled against each document’s own final metrics
+before summing admitted local totals. Judge preparation reserves the final-report
+tier for root-document reports; child traversal order does not replace the
+evaluated agent’s final answer.

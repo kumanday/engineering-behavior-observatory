@@ -146,8 +146,11 @@ export function createStructuralObservationSet(
       observation.extractor.id.startsWith("outcome-") ? observation : {
         ...observation, value: { status: "unavailable" as const, reason: dataset.origin!.reason },
       }) : observations,
-    occurrences,
-    occurrenceCoverage,
+    occurrences: dataset.origin?.kind === "imported" ? occurrences
+      .filter((occurrence) => occurrence.type !== "failure-response" || occurrence.attributes.nextOutcome !== "none")
+      .map((occurrence) => ({ ...occurrence, attributes: { ...occurrence.attributes, sourceCompleteness: "unproven", evidenceOrigin: "imported" } })) : occurrences,
+    occurrenceCoverage: dataset.origin?.kind === "imported" ? occurrenceCoverage.map(({ type }) => ({ type, status: "unavailable" as const,
+      reason: dataset.origin!.reason })) : occurrenceCoverage,
   };
 }
 
@@ -364,6 +367,8 @@ function explicitAgentScope(event: UniformEvent): string | undefined {
 
 function directSessionScope(event: UniformEvent): string | undefined {
   const retained = scalarString(event.attributes.sessionId);
+  const document = scalarString(event.attributes.documentScope);
+  if (document !== undefined) return `document:${JSON.stringify([document, retained ?? ""])}`;
   if (retained !== undefined) return `session:${retained}`;
   const scopeId = scalarString(event.scope.id);
   return (event.scope.kind === "session" || event.scope.kind === "turn") && scopeId !== undefined

@@ -394,11 +394,13 @@ export function occurrenceRequest(
 ): { rules: Array<keyof typeof RULE_RATINGS>; state?: Record<string, unknown>; questions: Record<string, DecisionQuestion> } {
   const questions = { ...occurrenceQuestions(occurrence.type) ?? {} };
   const precedence = occurrence.rule.version === "1.2.0" ? eventOrder : legacyEventOrder;
-  if (occurrence.type === "failure-response" && occurrence.attributes.nextOutcome === "none") return { rules: ["noResponse"], questions: {} };
+  const imported = occurrence.attributes.evidenceOrigin === "imported" || occurrence.attributes.sourceCompleteness === "unproven";
+  if (occurrence.type === "failure-response" && occurrence.attributes.nextOutcome === "none") return { rules: imported ? [] : ["noResponse"], questions: {} };
   // Supporting facts use every source change, whichever types are rated. Changes strictly between two events are
   // ordered natively within one order domain; "unknown" when source order cannot be established.
   const changes = allOccurrences.filter(({ type }) => type === "source-change").map(({ eventIds }) => eventIds.flatMap((id) => eventsById.get(id) ?? []));
   const between = (fromId: unknown, toId: unknown): number | "unknown" => {
+    if (imported) return "unknown";
     const from = eventsById.get(String(fromId));
     const to = eventsById.get(String(toId));
     if (from === undefined || to === undefined) return "unknown";
@@ -431,6 +433,11 @@ export function occurrenceRequest(
       rules.push("silentSuccess");
       delete questions.outcome;
     }
+  }
+  if (imported) {
+    state.sourceEvidence = { qualification: "imported", completeness: "unproven", sourceChangesBetween: "unknown" };
+    for (const [id, question] of Object.entries(questions)) questions[id] = { ...question,
+      instructions: `This is selected imported evidence with unproven completeness and mutation outcomes. Missing records do not establish absence, no repair, no response or complete success. Judge only the cited local behavior; abstain when the requested distinction is unproven. ${question.instructions}` };
   }
   if (omittedCharacters > 0) state.omittedCharacters = omittedCharacters;
   return Object.keys(questions).length === 0 ? { rules, questions } : { rules, state, questions };
