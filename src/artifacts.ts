@@ -1171,6 +1171,7 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(runBundleSchema);
   ajv.addSchema(readSchema("uniform-events/v1.json"));
   ajv.addSchema(readSchema("normalization-integrity.v1.json"));
+  ajv.addSchema(readSchema("normalization.v2.json"));
   ajv.addSchema(readSchema("structural-observations.v1.json"));
   ajv.addSchema(readSchema("atif-inspection.v1.json"));
   ajv.addSchema(readSchema("evidence-companion.v1.json"));
@@ -1187,12 +1188,14 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("deepseek-runtime-composition.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-admission.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-import.v1.json"));
+  ajv.addSchema(readSchema("analysis-runtime-snapshot.v1.json"));
   ajv.addSchema(readSchema("harbor-review.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-freeze.v1.schema.json"));
   ajv.addSchema(readSchema("experiment.v2.schema.json"));
   ajv.addSchema(readSchema("run-queue.v2.schema.json"));
 
   return new Map([
+    ["ebo.analysis-runtime-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:analysis-runtime-snapshot:v1")],
     ["ebo.harbor-trial-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/inspection")],
     ["ebo.harbor-source-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/snapshot")],
     ["ebo.harbor-execution/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/execution")],
@@ -1215,6 +1218,10 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["export-manifest/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/exportManifest`)],
     ["ebo.uniform-event/v1", requiredValidator(ajv, "urn:ebo:schema:uniform-events:v1#/$defs/uniformEvent")],
     ["ebo.adapter-capability-profile/v1", requiredValidator(ajv, "urn:ebo:schema:uniform-events:v1#/$defs/capabilityProfile")],
+    ["ebo.normalized-dataset/v2", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/dataset")],
+    ["ebo.uniform-event/v2", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/event")],
+    ["ebo.operation/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operation")],
+    ["ebo.operation-identity/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operationIdentity")],
     ["ebo.normalized-dataset/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/normalizedDataset")],
     ["ebo.adapter-coverage-report/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/coverageReport")],
     ["ebo.comparison-request/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/comparisonRequest")],
