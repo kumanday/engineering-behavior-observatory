@@ -185,3 +185,11 @@ remain environment inputs rather than CLI arguments.
 Use `ebo atif inspect <trajectory.json> [--python <executable>]
 [--retain <relative-path>]...` for offline inspection. See [ATIF source
 inspection](atif.md) for version, validation and reference limits.
+
+### Retain a Pi ATIF trajectory
+
+Use `ebo atif profiles` to choose an exact producer identity, then
+`ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id>
+--profile <registered-id> [--python <executable>]`.
+The [ATIF reference](atif.md#pi-imports) defines imported qualification,
+validation requirements, repeatability and measurement limits.

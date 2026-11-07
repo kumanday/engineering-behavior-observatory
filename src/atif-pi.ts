@@ -13,7 +13,7 @@ export type PiAtifMappingReport = {
   producerStatus: "supported" | "unsupported";
   profileDigest?: `sha256:${string}`;
   limitations: string[];
-  recorded: { calls: number; linkedResults: number; copiedStepsExcluded: number; contextOnlyStepsExcluded: number };
+  recorded: { calls: number | null; linkedResults: number | null; copiedStepsExcluded: number | null; contextOnlyStepsExcluded: number | null };
   signatures: Array<{ document: string; id: string; name: string; failed: boolean | null }>;
   measures: Record<string, Measure>;
 };
@@ -44,13 +44,14 @@ export async function normalizePiAtif(input: {
     if (!value.found) throw new Error("ATIF pointer inventory does not resolve.");
     return { reference: reference(pointer), record: value.value };
   });
+  const pointerTypes = new Map(inspection.records.map(({ pointer, kind }) => [pointer, `atif:${kind}`]));
   const nativeTypes = new Map(records.map((record, index) => [record.record, `atif:${inspection.records[index]!.kind}`]));
   const capture: ImportedNativeEvidence<unknown> = { runId: input.runId, attemptId: input.attemptId, qualification: "imported", records };
   const resolver = createPointerEvidenceResolver(capture);
   const events: UniformEvent[] = [];
   const limitations = new Set(inspection.limitations);
   const mapping: PiAtifMappingReport = { schemaVersion: "ebo.pi-atif-mapping/v1", scope: "retained-selected-trajectory",
-    producerStatus: selection.status, limitations: [], recorded: { calls: 0, linkedResults: 0, copiedStepsExcluded: 0, contextOnlyStepsExcluded: 0 },
+    producerStatus: selection.status, limitations: [], recorded: { calls: null, linkedResults: null, copiedStepsExcluded: null, contextOnlyStepsExcluded: null },
     signatures: [], measures: {} };
   const harness = selection.status === "supported" ? selection.profile.harness : "atif.unregistered";
   const agentSteps: AtifObject[] = [];
@@ -59,12 +60,13 @@ export async function normalizePiAtif(input: {
     phase: UniformEvent["phase"], attributes: UniformEvent["attributes"], contentPointer?: string, operation?: string) => {
     const documentPointer = stepPointer.slice(0, stepPointer.lastIndexOf("/steps/"));
     events.push({ schemaVersion: "ebo.uniform-event/v1", id: `${pointer}/${suffix}`, runId: input.runId, attemptId: input.attemptId,
-      source: { harness, nativeType: `atif:${family}`, nativeReference: reference(pointer) },
+      family, phase,
+      source: { harness, nativeType: pointerTypes.get(pointer) ?? "atif:step", nativeReference: reference(pointer) },
       nativeOrder: { status: "known", value: Number(step.step_id), domain: `${artifactId}:${documentPointer}` },
-      nativeTime: { status: "unknown", reason: "PER_OPERATION_CLOCK_NOT_RECORDED" },
+      nativeTime: { status: "unsupported", reason: "PER_OPERATION_CLOCK_NOT_RECORDED" },
       actor: { kind: family === "tool" && phase === "after" ? "tool" : step.source === "agent" ? "agent" : step.source === "user" ? "user" : "system" },
       scope: operation === undefined ? { kind: "session", id: `document:${documentPointer}` } : { kind: "operation", id: operation },
-      relations: { parent: { status: "unknown", reason: "PARENTAGE_NOT_ESTABLISHED" }, known: [] },
+      relations: { parent: { status: "unsupported", reason: "PARENTAGE_NOT_ESTABLISHED" }, known: [] },
       attributes: { ...attributes, documentScope: documentPointer, ...(step.llm_call_count === 1
         ? { inferenceId: `${artifactId}:${stepPointer}`, inferenceIdentitySource: "declared-single-inference-step" } : {}) },
       content: { status: "known", value: contentPointer === undefined ? [] : [{ nativeReference: reference(contentPointer), role: family === "tool" ? phase === "before" ? "tool-input" : "tool-result" : "message" }] },
@@ -73,9 +75,18 @@ export async function normalizePiAtif(input: {
   const visit = (trajectory: AtifObject, pointer: string, contextOnly: boolean) => {
     if (object(trajectory.extra).partial) { gap = true; limitations.add("PRODUCER_PARTIAL_HISTORY"); }
     const roles = new Map<string, Set<string>>();
+    const callFrequency = new Map<unknown, number>();
+    for (const value of array(trajectory.steps)) {
+      const step = object(value);
+      if (step.is_copied_context === true || object(step.extra).added_by === "hlb") continue;
+      for (const value of array(step.tool_calls)) {
+        const id = object(value).tool_call_id;
+        callFrequency.set(id, (callFrequency.get(id) ?? 0) + 1);
+      }
+    }
     for (const value of array(trajectory.steps)) {
       const step = object(value), extra = object(step.extra);
-      const context = ["compaction", "branch_summary"].includes(String(extra.pi_event_type));
+      const context = ["compaction", "branch_summary"].includes(String(extra.pi_event_type ?? object(extra.context_management).type));
       for (const result of array(object(step.observation).results)) for (const ref of array(object(result).subagent_trajectory_ref)) {
         const id = object(ref).trajectory_id;
         if (typeof id !== "string") continue;
@@ -85,11 +96,11 @@ export async function normalizePiAtif(input: {
     }
     for (const [index, value] of array(trajectory.steps).entries()) {
       const step = object(value), extra = object(step.extra), stepPointer = `${pointer}/steps/${index}`;
-      if (step.is_copied_context === true) { mapping.recorded.copiedStepsExcluded += 1; continue; }
-      if (contextOnly) { mapping.recorded.contextOnlyStepsExcluded += 1; continue; }
+      if (step.is_copied_context === true) { mapping.recorded.copiedStepsExcluded = (mapping.recorded.copiedStepsExcluded ?? 0) + 1; continue; }
+      if (contextOnly) { mapping.recorded.contextOnlyStepsExcluded = (mapping.recorded.contextOnlyStepsExcluded ?? 0) + 1; continue; }
       if (extra.added_by === "hlb") { gap = true; limitations.add("CONVERSION_GAP"); continue; }
       if (step.source === "agent") agentSteps.push(step);
-      const contextType = extra.pi_event_type;
+      const contextType = extra.pi_event_type ?? object(extra.context_management).type;
       if (["compaction", "branch_summary"].includes(String(contextType))) {
         emit(step, stepPointer, stepPointer, "context", "context", "instant", { contextManagementType: String(contextType),
           ...(contextType === "compaction" ? { subtype: "compact_boundary" } : {}) }, typeof step.message === "string" ? `${stepPointer}/message` : undefined);
@@ -98,25 +109,32 @@ export async function normalizePiAtif(input: {
       if (typeof step.message === "string" && step.message.length > 0) emit(step, stepPointer, stepPointer, "message", "message", "after",
         { role: step.source === "agent" ? "assistant" : String(step.source) }, `${stepPointer}/message`);
       const calls = array(step.tool_calls).map(object);
-      const duplicates = new Set(calls.filter((call, position) => calls.findIndex((other) => other.tool_call_id === call.tool_call_id) !== position).map((call) => call.tool_call_id));
+      mapping.recorded.calls = (mapping.recorded.calls ?? 0) + calls.length;
+      const duplicates = new Set(calls.filter((call) => (callFrequency.get(call.tool_call_id) ?? 0) > 1).map((call) => call.tool_call_id));
+      const resultsById = new Map<unknown, Array<{ result: AtifObject; resultIndex: number }>>();
+      for (const [resultIndex, value] of array(object(step.observation).results).entries()) {
+        const result = object(value), values = resultsById.get(result.source_call_id) ?? [];
+        values.push({ result, resultIndex }); resultsById.set(result.source_call_id, values);
+      }
       if (duplicates.size) { gap = true; limitations.add("DUPLICATE_OPERATION_ID"); }
       for (const [position, call] of calls.entries()) {
         const id = call.tool_call_id, name = call.function_name;
         if (typeof id !== "string" || typeof name !== "string" || duplicates.has(id)) { gap = true; continue; }
         const scoped = `${pointer}:${id}`, callPointer = `${stepPointer}/tool_calls/${position}`;
-        const results = array(object(step.observation).results).map((result, resultIndex) => ({ result: object(result), resultIndex }))
-          .filter(({ result }) => result.source_call_id === id);
+        const results = resultsById.get(id) ?? [];
         const statuses = results.map(({ result }) => object(result.extra).is_error);
         const failed = statuses.length === 1 && typeof statuses[0] === "boolean" ? statuses[0] : null;
-        mapping.signatures.push({ document: pointer, id, name, failed }); mapping.recorded.calls += 1;
+        mapping.signatures.push({ document: pointer, id, name, failed });
         const attrs = { toolCallId: scoped, nativeToolCallId: id, toolName: name, operationIdentitySource: "document-scoped-native-id" };
-        emit(step, stepPointer, callPointer, "call", "tool", "before", { ...attrs, inputDigest: hash(call.arguments) }, `${callPointer}/arguments`, scoped);
+        emit(step, stepPointer, callPointer, "call", "tool", "before", { ...attrs,
+          ...(Object.keys(object(call.arguments)).length === 0 ? { inputMayBeZeroFilled: true } : { inputDigest: hash(call.arguments) }) }, `${callPointer}/arguments`, scoped);
         if (results.length !== 1) { limitations.add(results.length ? "AMBIGUOUS_RESULT_LINK" : "PENDING_CALL"); continue; }
         const { result, resultIndex } = results[0]!;
         const resultPointer = `${stepPointer}/observation/results/${resultIndex}`;
-        mapping.recorded.linkedResults += 1;
+        mapping.recorded.linkedResults = (mapping.recorded.linkedResults ?? 0) + 1;
         if (failed === null) limitations.add("TOOL_RESULT_STATUS_INCOMPLETE");
-        emit(step, stepPointer, resultPointer, "result", "tool", "after", { ...attrs, ...(failed === null ? {} : { isError: failed }) },
+        emit(step, stepPointer, resultPointer, "result", "tool", "after", { ...attrs, ...(failed === null ? {} : { producerIsError: failed }),
+            ...(failed === true ? { isError: true } : failed === false ? { successStatusUnavailable: "CONVERTER_ZERO_FILL_POSSIBLE" } : {}) },
           result.content === undefined ? undefined : `${resultPointer}/content`, scoped);
       }
     }
@@ -126,11 +144,13 @@ export async function normalizePiAtif(input: {
       if (!admitted) limitations.add("CHILD_CONTEXT_NOT_NEW_BEHAVIOR");
       const sameProducer = child.schema_version === input.producer.formatVersion && object(child.agent).name === input.producer.agent.name
         && (object(child.agent).version ?? null) === input.producer.agent.version;
-      if (!sameProducer) limitations.add("CHILD_PRODUCER_UNREGISTERED");
+      if (!sameProducer) { limitations.add("CHILD_PRODUCER_UNREGISTERED"); gap = true; }
+      if (role === undefined || role.size > 1) { limitations.add("CHILD_ROLE_UNRESOLVED"); gap = true; }
       visit(child, `${pointer}/subagent_trajectories/${index}`, contextOnly || !admitted || !sameProducer);
     }
   };
   if (selection.status === "supported") {
+    mapping.recorded = { calls: 0, linkedResults: 0, copiedStepsExcluded: 0, contextOnlyStepsExcluded: 0 };
     mapping.profileDigest = selection.profileDigest;
     selection.profile.limitations.forEach((reason) => limitations.add(reason));
     visit(document, "#", false);
@@ -146,7 +166,7 @@ export async function normalizePiAtif(input: {
     const reconciled = (value: number | undefined, key: string): Measure => value === undefined ? missing("STEP_USAGE_INCOMPLETE")
       : final[key] !== undefined && final[key] !== value ? missing("STEP_FINAL_USAGE_CONFLICT")
         : value === 0 ? missing("CONVERTER_ZERO_FILL_POSSIBLE") : count(value);
-    mapping.measures["tool-operation-count"] = gap ? missing("PRODUCER_PARTIAL_HISTORY") : count(mapping.recorded.calls);
+    mapping.measures["tool-operation-count"] = gap ? missing("PRODUCER_PARTIAL_HISTORY") : count(mapping.recorded.calls ?? 0);
     mapping.measures["tool-error-count"] = gap ? missing("PRODUCER_PARTIAL_HISTORY") : mapping.signatures.some(({ failed }) => failed === null)
       ? missing("TOOL_RESULT_STATUS_INCOMPLETE") : count(mapping.signatures.filter(({ failed }) => failed).length);
     mapping.measures["input-token-count"] = prompt === undefined || cached === undefined || writes === undefined ? missing("STEP_USAGE_INCOMPLETE")
@@ -176,5 +196,5 @@ export async function normalizePiAtif(input: {
       reason: "Imported selected trajectory does not establish complete attempt coverage." } });
   const coverage = await validateNormalizedDataset(dataset, resolver);
   return { capture, dataset, coverage, resolver, mapping,
-    outcomeCapture: { ...capture, records: capture.records.map(({ reference, record }) => ({ reference, record: { kind: "imported-source", document: record } })) } };
+    outcomeCapture: { ...capture, records: capture.records.map(({ reference, record }) => ({ reference, record: { schemaVersion: "ebo.imported-outcome-record/v1" as const, kind: "imported-source" as const, authority: "third-party" as const, document: record } })) } };
 }

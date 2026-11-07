@@ -1,3 +1,4 @@
+import { createPointerEvidenceResolver } from "./evidence-pointers.js";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -148,6 +149,13 @@ function readRequest(path: string): AtlasBundleRequest {
 
 /** Native content for one reference: the record (Agent SDK: its document), then the locator's JSON pointer. */
 function contentResolver(evidence: RetainedBehaviorEvidence) {
+  if (evidence.capture.qualification === "imported") {
+    const pointer = createPointerEvidenceResolver(evidence.capture);
+    return (reference: NativeEvidenceReference): { status: "resolved"; value: unknown } | { status: "missing-record" } => {
+      const result = pointer.read(reference);
+      return result === undefined ? { status: "missing-record" } : { status: "resolved", value: result.value };
+    };
+  }
   const agentSdk = evidence.dataset.adapter.harness === "claude-agent-sdk";
   const records = new Map(evidence.capture.records.map(({ reference, record }) =>
     [`${reference.artifactId}\0${reference.recordLocator}`, agentSdk ? (record as { document: unknown }).document : record]));

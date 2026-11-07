@@ -1,3 +1,4 @@
+import type { OutcomeEvidenceInput } from "./outcome-evidence.js";
 import { readImportedBehaviorEvidence } from "./atif-import.js";
 import { digestMetadata } from "./artifacts.js";
 import { factoryModelSelection } from "./factory-model.js";
@@ -13,7 +14,7 @@ import { createCursorSdkBehaviorEvidence, CURSOR_SDK_HARNESS } from "./cursor-sd
 import { createCapturedNativeEvidenceResolver, describeNormalizedDataset, validateNormalizedDataset, type AdapterCoverageReport, type NormalizedDataset } from "./normalization-integrity.js";
 import { readBoundedFile } from "./scheduler.js";
 import { assertProtocolObservation, type ProtocolObservation } from "./process-protocol.js";
-import type { NormalizationInput, RetainedNormalizationInput, OutcomeEvidenceInput, NativeEvidenceResolver } from "./uniform-events.js";
+import type { NormalizationInput, RetainedNormalizationInput, NativeEvidenceResolver } from "./uniform-events.js";
 import type { RunManifest } from "./run-bundles.js";
 import {
   assertPiNativeRecord,

@@ -52,3 +52,55 @@ byte-order marks are accepted consistently by the reader and validator.
 
 These checks describe the supplied export. Import eligibility additionally
 requires a registered producer profile and document-specific coverage policy.
+
+## Pi imports
+
+`ebo atif profiles` lists the closed producer registry. Select the exact `id`
+whose agent and converter metadata match the source, then retain a local import:
+
+```sh
+ebo atif import trajectory.json ./new-import \
+  --run imported-run --attempt attempt-1 \
+  --profile 'pi/harbor-0.24.0/atif-1.7/agent-unknown/harbor' \
+  --python /path/to/pinned-venv/bin/python
+```
+
+The profile and attempt identity are operator declarations. They do not verify
+upstream provenance or establish an EBO-owned capture. The importer writes an
+`ebo.import-manifest/v1` with qualification `imported` and restricted sharing.
+It retains raw source bytes before validation, writes admission last, and leaves
+failed imports inspectable without a manifest. Repeating the same import at the
+same destination is a verified no-op. A different source, producer or identity
+requires a new destination. References never trigger fetches or candidate code.
+
+Retained readback verifies raw bytes, the structural-validation receipt, profile
+identity and JSON-pointer inventory. It needs no Python process. The shared
+retained-evidence loader and corpus index recognize the import manifest;
+existing owned-capture qualification rules remain separate. Corpus entries use
+`manifestKind: import`, and default owned-run aggregation excludes them.
+
+The Pi mapping report describes the **retained selected trajectory**, with
+recorded operation signatures and producer-declared usage/inference diagnostics.
+These diagnostics are not full-attempt measures. The normalized dataset marks
+exact attempt measures unavailable because the converter can omit branches,
+interrupted messages and native request identities. No native request IDs,
+per-tool clocks or owned terminal events are synthesized. All events from a
+step share its native ordinal; a declared single-inference group prevents a
+sibling tool call from being treated as a response to another sibling's failure.
+
+Copied steps, conversion gaps, summarizer children and unbound/borrowed children
+remain retained without new-agent-behavior events. Child documents require the
+same registered producer conventions before receiving behavior projections.
+Pending, missing and ambiguous results keep unknown status. Pi's converter can
+zero-fill a missing failure flag to false, so a false flag is retained as
+`producerIsError` without asserting native success. Empty converted arguments
+cannot establish an identical-input digest. Explicit true errors remain failure
+evidence. Zero usage totals stay unavailable, and uncached input requires
+cache-write fields and reconciled step/final inclusive prompt totals.
+
+The TypeScript API can also retain structurally valid unregistered producers;
+their records remain inspectable with no behavioral events or measures. New
+profiles require source pins, conformance checks and independent paired gates.
+`mapping.json` is a reproducible diagnostic; source bytes and the admission
+manifest are authoritative. Portable import export and Harbor/leaderboard trial
+identity/outcome binding are separate source-context integrations.

@@ -1,3 +1,5 @@
+import { readAtifImportAdmission } from "./atif-import.js";
+import { selectAtifProducerProfile } from "./atif-profiles.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -38,7 +40,7 @@ export type CorpusSourceIssue = {
 
 export type CorpusIndexEntry = {
   schemaVersion: "ebo.corpus-index-entry/v1";
-  manifestKind: "run" | "export" | "unknown";
+  manifestKind: "run" | "export" | "import" | "unknown";
   manifestPath: string;
   manifestDigest: DigestString;
   bundleId?: string;
@@ -273,12 +275,23 @@ function projectManifest(root: string, manifestPath: string): CorpusIndexEntry {
   }
   const schemaVersion = isRecord(document) ? document.schemaVersion : undefined;
   entry.manifestKind = schemaVersion === "run-manifest/v1" ? "run"
-    : schemaVersion === "export-manifest/v1" ? "export" : "unknown";
+    : schemaVersion === "export-manifest/v1" ? "export" : schemaVersion === "ebo.import-manifest/v1" ? "import" : "unknown";
   entry.issues.push(...validateArtifact(manifestPath, document).map(({ field, message }) => ({ field, message })));
   if (!isRecord(document)) return entry;
   if (typeof document.bundleId === "string") entry.bundleId = document.bundleId;
   if (entry.manifestKind === "run") projectRun(entry, document as unknown as RunManifest, manifestRoot);
   if (entry.manifestKind === "export") projectExport(entry, document as unknown as PortableExportManifest, manifestRoot);
+  if (entry.manifestKind === "import" && entry.issues.length === 0) {
+    try {
+      const { manifest } = readAtifImportAdmission(manifestRoot);
+      const profile = selectAtifProducerProfile(manifest.producer);
+      entry.runId = manifest.identity.runId; entry.attemptId = manifest.identity.attemptId;
+      entry.harnessId = profile.status === "supported" ? profile.profile.harness : "atif.unregistered";
+      entry.harnessVersion = manifest.producer.agent.version ?? "unavailable";
+      entry.captureQualification = "imported"; entry.sharingClass = "restricted";
+      entry.captureArtifactIds = [manifest.source.artifactId];
+    } catch (error) { entry.issues.push({ field: "/source", message: errorMessage(error) }); }
+  }
   entry.issues = uniqueSourceIssues(entry.issues);
   return entry;
 }

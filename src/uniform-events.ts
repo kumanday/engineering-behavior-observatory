@@ -102,8 +102,6 @@ export type ImportedNativeEvidence<NativeRecord> = {
   records: readonly CapturedNativeRecord<NativeRecord>[];
 };
 export type RetainedNormalizationInput<NativeRecord> = NormalizationInput<NativeRecord> | ImportedNativeEvidence<NativeRecord>;
-/** Outcome records retain their source class; import records cannot assert an owned terminal. */
-export type OutcomeEvidenceInput = RetainedNormalizationInput<{ kind: string; document: unknown }>;
 
 
 export type UnmappedNativeRecord = {

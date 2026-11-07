@@ -1,3 +1,4 @@
+import type { OutcomeEvidenceInput } from "./outcome-evidence.js";
 import { createPointerEvidenceResolver } from "./evidence-pointers.js";
 import { createHash } from "node:crypto";
 import { createAgentSdkBehaviorEvidence } from "./behavior-assertions.js";
@@ -13,7 +14,6 @@ import type {
   AdapterCapability,
   NativeEvidenceReference,
   NativeEvidenceResolver,
-  OutcomeEvidenceInput,
   UniformEvent,
   UniformEventFamily,
 } from "./uniform-events.js";
@@ -143,7 +143,7 @@ export function createStructuralObservationSet(
       coverage: structuredClone(coverage),
     },
     observations: dataset.origin?.kind === "imported" ? observations.map((observation) =>
-      observation.extractor.id === "outcome-capture-qualification" ? observation : {
+      observation.extractor.id.startsWith("outcome-") ? observation : {
         ...observation, value: { status: "unavailable" as const, reason: dataset.origin!.reason },
       }) : observations,
     occurrences,

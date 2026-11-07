@@ -44,6 +44,7 @@ export async function importAtifFile(options: {
   // Read the retained copy so validation and byte receipts bind exactly what admission will reopen.
   const read = await readAtifFile(join(destination, "trajectory.json"), { pythonExecutable: options.pythonExecutable });
   const inspectionBytes = writeJson(destination, "inspection.json", read.inspection);
+  if (inspectionBytes.length > 32 * 1024 * 1024) throw new Error("ATIF inspection exceeds the retained receipt byte limit; no manifest was admitted.");
   if (read.document === undefined || read.inspection.versionPolicy.status !== "supported" || read.inspection.structural.status !== "valid") {
     throw new Error("ATIF admission failed; retained source and inspection remain in the destination without an admission manifest.");
   }
@@ -73,6 +74,11 @@ export function readImportManifest(bundleRoot: string): AtifImportManifest {
 
 /** Reopens imported evidence without a Python dependency; validates raw bytes and the pinned admission receipt. */
 export async function readImportedBehaviorEvidence(bundleRoot: string) {
+  const { manifest, read } = readAtifImportAdmission(bundleRoot);
+  return normalizePiAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) });
+}
+
+export function readAtifImportAdmission(bundleRoot: string) {
   const manifest = readImportManifest(bundleRoot);
   const bytes = readBoundedFile(join(bundleRoot, manifest.source.path), "Retained ATIF", undefined, ATIF_LIMITS.documentBytes);
   if (bytes.length !== manifest.source.bytes || bytesDigest(bytes) !== manifest.source.digest) throw new Error("Retained ATIF bytes differ from the admitted source.");
@@ -86,7 +92,7 @@ export async function readImportedBehaviorEvidence(bundleRoot: string) {
   if (hash(read.inspection.source) !== hash(receipt.source) || hash(read.inspection.records) !== hash(receipt.records)
       || hash(read.inspection.versionPolicy) !== hash(receipt.versionPolicy)) throw new Error("Retained source inventory differs from its admission receipt.");
   read.inspection.structural = receipt.structural;
-  return normalizePiAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) });
+  return { manifest, read };
 }
 
 function writeJson(root: string, name: string, value: unknown): Buffer {

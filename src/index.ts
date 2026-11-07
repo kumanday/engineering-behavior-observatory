@@ -679,3 +679,9 @@ export { FACTORY_BYOK_MODEL_ID, type FactoryModelRoute } from "./factory-model.j
 export { createPointerEvidenceResolver, readEvidencePointer, type PointedEvidence, type PointerValue } from "./evidence-pointers.js";
 export * from "./atif-reader.js";
 export * from "./atif-profiles.js";
+
+export * from "./atif-import.js";
+export * from "./atif-pi.js";
+export type { ImportedNativeEvidence, RetainedNormalizationInput } from "./uniform-events.js";
+export { describeImportedDataset } from "./normalization-integrity.js";
+export type { OutcomeEvidenceInput, ImportedOutcomeRecord } from "./outcome-evidence.js";
