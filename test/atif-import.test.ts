@@ -478,3 +478,18 @@ test("embedded documents reconcile their own usage and preserve the root final r
   (child.final_metrics as AtifObject).total_completion_tokens = 999;
   assert.deepEqual((await project(source)).mapping.measures["output-token-count"], { status: "unavailable", reason: "STEP_FINAL_USAGE_CONFLICT" });
 });
+
+
+test("unregistered child conventions remain retained without applying Pi canonical coercion rules", async () => {
+  const source = fixture(), child = fixture(); child.trajectory_id = "other-child";
+  (child.agent as AtifObject).name = "unregistered-agent"; steps(child)[0]!.is_copied_context = null;
+  ((steps(source)[1]!.observation as AtifObject).results as AtifObject[])[0]!.subagent_trajectory_ref = [{ trajectory_id: "other-child" }];
+  source.subagent_trajectories = [child];
+  const evidence = await project(source);
+  assert.ok(evidence.mapping.limitations.includes("CHILD_PRODUCER_UNREGISTERED"));
+  assert.ok(evidence.dataset.events.length > 0);
+  assert.equal(evidence.dataset.events.some(({ attributes }) => String(attributes.documentScope).includes("subagent_trajectories")), false);
+  assert.ok(evidence.dataset.unmapped.some(({ reference }) => reference.recordLocator === "#/subagent_trajectories/0"));
+  (child.agent as AtifObject).name = "pi";
+  await assert.rejects(project(source), /canonical flag/u);
+});
