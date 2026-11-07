@@ -354,3 +354,19 @@ test("scalar native shell commands preserve JSON-like executable names", async (
     assert.equal(operationCommandV2(evidence.dataset, operation, evidence.resolver), command);
   }
 });
+
+test("empty backend errors retain valid rating and semantic-judgment failure receipts", async () => {
+  const { runSemanticJudgeV2 } = await import("../src/semantic-judge-v2.js"), { validateArtifact } = await import("../src/artifacts.js");
+  const evidence = await atifFixtureV2(undefined, (source) => { ((source.steps as AtifObject[])[1]!.tool_calls as AtifObject[])[0]!.arguments = { command: "npm test" }; });
+  const observations = await createStructuralObservationSetV2(evidence.dataset, evidence.resolver), ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
+  const ratingInput = (await prepareOccurrenceRatingInputsV2(evidence, ledger))[0]!;
+  for (const message of ["", "   ", "Backend unavailable"]) {
+    const rating = await rateOccurrenceV2(ratingInput, { id: "mock", version: "1", configurationDigest: analysisDigestV2("mock") }, async () => { throw new Error(message); });
+    assert.equal(rating.status, "failed"); assert.ok(rating.error?.trim()); assert.deepEqual(validateArtifact("failed rating", rating), []);
+    await validateRatingRecordV2(rating, evidence, ledger);
+    const input = await prepareSemanticJudgeInputV2(evidence, observations, ledger, request, [rating]);
+    const judgment = await runSemanticJudgeV2(input, evidence, { id: request.evaluator.id, version: request.evaluator.version, configurationDigest: input.dependencies.evaluatorConfiguration,
+      run: async () => { throw new Error(message); } });
+    assert.equal(judgment.status, "failed"); assert.ok(judgment.error?.trim()); assert.deepEqual(validateArtifact("failed judgment", judgment), []);
+  }
+});

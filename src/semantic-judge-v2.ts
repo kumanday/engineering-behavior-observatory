@@ -142,5 +142,5 @@ export async function runSemanticJudgeV2(input: JudgeInputV2, evidence: Retained
     if (JSON.stringify(result.answer).length > 64000) throw new Error("V2 judge response exceeds the output limit.");
     const assertion = parseBehaviorAssertionV2(result.answer, input);
     return { ...record, status: "completed", assertion };
-  } catch (error) { return { ...record, error: error instanceof Error ? error.message.slice(0, 12000) : "V2 judge backend failed" }; }
+  } catch (error) { return { ...record, error: (error instanceof Error ? error.message.slice(0, 12000).trim() : "") || "V2 judge backend failed" }; }
 }

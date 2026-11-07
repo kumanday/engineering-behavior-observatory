@@ -94,7 +94,7 @@ export async function rateOccurrenceV2(input: RatingInputV2, evaluator: RatingRe
       || new Set(answer.citationIds).size !== answer.citationIds.length || answer.citationIds.some((id) => !input.citations.some((citation) => analysisDigestV2(citation) === id))
       || answer.label !== "unclear" && !answer.citationIds.length) throw new Error("Invalid v2 rating answer or citations.");
     return { ...base, status: "completed", accepted: answer.label !== "unclear" && answer.confidence >= 0.8, answer: structuredClone(answer) };
-  } catch (error) { return { ...base, status: "failed", accepted: false, error: error instanceof Error ? error.message.slice(0, 12000) : "Rating backend failed" }; }
+  } catch (error) { return { ...base, status: "failed", accepted: false, error: (error instanceof Error ? error.message.slice(0, 12000).trim() : "") || "Rating backend failed" }; }
 }
 
 export async function validateRatingRecordV2(record: RatingRecordV2, evidence: RetainedBehaviorEvidenceV2, ledger: OccurrenceLedgerV2): Promise<void> {
