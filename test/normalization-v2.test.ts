@@ -1,0 +1,50 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { digestMetadata, validateArtifact } from "../src/artifacts.js";
+import { createPointerEvidenceResolver } from "../src/evidence-pointers.js";
+import { precedes, executionDurationMs, operationId, datasetV2Digest, validateNormalizedDatasetV2, type ClockEvidence, type NormalizedDatasetV2, type OperationIdentity } from "../src/normalization-v2.js";
+const hash=(value:unknown):`sha256:${string}`=>`sha256:${digestMetadata(value).value}`;
+const unknown={status:"unknown" as const,reason:"SOURCE_UNREPORTED"};
+const reference={artifactId:"trajectory",recordLocator:"#"};
+function fixture(){
+ const record={tool:"shell",callId:"call-1"},resolver=createPointerEvidenceResolver({runId:"r",attemptId:"a",records:[{reference,record}]}),identity:OperationIdentity={runId:"r",attemptId:"a",sourceId:"s",scope:"document:root/session:one",kind:"tool",nativeId:"call-1",identityClass:"source-native"},id=operationId(identity);
+ const dataset:NormalizedDatasetV2={schemaVersion:"ebo.normalized-dataset/v2",runId:"r",attemptId:"a",normalizer:{id:"synthetic",version:"2.0.0",implementationDigest:hash("implementation")},origin:{kind:"imported",qualification:"imported",manifestDigest:hash("manifest")},sources:[{id:"s",format:{kind:"atif",version:"ATIF-v1.7"},reader:{id:"synthetic-reader",version:"1.0.0",implementationDigest:hash("reader")},producerProfile:{status:"known",value:{id:"synthetic-profile",version:"1.0.0",digest:hash("profile")}},executedHarness:{id:"pi",version:unknown},authority:"third-party"}],
+ events:[{schemaVersion:"ebo.uniform-event/v2",id:"call",runId:"r",attemptId:"a",source:{sourceId:"s",nativeType:"tool_call",nativeReference:reference},nativeOrder:{status:"known",value:1,domain:"root"},clock:unknown,actor:{kind:"agent"},family:"tool",phase:"before",scope:{kind:"operation",id},relations:{parent:unknown,known:[]},attributes:{},facts:{inference:{llmCallCount:{status:"known",value:1},nativeRequestId:unknown}},content:unknown}],
+ operations:[{schemaVersion:"ebo.operation/v1",id,identity,callEventIds:["call"],resultEventIds:[],toolName:{status:"known",value:"shell"},inputDigest:unknown,failure:unknown,issuingInference:{status:"known",value:{id:"step-1",scope:"root",identityClass:"declared-single-inference"}},startOrder:{status:"known",value:1,domain:"root"},endOrder:unknown}],
+ measurements:[{id:"tool-operation-count",scope:{kind:"recorded-document",id:"root"},unit:"identified-logical-tool-operations",value:{status:"lower-bound",value:1,reason:"CAPTURE_COMPLETENESS_UNPROVEN"},coverage:"partial",sourceEventIds:["call"]}],nativeRecords:[{reference,nativeType:"document",digest:hash(record)}],contentReferences:[],recordCoverage:[{reference,disposition:"mapped",eventIds:["call"],reason:unknown}]};
+ return{dataset,resolver};
+}
+test("v2 contracts retain pending operations, declared inference boundaries and lower bounds independently",async()=>{
+ const{dataset,resolver}=fixture();assert.deepEqual(validateArtifact("dataset",dataset),[]);await validateNormalizedDatasetV2(dataset,resolver);
+ assert.equal(dataset.operations[0]!.failure.status,"unknown");assert.equal(dataset.events[0]!.facts.inference!.nativeRequestId.status,"unknown");assert.equal(dataset.measurements[0]!.value.status,"lower-bound");
+ const clone=structuredClone(dataset);assert.equal(datasetV2Digest(clone),datasetV2Digest(dataset));clone.measurements[0]!.value={status:"known",value:1};await assert.rejects(validateNormalizedDatasetV2(clone,resolver),/coverage/u);
+});
+test("operation IDs distinguish document/session scopes, operation kinds and identity classes",()=>{
+ const base=fixture().dataset.operations[0]!.identity;const variants=[base,{...base,scope:"document:child/session:one"},{...base,kind:"delegation" as const},{...base,identityClass:"converter-assigned" as const}];
+ assert.equal(new Set(variants.map(operationId)).size,variants.length);assert.equal(operationId({...base}),operationId(base));assert.throws(()=>operationId({...base,scope:""}),/identity/u);
+});
+test("source-local precedence ignores clocks, presentation order and unknown domains",()=>{
+ const a={status:"known" as const,value:2,domain:"root"},b={status:"known" as const,value:3,domain:"root"};
+ assert.equal(precedes(a,b),"before");assert.equal(precedes(b,a),"after");assert.equal(precedes(a,{...a}),"same-observation");assert.equal(precedes(a,{...b,domain:"child"}),"unknown");assert.equal(precedes(a,unknown),"unknown");
+ assert.equal(precedes({...a,value:NaN},b),"unknown");
+});
+test("receipt and inferred clocks cannot become recorded execution duration",()=>{
+ const start:ClockEvidence={status:"known",value:{timestamp:"2026-11-07T00:00:00.000Z",kind:"execution",domain:"native-process",precisionMs:0,provenance:"source-recorded",source:reference}},end=structuredClone(start);end.value.timestamp="2026-11-07T00:00:01.000Z";
+ assert.deepEqual(executionDurationMs(start,end),{status:"known",value:1000});
+ for(const changed of [{...end.value,kind:"receipt" as const},{...end.value,domain:"other"},{...end.value,provenance:"converter-derived" as const},{...end.value,precisionMs:1}])assert.equal(executionDurationMs(start,{status:"known",value:changed}).status,"unknown");
+});
+test("v2 validation rejects cross-attempt sources, unresolved scopes, duplicate membership and stale digests",async()=>{
+ for(const mutate of [(d:NormalizedDatasetV2)=>{d.events[0]!.attemptId="other";},(d:NormalizedDatasetV2)=>{d.operations[0]!.identity.scope="other";},(d:NormalizedDatasetV2)=>{d.operations[0]!.callEventIds.push("call");},(d:NormalizedDatasetV2)=>{d.nativeRecords[0]!.digest=hash("stale");},(d:NormalizedDatasetV2)=>{d.sources[0]!.authority="owned-capture";},(d:NormalizedDatasetV2)=>{d.events[0]!.scope={kind:"session",id:"native-id-alias"};}]){
+  const{dataset,resolver}=fixture();mutate(dataset);await assert.rejects(validateNormalizedDatasetV2(dataset,resolver));
+ }
+});
+test("same-inference sibling calls share order without manufacturing a response or native request",async()=>{
+ const{dataset,resolver}=fixture(),operation=structuredClone(dataset.operations[0]!),event=structuredClone(dataset.events[0]!);operation.identity.nativeId="call-2";operation.id=operationId(operation.identity);operation.callEventIds=["call-2"];event.id="call-2";event.scope.id=operation.id;dataset.operations.push(operation);dataset.events.push(event);dataset.recordCoverage[0]!.eventIds.push(event.id);
+ await validateNormalizedDatasetV2(dataset,resolver);assert.equal(precedes(dataset.events[0]!.nativeOrder,event.nativeOrder),"same-observation");assert.equal(dataset.operations.every(({failure})=>failure.status==="unknown"),true);
+});
+
+test("digest-bound inventories and explicit endpoint order prevent unbound v2 evidence",async()=>{
+ for(const mutate of [(d:NormalizedDatasetV2)=>{d.nativeRecords=[];},(d:NormalizedDatasetV2)=>{d.operations[0]!.startOrder={status:"known",value:99,domain:"root"};},(d:NormalizedDatasetV2)=>{d.measurements[0]!.scope.kind="attempt";d.measurements[0]!.value={status:"known",value:1};d.measurements[0]!.coverage="exact";}]){
+  const{dataset,resolver}=fixture();mutate(dataset);await assert.rejects(validateNormalizedDatasetV2(dataset,resolver));
+ }
+});

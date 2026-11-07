@@ -77,3 +77,5 @@ The [evaluation reading path](evaluation/README.md) explains how the parts fit:
 For agents: read the repository's `AGENTS.md`, then the relevant guide and
 contract. CLI syntax is in [one grouped reference](reference/cli.md), not
 scattered through release history.
+
+- [EBO v2 analytical contracts](development/normalization-v2.md) define the explicit migration boundary.

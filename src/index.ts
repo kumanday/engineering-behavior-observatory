@@ -685,3 +685,7 @@ export * from "./atif-pi.js";
 export type { ImportedNativeEvidence, RetainedNormalizationInput } from "./uniform-events.js";
 export { describeImportedDataset } from "./normalization-integrity.js";
 export type { OutcomeEvidenceInput, ImportedOutcomeRecord } from "./outcome-evidence.js";
+
+export { NORMALIZATION_V2_VERSION, precedes, executionDurationMs, operationId, datasetV2Digest, validateNormalizedDatasetV2,
+  type ClockValue, type ClockEvidence, type Precedence, type SourceIdentityV2, type OperationIdentity, type Operation,
+  type EventFactsV2, type UniformEventV2, type MeasurementV2, type RecordCoverageV2, type NormalizedDatasetV2 } from "./normalization-v2.js";
