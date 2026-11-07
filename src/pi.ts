@@ -66,6 +66,9 @@ import { cleanupWorkspace, materializeWorkspace } from "./workspaces.js";
 export const PI_HARNESS = "pi-sdk";
 export const PI_CONFIG_SCHEMA_VERSION = "ebo.pi-config/v1";
 export const PI_ADAPTER_VERSION = "1.0.0";
+/** Capture-time adapter pins remain admitted independently of the current normalizer. */
+export const RETAINED_PI_ADAPTER_VERSIONS: readonly string[] = ["1.0.0"];
+export const PI_NORMALIZATION_ADAPTER_VERSION = "1.0.0";
 export const PINNED_PI_SDK_VERSION = "1.1.0";
 /** Pi SDK versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
 export const RETAINED_PI_SDK_VERSIONS: readonly string[] = [PINNED_PI_SDK_VERSION, "0.87.1", "0.85.1"];
@@ -911,7 +914,7 @@ export async function describeAndValidatePiDataset(
     capture,
     normalization,
     capabilityProfile: piCapabilityProfile,
-    adapterVersion: PI_ADAPTER_VERSION,
+    adapterVersion: PI_NORMALIZATION_ADAPTER_VERSION,
     nativeType: piNativeType,
   });
   const coverage = await validateNormalizedDataset(dataset, resolver);

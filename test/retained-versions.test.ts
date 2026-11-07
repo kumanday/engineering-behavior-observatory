@@ -12,7 +12,15 @@ import {
   RETAINED_PI_SDK_VERSIONS,
   RETAINED_FACTORY_CLI_VERSIONS,
   RETAINED_FACTORY_SDK_VERSIONS,
+  RETAINED_PI_ADAPTER_VERSIONS,
+  RETAINED_FACTORY_ADAPTER_VERSIONS,
 } from "../src/index.js";
+
+test("published capture adapter identities stay admitted independently of normalization", () => {
+  // These are capture provenance values already stored by released EBO versions.
+  assert.ok(RETAINED_PI_ADAPTER_VERSIONS.includes("1.0.0"), "Pi captures from EBO 1.2 retain adapter 1.0.0");
+  assert.ok(RETAINED_FACTORY_ADAPTER_VERSIONS.includes("0.1.0"), "Factory captures from EBO 1.3 retain adapter 0.1.0");
+});
 
 // A pin bump appends to the retained list: captures made by any released pin stay readable.
 test("every harness version pinned by a release stays readable as retained evidence", () => {

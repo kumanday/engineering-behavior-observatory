@@ -20,6 +20,8 @@ export const FACTORY_HARNESS = "factory-droid";
 export const FACTORY_SDK_VERSION = "0.9.1";
 export const FACTORY_CLI_VERSION = "0.238.0";
 export const FACTORY_ADAPTER_VERSION = "0.1.0";
+export const RETAINED_FACTORY_ADAPTER_VERSIONS: readonly string[] = ["0.1.0"];
+export const FACTORY_NORMALIZATION_ADAPTER_VERSION = "0.1.0";
 export const RETAINED_FACTORY_CLI_VERSIONS: readonly string[] = [FACTORY_CLI_VERSION];
 export const RETAINED_FACTORY_SDK_VERSIONS: readonly string[] = [FACTORY_SDK_VERSION];
 export const FACTORY_DEFAULT_SHUTDOWN_GRACE_MS = 2_000;
@@ -307,9 +309,11 @@ export function validateFactoryConfiguration(config: FactoryDroidConfiguration):
 type QualifiedFactory = QualifiedNativeCapture<ProtocolObservation> & { sessionId?: string; turnId?: string; terminal?: Record<string, unknown> };
 /** Native request/response/turn identities are reconstructed on every retained read. */
 export function qualifyFactoryCapture(capture: QualifiedNativeCapture<ProtocolObservation>, options: {
-  sessionId?: string; expectsCompletion: boolean; cliVersion: string; sdkVersion: string;
+  sessionId?: string; expectsCompletion: boolean; cliVersion: string; sdkVersion: string; adapterVersion?: string;
 }): QualifiedFactory {
-  if (!RETAINED_FACTORY_CLI_VERSIONS.includes(options.cliVersion) || !RETAINED_FACTORY_SDK_VERSIONS.includes(options.sdkVersion)) throw new Error("Unsupported retained Factory runtime.");
+  const captureAdapterVersion = options.adapterVersion ?? FACTORY_ADAPTER_VERSION;
+  if (!RETAINED_FACTORY_CLI_VERSIONS.includes(options.cliVersion) || !RETAINED_FACTORY_SDK_VERSIONS.includes(options.sdkVersion)
+    || !RETAINED_FACTORY_ADAPTER_VERSIONS.includes(captureAdapterVersion)) throw new Error("Unsupported retained Factory runtime.");
   const records = capture.records.map(({ record, reference }) => {
     const line = Number(reference.recordLocator.match(/^line:(\d+)$/u)?.[1]);
     assertProtocolObservation(record, line);
@@ -325,7 +329,7 @@ export function qualifyFactoryCapture(capture: QualifiedNativeCapture<ProtocolOb
   const compositions = records.filter((r) => r.kind === "capability" && r.capability === "runtime-composition");
   if (compositions.length !== 1 || object(compositions[0]?.evidence)?.version !== options.cliVersion
     || object(compositions[0]?.evidence)?.sdkVersion !== options.sdkVersion
-    || object(compositions[0]?.evidence)?.adapterVersion !== FACTORY_ADAPTER_VERSION
+    || object(compositions[0]?.evidence)?.adapterVersion !== captureAdapterVersion
     || object(compositions[0]?.evidence)?.protocolVersion !== FACTORY_PROTOCOL_VERSION) throw new Error("Retained Factory native runtime composition differs from the manifest.");
   const initializations = records.filter((r) => r.source === FACTORY_CLIENT && r.method === "droid.initialize_session");
   if (initializations.length > 1 || options.expectsCompletion && initializations.length !== 1) throw new Error("Factory requires one owned initialization request.");
@@ -481,7 +485,7 @@ export async function normalizeFactoryCapture(input: QualifiedNativeCapture<Prot
 
 export async function describeAndValidateFactoryDataset(capture: QualifiedNativeCapture<ProtocolObservation>) {
   const dataset = describeNormalizedDataset({ capture, normalization: await normalizeFactoryCapture(capture), capabilityProfile: FACTORY_CAPABILITIES,
-    adapterVersion: FACTORY_ADAPTER_VERSION, nativeType: factoryNativeType });
+    adapterVersion: FACTORY_NORMALIZATION_ADAPTER_VERSION, nativeType: factoryNativeType });
   const coverage = await validateNormalizedDataset(dataset, createCapturedNativeEvidenceResolver(capture));
   return { dataset, coverage };
 }

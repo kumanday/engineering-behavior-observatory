@@ -28,6 +28,8 @@ import {
   validateCorpusIndex,
   writeRunQueue,
   PI_HARNESS,
+  PI_ADAPTER_VERSION,
+  PI_NORMALIZATION_ADAPTER_VERSION,
   PINNED_PI_SDK_VERSION,
   type ExperimentConfiguration,
   type ComparisonRequest,
@@ -75,6 +77,8 @@ test("runs a frozen observational Pi entry through capture, export, retained eva
 
     const evidence = await createRetainedBehaviorEvidence(summary.bundlePath);
     assert.equal(evidence.dataset.adapter.harness, PI_HARNESS);
+    assert.equal(evidence.dataset.adapter.version, PI_NORMALIZATION_ADAPTER_VERSION);
+    assert.equal(manifest.run.runtime.find(({ name }) => name === "pi-sdk-adapter")?.version, PI_ADAPTER_VERSION);
     assert.equal(evidence.dataset.events.filter(({ family }) => family === "tool").length, 2);
     assert.ok(evidence.dataset.unmapped.some(({ reason }) => /Transient message delta/u.test(reason)));
     assert.ok(evidence.dataset.unmapped.some(({ reason }) => /future_event/u.test(reason)));

@@ -129,6 +129,7 @@ test("Factory retained qualification rejects foreign identities, runtime mismatc
     const capture = await runFake(root);
     assert.throws(() => qualifyFactoryCapture(capture, { ...retainedOptions(capture), sessionId: "foreign" }), /identity differs/);
     assert.throws(() => qualifyFactoryCapture(capture, { ...retainedOptions(capture), sdkVersion: "unknown" }), /Unsupported/);
+    assert.throws(() => qualifyFactoryCapture(capture, { ...retainedOptions(capture), adapterVersion: "unknown" }), /Unsupported/);
     const altered = structuredClone(capture);
     const terminal = altered.records.find(({ record }) => { const f = record.payload as any; return f?.params?.notification?.turnId === capture.turnId && f.params.sessionId === capture.sessionId; })!;
     (terminal.record.payload as any).params.notification.turnId = "foreign";
