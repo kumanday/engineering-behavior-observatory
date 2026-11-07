@@ -193,3 +193,105 @@ test("targets require exact original unit and behavior bindings", () => {
     assert.throws(() => migrationDependencies({ ...f.input, dataset: { ...f.input.dataset, digest: "invalid" } } as unknown as SemanticJudgeInput), /INVALID/u);
   } finally { f.close(); }
 });
+
+test("v2 migration targets bind source readback, observations, ledger and evaluator configuration", async () => {
+  const { atifFixtureV2 } = await import("./consumers-v2-fixture.js"), { createStructuralObservationSetV2 } = await import("../src/analysis-v2.js");
+  const { createOccurrenceLedgerV2 } = await import("../src/occurrences-v2.js"), { prepareSemanticJudgeInputV2 } = await import("../src/semantic-judge-v2.js");
+  const { createMigrationTargetV2 } = await import("../src/migration-accounting.js");
+  const f = fixture(); try {
+    const evidence = await atifFixtureV2();
+    for (const artifact of [f.input, f.assertion, f.judgment]) { artifact.runId = evidence.dataset.runId; artifact.attemptId = evidence.dataset.attemptId; }
+    f.judgment.input.digest = hash(f.input); f.judgment.assertion!.digest = hash(f.assertion); f.write();
+    const inventory = inventoryMigrationStudy(f.study), unit = inventory.units[0]!;
+    const observations = await createStructuralObservationSetV2(evidence.dataset, evidence.resolver), ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
+    const input = await prepareSemanticJudgeInputV2(evidence, observations, ledger, { schemaVersion: "ebo.semantic-judge-request/v2", behavior: f.input.behavior,
+      rubric: f.input.rubric, evaluator: { id: f.assertion.evaluator.id, version: f.assertion.evaluator.version, configuration: { legacy: f.judgment.evaluator } }, eventIds: [], limits: { maxRecordChars: 6000, maxInputChars: 1000000 } });
+    const target = await createMigrationTargetV2(unit, input, evidence), report = reconcileMigration(inventory, [target]);
+    assert.equal(report.summary.affectedUnits, 1); assert.equal(report.summary.authorizedPaidBudgetUsd, 0);
+    for (const key of ["datasetDigest", "observationSetDigest", "ledgerDigest", "requestDigest", "promptVersion", "configurationDigest"]) assert.ok(report.units[0]!.changedDependencies.includes(key), key);
+    assert.deepEqual(validateArtifact("report", report), []);
+    const { planMigrationV2 } = await import("../src/migration-accounting.js");
+    const plan = planMigrationV2(inventory, report);
+    assert.equal(plan.summary.preparedTargets, 1); assert.equal(plan.units[0]!.targetInputDigest, hash(input));
+    assert.deepEqual(validateArtifact("plan", plan), []);
+    const changed = structuredClone(input); changed.ledger.coverage[0]!.count += 1;
+    assert.throws(() => migrationDependencies(changed), /stale/u);
+    await assert.rejects(createMigrationTargetV2(unit, { ...input, attemptId: "foreign" }, evidence), /source evidence|dependencies/u);
+    assert.throws(() => reconcileMigration(inventory, [{ ...target, configurationDigest: hash("unbound") }]), /configuration differs/u);
+    assert.throws(() => reconcileMigration(inventory, [{ ...target, evaluatorDigest: unit.evaluatorDigest }]), /evaluator differs/u);
+    const restored = JSON.parse(JSON.stringify(target)) as typeof target;
+    assert.throws(() => reconcileMigration(inventory, [restored]), /requires source validation/u);
+    const validated = await createMigrationTargetV2(unit, restored.input, evidence);
+    assert.equal(reconcileMigration(inventory, [validated]).summary.affectedUnits, 1);
+    for (const field of ["evidence", "modelData", "readiness"] as const) {
+      const stale = JSON.parse(JSON.stringify(target)) as typeof target;
+      if (field === "evidence") stale.input.evidence = [{ eventId: "invented", content: "invented", truncated: false, citation: input.citationRegistry[0]!.citation, workspaceHints: [] }];
+      else if (field === "modelData") stale.input.modelData = { invented: true };
+      else stale.input.readiness = { status: "requires-ratings", missingRatingOccurrenceIds: ["invented"] };
+      assert.throws(() => reconcileMigration(inventory, [stale]), /requires source validation/u);
+      await assert.rejects(createMigrationTargetV2(unit, stale.input, evidence), /differs|stale|source/u);
+    }
+    const modified = await createMigrationTargetV2(unit, structuredClone(input), evidence);
+    modified.input.modelData = { invented: true };
+    assert.throws(() => reconcileMigration(inventory, [modified]), /requires source validation/u);
+  } finally { f.close(); }
+});
+
+test("migration preparation preserves the rubric and requires the verified original evaluator", async () => {
+  const { atifFixtureV2 } = await import("./consumers-v2-fixture.js"), { createStructuralObservationSetV2 } = await import("../src/analysis-v2.js");
+  const { createOccurrenceLedgerV2 } = await import("../src/occurrences-v2.js"), { prepareMigrationTargetV2 } = await import("../src/migration-targets-v2.js");
+  const f = fixture(); try {
+    const evidence = await atifFixtureV2();
+    for (const artifact of [f.input, f.assertion, f.judgment]) { artifact.runId = evidence.dataset.runId; artifact.attemptId = evidence.dataset.attemptId; }
+    f.judgment.input.digest = hash(f.input); f.judgment.assertion!.digest = hash(f.assertion); f.write();
+    const unit = inventoryMigrationStudy(f.study).units[0]!, observations = await createStructuralObservationSetV2(evidence.dataset, evidence.resolver), ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
+    const options = { unit, originalInput: f.input, legacyEvaluator: f.judgment.evaluator, evidence, observations, ledger, limits: { maxRecordChars: 6000, maxInputChars: 1000000 } };
+    const target = await prepareMigrationTargetV2(options); assert.equal(target.input.schemaVersion, "ebo.semantic-judge-input/v2");
+    if (target.input.schemaVersion !== "ebo.semantic-judge-input/v2") return;
+    assert.deepEqual(target.input.request.rubric, f.input.rubric); assert.deepEqual(target.input.request.behavior, f.input.behavior);
+    assert.equal(target.input.ratings.length, 0); assert.notEqual(target.configurationDigest, unit.configurationDigest);
+    await assert.rejects(prepareMigrationTargetV2({ ...options, legacyEvaluator: { ...f.judgment.evaluator, model: "foreign" } }), /verified original/u);
+    const missing = structuredClone(f.input); missing.evidence = [{ kind: "event", id: "missing", citation: { eventId: "missing", nativeReference: { artifactId: "missing", recordLocator: "#" } }, content: "{}", truncated: false }];
+    await assert.rejects(prepareMigrationTargetV2({ ...options, originalInput: missing, unit: { ...unit, inputDigest: hash(missing) } }), /no v2 projection/u);
+  } finally { f.close(); }
+});
+
+test("the fixed v2 protocol change proves affected units before every source rebuild is available", async () => {
+  const { planMigrationV2 } = await import("../src/migration-accounting.js");
+  const f = fixture(); try {
+    const inventory = inventoryMigrationStudy(f.study), plan = planMigrationV2(inventory);
+    assert.deepEqual(validateArtifact("plan", plan), []);
+    assert.equal(plan.summary.affectedUnits, 1); assert.equal(plan.summary.pendingTargetUnits, 1); assert.equal(plan.summary.preparedTargets, 0);
+    assert.deepEqual(plan.units[0]!.proof, { dependency: "promptVersion", previous: "1.2.0", target: "2.0.0" });
+    assert.equal(plan.summary.measuredForecastUsd, null); assert.equal(plan.summary.authorizedPaidBudgetUsd, 0);
+    const unit = inventory.units[0]!;
+    const unchanged = reconcileMigration(inventory, [{ unitId: unit.id, input: f.input, evaluatorDigest: unit.evaluatorDigest, configurationDigest: unit.configurationDigest! }]);
+    assert.equal(unchanged.summary.reusableUnits, 1);
+    assert.equal(planMigrationV2(inventory, unchanged).summary.preparedTargets, 0, "v1 preservation is distinct from preparing a v2 target");
+    const foreign = { ...unchanged, inventoryDigest: hash("foreign") }; assert.throws(() => planMigrationV2(inventory, foreign), /exact original/u);
+  } finally { f.close(); }
+});
+test("v2 planning preserves missing evidence and inventories retained rating dependencies without dispatch", async () => {
+  const { planMigrationV2 } = await import("../src/migration-accounting.js");
+  const f = fixture(); try {
+    f.input.selection.ratingsDigest = hash("retained-ratings"); f.judgment.input.digest = hash(f.input); f.write();
+    const plan = planMigrationV2(inventoryMigrationStudy(f.study)); assert.equal(plan.summary.ratingDependencyUnits, 1); assert.equal(plan.summary.distinctRetainedRatingDependencies, 1);
+    rmSync(join(f.root, "input.json")); f.study.artifacts = ["judgment.json", "assertion.json"];
+    const missing = planMigrationV2(inventoryMigrationStudy(f.study)); assert.equal(missing.summary.affectedUnits, 0); assert.equal(missing.summary.preservedMissingUnits, 1);
+    assert.equal(missing.units[0]!.proof, null); assert.equal(missing.units[0]!.targetPreparation, "preserved"); assert.deepEqual(validateArtifact("plan", missing), []);
+  } finally { f.close(); }
+});
+
+test("v2 planning accounts for every retained v1 prompt generation and rejects unknown versions", async () => {
+  const { planMigrationV2 } = await import("../src/migration-accounting.js");
+  const f = fixture(); try {
+    for (const version of ["1.0.0", "1.1.0", "1.2.0", "1.3.0"]) {
+      Object.assign(f.input, { promptVersion: version }); f.judgment.input.digest = hash(f.input); f.write();
+      const plan = planMigrationV2(inventoryMigrationStudy(f.study));
+      assert.equal(plan.summary.affectedUnits, 1); assert.equal(plan.units[0]!.proof!.previous, version);
+      assert.deepEqual(validateArtifact("historical plan", plan), []);
+    }
+    Object.assign(f.input, { promptVersion: "unknown" }); f.judgment.input.digest = hash(f.input); f.write();
+    assert.throws(() => planMigrationV2(inventoryMigrationStudy(f.study)), /No supported prompt-version/u);
+  } finally { f.close(); }
+});

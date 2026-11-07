@@ -56,8 +56,37 @@ An operator must obtain a separate spending authorization before launching
 judgments. Pending targets and missing evidence remain visible alongside the
 forecast; it covers only the explicitly reconciled affected units.
 
-Frozen readers preserve existing studies while native v2 adapters and typed
-consumers are developed. Final reconciliation uses the actual target inputs
-after those implementations pass their gates. The API reads supported v1
-semantic inputs; a v2 semantic input contract must be registered before it is
-eligible as a target.
+Frozen readers preserve existing studies. Reconciliation accepts verified v1
+inputs and typed v2 targets, and records their dependency identities separately.
+Final reconciliation uses the actual target inputs after their native adapters
+and consumers pass the source and semantic validation gates.
+
+## Typed v2 targets and protocol planning
+
+`prepareMigrationTargetV2` preserves a verified original input's behavior,
+rubric and selected source references. It prepares a typed v2 input against a
+qualified source, records the retained evaluator configuration and requires
+rating-dependency regeneration when the original input used ratings.
+`createMigrationTargetV2` verifies source readback before binding the target to
+its original judgment unit. Reconciliation records the target's input schema,
+configuration digest and rating readiness.
+
+V2 targets are created through `createMigrationTargetV2` or
+`prepareMigrationTargetV2`. Reconciliation accepts only the unchanged target
+object returned after source validation. The input JSON and reconciliation
+receipts remain durable artifacts. After loading an input from JSON, recreate
+its target against the retained source before reconciliation; a TypeScript
+cast or a copied target object does not establish source validation.
+
+`planMigrationV2` identifies the exact affected units from the supported prompt
+protocol change from the retained 1.0, 1.1, 1.2 and 1.3 generations to 2.0. This proof remains available while source
+rebuilds are pending. Its counts distinguish affected judgment units, distinct
+assertion contents, retained rating dependencies and prepared target inputs.
+An unchanged v1 input remains reusable under its preserved runtime; the v2
+protocol has its own dependency identity.
+
+Native admission failures retain their original evidence and explicit pending
+source status. Missing original inputs and assertion configurations retain a
+frozen preservation disposition. Planning assigns no target digest to an
+unprepared input and authorizes no paid execution. A cost forecast remains
+unavailable until the target workloads have measured receipts.

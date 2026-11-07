@@ -1264,6 +1264,7 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.behavior-assertion/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/assertion")],
     ["ebo.structural-observation/v2", requiredValidator(ajv, "urn:ebo:schema:analysis:v2#/$defs/observation")],
     ["ebo.structural-observation-set/v2", requiredValidator(ajv, "urn:ebo:schema:analysis:v2#/$defs/observationSet")],
+    ["ebo.migration-plan/v1", requiredValidator(ajv, "urn:ebo:schema:migration:v1#/$defs/plan")],
     ["ebo.migration-inventory/v1", requiredValidator(ajv, "urn:ebo:schema:migration:v1#/$defs/inventory")],
     ["ebo.migration-reconciliation/v1", requiredValidator(ajv, "urn:ebo:schema:migration:v1#/$defs/reconciliation")],
     ["ebo.review-source-set/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sourceSet")],

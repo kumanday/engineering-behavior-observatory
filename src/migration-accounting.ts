@@ -1,3 +1,5 @@
+import { validateSemanticJudgeInputV2, type JudgeInputV2 } from "./semantic-judge-v2.js";
+import type { RetainedBehaviorEvidenceV2 } from "./native-v2.js";
 import { lstatSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact } from "./artifacts.js";
@@ -27,6 +29,9 @@ export type MigrationDependencies = {
   rubricIdentityDigest: Hash;
   promptVersion: string;
   ratingsDigest: Hash | null;
+  observationSetDigest?: Hash;
+  ledgerDigest?: Hash;
+  requestDigest?: Hash;
 };
 export type MigrationAssertion = { digest: Hash; runId: string; attemptId: string; datasetDigest: Hash;
   behaviorDigest: Hash; rubricIdentityDigest: Hash; configurationDigest: Hash | null; paths: string[] };
@@ -59,13 +64,17 @@ export type MigrationInventory = {
     verifiedInputUnits: number; missingInputUnits: number; invalidInputUnits: number;
     measuredCostUsd: number | null };
 };
-export type MigrationTarget = { unitId: Hash; input: SemanticJudgeInput; evaluatorDigest: Hash; configurationDigest: Hash };
+type MigrationTargetBinding = { unitId: Hash; evaluatorDigest: Hash; configurationDigest: Hash };
+declare const sourceValidatedTarget: unique symbol;
+export type MigrationTargetV2 = MigrationTargetBinding & { input: JudgeInputV2; readonly [sourceValidatedTarget]: true };
+export type MigrationTarget = (MigrationTargetBinding & { input: SemanticJudgeInput }) | MigrationTargetV2;
+const validatedV2Targets = new WeakMap<MigrationTargetV2, Hash>();
 export type MigrationReconciliation = {
   schemaVersion: "ebo.migration-reconciliation/v1";
   studyId: string;
   inventoryDigest: Hash;
   units: Array<{ id: Hash; disposition: "preserve-frozen-missing-evidence" | "pending-target" | "reuse" | "rejudge";
-    changedDependencies: string[]; target: { inputDigest: Hash; evaluatorDigest: Hash; configurationDigest: Hash } | null }>;
+    changedDependencies: string[]; target: { inputDigest: Hash; evaluatorDigest: Hash; configurationDigest: Hash; inputSchemaVersion?: "ebo.semantic-judge-input/v2"; readiness?: "ready" | "requires-ratings" } | null }>;
   unboundAssertions: Array<{ digest: Hash; disposition: "preserve-frozen-missing-evidence" }>;
   summary: { reusableUnits: number; affectedUnits: number; pendingUnits: number; preservedMissingUnits: number;
     preservedAssertionUnits: number; measuredForecastUsd: number | null; unpricedAffectedUnits: number; authorizedPaidBudgetUsd: 0 };
@@ -75,7 +84,20 @@ const schemas = new Set(["ebo.behavior-assertion/v1", "ebo.semantic-judgment/v1"
   "ebo.structural-observation-set/v1", "ebo.occurrence-ratings/v1"]);
 const limits = { files: 100_000, fileBytes: 64 * 1024 * 1024, totalBytes: 2 * 1024 * 1024 * 1024 };
 
-export function migrationDependencies(input: SemanticJudgeInput): MigrationDependencies {
+export function migrationDependencies(input: SemanticJudgeInput | JudgeInputV2): MigrationDependencies {
+  if (input.schemaVersion === "ebo.semantic-judge-input/v2") {
+    if (validateArtifact("V2 migration input", input).length) throw new Error("Invalid v2 migration input.");
+    if (input.dependencies.observations !== hash(input.observations) || input.dependencies.ledger !== hash(input.ledger)
+        || input.dependencies.request !== hash(input.request) || input.dependencies.evaluatorConfiguration !== hash(input.request.evaluator)
+        || input.dependencies.ratings !== (input.ratings.length ? hash(input.ratings) : null)
+        || input.observations.dataset.digest !== input.dependencies.dataset || input.ledger.datasetDigest !== input.dependencies.dataset
+        || input.observations.runId !== input.runId || input.observations.attemptId !== input.attemptId || input.ledger.runId !== input.runId || input.ledger.attemptId !== input.attemptId) throw new Error("V2 migration input has stale or cross-attempt dependencies.");
+    return { inputDigest: hash(input), datasetDigest: input.dependencies.dataset, selectionDigest: hash(input.request.eventIds),
+      selectedEvidenceDigest: hash(input.evidence), rubricDigest: hash({ behavior: input.request.behavior, rubric: input.request.rubric }),
+      behaviorDigest: hash(input.request.behavior), rubricIdentityDigest: hash({ id: input.request.rubric.id, version: input.request.rubric.version }),
+      promptVersion: input.promptVersion, ratingsDigest: input.dependencies.ratings, observationSetDigest: input.dependencies.observations,
+      ledgerDigest: input.dependencies.ledger, requestDigest: input.dependencies.request };
+  }
   assertArtifact(input);
   if (input.schemaVersion !== "ebo.semantic-judge-input/v1") throw new Error("Unsupported migration input schema.");
   return { inputDigest: hash(input), datasetDigest: input.dataset.digest, selectionDigest: hash(input.selection),
@@ -222,9 +244,14 @@ export function reconcileMigration(inventory: MigrationInventory, targets: reado
       return { id: unit.id, disposition: "preserve-frozen-missing-evidence", changedDependencies: [], target: null };
     }
     if (!target) return { id: unit.id, disposition: "pending-target", changedDependencies: [], target: null };
-    if (target.input.runId !== unit.runId || target.input.attemptId !== unit.attemptId || hash(target.input.behavior) !== hash(unit.behavior)) throw new Error("Migration target belongs to another attempt or behavior dimension.");
+    if (target.input.runId !== unit.runId || target.input.attemptId !== unit.attemptId || hash(target.input.schemaVersion === "ebo.semantic-judge-input/v2" ? target.input.request.behavior : target.input.behavior) !== hash(unit.behavior)) throw new Error("Migration target belongs to another attempt or behavior dimension.");
     if (![target.evaluatorDigest, target.configurationDigest].every((digest) => /^sha256:[a-f0-9]{64}$/u.test(digest))) throw new Error("Invalid target evaluator identity.");
     const dependencies = migrationDependencies(target.input);
+    if (target.input.schemaVersion === "ebo.semantic-judge-input/v2") {
+      if (target.configurationDigest !== target.input.dependencies.evaluatorConfiguration) throw new Error("V2 migration target configuration differs from its input.");
+      if (target.evaluatorDigest !== hash({ id: target.input.request.evaluator.id, version: target.input.request.evaluator.version })) throw new Error("V2 migration target evaluator differs from its input.");
+      if (validatedV2Targets.get(target as MigrationTargetV2) !== hash(target)) throw new Error("V2 migration target requires source validation; reconstruct it with createMigrationTargetV2 after loading or modifying inputs.");
+    }
     const changed: string[] = (Object.keys(dependencies) as Array<keyof MigrationDependencies>).filter((key) => dependencies[key] !== unit.dependencies![key]);
     if (target.evaluatorDigest !== unit.evaluatorDigest) changed.push("evaluatorDigest");
     if (target.configurationDigest !== unit.configurationDigest) changed.push("configurationDigest");
@@ -233,7 +260,8 @@ export function reconcileMigration(inventory: MigrationInventory, targets: reado
       if (!samples.length) unpriced++; else forecast += samples.reduce((sum, cost) => sum + cost, 0) / samples.length;
     }
     return { id: unit.id, disposition: changed.length ? "rejudge" : "reuse", changedDependencies: changed,
-      target: { inputDigest: dependencies.inputDigest, evaluatorDigest: target.evaluatorDigest, configurationDigest: target.configurationDigest } };
+      target: { inputDigest: dependencies.inputDigest, evaluatorDigest: target.evaluatorDigest, configurationDigest: target.configurationDigest,
+        ...(target.input.schemaVersion === "ebo.semantic-judge-input/v2" ? { inputSchemaVersion: target.input.schemaVersion, readiness: target.input.readiness.status } : {}) } };
   });
   const boundAssertions = new Set(inventory.units.flatMap((unit) => unit.assertionDigests));
   const unboundAssertions = inventory.assertions.filter((assertion) => !boundAssertions.has(assertion.digest))
@@ -263,4 +291,57 @@ function assertArtifact(value: unknown, profiles: readonly ReceiptProfile[] = []
       && judgment.evaluator.limits?.maxWallClockMs === undefined && errors.length === 1
       && errors[0]!.field === "/evaluator/limits/maxWallClockMs" && errors[0]!.message === "must have required property 'maxWallClockMs'") return "codex-relay-0.162.1-no-wall-limit/v1";
   throw new Error("INVALID_MIGRATION_ARTIFACT");
+}
+
+/** Source readback is mandatory before packaging a v2 migration target. This function dispatches no inference. */
+export async function createMigrationTargetV2(unit: MigrationUnit, input: JudgeInputV2, evidence: RetainedBehaviorEvidenceV2): Promise<MigrationTargetV2> {
+  if (!unit.dependencies || !unit.configurationDigest || !unit.assertionDigests.length) throw new Error("V2 migration target requires verified original dependencies and assertion configuration.");
+  await validateSemanticJudgeInputV2(input, evidence);
+  if (input.runId !== unit.runId || input.attemptId !== unit.attemptId || hash(input.request.behavior) !== hash(unit.behavior)) throw new Error("V2 migration target belongs to a different original judgment unit.");
+  const target = { unitId: unit.id, input, evaluatorDigest: hash({ id: input.request.evaluator.id, version: input.request.evaluator.version }), configurationDigest: input.dependencies.evaluatorConfiguration } as MigrationTargetV2;
+  validatedV2Targets.set(target, hash(target));
+  return target;
+}
+
+
+export type MigrationPlanV2 = {
+  schemaVersion: "ebo.migration-plan/v1"; studyId: string; inventoryDigest: Hash;
+  sourceRuntime: MigrationStudy["analysisRuntime"];
+  target: { datasetSchemaVersion: "ebo.normalized-dataset/v2"; inputSchemaVersion: "ebo.semantic-judge-input/v2"; promptVersion: "2.0.0" };
+  units: Array<{ id: Hash; assertionDigests: Hash[]; disposition: "rejudge-required" | "preserve-frozen-missing-evidence";
+    proof: { dependency: "promptVersion"; previous: string; target: "2.0.0" } | null;
+    ratingDependencyRebuild: boolean; targetPreparation: "prepared" | "pending" | "preserved"; targetInputDigest: Hash | null }>;
+  unboundAssertions: MigrationReconciliation["unboundAssertions"];
+  summary: { affectedUnits: number; affectedAssertionContents: number; preservedMissingUnits: number; preservedAssertionContents: number;
+    ratingDependencyUnits: number; distinctRetainedRatingDependencies: number; preparedTargets: number; pendingTargetUnits: number;
+    measuredForecastUsd: number | null; authorizedPaidBudgetUsd: 0 };
+};
+/** A proven protocol change identifies affected units even when native rebuilds remain unavailable. */
+export function planMigrationV2(inventory: MigrationInventory, concrete?: MigrationReconciliation): MigrationPlanV2 {
+  const baseline = reconcileMigration(inventory);
+  const report = concrete ?? baseline;
+  if (validateArtifact("Migration reconciliation", report).length || report.inventoryDigest !== hash(inventory) || report.studyId !== inventory.studyId
+      || report.units.length !== inventory.units.length || new Set(report.units.map(({ id }) => id)).size !== report.units.length) throw new Error("Migration planning requires the exact original inventory reconciliation.");
+  const receipts = new Map(report.units.map((row) => [row.id, row]));
+  if (inventory.units.some(({ id }) => !receipts.has(id))) throw new Error("Migration planning has unmatched judgment units.");
+  const preserved = new Set(baseline.units.filter(({ disposition }) => disposition === "preserve-frozen-missing-evidence").map(({ id }) => id));
+  const units: MigrationPlanV2["units"] = inventory.units.map((unit) => {
+    if (preserved.has(unit.id)) return { id: unit.id, assertionDigests: [...unit.assertionDigests], disposition: "preserve-frozen-missing-evidence", proof: null,
+      ratingDependencyRebuild: false, targetPreparation: "preserved", targetInputDigest: null };
+    if (!["1.0.0", "1.1.0", "1.2.0", "1.3.0"].includes(unit.dependencies!.promptVersion)) throw new Error("No supported prompt-version change proof for this migration unit.");
+    const receipt = receipts.get(unit.id)!.target, prepared = receipt?.inputSchemaVersion === "ebo.semantic-judge-input/v2";
+    return { id: unit.id, assertionDigests: [...unit.assertionDigests], disposition: "rejudge-required",
+      proof: { dependency: "promptVersion", previous: unit.dependencies!.promptVersion, target: "2.0.0" },
+      ratingDependencyRebuild: unit.dependencies!.ratingsDigest !== null, targetPreparation: prepared ? "prepared" : "pending", targetInputDigest: prepared ? receipt!.inputDigest : null };
+  });
+  const affected = units.filter(({ disposition }) => disposition === "rejudge-required"), frozen = units.filter(({ disposition }) => disposition === "preserve-frozen-missing-evidence");
+  const affectedIds = new Set(affected.map(({ id }) => id));
+  const ratingDependencies = new Set(inventory.units.filter((unit) => affectedIds.has(unit.id)).flatMap((unit) => unit.dependencies!.ratingsDigest ?? []));
+  return { schemaVersion: "ebo.migration-plan/v1", studyId: inventory.studyId, inventoryDigest: hash(inventory), sourceRuntime: structuredClone(inventory.analysisRuntime),
+    target: { datasetSchemaVersion: "ebo.normalized-dataset/v2", inputSchemaVersion: "ebo.semantic-judge-input/v2", promptVersion: "2.0.0" }, units, unboundAssertions: baseline.unboundAssertions,
+    summary: { affectedUnits: affected.length, affectedAssertionContents: new Set(affected.flatMap(({ assertionDigests }) => assertionDigests)).size,
+      preservedMissingUnits: frozen.length, preservedAssertionContents: new Set([...frozen.flatMap(({ assertionDigests }) => assertionDigests), ...baseline.unboundAssertions.map(({ digest }) => digest)]).size,
+      ratingDependencyUnits: affected.filter(({ ratingDependencyRebuild }) => ratingDependencyRebuild).length, distinctRetainedRatingDependencies: ratingDependencies.size,
+      preparedTargets: affected.filter(({ targetPreparation }) => targetPreparation === "prepared").length, pendingTargetUnits: affected.filter(({ targetPreparation }) => targetPreparation === "pending").length,
+      measuredForecastUsd: affected.length ? null : 0, authorizedPaidBudgetUsd: 0 } };
 }
