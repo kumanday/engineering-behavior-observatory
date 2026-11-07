@@ -56,11 +56,10 @@ An operator must obtain a separate spending authorization before launching
 judgments. Pending targets and missing evidence remain visible alongside the
 forecast; it covers only the explicitly reconciled affected units.
 
-Frozen readers preserve existing studies while native v2 adapters and typed
-consumers are developed. Final reconciliation uses the actual target inputs
-after those implementations pass their gates. The API reads supported v1
-semantic inputs; a v2 semantic input contract must be registered before it is
-eligible as a target.
+Frozen readers preserve existing studies. Reconciliation accepts verified v1
+inputs and typed v2 targets, and records their dependency identities separately.
+Final reconciliation uses the actual target inputs after their native adapters
+and consumers pass the source and semantic validation gates.
 
 ## Typed v2 targets and protocol planning
 
@@ -73,7 +72,7 @@ its original judgment unit. Reconciliation records the target's input schema,
 configuration digest and rating readiness.
 
 `planMigrationV2` identifies the exact affected units from the supported prompt
-protocol change from 1.2/1.3 to 2.0. This proof remains available while source
+protocol change from the retained 1.0, 1.1, 1.2 and 1.3 generations to 2.0. This proof remains available while source
 rebuilds are pending. Its counts distinguish affected judgment units, distinct
 assertion contents, retained rating dependencies and prepared target inputs.
 An unchanged v1 input remains reusable under its preserved runtime; the v2

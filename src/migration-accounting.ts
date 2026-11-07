@@ -318,7 +318,7 @@ export function planMigrationV2(inventory: MigrationInventory, concrete?: Migrat
   const units: MigrationPlanV2["units"] = inventory.units.map((unit) => {
     if (preserved.has(unit.id)) return { id: unit.id, assertionDigests: [...unit.assertionDigests], disposition: "preserve-frozen-missing-evidence", proof: null,
       ratingDependencyRebuild: false, targetPreparation: "preserved", targetInputDigest: null };
-    if (!["1.2.0", "1.3.0"].includes(unit.dependencies!.promptVersion)) throw new Error("No supported prompt-version change proof for this migration unit.");
+    if (!["1.0.0", "1.1.0", "1.2.0", "1.3.0"].includes(unit.dependencies!.promptVersion)) throw new Error("No supported prompt-version change proof for this migration unit.");
     const receipt = receipts.get(unit.id)!.target, prepared = receipt?.inputSchemaVersion === "ebo.semantic-judge-input/v2";
     return { id: unit.id, assertionDigests: [...unit.assertionDigests], disposition: "rejudge-required",
       proof: { dependency: "promptVersion", previous: unit.dependencies!.promptVersion, target: "2.0.0" },

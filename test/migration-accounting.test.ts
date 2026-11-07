@@ -210,6 +210,10 @@ test("v2 migration targets bind source readback, observations, ledger and evalua
     assert.equal(report.summary.affectedUnits, 1); assert.equal(report.summary.authorizedPaidBudgetUsd, 0);
     for (const key of ["datasetDigest", "observationSetDigest", "ledgerDigest", "requestDigest", "promptVersion", "configurationDigest"]) assert.ok(report.units[0]!.changedDependencies.includes(key), key);
     assert.deepEqual(validateArtifact("report", report), []);
+    const { planMigrationV2 } = await import("../src/migration-accounting.js");
+    const plan = planMigrationV2(inventory, report);
+    assert.equal(plan.summary.preparedTargets, 1); assert.equal(plan.units[0]!.targetInputDigest, hash(input));
+    assert.deepEqual(validateArtifact("plan", plan), []);
     const changed = structuredClone(input); changed.ledger.coverage[0]!.count += 1;
     assert.throws(() => migrationDependencies(changed), /stale/u);
     await assert.rejects(createMigrationTargetV2(unit, { ...input, attemptId: "foreign" }, evidence), /source evidence|dependencies/u);
@@ -259,5 +263,18 @@ test("v2 planning preserves missing evidence and inventories retained rating dep
     rmSync(join(f.root, "input.json")); f.study.artifacts = ["judgment.json", "assertion.json"];
     const missing = planMigrationV2(inventoryMigrationStudy(f.study)); assert.equal(missing.summary.affectedUnits, 0); assert.equal(missing.summary.preservedMissingUnits, 1);
     assert.equal(missing.units[0]!.proof, null); assert.equal(missing.units[0]!.targetPreparation, "preserved"); assert.deepEqual(validateArtifact("plan", missing), []);
+  } finally { f.close(); }
+});
+
+test("v2 planning accounts for every retained v1 prompt generation and rejects unknown versions", async () => {
+  const { planMigrationV2 } = await import("../src/migration-accounting.js");
+  const f = fixture(); try {
+    for (const version of ["1.0.0", "1.1.0", "1.2.0", "1.3.0"]) {
+      Object.assign(f.input, { promptVersion: version }); f.judgment.input.digest = hash(f.input); f.write();
+      const plan = planMigrationV2(inventoryMigrationStudy(f.study));
+      assert.equal(plan.summary.affectedUnits, 1); assert.equal(plan.units[0]!.proof!.previous, version);
+    }
+    Object.assign(f.input, { promptVersion: "unknown" }); f.judgment.input.digest = hash(f.input); f.write();
+    assert.throws(() => planMigrationV2(inventoryMigrationStudy(f.study)), /No supported prompt-version/u);
   } finally { f.close(); }
 });
