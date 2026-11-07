@@ -24,7 +24,9 @@ trial was an original execution.
 ## Identity and lineage
 
 The source namespace and original `TrialResult.id` define the execution ID.
-Relocation and byte-identical reuse preserve that ID. Execution identity binds
+Relocation and byte-identical reuse preserve that ID. Run and attempt IDs derive
+from the namespaced execution identity, so equal trial UUIDs in separate source
+collections remain distinct in combined corpora. Execution identity binds
 the original task checksum, agent/model configuration and declared start. A
 conflicting reuse of the UUID cannot replace the retained execution record.
 
@@ -62,7 +64,8 @@ imports verify and reuse the existing capture. Failed admission remains under
 
 The source inventory contains named root records plus `agent/` and `verifier/`
 files, plus root `trial.log` and `exception.txt` failure evidence. It admits at most 4,096 entries, 64 MiB per file, 256 MiB in total and
-32 directory levels. Links are rejected. Trial-result validation is bounded to
+32 directory levels. File and byte budgets cover the full original-trial lineage.
+Links are rejected. Trial-result validation is bounded to
 4 MiB, 15 seconds and a 64 KiB validator response. Media files remain retained
 source artifacts; references cause no implicit fetch or activation.
 

@@ -42,8 +42,9 @@ export async function inspectHarborTrial(options: { directory: string; namespace
   const bindings = new Map((options.originals ?? []).map((binding) => [uuid(binding.sourceReference) ? binding.sourceReference.toLowerCase() : binding.sourceReference, binding.directory]));
   if (bindings.size !== (options.originals ?? []).length) throw new Error("Original-trial source bindings must be unique.");
   const seen = new Set<string>();
+  const sourceBudget = { bytes: 0, entries: 0 };
   const inspect = async (directory: string, depth: number): Promise<HarborTrialRead> => {
-    const files = collectTrialFiles(directory);
+    const files = collectTrialFiles(directory, sourceBudget);
     const descriptors = [...files].map(([path, bytes]): SourceFile => ({ path, digest: rawHash(bytes), bytes: bytes.length,
       authority: path.startsWith("agent/") ? "third-party-agent-log" : path.startsWith("verifier/") ? "third-party-verifier-record" : "third-party-trial-record" }));
     const inspection: HarborTrialInspection = { schemaVersion: "ebo.harbor-trial-inspection/v1", sourceAuthority: "third-party", status: "inspect-only",
@@ -102,7 +103,7 @@ export async function inspectHarborTrial(options: { directory: string; namespace
     }
     if (inspection.execution === undefined) {
       const id = `harbor:${hash({ namespace: options.namespace, originalTrialId }).slice(7)}`;
-      inspection.execution = { schemaVersion: "ebo.harbor-execution/v1", id, originalTrialId, runId: `imported-${id}`, attemptId: `harbor-trial-${originalTrialId}`,
+      inspection.execution = { schemaVersion: "ebo.harbor-execution/v1", id, originalTrialId, runId: `imported-${id}`, attemptId: `harbor-trial-${id.slice("harbor:".length)}`,
         identityDigest: hash({ namespace: options.namespace, originalTrialId, taskName: original.task_name, taskChecksum: original.task_checksum,
           startedAt: original.started_at ?? null, agent: original.agent_info, configuration: object(original.config).agent }),
         taskName: String(original.task_name), taskChecksum: String(original.task_checksum), modelAliases: [...aliases].sort() };
@@ -222,9 +223,10 @@ export function readHarborCapture(store: string, captureRevision: Hash, sourceSn
       || hash(inspection.execution) !== hash(binding.execution) || inspection.assessment?.id !== membership.assessmentId) throw new Error("Harbor inspection binding is stale.");
   const execution = object(binding.execution);
   if (!/^harbor:[a-f0-9]{64}$/u.test(String(execution.id)) || hash(read(`executions/${String(execution.id).slice(7)}.json`)) !== hash(execution)) throw new Error("Harbor execution binding is stale.");
+  const retainedBudget = { bytes: 0, entries: 0 };
   const verifySnapshot = (digest: Hash) => {
     const id = identifier(digest), snapshot = read(`sources/${id}/inventory.json`);
-    const files = collectTrialFiles(join(store, "sources", id));
+    const files = collectTrialFiles(join(store, "sources", id), retainedBudget);
     const descriptors = [...files].map(([path, bytes]): SourceFile => ({ path, bytes: bytes.length, digest: rawHash(bytes),
       authority: path.startsWith("agent/") ? "third-party-agent-log" : path.startsWith("verifier/") ? "third-party-verifier-record" : "third-party-trial-record" }));
     if (snapshot.snapshotDigest !== digest || hash({ namespace: snapshot.namespace, files: descriptors }) !== digest
@@ -267,13 +269,13 @@ function assertNoStoreLinks(root: string, path: string) {
   }
 }
 
-function collectTrialFiles(directory: string): Map<string, Buffer> {
+function collectTrialFiles(directory: string, budget = { bytes: 0, entries: 0 }): Map<string, Buffer> {
   const root = lstatSync(directory);
   if (!root.isDirectory() || root.isSymbolicLink()) throw new Error("Harbor trial root must be a regular directory.");
   const files = new Map<string, Buffer>(); let total = 0, entries = 0;
   const read = (path: string, depth: number) => {
-    entries += 1;
-    if (entries > HARBOR_IMPORT_LIMITS.files) throw new Error("Harbor source inventory exceeds its entry limit.");
+    entries += 1; budget.entries += 1;
+    if (budget.entries > HARBOR_IMPORT_LIMITS.files || entries > HARBOR_IMPORT_LIMITS.files) throw new Error("Harbor source inventory exceeds its entry limit.");
     if (!isSafeArtifactRelativePath(path) || depth > HARBOR_IMPORT_LIMITS.depth) throw new Error("Harbor source path exceeds its policy.");
     const full = join(directory, path), stat = lstatSync(full);
     if (stat.isSymbolicLink()) throw new Error("Harbor source links are not admitted.");
@@ -284,9 +286,9 @@ function collectTrialFiles(directory: string): Map<string, Buffer> {
       return;
     }
     if (!stat.isFile()) throw new Error("Harbor sources require regular files.");
-    if (files.size >= HARBOR_IMPORT_LIMITS.files || stat.size > HARBOR_IMPORT_LIMITS.fileBytes || total + stat.size > HARBOR_IMPORT_LIMITS.totalBytes) throw new Error("Harbor source inventory exceeds its byte/file limits.");
+    if (files.size >= HARBOR_IMPORT_LIMITS.files || stat.size > HARBOR_IMPORT_LIMITS.fileBytes || total + stat.size > HARBOR_IMPORT_LIMITS.totalBytes || budget.bytes + stat.size > HARBOR_IMPORT_LIMITS.totalBytes) throw new Error("Harbor source inventory exceeds its byte/file limits.");
     const bytes = readBoundedFile(full, "Harbor trial source", undefined, HARBOR_IMPORT_LIMITS.fileBytes);
-    total += bytes.length; if (total > HARBOR_IMPORT_LIMITS.totalBytes) throw new Error("Harbor source inventory exceeds its byte limit.");
+    total += bytes.length; budget.bytes += bytes.length; if (budget.bytes > HARBOR_IMPORT_LIMITS.totalBytes || total > HARBOR_IMPORT_LIMITS.totalBytes) throw new Error("Harbor source inventory exceeds its byte limit.");
     files.set(path, bytes);
   };
   for (const path of ["agent", "config.json", "lock.json", "result.json", "run.json", "trial.log", "exception.txt", "verifier"]) {

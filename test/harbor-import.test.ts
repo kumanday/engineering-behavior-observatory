@@ -6,7 +6,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { inspectHarborTrial, importHarborTrial, readHarborCapture } from "../src/harbor-import.js";
+import { inspectHarborTrial, importHarborTrial, readHarborCapture, HARBOR_IMPORT_LIMITS } from "../src/harbor-import.js";
 import { listAtifProducerProfiles } from "../src/atif-profiles.js";
 import { readImportedBehaviorEvidence } from "../src/atif-import.js";
 
@@ -67,7 +67,10 @@ test("source namespace and TrialResult UUID define identity independently of sou
     assert.equal(first.inspection.status, "eligible");
     assert.equal(first.inspection.structural!.status, "valid");
     assert.deepEqual(first.inspection, second.inspection);
-    assert.notEqual((await inspectHarborTrial({ directory: copy, namespace: "another-source", pythonExecutable: python })).inspection.execution!.id, first.inspection.execution!.id);
+    const another = (await inspectHarborTrial({ directory: copy, namespace: "another-source", pythonExecutable: python })).inspection.execution!;
+    assert.notEqual(another.id, first.inspection.execution!.id);
+    assert.notEqual(another.attemptId, first.inspection.execution!.attemptId);
+    assert.notEqual(another.runId, first.inspection.execution!.runId);
   } finally { temp.cleanup(); }
 });
 
@@ -329,4 +332,17 @@ test("the Harbor CLI returns stored capture and context identities usable for re
     assert.match(receipt.inspectionDigest, /^sha256:/u);
     assert.equal(readHarborCapture(store, receipt.captureRevision, receipt.snapshotDigest, receipt.inspectionDigest).inspection.status, "eligible");
   } finally { temp.cleanup(); }
+});
+
+
+test("lineage traversal shares one source byte budget instead of multiplying limits per original", { skip: !python }, async () => {
+  const temp = temporary(), limit = HARBOR_IMPORT_LIMITS.totalBytes;
+  try {
+    const original = fixture(temp.root), regrade = fixture(temp.root, "regrade", ids[1]);
+    regrade.result.config.source_trial = { action: "regrade", type: "hub", trial_id: ids[0] }; save(regrade.directory, regrade.result);
+    const one = await inspect(original.directory), other = await inspect(regrade.directory);
+    const maximum = Math.max(...[one, other].map(({ inspection }) => inspection.files.reduce((sum, file) => sum + file.bytes, 0)));
+    (HARBOR_IMPORT_LIMITS as unknown as { totalBytes: number }).totalBytes = maximum + 16;
+    await assert.rejects(inspect(regrade.directory, { originals: [{ sourceReference: ids[0], directory: original.directory }] }), /byte\/file limits|byte limit/u);
+  } finally { (HARBOR_IMPORT_LIMITS as unknown as { totalBytes: number }).totalBytes = limit; temp.cleanup(); }
 });
