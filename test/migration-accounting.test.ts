@@ -218,6 +218,7 @@ test("v2 migration targets bind source readback, observations, ledger and evalua
     assert.throws(() => migrationDependencies(changed), /stale/u);
     await assert.rejects(createMigrationTargetV2(unit, { ...input, attemptId: "foreign" }, evidence), /source evidence|dependencies/u);
     assert.throws(() => reconcileMigration(inventory, [{ ...target, configurationDigest: hash("unbound") }]), /configuration differs/u);
+    assert.throws(() => reconcileMigration(inventory, [{ ...target, evaluatorDigest: unit.evaluatorDigest }]), /evaluator differs/u);
   } finally { f.close(); }
 });
 

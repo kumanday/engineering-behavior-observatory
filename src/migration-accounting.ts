@@ -243,7 +243,10 @@ export function reconcileMigration(inventory: MigrationInventory, targets: reado
     if (target.input.runId !== unit.runId || target.input.attemptId !== unit.attemptId || hash(target.input.schemaVersion === "ebo.semantic-judge-input/v2" ? target.input.request.behavior : target.input.behavior) !== hash(unit.behavior)) throw new Error("Migration target belongs to another attempt or behavior dimension.");
     if (![target.evaluatorDigest, target.configurationDigest].every((digest) => /^sha256:[a-f0-9]{64}$/u.test(digest))) throw new Error("Invalid target evaluator identity.");
     const dependencies = migrationDependencies(target.input);
-    if (target.input.schemaVersion === "ebo.semantic-judge-input/v2" && target.configurationDigest !== target.input.dependencies.evaluatorConfiguration) throw new Error("V2 migration target configuration differs from its input.");
+    if (target.input.schemaVersion === "ebo.semantic-judge-input/v2") {
+      if (target.configurationDigest !== target.input.dependencies.evaluatorConfiguration) throw new Error("V2 migration target configuration differs from its input.");
+      if (target.evaluatorDigest !== hash({ id: target.input.request.evaluator.id, version: target.input.request.evaluator.version })) throw new Error("V2 migration target evaluator differs from its input.");
+    }
     const changed: string[] = (Object.keys(dependencies) as Array<keyof MigrationDependencies>).filter((key) => dependencies[key] !== unit.dependencies![key]);
     if (target.evaluatorDigest !== unit.evaluatorDigest) changed.push("evaluatorDigest");
     if (target.configurationDigest !== unit.configurationDigest) changed.push("configurationDigest");
