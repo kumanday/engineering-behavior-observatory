@@ -64,6 +64,10 @@ The [evaluation reading path](evaluation/README.md) explains how the parts fit:
   and release preparation.
 - [Extension contracts](development/extension-contracts.md): adapter, extractor,
   rubric, verifier, and export-policy development.
+- [ATIF admission and EBO v2 design](development/atif-adoption-design.md),
+  [decision record](development/atif-adoption-adr.md), and
+  [measured import pilot](development/atif-import-pilot.md): proposed import
+  qualification, normalization and compatibility work.
 - [Documentation sync findings](development/documentation-sync.md): why generated
   change provenance is kept separate from public documentation.
 - [Release records](../release/README.md): versioned verification and limitations.
