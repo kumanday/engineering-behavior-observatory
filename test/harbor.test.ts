@@ -670,3 +670,53 @@ test("study JSON readers reject cross-tree references", async () => {
   writeFileSync(join(root, "governance", "admissions", "harbor", "x.json"), JSON.stringify({ schemaVersion: "ebo.harbor-admission/v1" }));
   assert.throws(() => readHarborStudyJson(root, join("..", "escape.json")));
 });
+
+
+test("task-shipped prior trajectories are rejected before inspection, admission or capture", async () => {
+  const root = tempRoot("prior-trajectory");
+  try {
+    const task = writePrototypeTask(root), adapter = fakeAdapter();
+    adapter.inspect = async () => { throw new Error("official inspection must not start"); };
+    for (const variant of ["file", "symlink", "dangling-symlink", "step"]) {
+      const path = variant === "step" ? join(task, "steps/one/trajectory.json") : join(task, "trajectory.json");
+      if (variant === "step") { mkdirSync(join(task, "steps/one"), { recursive: true }); writeFileSync(join(task, "steps/one/instruction.md"), "Step"); }
+      if (variant.includes("symlink")) symlinkSync(variant === "symlink" ? "instruction.md" : "missing.json", path);
+      else writeFileSync(path, "{}");
+      const inspection = await inspectHarborTask(task, { adapter });
+      assert.equal(inspection.classification, "unsupported", variant);
+      assert.equal(inspection.reasonCode, "unsupported-imported-trajectory", variant);
+      await assert.rejects(resolveHarborTask(task, { adapter }), (error: unknown) => error instanceof HarborAdapterError && error.kind === "unsupported-imported-trajectory");
+      await assert.rejects(snapshotHarborTask(task, join(root, "snapshots"), { adapter }), /seeded-context/u);
+      rmSync(path);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a prior trajectory added to a frozen task blocks queue compilation and execution preparation", async () => {
+  const { root, taskSourceId, adapter } = await frozenStudyWithTask();
+  try {
+    const experiment = experimentFor(root, taskSourceId, { environmentProfile: "local-fs-test", contextPolicy: "fresh" });
+    const queue = await compileHarborRunQueue(experiment as never, { studyRoot: root, adapter });
+    writeFileSync(join(harborStudyPaths(root).snapshotsRoot, taskSourceId, "trajectory.json"), "{}");
+    await assert.rejects(compileHarborRunQueue(experiment as never, { studyRoot: root, adapter }), /unsupported-imported-trajectory/u);
+    await assert.rejects(prepareHarborExecution({ studyRoot: root, entry: queue.entries[0]!, attemptRoot: join(root, "attempt"), execution: queue.execution, adapter }),
+      (error: unknown) => (error as { reasonCode?: string }).reasonCode === "unsupported-imported-trajectory");
+    assert.equal(existsSync(join(root, "attempt")), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("prior-trajectory probes preserve official invalid-task classification for file and missing roots", async () => {
+  const root = tempRoot("invalid-task-root");
+  try {
+    const task = writePrototypeTask(root), adapter = fakeAdapter();
+    let inspected = 0;
+    adapter.inspect = async () => { inspected += 1; throw new HarborAdapterError("task-invalid", "Expected a task directory."); };
+    for (const path of [join(task, "task.toml"), join(root, "missing"), join(task, "task.toml/nested")]) {
+      const result = await inspectHarborTask(path, { adapter });
+      assert.equal(result.classification, "invalid");
+      assert.equal(result.reasonCode, "task-invalid");
+    }
+    assert.equal(inspected, 3);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
