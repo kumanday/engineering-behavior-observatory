@@ -391,3 +391,26 @@ test("a backfilled regrade can resolve its original executor without an original
     readHarborCapture(options.store, imported.binding.captureRevision, imported.inspection.snapshotDigest, imported.inspectionDigest);
   } finally { temp.cleanup(); }
 });
+
+test("Harbor CLI exit status distinguishes rejected admission from eligible context", { skip: !python }, async () => {
+  const temp = temporary();
+  try {
+    const source = fixture(temp.root), store = join(temp.root, "store");
+    const flags = ["--namespace", "synthetic-source", "--profile", listAtifProducerProfiles()[0]!.id, "--python", python!];
+    const invoke = async (action: string) => {
+      const output: string[] = [];
+      const code = await main(["atif", action, source.directory, ...(action === "import-harbor" ? [store] : []), ...flags], (text) => output.push(text));
+      return { code, receipt: JSON.parse(output.join("")) };
+    };
+    const first = await invoke("import-harbor");
+    assert.equal(first.code, 0); assert.equal(first.receipt.status, "imported"); assert.equal(first.receipt.reused, false);
+    const reused = await invoke("import-harbor");
+    assert.equal(reused.code, 0); assert.equal(reused.receipt.status, "imported"); assert.equal(reused.receipt.reused, true);
+    const path = join(source.directory, "agent/trajectory.json"), document = JSON.parse(readFileSync(path, "utf8"));
+    document.steps = "malformed"; writeFileSync(path, JSON.stringify(document));
+    const inspected = await invoke("inspect-harbor");
+    assert.equal(inspected.code, 0); assert.equal(inspected.receipt.status, "eligible");
+    const rejected = await invoke("import-harbor");
+    assert.equal(rejected.receipt.status, "inspect-only"); assert.equal(rejected.code, 1);
+  } finally { temp.cleanup(); }
+});
