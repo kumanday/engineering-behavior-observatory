@@ -24,6 +24,6 @@ export const cursorV2Profile: NativeProjectionProfile = {
     return { facts, clock, nativeOrder, ...(content ? { content } : {}), phase: complete ? "after" : endpoint === "call" ? "before" : "during",
       operation: { nativeId: text(message.call_id), scope, endpoint, canonical: true, toolName: text(message.name),
         ...(message.args === undefined ? {} : { inputDigest: digestValue(message.args) }),
-        failure: complete ? failed ? known(true) : result.status === "success" ? resultFailure(false, object(result.value).exitCode) : resultFailure(undefined) : unreported } };
+        failure: complete ? failed ? known(true) : result.status === "success" ? resultFailure(object(result.value).isError ?? false, object(result.value).exitCode) : resultFailure(undefined) : unreported } };
   },
 };
