@@ -110,3 +110,5 @@ retained readback. Regrading preserves the capture manifest and its blinding inp
 Expected ATIF structure or producer-projection rejection retains the partial admission and returns inspect-only. Store and I/O failures propagate as errors. A cohort can exclude the rejected source while continuing with valid selected trials.
 
 The library can bind additional operator-declared model aliases from protected source context. That context participates in derived capture-revision identity. Readback verifies the alias union against the admission manifest and execution; an updated alias inventory preserves the existing revision and creates another projection of the same execution.
+
+`inspect-harbor` returns exit code 0 for eligible source context. `import-harbor` returns 0 for an admitted or reused capture. Inspect-only results and errors return 1.
