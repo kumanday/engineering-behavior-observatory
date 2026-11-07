@@ -276,3 +276,18 @@ test("DeepSeek recovery has an unknown outcome and repeated IDs remain distinct 
   const message = dataset.events.find(({ family }) => family === "message")!;
   assert.equal(message.facts.message!.identity.status === "known" && message.facts.message!.identity.value.id, "native-user");
 });
+
+test("Claude task notifications provide terminal endpoints independently of hook copies", async () => {
+  for (const status of ["completed", "failed", "stopped"]) {
+    const record = (subtype: string) => ({ nativeType: "system", sessionId: "s", message: { type: "system", subtype, task_id: "task", session_id: "s", status } });
+    const { dataset } = await project(fixture("claude-agent-sdk", [record("task_started"), record("task_notification")],
+      [{ record: 0, family: "delegation", phase: "before" }, { record: 1, family: "delegation", phase: "during" }]));
+    const operation = dataset.operations[0]!; assert.equal(operation.callEventIds.length, 1); assert.equal(operation.resultEventIds.length, 1);
+    assert.deepEqual(operation.failure, status === "stopped" ? { status: "unknown", reason: "SOURCE_UNREPORTED" } : { status: "known", value: status === "failed" });
+  }
+});
+test("Pi reasoning tokens remain a separate reported subset of output tokens", async () => {
+  const { dataset } = await project(fixture("pi-sdk", [piRecord("session", "s"), piRecord("message", "m", { role: "assistant", content: [], usage: { input: 10, output: 20, reasoning: 15, totalTokens: 30 } })],
+    [{ record: 1, family: "runtime", id: "native-usage-increment" }]));
+  assert.deepEqual(dataset.events[0]!.facts.resource!.values, { inputTokens: 10, outputTokens: 20, totalTokens: 30, reasoningTokens: 15 });
+});

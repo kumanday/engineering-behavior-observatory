@@ -77,7 +77,9 @@ export const claudeV2Profile: NativeProjectionProfile = {
       if (candidates?.size === 1) scope = [...candidates][0]!;
       else if (candidates && candidates.size > 1) scope = `${scope}/unresolved-hook:${event.id}`;
     }
-    const endpoint = event.phase === "before" ? "call" : event.phase === "after" ? "result" : "observation";
+    const terminalTask = event.family === "delegation" && message.subtype === "task_notification" && ["completed", "failed", "stopped"].includes(String(message.status));
+    const phase = terminalTask ? "after" : event.phase;
+    const endpoint = phase === "before" ? "call" : phase === "after" ? "result" : "observation";
     const nativeId = event.family === "tool" ? toolId : event.family === "delegation"
       ? text(payload.agent_id) ?? text(record.agentId) ?? text(payload.task_id) ?? text(message.task_id)
       : text(message.request_id);
@@ -91,10 +93,10 @@ export const claudeV2Profile: NativeProjectionProfile = {
       const suffix = block.type === "tool_use" && block.input !== undefined ? "/input" : block.type === "tool_result" && block.content !== undefined ? "/content" : undefined;
       if (base && suffix) content = known([{ ...base, nativeReference: { ...base.nativeReference, recordLocator: `${base.nativeReference.recordLocator}${suffix}` } }]);
     }
-    return { facts, clock, ...(content ? { content } : {}), operation: { nativeId, scope, endpoint, canonical: !hook,
+    return { facts, clock, phase, ...(content ? { content } : {}), operation: { nativeId, scope, endpoint, canonical: !hook,
       ...(hook && toolId && (index(context).get(toolId)?.size ?? 0) > 1 ? { scopeStatus: "record-local" as const } : {}),
       toolName: text(block.name) ?? text(payload.tool_name), ...(input === undefined ? {} : { inputDigest: digestValue(input) }),
-      failure: endpoint !== "result" ? unreported : hook === "PostToolUseFailure" ? known(true) : hook === "PostToolUse" ? known(false) : resultFailure(block.is_error),
+      failure: endpoint !== "result" ? unreported : terminalTask ? message.status === "failed" ? known(true) : message.status === "completed" ? known(false) : unreported : hook === "PostToolUseFailure" ? known(true) : hook === "PostToolUse" ? known(false) : resultFailure(block.is_error),
       issuingInference: issuing ? known({ id: issuing, scope, identityClass: "model-output" }) : unreported } };
   },
 };
