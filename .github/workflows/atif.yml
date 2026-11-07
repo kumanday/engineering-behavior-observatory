@@ -11,6 +11,7 @@ on:
       - 'scripts/atif-import-pilot/**'
       - 'scripts/compatibility/**'
       - 'scripts/freeze-native-baseline.mjs'
+      - 'scripts/test_freeze_pi_pairs.py'
       - 'scripts/check-pi-fixture-pairs.mjs'
       - 'scripts/*pi-fixtures*'
       - 'scripts/*pi-pairs*'
@@ -50,7 +51,7 @@ jobs:
       - name: Check independent Pi conversions and retained media
         run: |
           .atif-venv/bin/python scripts/convert-pi-fixtures.py test/fixtures/atif/pi --check
-          .atif-venv/bin/python -m unittest discover -s scripts -p test_freeze_pi_pairs.py
+          .atif-venv/bin/python -B -m unittest discover -s scripts -p test_freeze_pi_pairs.py
       - name: Check import contracts on authored fixtures
         run: |
           node --test --test-concurrency=4 \
