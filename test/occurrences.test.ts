@@ -473,3 +473,19 @@ test("tied intervening-tool boundaries cannot establish one consecutive failure 
   assert.equal(result.coverage.find(({ type }) => type === "failure-response")!.status, "unavailable");
   assert.ok(result.occurrences.filter(({ type }) => type === "failure-response").every(({ attributes }) => attributes.failures === 1));
 });
+
+
+test("a definite intervening tool separates failures independently of another tool's display clock", () => {
+  const first = call(1, "Bash", "fail", { isError: true }).operation;
+  const edit = call(2, "Edit", "change", { isError: false }).operation;
+  const retry = call(3, "Bash", "retry", { isError: true }).operation;
+  const read = call(4, "Read", "inspect", { isError: false }).operation;
+  read.events = read.events.map((value) => ({ ...value, nativeOrder: { status: "known", value: value.phase === "before" ? 30 : 31, domain: "session" } }));
+  const early = extract([first, edit, retry, { ...read, events: read.events.map((value) => ({ ...value,
+    nativeTime: { status: "known", value: "2026-10-01T00:00:00Z" } })) }]);
+  const late = extract([first, edit, retry, { ...read, events: read.events.map((value) => ({ ...value,
+    nativeTime: { status: "known", value: "2026-10-10T00:00:00Z" } })) }]);
+  assert.deepEqual(early, late);
+  assert.equal(early.coverage.find(({ type }) => type === "failure-response")!.status, "available");
+  assert.equal(early.occurrences.filter(({ type }) => type === "failure-response").length, 2);
+});

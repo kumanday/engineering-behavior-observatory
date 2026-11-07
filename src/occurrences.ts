@@ -96,16 +96,14 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
           const previous = view.get(scoped[end - 1]!.id)!.start;
           const candidate = view.get(scoped[end]!.id)!.start;
           // Other tools remain chain boundaries even though follow-up selection is tool-specific.
-          let separated = false;
+          let separated = false, uncertainBoundary = false;
           for (const other of otherTools) {
             const starts = other.events.filter((event) => (event.phase === "before" || event.phase === "instant")
               && event.nativeOrder.status === "known" && previous.nativeOrder.status === "known" && event.nativeOrder.domain === previous.nativeOrder.domain);
-            if (starts.length === 0) { failureOrderUnavailable = true; separated = true; break; }
-            if (starts.some((start) => nativeEventPrecedence(previous, start) === undefined || nativeEventPrecedence(start, candidate) === undefined)) {
-              failureOrderUnavailable = true; separated = true; break;
-            }
             if (starts.some((start) => nativeEventPrecedence(previous, start) === -1 && nativeEventPrecedence(start, candidate) === -1)) { separated = true; break; }
+            if (starts.length === 0 || starts.some((start) => nativeEventPrecedence(previous, start) === undefined || nativeEventPrecedence(start, candidate) === undefined)) uncertainBoundary = true;
           }
+          if (!separated && uncertainBoundary) { failureOrderUnavailable = true; separated = true; }
           if (separated) break;
         }
         end += 1;
