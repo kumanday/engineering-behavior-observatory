@@ -47,7 +47,9 @@ async function assertUnfamiliarRuntimeReadback(root: string, eventCount: number)
     const old = manifest.run.harness.version as string, replacement = "9000.1.0";
     const change = (text: string) => text.replaceAll(old, replacement);
     for (const artifact of manifest.evidence) {
-      if (!/json/u.test(artifact.mediaType)) continue;
+      // Drift changes native observations and declarations. Frozen runtime
+      // provenance keeps its independent bytes and internal digests.
+      if (!/json/u.test(artifact.mediaType) || artifact.source === "ebo-runtime") continue;
       const target = join(copy, artifact.relativePath), bytes = Buffer.from(change(readFileSync(target, "utf8")));
       writeFileSync(target, bytes); artifact.digest = `sha256:${digestBytes(bytes).value}`; artifact.sizeBytes = bytes.length;
     }

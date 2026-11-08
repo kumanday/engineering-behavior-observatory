@@ -147,10 +147,10 @@ test("retained 0.150.1 evidence keeps its original normalized dataset", async ()
   assert.deepEqual(await readFile(join(root, "manifest.json")), before);
 });
 
-test("new capture rejects the older runtime declaration before launching", async () => {
+test("new capture rejects an invalid exact version declaration before launching", async () => {
   await assert.rejects(captureCodexAppServer({ runId: "fixture", attemptId: "fixture", workspacePath: tmpdir(), evidencePath: tmpdir(), prompt: "fixture",
     configuration: { ...fakeConfiguration("success"), version: "unsupported" as typeof CODEX_APP_SERVER_VERSION },
-  }), new RegExp(`requires pinned runtime ${CODEX_APP_SERVER_VERSION.replaceAll(".", "\\.")}`, "u"));
+  }), /requires an exact requested runtime version/u);
 });
 
 for (const mode of ["sandbox-implicit-cwd", "sandbox-cwd-mismatch"]) {

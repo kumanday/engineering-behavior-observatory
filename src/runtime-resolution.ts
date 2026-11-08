@@ -32,7 +32,7 @@ export type RuntimeSelection = {
   warnings: string[];
 };
 export class RuntimePolicyError extends Error {
-  constructor(public readonly code: string, message: string) { super(`${code}: ${message}`); this.name = "RuntimePolicyError"; }
+  constructor(public readonly code: string, message: string, public readonly receipt?: unknown) { super(`${code}: ${message}`); this.name = "RuntimePolicyError"; }
 }
 export function selectRuntimeRelease(releases: readonly RuntimeRelease[], options: RuntimePolicy & { now: string }): RuntimeSelection {
   const clock = Date.parse(options.now), age = options.minReleaseAgeMs ?? 86_400_000;
@@ -65,4 +65,8 @@ function isPrerelease(release: RuntimeRelease): boolean {
   if (release.source !== "pypi") return semver.prerelease(release.version) !== null;
   const parsed = pep440.parse(release.version);
   return Boolean(parsed?.pre || parsed?.dev);
+}
+
+export function isExactRuntimeVersion(value: unknown): value is string {
+  return typeof value === "string" && semver.valid(value) === value;
 }

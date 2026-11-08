@@ -1,3 +1,4 @@
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { retainedVersionProfile } from "./retained-version-policy.js";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { lstat, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
@@ -52,7 +53,7 @@ export type CodexTelemetrySignal = "logs" | "traces" | "metrics";
 
 export type CodexAppServerConfiguration = {
   executable: string;
-  version: typeof CODEX_APP_SERVER_VERSION;
+  version: string;
   provider: string;
   model: string;
   effort: CodexReasoningEffort;
@@ -240,7 +241,7 @@ export async function captureCodexAppServer(request: CodexAppServerCaptureReques
   requireText(request.workspacePath, "Codex workspace path");
   requireText(request.prompt, "Codex prompt");
   requireText(request.configuration.executable, "Codex executable");
-  if (request.configuration.version !== CODEX_APP_SERVER_VERSION) throw new Error(`Codex capture requires pinned runtime ${CODEX_APP_SERVER_VERSION}.`);
+  if (!isExactRuntimeVersion(request.configuration.version)) throw new Error("Codex capture requires an exact requested runtime version.");
   if (request.configuration.networkAccess !== undefined && (typeof request.configuration.networkAccess !== "boolean" || request.configuration.sandbox !== "workspace-write")) {
     throw new Error("Codex networkAccess must be a boolean and requires workspace-write.");
   }

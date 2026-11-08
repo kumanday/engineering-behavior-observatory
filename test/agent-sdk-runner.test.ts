@@ -1,3 +1,5 @@
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
 import { createClaudeAgentSdkHarborExecutor } from "../src/harbor/harnesses.js";
 import { harborStepFixture } from "./harbor-step-helper.js";
@@ -22,7 +24,6 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { RunBundleAssembler } from "../src/run-bundles.js";

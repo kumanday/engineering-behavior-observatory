@@ -1,3 +1,5 @@
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -6,7 +8,6 @@ import { chmodSync } from "node:fs";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import test from "node:test";
 
 import type { HookInput, Options, SDKMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 

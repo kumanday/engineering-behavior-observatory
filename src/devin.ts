@@ -1,3 +1,4 @@
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { markRetainedVersion, retainedVersionProfile } from "./retained-version-policy.js";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -53,7 +54,7 @@ export type DevinTelemetrySignal = "logs" | "metrics";
 
 export type DevinCliConfiguration = {
   executable: string;
-  version: typeof DEVIN_CLI_VERSION;
+  version: string;
   /** Native model slug as listed by the ACP `model` config option, e.g. `swe-2-high`. */
   model: string;
   mode: DevinSessionMode;
@@ -221,9 +222,7 @@ export async function captureDevinCli(request: DevinCliCaptureRequest): Promise<
   requireText(request.prompt, "Prompt");
   requireText(request.configuration.executable, "Devin executable");
   requireText(request.configuration.model, "Devin model");
-  if (request.configuration.version !== DEVIN_CLI_VERSION) {
-    throw new Error(`Devin CLI ${DEVIN_CLI_VERSION} is required; configuration declares ${String(request.configuration.version)}.`);
-  }
+  if (!isExactRuntimeVersion(request.configuration.version)) throw new Error("Devin capture requires an exact requested runtime version.");
   if (!["accept-edits", "smart", "bypass", "plan", "ask"].includes(request.configuration.mode)) throw new Error("Devin session mode is invalid.");
   if (!["allow-once", "reject-once"].includes(request.configuration.permissionDecision)) throw new Error("Devin permission decision is invalid.");
   const shutdownGraceMs = request.shutdownGraceMs ?? DEVIN_DEFAULT_SHUTDOWN_GRACE_MS;

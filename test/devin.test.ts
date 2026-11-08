@@ -434,7 +434,7 @@ test("OTLP protobuf decoder rejects truncated input and projects nested attribut
   assert.deepEqual(decoded.resourceLogs[0]!.resource.attributes, [{ key: "k", value: { stringValue: "v" } }]);
 });
 
-test("Devin configuration records validate pins, modes, and permission decisions", async () => {
+test("Devin configuration records validate exact versions, modes, and permission decisions", async () => {
   const root = await temporaryRoot();
   try {
     const write = (name: string, value: unknown) => {
@@ -448,8 +448,10 @@ test("Devin configuration records validate pins, modes, and permission decisions
     assert.deepEqual(resolveDevinConfigurationRecord(root, harness, "harness").arguments, ["--agent-type", "review"]);
     const wrongDigest = write("harness-digest", { schemaVersion: "ebo.devin-config/v1", kind: "harness", adapter: "devin-cli", executable: "/usr/local/bin/devin", version: DEVIN_CLI_VERSION, contractDigest: `sha256:${"0".repeat(64)}` });
     assert.throws(() => resolveDevinConfigurationRecord(root, wrongDigest, "harness"), /contractDigest/u);
-    const wrongVersion = write("harness-version", { schemaVersion: "ebo.devin-config/v1", kind: "harness", adapter: "devin-cli", executable: "/usr/local/bin/devin", version: "3000.12.0", contractDigest: DEVIN_CONTRACT_DIGEST });
-    assert.throws(() => resolveDevinConfigurationRecord(root, wrongVersion, "harness"), /not pinned/u);
+    const newVersion = write("harness-version", { schemaVersion: "ebo.devin-config/v1", kind: "harness", adapter: "devin-cli", executable: "/usr/local/bin/devin", version: "3000.12.0", contractDigest: DEVIN_CONTRACT_DIGEST });
+    assert.equal(resolveDevinConfigurationRecord(root, newVersion, "harness").version, "3000.12.0");
+    const mutableVersion = write("harness-dist-tag", { schemaVersion: "ebo.devin-config/v1", kind: "harness", adapter: "devin-cli", executable: "/usr/local/bin/devin", version: "latest", contractDigest: DEVIN_CONTRACT_DIGEST });
+    assert.throws(() => resolveDevinConfigurationRecord(root, mutableVersion, "harness"), /exact runtime versions/u);
     const badMode = write("tools", { schemaVersion: "ebo.devin-config/v1", kind: "native-tool-policy", mode: "dangerous", permissionDecision: "allow-once" });
     assert.throws(() => resolveDevinConfigurationRecord(root, badMode, "native-tool-policy"), /mode is invalid/u);
     const badDecision = write("tools-2", { schemaVersion: "ebo.devin-config/v1", kind: "native-tool-policy", mode: "ask", permissionDecision: "allow-always" });

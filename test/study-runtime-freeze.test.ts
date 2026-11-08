@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { freezeStudyRuntimes, prepareRuntimeLaunch } from "../src/study-runtimes.js";
@@ -26,5 +26,7 @@ test("a frozen study reuses exact runtime identities while prelaunch checks dete
     assert.equal(launch.roots[0]!.selection.release.version, "9.9.9");
     malware = true;
     await assert.rejects(prepareRuntimeLaunch(root, "cursor-sdk", options), /RUNTIME_MALICIOUS/);
+    const receipts = await Promise.all((await readdir(join(root, "runtimes", "launches"))).map(async (file) => JSON.parse(await readFile(join(root, "runtimes", "launches", file), "utf8"))));
+    assert.ok(receipts.some((receipt) => receipt.status === "blocked" && receipt.security.components.some((component: any) => component.results.some((result: any) => result.id === "MAL-2026-fixture"))));
   } finally { await rm(root, { recursive: true, force: true }); }
 });

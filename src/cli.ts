@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runRuntimeCommandLine } from "./runtime-cli.js";
 import { runAnalysisV2Command } from "./analysis-v2-cli.js";
 
 import { importLeaderboardCohort, readLeaderboardCohort, type LeaderboardCohortRequest } from "./leaderboard-import.js";
@@ -156,6 +157,8 @@ export function main(
   if (args[0] === "harbor") {
     return runHarborCommand(args.slice(1), write);
   }
+
+  if (args[0] === "runtime") return runRuntimeCommandLine(args.slice(1), write);
 
   if (args[0] === "v2") return runAnalysisV2Command(args.slice(1), write);
 
@@ -482,7 +485,7 @@ export function main(
       }
       const validation = validateArtifact(artifact, document);
       return document !== undefined && typeof document === "object" && document !== null
-        && (document as { schemaVersion?: unknown }).schemaVersion === "run-manifest/v1"
+        && ["run-manifest/v1", "run-manifest/v2"].includes(String((document as { schemaVersion?: unknown }).schemaVersion))
         ? [...validation, ...validateRunManifestEvidence(artifact, document, dirname(artifact))]
         : validation;
     });
@@ -491,7 +494,7 @@ export function main(
           || (document as { schemaVersion?: unknown }).schemaVersion !== "export-manifest/v1") continue;
       const bundleId = (document as { bundleId?: unknown }).bundleId;
       const containingEntry = artifacts.find(({ document: candidate }) => candidate !== undefined && typeof candidate === "object" && candidate !== null
-        && (candidate as { schemaVersion?: unknown }).schemaVersion === "run-manifest/v1"
+        && ["run-manifest/v1", "run-manifest/v2"].includes(String((candidate as { schemaVersion?: unknown }).schemaVersion))
         && (candidate as { bundleId?: unknown }).bundleId === bundleId);
       errors.push(...validateExportManifest(
         artifact,

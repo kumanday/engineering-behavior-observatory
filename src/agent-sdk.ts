@@ -1,9 +1,9 @@
+import { currentStudyRuntime, requireStudyRuntime, runInStudyRuntime, studyRuntimeModule, type StudyRuntimeBinding } from "./runtime-context.js";
+import * as developmentSdk from "@anthropic-ai/claude-agent-sdk";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  HOOK_EVENTS,
-  query,
   type HookCallbackMatcher,
   type HookEvent,
   type HookInput,
@@ -380,7 +380,7 @@ export function probeClaudeAgentSdkCapabilities(): ClaudeAgentSdkCapabilities {
     stderr: { status: "available" },
     abort: { status: "available" },
     hookLifecycleMessages: { status: "available" },
-    hooks: Object.fromEntries(HOOK_EVENTS.map((event) => [event, { status: "available", evidence: "callback" }])) as Record<HookEvent, { status: "available"; evidence: "callback" }>,
+    hooks: Object.fromEntries(agentSdk().HOOK_EVENTS.map((event) => [event, { status: "available", evidence: "callback" }])) as Record<HookEvent, { status: "available"; evidence: "callback" }>,
     unsupportedHooks: [],
     hookOccurrenceAuthority: "hooks.jsonl",
     telemetry: {
@@ -490,8 +490,15 @@ export async function executeClaudeAgentSdk(
   context: HarnessExecutionContext,
   configuration: ClaudeAgentSdkConfiguration,
   sink: ClaudeAgentSdkEvidenceSink,
-  queryFunction: ClaudeAgentSdkQuery = query,
+  queryFunction?: ClaudeAgentSdkQuery,
+  runtime?: StudyRuntimeBinding,
 ): Promise<HarnessExecutionResult> {
+  return runInStudyRuntime("claude-agent-sdk", runtime, () => executeClaudeAgentSdkOwned(context, configuration, sink, queryFunction));
+}
+
+/** Internal layer of an already checked owned launch. */
+export async function executeClaudeAgentSdkOwned(context: HarnessExecutionContext, configuration: ClaudeAgentSdkConfiguration, sink: ClaudeAgentSdkEvidenceSink, queryFunction: ClaudeAgentSdkQuery = agentSdk().query): Promise<HarnessExecutionResult> {
+  requireStudyRuntime("claude-agent-sdk");
   let queryHandle: ClaudeAgentSdkQueryHandle | undefined;
   let messageCount = 0;
   let lastResult: SDKResultMessage | undefined;
@@ -643,7 +650,7 @@ function passiveHooks(
   }) => void,
 ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
   const hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
-  for (const event of HOOK_EVENTS) {
+  for (const event of agentSdk().HOOK_EVENTS) {
     hooks[event] = [{
       hooks: [async (input, toolUseId, { signal }) => {
         try {
@@ -887,8 +894,9 @@ function nativeMessageRecord(message: SDKMessage, sequence: number, capturedAt: 
 }
 
 function installedVersions(): { sdkVersion: string; claudeCodeVersion: string } {
+  const frozen = currentStudyRuntime()?.packages.get(PACKAGE_NAME);
   const entry = fileURLToPath(import.meta.resolve(PACKAGE_NAME));
-  const metadata = JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8")) as unknown;
+  const metadata: unknown = frozen?.metadata ?? JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8"));
   if (!isRecord(metadata) || typeof metadata.version !== "string" || typeof metadata.claudeCodeVersion !== "string") {
     throw new Error("Installed Claude Agent SDK package metadata is incomplete.");
   }
@@ -931,3 +939,5 @@ function errorMessage(error: unknown): string {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+const agentSdk = (): typeof developmentSdk => studyRuntimeModule(PACKAGE_NAME, developmentSdk);

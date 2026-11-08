@@ -1,7 +1,8 @@
+import { currentStudyRuntime } from "./runtime-context.js";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { cp, lstat, mkdir, mkdtemp, readdir, readlink, realpath, rm, rmdir, symlink, utimes, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, rmdir, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -74,8 +75,11 @@ export type RunBundleEvidenceDescriptor = {
   sanitizedFrom?: { artifactId: string; digest: DigestString };
 };
 
+export type RunRuntimeBinding = { lockDigest: DigestString; role: string; lockArtifactId: string; launchArtifactId: string };
+
 export type RunManifest = {
-  schemaVersion: "run-manifest/v1";
+  schemaVersion: "run-manifest/v1" | "run-manifest/v2";
+  runtimeLock?: RunRuntimeBinding;
   bundleId: string;
   run: RunBundleRun;
   attempt: AttemptIdentity;
@@ -102,7 +106,7 @@ export type RunBundleDefinition = {
 export type RegisterRunBundleArtifact = {
   id: string;
   source: string;
-  kind: EvidenceKind;
+  kind: EvidenceKind | "diagnostic";
   mediaType: string;
   sharingClass: Exclude<SharingClass, "partner" | "public">;
   relativePath: string;
@@ -229,7 +233,8 @@ const PROVISIONAL_TERMINAL: TerminalRecord = {
   failureClass: "infrastructure",
   stopReason: "none",
 };
-const AUTHORITIES: Record<EvidenceKind, EvidenceAuthority> = {
+const AUTHORITIES: Record<EvidenceKind | "diagnostic", EvidenceAuthority> = {
+  diagnostic: "outcome",
   session: "semantic",
   hook: "semantic",
   telemetry: "timing-resource",
@@ -252,6 +257,7 @@ export class RunBundleAssembler {
   private readonly configuration: RunBundleConfiguration;
   private evidence: RunBundleEvidenceDescriptor[] = [];
   private manifest?: RunManifest;
+  private runtimeLock?: RunRuntimeBinding;
   private revision = 0;
   private finalized = false;
   private captureMissing: CaptureMissingEvidence[] = [];
@@ -273,7 +279,22 @@ export class RunBundleAssembler {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    await this.checkpoint([], this.run, PROVISIONAL_TERMINAL);
+    const context = currentStudyRuntime();
+    if (context) {
+      const primary = context.launch.roots[0]!;
+      const actual = context.packages.get(primary.name)?.metadata.version ?? primary.selection.release.version;
+      this.run.harness.version = actual;
+      this.run.runtime = this.run.runtime.filter((component) => component.name !== context.launch.role).concat([{ source: "EBO", name: context.launch.role, version: actual }]);
+      this.run.runtime = this.run.runtime.filter((component) => !context.launch.roots.some((root) => root.name === component.name)).concat(context.launch.roots.map((root) => ({ source: root.source, name: root.name, version: context.packages.get(root.name)?.metadata.version ?? root.selection.release.version })));
+      this.runtimeLock = { lockDigest: context.launch.lockDigest, role: context.launch.role, lockArtifactId: "runtime-lock", launchArtifactId: "runtime-launch" };
+      for (const [id, sourcePath] of [["runtime-lock", "runtimes/lock.json"], ["runtime-launch", context.launch.receiptLocator]]) {
+        const relativePath = `runtime/${id}.json`;
+        await writeArtifactAtomically(this.bundleRoot, relativePath, await readFile(join(context.studyRoot, sourcePath!)), undefined, { overwrite: false });
+        const inspected = await inspectRetainedArtifact(this.bundleRoot, relativePath);
+        this.evidence.push({ id: id!, source: "ebo-runtime", kind: "diagnostic", authority: "outcome", mediaType: "application/json", sharingClass: "internal", relativePath, digest: digestString(inspected.digest.value), sizeBytes: inspected.sizeBytes });
+      }
+    }
+    await this.checkpoint(this.evidence, this.run, PROVISIONAL_TERMINAL);
   }
 
   public currentManifest(): RunManifest {
@@ -465,7 +486,8 @@ export class RunBundleAssembler {
       relativePath: reportPath,
     };
     const manifest: RunManifest = {
-      schemaVersion: "run-manifest/v1",
+      schemaVersion: this.runtimeLock ? "run-manifest/v2" : "run-manifest/v1",
+      ...(this.runtimeLock ? { runtimeLock: structuredClone(this.runtimeLock) } : {}),
       bundleId: this.bundleId,
       run: structuredClone(run),
       attempt: structuredClone(this.attempt),

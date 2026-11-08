@@ -1,3 +1,4 @@
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { cp, lstat, mkdtemp, realpath, rm, stat } from "node:fs/promises";
@@ -77,7 +78,7 @@ export type CodexHarnessConfiguration = {
   kind: "harness";
   adapter: typeof CODEX_HARNESS;
   executable: string;
-  version: typeof CODEX_APP_SERVER_VERSION;
+  version: string;
   contractDigest: `sha256:${string}`;
   /** Codex app-server config overrides, e.g. `["-c", "features.multi_agent=false"]`. */
   arguments?: readonly string[];
@@ -535,7 +536,7 @@ function validateConfiguration(record: Record<string, unknown>, kind: CodexConfi
     if (record.credentialEnv !== undefined && (typeof record.credentialEnv !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(record.credentialEnv))) throw configError(reference, "credentialEnv must be an environment variable name");
   } else if (kind === "harness") {
     keys(record, ["schemaVersion", "kind", "adapter", "executable", "version", "contractDigest", "arguments"], ["adapter", "executable", "version", "contractDigest"], reference);
-    if (record.adapter !== CODEX_HARNESS || record.version !== CODEX_APP_SERVER_VERSION) throw configError(reference, "adapter or version is not pinned");
+    if (record.adapter !== CODEX_HARNESS || !isExactRuntimeVersion(record.version)) throw configError(reference, "adapter and exact runtime versions are required");
     requiredText(record.executable, "executable", reference);
     if (!isAbsolute(record.executable as string)) throw configError(reference, "executable must be absolute");
     if (record.contractDigest !== CODEX_CONTRACT_DIGEST) throw configError(reference, `contractDigest must be ${CODEX_CONTRACT_DIGEST}`);

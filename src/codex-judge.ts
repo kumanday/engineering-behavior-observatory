@@ -1,3 +1,4 @@
+import { currentStudyRuntime, lockedRuntimeExecutable, recordRuntimeProbe, withStudyRuntime } from "./runtime-context.js";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -47,8 +48,15 @@ export async function runCodexStructuredTurn(
   instructions: string,
   signal?: AbortSignal,
 ): Promise<SemanticJudgeBackendResult> {
+  const context = currentStudyRuntime();
+  if (context) return withStudyRuntime({ studyRoot: context.studyRoot, role: "codex-judge", options: context.options }, () => runOwnedCodexStructuredTurn(prompt, request, outputSchema, instructions, signal));
+  return runOwnedCodexStructuredTurn(prompt, request, outputSchema, instructions, signal);
+}
+
+async function runOwnedCodexStructuredTurn(prompt: string, request: CodexTurnSettings, outputSchema: Record<string, unknown>, instructions: string, signal?: AbortSignal): Promise<SemanticJudgeBackendResult> {
   const deadline = performance.now() + request.limits.maxWallClockMs;
-  const executable = resolveCodexJudgeExecutable(request.evaluator.executable);
+  const locked = currentStudyRuntime() ? lockedRuntimeExecutable("codex-judge") : undefined;
+  const executable = locked?.path ?? resolveCodexJudgeExecutable(request.evaluator.executable);
   const isolatedRoot = mkdtempSync(join(tmpdir(), "ebo-codex-judge-"));
   const cwd = join(isolatedRoot, "empty");
   mkdirSync(cwd, { mode: 0o700 });
@@ -89,7 +97,8 @@ export async function runCodexStructuredTurn(
   signal?.addEventListener("abort", abort, { once: true });
   try {
     const version = execFileSync(executable, ["--version"], { env, cwd, timeout: Math.min(5000, remaining()), encoding: "utf8", maxBuffer: 4096 }).trim();
-    if (version !== `codex-cli ${CODEX_APP_SERVER_VERSION}`) throw new Error(`Codex judge requires codex-cli ${CODEX_APP_SERVER_VERSION}.`);
+    if (locked) await recordRuntimeProbe("codex-judge", version.replace(/^codex-cli\s+/u, ""), "executable");
+    else if (version !== `codex-cli ${CODEX_APP_SERVER_VERSION}`) throw new Error(`Codex judge requires codex-cli ${CODEX_APP_SERVER_VERSION}.`);
     const catalog = JSON.parse(execFileSync(executable, ["debug", "models", "--bundled"], { env, cwd, timeout: Math.min(5000, remaining()), encoding: "utf8", maxBuffer: 4 * 1024 * 1024 }));
     const model = catalog.models?.find((entry: { slug: string }) => entry.slug === request.evaluator.model);
     if (model === undefined) throw new Error("Codex judge model is not present in the pinned native catalog; its tool isolation is unsupported.");

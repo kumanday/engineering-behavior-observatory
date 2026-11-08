@@ -1,8 +1,9 @@
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
 import {cpSync,mkdtempSync,readFileSync,rmSync,writeFileSync,unlinkSync,symlinkSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
-import test from "node:test";
 import {listAnalysisRuntimes,loadAnalysisRuntime,validateRuntimeSnapshot} from "../src/analysis-runtime.js";
 import {createRetainedBehaviorEvidence} from "../src/retained-evidence.js";
 import {digestMetadata} from "../src/artifacts.js";

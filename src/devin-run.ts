@@ -1,3 +1,4 @@
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { cp, lstat, mkdtemp, realpath, rm, stat } from "node:fs/promises";
@@ -80,7 +81,7 @@ export type DevinHarnessConfiguration = {
   kind: "harness";
   adapter: typeof DEVIN_HARNESS;
   executable: string;
-  version: typeof DEVIN_CLI_VERSION;
+  version: string;
   contractDigest: `sha256:${string}`;
   /** Extra arguments after `acp`, e.g. `["--agent-type", "review"]`. */
   arguments?: readonly string[];
@@ -526,7 +527,7 @@ function validateConfiguration(record: Record<string, unknown>, kind: DevinConfi
     if (record.credentialEnv !== undefined && (typeof record.credentialEnv !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(record.credentialEnv))) throw configError(reference, "credentialEnv must be an environment variable name");
   } else if (kind === "harness") {
     keys(record, ["schemaVersion", "kind", "adapter", "executable", "version", "contractDigest", "arguments"], ["adapter", "executable", "version", "contractDigest"], reference);
-    if (record.adapter !== DEVIN_HARNESS || record.version !== DEVIN_CLI_VERSION) throw configError(reference, "adapter or version is not pinned");
+    if (record.adapter !== DEVIN_HARNESS || !isExactRuntimeVersion(record.version)) throw configError(reference, "adapter and exact runtime versions are required");
     requiredText(record.executable, "executable", reference);
     if (!isAbsolute(record.executable as string)) throw configError(reference, "executable must be absolute");
     if (record.contractDigest !== DEVIN_CONTRACT_DIGEST) throw configError(reference, `contractDigest must be ${DEVIN_CONTRACT_DIGEST}`);

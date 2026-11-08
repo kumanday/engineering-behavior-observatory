@@ -23,7 +23,7 @@ export const runtimePlanKey = (plan: RuntimeInstallPlan): string => digestMetada
 const execFileAsync = promisify(execFile);
 export const runRuntimeCommand: RuntimeCommandRunner = async (command, args, cwd) => {
   const env: NodeJS.ProcessEnv = { PATH: `${dirname(process.execPath)}:/usr/local/bin:/usr/bin:/bin`, HOME: cwd, TMPDIR: cwd,
-    LANG: "C.UTF-8", npm_config_ignore_scripts: "true", PIP_DISABLE_PIP_VERSION_CHECK: "1", PYTHONNOUSERSITE: "1", PYTHONDONTWRITEBYTECODE: "1", PIP_CONFIG_FILE: "/dev/null" };
+    LANG: "C.UTF-8", npm_config_ignore_scripts: "true", npm_config_update_notifier: "false", PIP_DISABLE_PIP_VERSION_CHECK: "1", PYTHONNOUSERSITE: "1", PYTHONDONTWRITEBYTECODE: "1", PIP_CONFIG_FILE: "/dev/null" };
   try { const result = await execFileAsync(command, [...args], { cwd, env, encoding: "utf8", timeout: 300_000, maxBuffer: 32 * 1024 * 1024 }); return { ...result, code: 0 }; }
   catch (error) { const result = error as { stdout?: string; stderr?: string; code?: unknown }; return { stdout: result.stdout ?? "", stderr: result.stderr ?? "", code: typeof result.code === "number" ? result.code : -1 }; }
 };
@@ -33,6 +33,7 @@ async function checkedCommand(run: RuntimeCommandRunner, command: string, args: 
   return result;
 }
 async function inventory(root: string): Promise<RuntimeInstallReceipt["inventory"]> {
+  root = await realpath(root);
   const entries: RuntimeInstallReceipt["inventory"] = [];
   const walk = async (directory: string): Promise<void> => {
     for (const name of (await readdir(directory)).sort()) {
@@ -79,7 +80,7 @@ export async function installRuntime(plan: RuntimeInstallPlan, options: { cacheR
     await writeFile(join(staging, "package.json"), canonicalizeMetadata(plan.packageJson), { mode: 0o600 });
     await writeFile(join(staging, "package-lock.json"), canonicalizeMetadata(plan.packageLock), { mode: 0o600 });
     const npm = join(dirname(process.execPath), "npm");
-    const config = ["--userconfig=/dev/null", "--globalconfig=/dev/null", "--registry=https://registry.npmjs.org"];
+    const config = await runtimeNpmConfiguration(staging);
     await checkedCommand(run, npm, ["ci", "--ignore-scripts", "--no-audit", "--no-fund", ...config], staging);
     proofs = [];
     if (plan.verifyRegistryProofs) {
@@ -94,4 +95,10 @@ export async function installRuntime(plan: RuntimeInstallPlan, options: { cacheR
     await rename(staging, root); staging = undefined;
     return { root, key, receipt };
   } finally { if (staging) await rm(staging, { recursive: true, force: true }); await release(); }
+}
+
+export async function runtimeNpmConfiguration(directory: string): Promise<string[]> {
+  const user = join(directory, ".ebo-npm-user.rc"), global = join(directory, ".ebo-npm-global.rc");
+  await writeFile(user, "", { mode: 0o600 }); await writeFile(global, "", { mode: 0o600 });
+  return [`--userconfig=${user}`, `--globalconfig=${global}`, "--registry=https://registry.npmjs.org"];
 }

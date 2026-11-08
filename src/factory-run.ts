@@ -1,3 +1,4 @@
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { validateFactoryModelRoute, type FactoryModelRoute } from "./factory-model.js";
 import { randomUUID } from "node:crypto";
 import { cp, lstat, mkdtemp, rm, stat } from "node:fs/promises";
@@ -78,8 +79,8 @@ export type FactoryHarnessConfiguration = {
   kind: "harness";
   adapter: typeof FACTORY_HARNESS;
   executable: string;
-  version: typeof FACTORY_CLI_VERSION;
-  sdkVersion: typeof FACTORY_SDK_VERSION;
+  version: string;
+  sdkVersion: string;
   contractDigest: `sha256:${string}`;
 };
 
@@ -534,7 +535,7 @@ function validateConfiguration(record: Record<string, unknown>, kind: FactoryCon
     if (record.credentialEnv !== undefined && (typeof record.credentialEnv !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(record.credentialEnv))) throw configError(reference, "credentialEnv must be an environment variable name");
   } else if (kind === "harness") {
     keys(record, ["schemaVersion", "kind", "adapter", "executable", "version", "sdkVersion", "contractDigest"], ["adapter", "executable", "version", "sdkVersion", "contractDigest"], reference);
-    if (record.adapter !== FACTORY_HARNESS || record.version !== FACTORY_CLI_VERSION || record.sdkVersion !== FACTORY_SDK_VERSION) throw configError(reference, "adapter or version is not pinned");
+    if (record.adapter !== FACTORY_HARNESS || !isExactRuntimeVersion(record.version) || !isExactRuntimeVersion(record.sdkVersion)) throw configError(reference, "adapter and exact runtime versions are required");
     requiredText(record.executable, "executable", reference);
     if (!isAbsolute(record.executable as string)) throw configError(reference, "executable must be absolute");
     if (record.contractDigest !== FACTORY_CONTRACT_DIGEST) throw configError(reference, `contractDigest must be ${FACTORY_CONTRACT_DIGEST}`);

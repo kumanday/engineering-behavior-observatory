@@ -723,3 +723,11 @@ export { prepareMigrationTargetV2 } from "./migration-targets-v2.js";
 export { ratingAnswerSchemaV2, semanticJudgeAnswerSchemaV2 } from "./model-contracts-v2.js";
 
 export { listAdditionalAtifProfilesV2, listAtifProfilesV2, selectAdditionalAtifProfileV2, type AdditionalAtifProfileV2 } from "./atif-producers-v2.js";
+
+export { freezeStudyRuntimes, readStudyRuntimeLock, prepareRuntimeLaunch } from "./study-runtimes.js";
+export type { StudyRuntimeLock, StudyRuntimeRequest, StudyRuntimeOptions, RuntimeLaunch } from "./study-runtimes.js";
+export { withStudyRuntime, currentStudyRuntime, lockedRuntimeExecutable, studyRuntimeVersion } from "./runtime-context.js";
+export type { StudyRuntimeContext, RuntimeProbe, StudyRuntimeBinding, RuntimeExecutionSummary } from "./runtime-context.js";
+export { listRuntimeRecipes } from "./runtime-catalog.js";
+export { selectRuntimeRelease, RuntimePolicyError } from "./runtime-resolution.js";
+export type { RuntimePolicy, RuntimeRelease, RuntimeSelection } from "./runtime-resolution.js";

@@ -94,3 +94,21 @@ malicious-flagged releases block. OSV queries run at resolution and before each
 launch for every locked component. Malicious-package entries block; other
 advisories remain recorded warnings. Content-addressed installs verify exact
 artifacts and offered provenance, with install scripts disabled where feasible.
+
+
+`ebo.study-runtime-lock/v1` binds the study request, selection clock, cutoff,
+component versions, complete dependency graphs and installation receipts. Its
+digest identifies the frozen composition. A changed request creates a new study
+revision. Reading the freeze does not resolve releases again.
+
+Each launch receipt binds that lock digest to fresh withdrawal and OSV checks.
+SDK modules load from the selected content-addressed directory. Package metadata
+and executable or server probes identify the actual runtime; probe disagreement
+stops execution. `run-manifest/v2` retains the lock and launch receipt as internal
+runtime diagnostics and binds their digests. The v1 reader remains available for
+existing bundles.
+
+Harbor's host-side Python environment and its Linux harness worker have distinct
+platform and ABI identities in the study composition. Packaging a worker must
+use its frozen dependency graph and exact Node image, while the Harbor/Smol
+controller uses the frozen host composition.

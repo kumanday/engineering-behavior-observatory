@@ -1,3 +1,4 @@
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { randomUUID } from "node:crypto";
 import { lstatSync } from "node:fs";
 import { cp, mkdtemp, rm } from "node:fs/promises";
@@ -37,7 +38,7 @@ export type CursorSdkHarnessConfiguration = {
   schemaVersion: typeof CURSOR_SDK_CONFIG_SCHEMA_VERSION;
   kind: "harness";
   adapter: typeof CURSOR_SDK_HARNESS;
-  sdkVersion: typeof CURSOR_SDK_VERSION;
+  sdkVersion: string;
 };
 
 export type CursorSdkNativeLimitsConfiguration = {
@@ -290,8 +291,8 @@ function validateConfigurationRecord(record: Record<string, unknown>, kind: Curs
     }
     case "harness":
       assertRecordKeys(record, ["adapter", "sdkVersion"], ["adapter", "sdkVersion"], reference);
-      if (record.adapter !== CURSOR_SDK_HARNESS || record.sdkVersion !== CURSOR_SDK_VERSION) {
-        throw configurationError(reference, `must pin ${CURSOR_SDK_HARNESS} ${CURSOR_SDK_VERSION}`);
+      if (record.adapter !== CURSOR_SDK_HARNESS || !isExactRuntimeVersion(record.sdkVersion)) {
+        throw configurationError(reference, `must declare ${CURSOR_SDK_HARNESS} and an exact SDK version`);
       }
       return;
     case "native-limits":

@@ -1,3 +1,5 @@
+import { studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
+import * as developmentSdk from "@cursor/sdk";
 import { markRetainedVersion, retainedVersionProfile } from "./retained-version-policy.js";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -5,10 +7,7 @@ import { lstat, mkdir, open, stat, type FileHandle } from "node:fs/promises";
 import { dirname, join, parse, resolve } from "node:path";
 
 import {
-  Agent,
-  Cursor,
-  JSONL_LOCAL_AGENT_STORE_FILES,
-  JsonlLocalAgentStore,
+  type JsonlLocalAgentStore,
   type AgentOptions,
   type AgentUsage,
   type ConversationStep,
@@ -137,7 +136,7 @@ export type CaptureCursorSdkRunResult = {
 };
 
 export type CursorSdkCaptureReport = {
-  sdkVersion: typeof CURSOR_SDK_VERSION;
+  sdkVersion: string;
   agentId?: string;
   runId?: string;
   terminal?: RunResult;
@@ -198,9 +197,8 @@ export async function captureCursorSdkRun(options: CaptureCursorSdkRunOptions): 
   if (options.definition.run.harness.id !== CURSOR_SDK_HARNESS) {
     throw new Error(`Cursor capture requires harness ${CURSOR_SDK_HARNESS}.`);
   }
-  if (options.definition.run.harness.version !== CURSOR_SDK_VERSION) {
-    throw new Error(`Cursor capture requires pinned SDK ${CURSOR_SDK_VERSION}.`);
-  }
+  const actualSdkVersion = cursorSdkVersion();
+  options = { ...options, definition: { ...options.definition, run: { ...options.definition.run, harness: { ...options.definition.run.harness, version: actualSdkVersion }, runtime: options.definition.run.runtime.map((component) => component.name === "cursor-sdk" ? { ...component, version: actualSdkVersion } : component) } } };
 
   const assembler = await createRunBundleAssembler(options.definition);
   const writer = await CursorNativeWriter.open(
@@ -209,7 +207,7 @@ export async function captureCursorSdkRun(options: CaptureCursorSdkRunOptions): 
     options.now,
   );
   const storeRoot = join(assembler.bundleRoot, "native", "store");
-  const store = new JsonlLocalAgentStore(storeRoot);
+  const store = new (cursorSdk().JsonlLocalAgentStore)(storeRoot);
   let workspace: WorkspaceExecutionResult | undefined;
   let workspaceOutcome: CapturedWorkspaceOutcome | undefined;
   let workspacePromise: Promise<CapturedWorkspaceOutcome> | undefined;
@@ -300,7 +298,7 @@ export async function captureCursorSdkRun(options: CaptureCursorSdkRunOptions): 
           writer,
           signal: context.signal,
           registerShutdown: context.registerShutdown,
-          agentFactory: options.agentFactory ?? ((agentOptions) => Agent.create(agentOptions)),
+          agentFactory: options.agentFactory ?? ((agentOptions) => cursorSdk().Agent.create(agentOptions)),
           setAgentId: (value) => { agentId = value; },
           setRunId: (value) => { nativeRunId = value; },
           setTerminal: (value) => { terminalResult = value; },
@@ -349,7 +347,7 @@ export async function captureCursorSdkRun(options: CaptureCursorSdkRunOptions): 
     });
   }
   const storeFiles: string[] = [];
-  for (const [name, file] of Object.entries(JSONL_LOCAL_AGENT_STORE_FILES)) {
+  for (const [name, file] of Object.entries(cursorSdk().JSONL_LOCAL_AGENT_STORE_FILES)) {
     const path = join(storeRoot, file);
     if (!await nonempty(path)) continue;
     const relativePath = `native/store/${file}`;
@@ -377,7 +375,7 @@ export async function captureCursorSdkRun(options: CaptureCursorSdkRunOptions): 
     manifest,
     qualification,
     capture: {
-      sdkVersion: CURSOR_SDK_VERSION,
+      sdkVersion: cursorSdkVersion(),
       ...(agentId === undefined ? {} : { agentId }),
       ...(nativeRunId === undefined ? {} : { runId: nativeRunId }),
       ...(terminalResult === undefined ? {} : { terminal: structuredClone(terminalResult) }),
@@ -441,9 +439,9 @@ async function executeCursorSdk(options: ExecuteCursorSdkOptions): Promise<Harne
   });
   try {
     await assertCursorWorkspaceIsolation(options.workspacePath);
-    Cursor.configure({ local: { useHttp1ForAgent: true } });
+    cursorSdk().Cursor.configure({ local: { useHttp1ForAgent: true } });
     await options.writer.record("configuration", {
-      sdkVersion: CURSOR_SDK_VERSION,
+      sdkVersion: cursorSdkVersion(),
       runtimeIdentity: { status: "not-exposed", detail: "The public SDK does not expose a separately versioned local agent runtime." },
       model: options.configuration.model,
       toolPolicy: options.configuration.toolPolicy,
@@ -1056,8 +1054,8 @@ async function validateStoreFiles(
   expectedModel: ModelSelection,
   maxRecordBytes: number,
 ): Promise<void> {
-  const documents = (name: keyof typeof JSONL_LOCAL_AGENT_STORE_FILES): CursorNativeRecord[] => {
-    const path = join(storeRoot, JSONL_LOCAL_AGENT_STORE_FILES[name]);
+  const documents = (name: keyof typeof developmentSdk.JSONL_LOCAL_AGENT_STORE_FILES): CursorNativeRecord[] => {
+    const path = join(storeRoot, cursorSdk().JSONL_LOCAL_AGENT_STORE_FILES[name]);
     if (!existsSync(path)) return [];
     const source = readBoundedFile(path, `Cursor ${name} store`).toString("utf8");
     return source.split(/\r?\n/u).filter(Boolean).map((line, index) => {
@@ -1268,3 +1266,6 @@ function errorMessage(error: unknown): string {
 async function nonempty(path: string): Promise<boolean> {
   return ((await stat(path).catch(() => undefined))?.size ?? 0) > 0;
 }
+
+const cursorSdk = (): typeof developmentSdk => studyRuntimeModule("@cursor/sdk", developmentSdk);
+const cursorSdkVersion = (): string => studyRuntimeVersion("@cursor/sdk", CURSOR_SDK_VERSION);

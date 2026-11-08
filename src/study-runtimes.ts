@@ -84,6 +84,12 @@ export async function freezeStudyRuntimes(studyRoot: string, request: StudyRunti
     const value: Omit<StudyRuntimeLock, "digest"> = { schemaVersion: "ebo.study-runtime-lock/v1", studyId: request.studyId, request: structuredClone(request), requestDigest: hash(request), createdAt, target, groups, security };
     const lock = { ...value, digest: hash(value) };
     await writeFile(locations.lock, canonicalizeMetadata(lock), { flag: "wx", mode: 0o600 }); return lock;
+  } catch (error) {
+    if (error instanceof RuntimePolicyError && error.receipt) {
+      const failures = join(resolve(studyRoot), "runtimes", "resolution-failures"); await mkdir(failures, { recursive: true, mode: 0o700 });
+      await writeFile(join(failures, `${randomUUID()}.json`), canonicalizeMetadata({ schemaVersion: "ebo.runtime-resolution-failure/v1", requestDigest: hash(request), code: error.code, security: error.receipt }), { flag: "wx", mode: 0o600 });
+    }
+    throw error;
   } finally { await unlock(); }
 }
 
@@ -92,6 +98,9 @@ export async function prepareRuntimeLaunch(studyRoot: string, role: string, opti
   const lock = await readStudyRuntimeLock(studyRoot), group = lock.groups.find((group) => group.roles.includes(role));
   if (!group) throw new RuntimePolicyError("RUNTIME_ROLE_NOT_FROZEN", `Study has no frozen ${role} runtime.`);
   const locations = paths(studyRoot), warnings: string[] = [], metadata = new Map<string, Awaited<ReturnType<typeof fetchRuntimeReleases>>>();
+  const receiptLocator = `runtimes/launches/${randomUUID()}.json`;
+  await mkdir(locations.receipts, { recursive: true, mode: 0o700 });
+  try {
   for (const component of lock.groups.flatMap((group) => group.components)) {
     const recipe = lock.groups.flatMap((group) => group.roots).find((root) => root.name === component.name && root.source === component.source);
     const key = `${component.source}:${component.name}`;
@@ -99,13 +108,18 @@ export async function prepareRuntimeLaunch(studyRoot: string, role: string, opti
     const current = metadata.get(key)!.find((release) => release.version === component.version);
     if (!current || current.yanked || current.unpublished || current.malicious || current.draft) throw new RuntimePolicyError("RUNTIME_RELEASE_WITHDRAWN", `${component.name}@${component.version} is unavailable, yanked, draft or malicious.`);
     if (component.source === "npm" && (current.integrity !== component.selection.release.integrity || current.locator !== component.selection.release.locator)) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", `Registry changed ${component.name}@${component.version}.`);
-    if (current.deprecated) warnings.push(`RUNTIME_DEPRECATED: ${component.name}@${component.version}: ${current.deprecated}`);
+    if (current.deprecated) warnings.push(`${recipe ? "RUNTIME_DEPRECATED" : "RUNTIME_DEPENDENCY_DEPRECATED"}: ${component.name}@${component.version}: ${current.deprecated}`);
   }
   const security = await checkRuntimeSecurity(lock.groups.flatMap((group) => group.components), options);
   const runtimeRoot = join(locations.cache, group.installation.key), receipt = await verifyInstalledRuntime(runtimeRoot, group.plan);
   if (hash(receipt) !== group.installation.receiptDigest) throw new RuntimePolicyError("RUNTIME_CACHE_INTEGRITY", "Installation receipt differs from the study freeze.");
-  const receiptLocator = `runtimes/launches/${randomUUID()}.json`;
   const launch: RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v1", lockDigest: lock.digest, role, runtimeRoot, roots: group.roots, security, warnings: [...warnings, ...security.warnings], receiptLocator };
   await mkdir(locations.receipts, { recursive: true, mode: 0o700 });
   await writeFile(join(resolve(studyRoot), receiptLocator), canonicalizeMetadata(launch), { flag: "wx", mode: 0o600 }); return launch;
+  } catch (error) {
+    await writeFile(join(resolve(studyRoot), receiptLocator), canonicalizeMetadata({ schemaVersion: "ebo.runtime-launch/v1", status: "blocked", lockDigest: lock.digest, role,
+      checkedAt: (options.now ?? (() => new Date().toISOString()))(), code: error instanceof RuntimePolicyError ? error.code : "RUNTIME_LAUNCH_FAILED",
+      security: error instanceof RuntimePolicyError ? error.receipt ?? null : null, error: error instanceof Error ? error.message : String(error) }), { flag: "wx", mode: 0o600 });
+    throw error;
+  }
 }

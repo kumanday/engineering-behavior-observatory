@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { canonicalizeMetadata } from "./artifacts.js";
 import type { RuntimeComponentRecipe } from "./runtime-catalog.js";
-import { runRuntimeCommand, type RuntimeCommandRunner, type NpmRuntimeInstallPlan } from "./runtime-installation.js";
+import { runtimeNpmConfiguration, runRuntimeCommand, type RuntimeCommandRunner, type NpmRuntimeInstallPlan } from "./runtime-installation.js";
 import { fetchRuntimeReleases, type RuntimeRegistryOptions } from "./runtime-registry.js";
 import { RuntimePolicyError, selectRuntimeRelease, type RuntimeSelection } from "./runtime-resolution.js";
 import type { RuntimeSecurityComponent } from "./runtime-security.js";
@@ -26,7 +26,7 @@ export async function resolveNpmRuntimePlan(roots: readonly SelectedRuntimeCompo
     await writeFile(join(staging, "package.json"), canonicalizeMetadata(packageJson), { mode: 0o600 });
     const cutoff = roots.map((root) => root.selection.cutoff).sort()[0]!;
     const result = await (options.run ?? runRuntimeCommand)(join(dirname(process.execPath), "npm"), ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund", `--before=${cutoff}`,
-      "--userconfig=/dev/null", "--globalconfig=/dev/null", "--registry=https://registry.npmjs.org"], staging);
+      ...await runtimeNpmConfiguration(staging)], staging);
     if (result.code !== 0) throw new RuntimePolicyError("RUNTIME_DEPENDENCY_RESOLUTION_FAILED", result.stderr.slice(0, 2000));
     const packageLock = JSON.parse(await readFile(join(staging, "package-lock.json"), "utf8")) as { lockfileVersion: unknown; packages?: Record<string, any> };
     if (packageLock.lockfileVersion !== 3 || !packageLock.packages) throw new RuntimePolicyError("RUNTIME_DEPENDENCY_LOCK_INVALID", "npm did not produce a v3 exact dependency lock.");
@@ -41,7 +41,7 @@ export async function resolveNpmRuntimePlan(roots: readonly SelectedRuntimeCompo
       const selection = selectRuntimeRelease(metadata.get(name)!, { now: policy.selectedAt, minReleaseAgeMs: Math.max(...roots.map((root) => root.selection.policy.minReleaseAgeMs)),
         allowPrerelease: owner?.selection.policy.allowPrerelease ?? roots.some((root) => root.selection.policy.allowPrerelease), override: entry.version });
       if (selection.release.integrity !== entry.integrity || selection.release.locator !== entry.resolved) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", `npm lock and registry disagree for ${name}@${entry.version}.`);
-      if (!owner && selection.release.deprecated) throw new RuntimePolicyError("RUNTIME_DEPENDENCY_DEPRECATED", `Dependency ${name}@${entry.version} is deprecated; resolve a compatible closure before freezing.`);
+      if (!owner && selection.release.deprecated) selection.warnings = [`RUNTIME_DEPENDENCY_DEPRECATED: ${name}@${entry.version}: ${selection.release.deprecated}`];
       if (owner && owner.selection.release.version !== entry.version) throw new RuntimePolicyError("RUNTIME_ROOT_VERSION_MISMATCH", `npm changed selected ${name}.`);
       components.push({ id: `${roots.map((root) => root.id).join("+")}:${location}`, source: "npm", name, ecosystem: "npm", version: entry.version, location, selection });
     }

@@ -1,10 +1,11 @@
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
 import {
   HOOK_EVENTS,
   type HookEvent,

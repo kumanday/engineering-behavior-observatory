@@ -12,7 +12,7 @@ export function listRuntimeRecipes(target: { platform: string; architecture: str
     { id: "devin-cli", harness: "devin-cli", revision: 1, components: [{ id: "devin", source: "vendor", name: "devin-cli", repository: "CognitionAI/devin-cli", platform: devinPlatform, purl: "pkg:github/CognitionAI/devin-cli", executable: "bin/devin" }] },
     { id: "cursor-sdk", harness: "cursor-sdk", revision: 1, components: [npm("cursor-sdk", "@cursor/sdk", true)] },
     { id: "pi-sdk", harness: "pi-sdk", revision: 1, components: [npm("pi-sdk", "@earendil-works/pi-coding-agent", true), npm("pi-codemode", "@earendil-works/pi-codemode")] },
-    { id: "factory-droid", harness: "factory-droid", revision: 1, components: [npm("droid-sdk", "@factory/droid-sdk", true), npm("droid-cli", "@factory/cli", false, "droid")] },
+    { id: "factory-droid", harness: "factory-droid", revision: 1, components: [npm("droid-cli", "@factory/cli", false, "droid"), npm("droid-sdk", "@factory/droid-sdk", true)] },
     { id: "openhands-agent-server", harness: "openhands-agent-server", revision: 1, components: [{ id: "openhands", source: "oci", name: "ghcr.io/openhands/agent-server", platform: "linux", architecture: target.architecture === "x64" ? "amd64" : target.architecture, flavor: "python", purl: "pkg:oci/agent-server?repository_url=ghcr.io/openhands/agent-server" }] },
     { id: "deepseek-harness", harness: "deepseek-harness", revision: 1, components: [npm("deepseek-client", "@deepseek-ai/dsh-sdk-client", true), npm("deepseek-protocol", "@deepseek-ai/dsh-sdk-protocol", true), npm("deepseek-runtime", "@deepseek-ai/dsh", false, "dsh")] },
     { id: "codex-judge", revision: 1, components: [npm("codex-judge", "@openai/codex", false, "codex")] },
