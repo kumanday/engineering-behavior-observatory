@@ -35,7 +35,7 @@ export async function resolveNpmRuntimePlan(roots: readonly SelectedRuntimeCompo
     const cutoff = roots.map((root) => root.selection.cutoff).sort()[0]!;
     // npm 12 requires an explicit opt-in for the selected HTTPS tarball roots.
     // Resolution runs no scripts; every resulting URL/hash is checked below.
-    const result = await (options.run ?? runRuntimeCommand)(join(dirname(process.execPath), "npm"), ["install", "--package-lock-only", "--allow-remote", "--ignore-scripts", "--no-audit", "--no-fund", `--before=${cutoff}`,
+    const result = await (options.run ?? runRuntimeCommand)(join(dirname(process.execPath), "npm"), ["install", "--package-lock-only", "--allow-remote=root", "--ignore-scripts", "--no-audit", "--no-fund", `--before=${cutoff}`,
       ...npmRuntimeTargetArguments(options.platform), ...await runtimeNpmConfiguration(staging)], staging);
     if (result.code !== 0) throw new RuntimePolicyError("RUNTIME_DEPENDENCY_RESOLUTION_FAILED", result.stderr.slice(0, 2000));
     const packageLock = JSON.parse(await readFile(join(staging, "package-lock.json"), "utf8")) as { lockfileVersion: unknown; packages?: Record<string, any> };

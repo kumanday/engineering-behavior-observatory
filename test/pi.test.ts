@@ -66,9 +66,9 @@ test("runs a frozen observational Pi entry through capture, export, retained eva
 
     const manifest = readManifest(summary.bundlePath);
     assert.equal(manifest.run.harness.id, PI_HARNESS);
-    assert.equal(manifest.run.harness.version, PINNED_PI_SDK_VERSION);
+    assert.equal(manifest.run.harness.version, JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).dependencies["@earendil-works/pi-coding-agent"]);
     assert.equal(manifest.run.native?.sessionId, SESSION_ID);
-    assert.ok(manifest.run.runtime.some(({ name, version }) => name === "pi-coding-agent" && version === PINNED_PI_SDK_VERSION));
+    assert.ok(manifest.run.runtime.some(({ name, version }) => name === "pi-coding-agent" && version === manifest.run.harness.version));
     assert.equal(manifest.evidence.filter(({ kind }) => kind === "session").length, 3);
     assert.ok(manifest.evidence.some(({ kind }) => kind === "workspace"));
     assert.ok(readJsonl(join(summary.bundlePath, "pi-session.jsonl")).some(({ id }) => id === "entry-shutdown"),

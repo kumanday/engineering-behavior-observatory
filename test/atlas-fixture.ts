@@ -1,3 +1,6 @@
+import {createRequire} from "node:module";
+import {createConformanceRuntimeFixture} from "./with-runtime-fixture.js";
+import {currentStudyRuntime, withStudyRuntime} from "../src/runtime-context.js";
 import { withRuntimeFixture } from "./with-runtime-fixture.js";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -20,6 +23,12 @@ const json = (path: string, value: unknown) => writeFileSync(path, `${JSON.strin
 
 /** Deterministic synthetic identities; injected capture never calls a model. */
 export async function createAtlasFixture(root: string, options: {legacyManifest?: boolean} = {}): Promise<string> {
+  if (options.legacyManifest && currentStudyRuntime()?.launch.roots[0]?.selection.release.version !== "0.3.296") {
+    const anchor = createRequire(createRequire(import.meta.url).resolve("@ebo-compat/v1-dependencies/package.json"));
+    const binding = await createConformanceRuntimeFixture("claude-agent-sdk", false, undefined, "", anchor.resolve("@anthropic-ai/claude-agent-sdk"));
+    try {return await withStudyRuntime({...binding, role: "claude-agent-sdk"}, () => createAtlasFixture(root, options));}
+    finally {rmSync(binding.studyRoot, {recursive: true, force: true});}
+  }
   root = resolve(root);
   mkdirSync(root, { recursive: true });
   const corpusRoot = join(root, "corpus");

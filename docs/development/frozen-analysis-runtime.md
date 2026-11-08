@@ -20,11 +20,22 @@ unlisted files, and checks Node and installed dependency versions against the
 snapshot. Unsupported identities or changed runtimes fail explicitly.
 
 The frozen capsule includes its schema, contract and ontology assets. Its eight
-read APIs do not launch a candidate, verifier or model judge. Its external npm
-dependencies remain pinned to the installed versions named in the manifest;
-a later dependency upgrade must retain a compatible installation or qualify a
-new runtime identity. Snapshot files are ordinary shipped EBO code under the
-repository's license.
+read APIs consume retained evidence. The external dependency roots named in each
+manifest are isolated from active capture SDKs through a dependency anchor and
+exact compatibility aliases. Pi's historical sibling packages are routed through
+the same isolated graph. Snapshot bytes and identities stay fixed.
+
+The returned `nodeVersion` identifies the snapshot's original qualification
+host. Compatibility checks also replay both readers on Node 26.13.0. The
+published dependency anchor declares its original Node 24.19.0 engine; standard
+npm installs warn on Node 26, and `engine-strict` installs reject that metadata.
+Use `npm run ebo` or the checkout's explicit `dist/src/cli.js` when operating from
+source. The dependency anchor carries its own historical CLI entrypoint.
+
+The package lock retains the resolved support dependencies. The snapshot
+manifest pins the original external roots; it does not describe every transitive
+package as a byte-identical historical closure. Golden retained readback and
+packet verification check the preserved analysis behavior.
 
 ## Reproduce the native 1.4 baseline
 
@@ -42,14 +53,14 @@ still require equivalent projections and observation sets.
 
 ## Reproduce the snapshots
 
-From a source checkout with Node 24.19.0 and installed dependencies:
+From a source checkout with the repository’s pinned Node release and installed dependencies:
 
 ```sh
 npm run compatibility:verify
 ```
 
 The builder verifies both registered snapshots. It archives each exact trusted Git commit into a temporary directory,
-bundles the named read APIs with the installed esbuild, copies the source
+bundles the named read APIs with the pinned historical esbuild, copies the source
 assets, and constructs a raw-byte inventory. It compares an existing capsule
 byte for byte and never overwrites it. A different source, builder or dependency
 result requires an explicit new runtime identity and qualification.

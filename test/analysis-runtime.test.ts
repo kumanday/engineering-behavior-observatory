@@ -9,6 +9,18 @@ import {createRetainedBehaviorEvidence} from "../src/retained-evidence.js";
 import {digestMetadata} from "../src/artifacts.js";
 const taggedHash=(value:unknown):`sha256:${string}`=>`sha256:${digestMetadata(value).value}`;
 const identity=listAnalysisRuntimes()[0]!,snapshot=resolve('compatibility',identity.id),hash=(value:unknown)=>digestMetadata(value).value;
+test("frozen SDK imports preserve historical Pi siblings and current SDK module identities", async () => {
+ const {registerHooks} = await import("node:module"), {fileURLToPath} = await import("node:url"), {dirname} = await import("node:path");
+ const activePi = await import("@earendil-works/pi-coding-agent"), activeCursor = await import("@cursor/sdk");
+ const routed: string[] = [];
+ const observer = registerHooks({resolve(specifier, context, next) {const result = next(specifier, context); if (["@earendil-works/pi-ai", "@earendil-works/pi-agent-core", "@earendil-works/pi-telemetry"].includes(specifier) && result.url.startsWith("file:")) routed.push(result.url); return result;}});
+ try {
+  await loadAnalysisRuntime(identity.id);
+  const versions = routed.map(url => {let path = dirname(fileURLToPath(url)); for (;;) {try {const metadata = JSON.parse(readFileSync(join(path, "package.json"), "utf8")); if (["@earendil-works/pi-ai", "@earendil-works/pi-agent-core", "@earendil-works/pi-telemetry"].includes(metadata.name)) return metadata.version;} catch {} const parent = dirname(path); if (parent === path) throw new Error("No historical SDK metadata"); path = parent;}});
+  assert.ok(versions.length >= 2, "loading the fixed reader must exercise historical Pi sibling imports"); assert.ok(versions.every(version => version === "1.1.0"));
+  assert.equal(await import("@earendil-works/pi-coding-agent"), activePi); assert.equal(await import("@cursor/sdk"), activeCursor);
+ } finally {observer.deregister();}
+});
 test('the frozen v1 reader is selected only by a shipped runtime identity',async()=>{
  await assert.rejects(loadAnalysisRuntime('../../untrusted-reader'),/Unsupported/u);
  const runtime=await loadAnalysisRuntime(identity.id);assert.deepEqual(runtime.identity,identity);
@@ -53,13 +65,23 @@ test('the original main runtime preserves occurrence rules 1.1 alongside correct
 });
 
 
-test("fresh installs retain exact external dependency versions for fixed readers", () => {
+test("fresh installs isolate the frozen reader roots and Pi sibling graph", async () => {
+  const {createRequire} = await import("node:module");
+  const local = createRequire(import.meta.url);
+  const config = JSON.parse(readFileSync(new URL("../../compatibility/runtime-dependencies.json", import.meta.url), "utf8"));
+  const anchor = createRequire(local.resolve(`${config.anchor}/package.json`));
   const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
   for (const runtime of listAnalysisRuntimes()) {
     const snapshot = JSON.parse(readFileSync(new URL(`../../compatibility/${runtime.id}/runtime-manifest.json`, import.meta.url), "utf8"));
-    for (const [name, version] of Object.entries(snapshot.dependencies)) {
+    for (const [name, version] of Object.entries({...snapshot.dependencies, ...config.aliases})) {
       const alias = "@ebo-compat/" + name.replace(/^@/u, "").replace("/", "-");
-      assert.equal(packageJson.dependencies[alias], `npm:${name}@${version}`, `${runtime.id}: fresh installation must isolate ${name}`);
+      const resolveFrom = Object.hasOwn(config.aliases, name) ? local : anchor;
+      const installed = (resolveFrom.resolve.paths(Object.hasOwn(config.aliases, name) ? alias : name) ?? []).map(root => join(root, Object.hasOwn(config.aliases, name) ? alias : name, "package.json")).find(path => {try {return JSON.parse(readFileSync(path, "utf8")).name === name;} catch {return false;}});
+      assert.ok(installed, name);
+      assert.equal(JSON.parse(readFileSync(installed, "utf8")).version, version, `${runtime.id}: ${name}`);
+      if (Object.hasOwn(config.aliases, name)) assert.equal(packageJson.dependencies[alias], `npm:${name}@${version}`);
     }
+    // Loading exercises the original ESM-only Pi export through the scoped resolver.
+    await loadAnalysisRuntime(runtime.id);
   }
 });

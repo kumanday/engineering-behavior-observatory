@@ -790,7 +790,7 @@ export function createPiPassiveObserver(recorder: PiEvidenceRecorder, extensionO
       messageTimestamps: event.messages.map((message) => isRecord(message) && typeof message.timestamp === "number" ? message.timestamp : null),
     }));
     pi.on("before_agent_start", (event, ctx) => record(event.type, "pre-agent", {
-      sessionId: ctx.sessionManager.getSessionId(), promptLength: event.prompt.length,
+      sessionId: ctx.sessionManager.getSessionId(), ...("prompt" in event ? {promptLength: event.prompt.length} : {}),
       systemPromptLength: event.systemPrompt.length, systemPromptOptionKeys: Object.keys(event.systemPromptOptions).sort(),
     }));
     pi.on("before_provider_request", (event, ctx) => record(event.type, "pre-provider-request", {

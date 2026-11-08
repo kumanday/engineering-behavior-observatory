@@ -10,7 +10,7 @@ import { currentStudyRuntime, withStudyRuntime } from "../src/runtime-context.js
 import { fakeSdkRuntimeOptions } from "./runtime-fixture-helper.js";
 
 const fixtures = new Map<string, Promise<{ studyRoot: string; options: StudyRuntimeOptions }>>();
-export async function createConformanceRuntimeFixture(role: string, deprecatedDependency = false, cliFallback?: string, moduleSourceSuffix = ""): Promise<{ studyRoot: string; options: StudyRuntimeOptions }> {
+export async function createConformanceRuntimeFixture(role: string, deprecatedDependency = false, cliFallback?: string, moduleSourceSuffix = "", sdkEntry?: string): Promise<{ studyRoot: string; options: StudyRuntimeOptions }> {
   if (role === "openhands-agent-server") {
     const studyRoot = await mkdtemp(join(tmpdir(), "ebo-openhands-runtime-")), options = fakeOciRuntimeOptions();
     await freezeStudyRuntimes(studyRoot, {studyId: "conformance-openhands", roles: [role]}, options);
@@ -23,7 +23,7 @@ export async function createConformanceRuntimeFixture(role: string, deprecatedDe
   }
   if (role === "codex-app-server" || role === "codex-judge") return createCodexFixture(role, cliFallback);
   if (!["claude-agent-sdk", "cursor-sdk", "pi-sdk", "factory-droid", "deepseek-harness"].includes(role)) throw new Error(`No authored runtime fixture for ${role}.`);
-  const name = role === "cursor-sdk" ? "@cursor/sdk" : role === "pi-sdk" ? "@earendil-works/pi-coding-agent" : role === "factory-droid" ? "@factory/droid-sdk" : role === "deepseek-harness" ? "@deepseek-ai/dsh-sdk-client" : "@anthropic-ai/claude-agent-sdk", entry = fileURLToPath(import.meta.resolve(name));
+  const name = role === "cursor-sdk" ? "@cursor/sdk" : role === "pi-sdk" ? "@earendil-works/pi-coding-agent" : role === "factory-droid" ? "@factory/droid-sdk" : role === "deepseek-harness" ? "@deepseek-ai/dsh-sdk-client" : "@anthropic-ai/claude-agent-sdk", entry = sdkEntry ?? fileURLToPath(import.meta.resolve(name));
   let packageRoot = dirname(entry), metadata: any;
   for (;;) {
     try { metadata = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")); if (metadata.name === name) break; } catch {}

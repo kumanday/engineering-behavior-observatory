@@ -251,7 +251,12 @@ export async function captureFactoryDroidOwned(request: FactoryCaptureRequest): 
       version: runtime.version, sdkVersion: studyRuntimeVersion("@factory/droid-sdk", FACTORY_SDK_VERSION), adapterVersion: FACTORY_ADAPTER_VERSION, binaryDigest, protocolVersion: studyRuntimeModule("@factory/droid-sdk", {FACTORY_PROTOCOL_VERSION}).FACTORY_PROTOCOL_VERSION, modelSelection: selection,
       ...(selection.route.kind === "byok" ? { customModelSource: "attempt-settings-override" } : {}),
     } });
-    const created = studyRuntimeModule("@factory/droid-sdk/node", developmentNodeSdk).createSession({ transport, cwd: request.workspacePath,
+    const sdk = studyRuntimeModule("@factory/droid-sdk/node", developmentNodeSdk);
+    // The public codec marks the SDK's typed-transport API. Older SDKs accept
+    // the serialized transport directly; recording remains before decoding.
+    const sdkTransport = typeof sdk.withJsonRpcCodec === "function" ? sdk.withJsonRpcCodec(transport)
+      : transport as unknown as NonNullable<Parameters<typeof sdk.createSession>[0]>["transport"];
+    const created = sdk.createSession({ transport: sdkTransport, cwd: request.workspacePath,
       modelId: selection.nativeModelId, reasoningEffort: request.configuration.reasoningEffort as ReasoningEffort,
       autonomyLevel: request.configuration.autonomyLevel as AutonomyLevel, interactionMode: studyRuntimeModule("@factory/droid-sdk/node", developmentNodeSdk).DroidInteractionMode.Auto,
       permissionHandler: (event) => {

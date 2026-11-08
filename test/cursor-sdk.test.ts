@@ -108,7 +108,7 @@ test("runs one frozen Cursor SDK entry through native store, export, observation
     const manifest = readManifest(summary.bundlePath);
     assert.equal(manifest.run.model.provider, "cursor");
     assert.deepEqual(manifest.run.runtime.filter(({ source }) => source === "cursor"), [
-      { source: "cursor", name: "cursor-sdk", version: "1.0.37" },
+      { source: "cursor", name: "cursor-sdk", version: JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).dependencies["@cursor/sdk"] },
       { source: "cursor", name: "local-agent-runtime", version: "not-exposed" },
     ]);
     assert.ok(manifest.evidence.some(({ id }) => id === "cursor-store-checkpoints"));
@@ -386,7 +386,7 @@ test("aborts pending agent creation, restores the environment, and disposes a la
     assert.equal(summary.captureQualification, "unqualified");
     assert.equal(process.env.EBO_CURSOR_TEST_SECRET, "restore-me");
     resolveAgent({
-      agentId: "late-agent", model: MODEL, send: async () => { throw new Error("late agent must not send"); }, close() {}, async reload() {},
+      agentId: "late-agent", model: MODEL, send: async () => { throw new Error("late agent must not send"); }, async summarize() { throw new Error("late agent must not summarize"); }, close() {}, async reload() {},
       async [Symbol.asyncDispose]() { disposed += 1; }, async listArtifacts() { return []; }, async downloadArtifact() { return Buffer.alloc(0); },
       async getUsage() { return { usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 }, runs: [] }; },
     });
@@ -707,6 +707,7 @@ function fakeAgentFactory(behavior: {
     return {
       agentId: AGENT_ID,
       model: options.model,
+      async summarize() { throw new Error("capture never summarizes"); },
       async send(_message: string | { text: string }, sendOptions?: SendOptions): Promise<Run> {
         await store.runs.create({ run: { runId: NATIVE_RUN_ID, agentId: AGENT_ID, turnNumber: 1, status: "running", model: options.model, createdAt: 1, updatedAt: 1 } });
         let status: Run["status"] = "running";

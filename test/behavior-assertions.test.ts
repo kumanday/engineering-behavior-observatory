@@ -1,3 +1,4 @@
+import {createRetainedBehaviorEvidence} from "../src/retained-evidence.js";
 import { runtimeTest } from "./with-runtime-fixture.js";
 const test = runtimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
@@ -9,24 +10,18 @@ import { fileURLToPath } from "node:url";
 import type { HookInput, SDKMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import {
-  CLAUDE_AGENT_SDK_NORMALIZATION_ADAPTER_VERSION,
-  claudeAgentSdkNormalizationAdapter,
   captureClaudeAgentSdkRun,
   createAgentSdkNativeEvidenceResolver,
-  describeNormalizedDataset,
   digestMetadata,
   isConfirmedBehaviorAssertion,
   probeClaudeAgentSdkCapabilities,
   readQualifiedClaudeAgentSdkCapture,
   validateBehaviorAssertion,
   validateBehaviorReview,
-  type AgentSdkNativeRecord,
   type BehaviorAssertion,
   type BehaviorReview,
   type ClaudeAgentSdkQuery,
-  type NativeEvidenceReference,
   type NativeEvidenceResolver,
-  type NormalizationInput,
   type NormalizedDataset,
   type RunBundleDefinition,
 } from "../src/index.js";
@@ -134,16 +129,8 @@ test("rejects undeclared dimensions and keeps proposed review separate from huma
 test("Agent SDK assertion CLI validates through retained native evidence", async () => {
   const temporary = mkdtempSync(join(tmpdir(), "ebo-behavior-cli-"));
   const bundleRoot = await qualifiedBundle(temporary);
+  const {dataset} = await createRetainedBehaviorEvidence(bundleRoot);
   const capture = await readQualifiedClaudeAgentSdkCapture(bundleRoot);
-  const normalization = await claudeAgentSdkNormalizationAdapter.normalize(capture);
-  const dataset = describeNormalizedDataset({
-    capture,
-    normalization,
-    capabilityProfile: normalization.capabilityProfile,
-    adapterVersion: CLAUDE_AGENT_SDK_NORMALIZATION_ADAPTER_VERSION,
-    nativeType: agentSdkNativeType,
-    contentDigest: (reference) => agentSdkContentDigest(capture, reference),
-  });
   const event = dataset.events[0]!;
   const assertion: BehaviorAssertion = {
     ...fixture("positive.json"),
@@ -268,31 +255,4 @@ function digest(value: unknown): `sha256:${string}` {
 
 function sha(value: string): `sha256:${string}` {
   return `sha256:${value.repeat(64).slice(0, 64)}`;
-}
-
-function agentSdkNativeType(record: AgentSdkNativeRecord): string {
-  const document = typeof record.document === "object" && record.document !== null
-    ? record.document as Record<string, unknown> : undefined;
-  if (record.kind === "session" && typeof document?.nativeType === "string") return document.nativeType;
-  if (record.kind === "hook" && typeof document?.hook === "string") return document.hook;
-  return ({
-    telemetry: "agent-sdk-telemetry",
-    workspace: "workspace-outcome",
-    verifier: "verifier-result",
-    "assessment-mode": "assessment-mode",
-    manifest: "terminal-record",
-  } as Partial<Record<AgentSdkNativeRecord["kind"], string>>)[record.kind] ?? record.kind;
-}
-
-function agentSdkContentDigest(
-  capture: NormalizationInput<AgentSdkNativeRecord>,
-  reference: NativeEvidenceReference,
-): `sha256:${string}` | undefined {
-  for (const { record } of capture.records) {
-    if (record.kind !== "workspace" && record.kind !== "diagnostic") continue;
-    const descriptor = record.document as { id?: unknown; digest?: unknown } | null;
-    if (descriptor?.id === reference.artifactId && typeof descriptor.digest === "string"
-        && /^sha256:[a-f0-9]{64}$/u.test(descriptor.digest)) return descriptor.digest as `sha256:${string}`;
-  }
-  return undefined;
 }

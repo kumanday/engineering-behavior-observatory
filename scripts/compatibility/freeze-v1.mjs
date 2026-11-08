@@ -1,5 +1,5 @@
 // Rebuild a trusted source revision in isolation. Imported packets cannot select source code.
-import {build,version as esbuildVersion} from 'esbuild';
+import {build,version as esbuildVersion} from '@ebo-compat/esbuild';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {cpSync,existsSync,lstatSync,mkdirSync,mkdtempSync,readFileSync,readdirSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
@@ -41,10 +41,10 @@ try{
  const result=await build({absWorkingDir:temporary,entryPoints:['compatibility-entry.ts'],bundle:true,platform:'node',format:'esm',packages:'external',outfile:join(snapshot,'dist/src/reader.mjs'),metafile:true,logLevel:'silent'});
  for(const directory of ['schemas','contracts','ontology'])cpSync(join(temporary,directory),join(snapshot,directory),{recursive:true});
  cpSync(join(temporary,'LICENSE'),join(snapshot,'LICENSE'));
- const require=createRequire(join(temporary,'package.json')),dependencies={};
+ const localRequire=createRequire(import.meta.url),compatibility=JSON.parse(readFileSync(join(repo,'compatibility/runtime-dependencies.json'))),require=createRequire(localRequire.resolve(`${compatibility.anchor}/package.json`)),dependencies={};
  for(const output of Object.values(result.metafile.outputs))for(const item of output.imports){
   if(!item.external||item.path.startsWith('node:'))continue;
-  const name=item.path.startsWith('@')?item.path.split('/').slice(0,2).join('/'):item.path.split('/')[0];dependencies[name]=dependencyVersion(name,require);
+  const name=item.path.startsWith('@')?item.path.split('/').slice(0,2).join('/'):item.path.split('/')[0];dependencies[name]=Object.hasOwn(compatibility.aliases,name)?compatibility.aliases[name]:dependencyVersion(name,require);
  }
  const files=walk(snapshot).map(path=>{const bytes=readFileSync(join(snapshot,path));return{path,bytes:bytes.length,digest:sha(bytes)};});
  const manifest={schemaVersion:'ebo.analysis-runtime-snapshot/v1',id,source:{repository:'https://github.com/kumanday/engineering-behavior-observatory',commit:sourceCommit},nodeVersion:'24.19.0',builder:{id:'esbuild',version:esbuildVersion},entry:'dist/src/reader.mjs',exports:Object.values(exportsByModule).flat().sort(),dependencies:Object.fromEntries(Object.entries(dependencies).sort(([a],[b])=>a.localeCompare(b))),files};
