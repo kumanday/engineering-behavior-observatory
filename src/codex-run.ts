@@ -1,3 +1,4 @@
+import {coordinatorRuntimeEnvironment} from "./runtime-environment.js";
 import { bindActiveQueueEntry, queueEntryMatches, assertActiveRuntimeQueue, currentStudyRuntime, requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeExecutable, recordRuntimeProbe, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { execFile } from "node:child_process";
@@ -401,7 +402,6 @@ async function runCodexQueueEntryOwned(options: RunCodexQueueEntryOptions): Prom
   const limits = resolveCodexConfigurationRecord(bundleRoot, entry.configuration.nativeLimits, "native-limits");
   const toolPolicy = resolveCodexConfigurationRecord(bundleRoot, entry.configuration.nativeToolPolicy, "native-tool-policy");
   const captureProfile = resolveCodexConfigurationRecord(bundleRoot, queue.captureProfile, "capture-profile");
-  if (entry.harness.id !== CODEX_HARNESS) throw new Error(`Queue harness must be ${CODEX_HARNESS}.`);
   const locked = lockedRuntimeExecutable("codex");
   const runtime = await (options.probeRuntime ?? probeCodexRuntime)(locked.path);
   await recordRuntimeProbe("codex", runtime.version.replace(/^codex-cli\s+/u, ""), "executable");
@@ -541,7 +541,7 @@ export function resolveCodexConfigurationRecord<Kind extends CodexConfigurationK
 export async function probeCodexRuntime(executable: string): Promise<{ path: string; version: string }> {
   if (!isAbsolute(executable)) throw new Error("Codex harness executable must be an absolute path.");
   const path = await realpath(executable);
-  const { stdout } = await execFileAsync(path, ["--version"], { encoding: "utf8", timeout: 5_000 });
+  const { stdout } = await execFileAsync(path, ["--version"], { encoding: "utf8", timeout: 5_000, env: coordinatorRuntimeEnvironment(process.env) });
   return { path, version: stdout.trim() };
 }
 

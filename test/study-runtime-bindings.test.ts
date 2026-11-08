@@ -4,7 +4,7 @@ import {readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 import {bundleFixture} from "./scheduler-fixture-helper.js";
 import {compileRunQueue, readRunQueue, writeRunQueue} from "../src/scheduler.js";
-import {bindStudyRuntimeQueue, queueRunId} from "../src/study-runtime-bindings.js";
+import {assertQueueRuntimeBinding, bindStudyRuntimeQueue, queueRunId} from "../src/study-runtime-bindings.js";
 import {freezeStudyRuntimes} from "../src/study-runtimes.js";
 import {runRuntimeCommandLine} from "../src/runtime-cli.js";
 import {fakeSdkRuntimeOptions} from "./runtime-fixture-helper.js";
@@ -67,5 +67,22 @@ test("a bound queue rejects content or freeze changes before returning executabl
       await writeFile(destination, JSON.stringify(changed));
       assert.throws(() => readRunQueue(destination, undefined, {bundleRoot: root}), /RUNTIME_QUEUE_INTEGRITY/);
     }
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
+test("binding one source object to two studies leaves each returned binding independent", async () => {
+  const {root, experiment} = bundleFixture(), options = fakeSdkRuntimeOptions("9.9.9");
+  try {
+    experiment.harnessSet = {"cursor-sdk": experiment.harnessSet["harness-a"]!};
+    const queue = compileRunQueue(experiment, {bundleRoot: root, freezeLocators: {"task-a": "freezes/task-a.json"}});
+    const first = await freezeStudyRuntimes(root, {studyId: "first", roles: ["cursor-sdk"]}, options);
+    const boundA = await bindStudyRuntimeQueue(root, queue), runA = queueRunId(boundA.queue, queue.entries[0]!.runId);
+    const other = join(root, "second");
+    await freezeStudyRuntimes(other, {studyId: "second", roles: ["cursor-sdk"]}, options);
+    const boundB = await bindStudyRuntimeQueue(other, queue);
+    assert.equal(queueRunId(boundA.queue, queue.entries[0]!.runId), runA);
+    assert.doesNotThrow(() => assertQueueRuntimeBinding(boundA.queue, first.digest));
+    assert.notEqual(queueRunId(boundB.queue, queue.entries[0]!.runId), runA);
+    assert.equal(queueRunId(queue, queue.entries[0]!.runId), queue.entries[0]!.runId);
   } finally {await rm(root, {recursive: true, force: true});}
 });

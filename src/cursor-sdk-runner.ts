@@ -121,7 +121,6 @@ async function runCursorSdkQueueEntryOwned(options: RunCursorSdkQueueEntryOption
   if (matches.length === 0) throw new Error(`Run "${options.runId}" is not in the queue.`);
   if (matches.length > 1) throw new Error(`Run "${options.runId}" matches more than one queue entry.`);
   const entry = matches[0]!;
-  if (entry.harness.id !== CURSOR_SDK_HARNESS) throw new Error(`Queue entry harness must be ${CURSOR_SDK_HARNESS}.`);
 
   const model = resolveCursorSdkConfigurationRecord(bundleRoot, entry.configuration.model, "model");
   resolveCursorSdkConfigurationRecord(bundleRoot, entry.configuration.harness, "harness");

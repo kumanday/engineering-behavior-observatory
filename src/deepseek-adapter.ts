@@ -1,3 +1,4 @@
+import {coordinatorRuntimeEnvironment} from "./runtime-environment.js";
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeExecutable, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
 import * as developmentClient from "@deepseek-ai/dsh-sdk-client";
 import { markRetainedVersion } from "./retained-version-policy.js";
@@ -695,7 +696,7 @@ function clientOptions(configuration: DeepSeekHarnessConfiguration): HarnessClie
     processCwd: composition.launch.processCwd,
     ...(composition.launch.dshHome === undefined ? {} : { dshHome: composition.launch.dshHome }),
     env: {
-      ...structuredClone(configuration.env),
+      ...coordinatorRuntimeEnvironment(structuredClone(configuration.env)),
       ...(composition.launch.dshHome === undefined ? {} : { DSH_HOME: composition.launch.dshHome }),
     },
     ...(configuration.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: configuration.requestTimeoutMs }),

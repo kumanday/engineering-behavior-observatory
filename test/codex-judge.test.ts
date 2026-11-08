@@ -4,13 +4,14 @@ import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import { runtimeTest } from "./with-runtime-fixture.js";
+import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
 const test = runtimeTest("codex-judge");
+const liveTest = liveRuntimeTest("codex-judge");
 import { CODEX_APP_SERVER_VERSION } from "../src/codex.js";
 import { runCodexSemanticJudge } from "../src/codex-judge.js";
 import type { SemanticJudgeRequest } from "../src/semantic-judge.js";
 
-test("approved existing-auth native Codex judge smoke", { skip: process.env.EBO_LIVE_CODEX_JUDGE_SMOKE !== "1" }, async (context) => {
+liveTest("approved existing-auth native Codex judge smoke", { skip: process.env.EBO_LIVE_CODEX_JUDGE_SMOKE !== "1" }, async (context) => {
   const model = process.env.EBO_LIVE_CODEX_JUDGE_MODEL;
   assert.ok(model, "Supply an existing authenticated model route.");
   const result = await runCodexSemanticJudge("Synthetic fixture only: no event evidence is provided. Return an abstention, with no citations.", {
@@ -80,7 +81,7 @@ test("native judge isolates ambient state, retains failures, matches owned turns
   }
 });
 
-test("installed pinned native judge exposes zero tools on the model wire", { skip: process.env.EBO_NATIVE_CODEX_CONTRACT !== "1" }, async () => {
+liveTest("frozen native judge exposes zero tools on the model wire", { skip: process.env.EBO_NATIVE_CODEX_CONTRACT !== "1" }, async (context) => {
   const root = mkdtempSync(join(tmpdir(), "ebo-native-wire-"));
   const originalCodexHome = process.env.CODEX_HOME;
   const requests: any[] = [];
@@ -126,8 +127,17 @@ test("installed pinned native judge exposes zero tools on the model wire", { ski
     const port = (server.address() as { port: number }).port;
     writeFileSync(join(root, "auth.json"), JSON.stringify({ OPENAI_API_KEY: "synthetic-wire-test-key" }), { mode: 0o600 });
     process.env.CODEX_HOME = root;
-    const executable = join(root, "codex-wrapper");
-    writeFileSync(executable, `#!/usr/bin/env node\nimport {spawnSync} from 'node:child_process';\nconst args=process.argv.slice(2);\nif(!args.includes('--version'))args.push('-c','openai_base_url="http://127.0.0.1:${port}/v1"','-c','features.enable_request_compression=false');\nconst result=spawnSync('codex',args,{stdio:'inherit',env:process.env});process.exit(result.status??1);\n`, { mode: 0o700 });
+    // Redirect only the real child I/O boundary; the immutable CLI and its lock stay intact.
+    const childProcess = (await import("node:child_process")).default;
+    const {syncBuiltinESMExports} = await import("node:module");
+    const {lockedRuntimeExecutable} = await import("../src/runtime-context.js");
+    const executable = lockedRuntimeExecutable("codex-judge").path, originalSpawn = childProcess.spawn;
+    context.mock.method(childProcess, "spawn", ((command: string, args: string[], options: any) => {
+      assert.equal(command, executable);
+      const routed = args.includes("--version") ? args : [...args, "-c", `openai_base_url="http://127.0.0.1:${port}/v1"`, "-c", "features.enable_request_compression=false"];
+      return originalSpawn(command, routed, options);
+    }) as typeof originalSpawn);
+    syncBuiltinESMExports();
     const results = [];
     for (const model of ["gpt-5.6-sol", "gpt-5.5"]) results.push(await runCodexSemanticJudge("Synthetic evidence-only wire test.", { evaluator: { executable, model, effort: "low" },
       limits: { maxOutputChars: 16000, maxWallClockMs: 10000, maxCitations: 1 } } as SemanticJudgeRequest));
@@ -135,6 +145,8 @@ test("installed pinned native judge exposes zero tools on the model wire", { ski
     assert.equal(new Set(generations.map((request) => request.model)).size, 2, `Both native tool modes must send a model request: ${JSON.stringify(results)}`);
     for (const request of generations) assert.deepEqual(request.response?.tools ?? request.tools ?? [], [], JSON.stringify({ model: request.model, keys: Object.keys(request), responseKeys: Object.keys(request.response ?? {}), tools: request.response?.tools ?? request.tools }));
   } finally {
+    context.mock.restoreAll();
+    (await import("node:module")).syncBuiltinESMExports();
     if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = originalCodexHome;
     server.closeAllConnections();

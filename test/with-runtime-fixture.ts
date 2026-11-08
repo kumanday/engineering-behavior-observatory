@@ -106,4 +106,13 @@ export function runtimeTest(role: string): typeof nodeTest {
   Object.assign(wrapped, { skip: wrap(nodeTest.skip), only: wrap(nodeTest.only), todo: wrap(nodeTest.todo) });
   return wrapped;
 }
+
+/** Opted-in operational proofs use an operator-frozen runtime, never authored registries. */
+export function liveRuntimeTest(role: string): typeof nodeTest {
+  return ((name: string, options: any, body: (context: TestContext) => Promise<unknown>) => nodeTest(name, options, async (context) => {
+    const studyRoot = process.env.EBO_LIVE_RUNTIME_STUDY;
+    if (!studyRoot) throw new Error("EBO_LIVE_RUNTIME_STUDY must identify a real frozen study for this operational proof.");
+    await withStudyRuntime({studyRoot, role}, async () => body(context));
+  })) as typeof nodeTest;
+}
 after(async () => { for (const pending of fixtures.values()) { const result = await pending.catch(() => undefined); if (result) await rm(result.studyRoot, { recursive: true, force: true }); } });

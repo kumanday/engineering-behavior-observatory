@@ -1,6 +1,7 @@
 import { fakeSdkRuntimeOptions } from "./runtime-fixture-helper.js";
-import { runtimeTest, prepareRuntimeCliFixture } from "./with-runtime-fixture.js";
+import { liveRuntimeTest, runtimeTest, prepareRuntimeCliFixture } from "./with-runtime-fixture.js";
 const test = runtimeTest("claude-agent-sdk");
+const liveTest = liveRuntimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -542,7 +543,7 @@ test("retains bounded received SDK messages and result accounting when the provi
   assert.ok(result.usage);
 });
 
-test("approved live semantic judge smoke", { skip: process.env.EBO_LIVE_SEMANTIC_JUDGE_SMOKE !== "1" }, async () => {
+liveTest("approved live semantic judge smoke", { skip: process.env.EBO_LIVE_SEMANTIC_JUDGE_SMOKE !== "1" }, async () => {
   const model = process.env.EBO_LIVE_SEMANTIC_JUDGE_MODEL;
   assert.ok(model, "EBO_LIVE_SEMANTIC_JUDGE_MODEL must name an existing authenticated route");
   const request = judgeRequest("event-1", "observation-1");

@@ -3,8 +3,9 @@ import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runtimeTest } from "./with-runtime-fixture.js";
+import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
 const test = runtimeTest("openhands-agent-server");
+const liveTest = liveRuntimeTest("openhands-agent-server");
 import { fileURLToPath } from "node:url";
 import { openHandsCapabilityProfile } from "../src/openhands.js";
 import { createOpenHandsHarborExecutor } from "../src/harbor/harnesses.js";
@@ -1675,7 +1676,7 @@ test("pins the exact upstream OpenAPI and TypeScript-client comparison artifacts
   assert.equal(contract.websocket.authentication, "first-message");
 });
 
-test("approved live Agent Server smoke produces a verified run bundle", {
+liveTest("approved live Agent Server smoke produces a verified run bundle", {
   skip: process.env.EBO_LIVE_OPENHANDS_SMOKE !== "1",
   timeout: 300_000,
 }, async (context) => {

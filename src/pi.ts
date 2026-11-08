@@ -1190,7 +1190,6 @@ async function runPiQueueEntryOwned(options: RunPiQueueEntryOptions): Promise<Pi
   const matches = queue.entries.filter((entry) => queueEntryMatches(queue, entry, options.runId)).map((entry) => bindActiveQueueEntry(queue, entry));
   if (matches.length !== 1) throw new Error(matches.length === 0 ? `Run "${options.runId}" is not in the queue.` : `Run "${options.runId}" matches more than one queue entry.`);
   const entry = matches[0]!;
-  if (entry.harness.id !== PI_HARNESS) throw new Error(`Queue harness must be ${PI_HARNESS}.`);
   const model = resolvePiConfigurationRecord(bundleRoot, entry.configuration.model, "model");
   const harness = resolvePiConfigurationRecord(bundleRoot, entry.configuration.harness, "harness");
   const limits = resolvePiConfigurationRecord(bundleRoot, entry.configuration.nativeLimits, "native-limits");

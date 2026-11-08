@@ -412,7 +412,6 @@ async function runFactoryQueueEntryOwned(options: RunFactoryQueueEntryOptions): 
   const limits = resolveFactoryConfigurationRecord(bundleRoot, entry.configuration.nativeLimits, "native-limits");
   const toolPolicy = resolveFactoryConfigurationRecord(bundleRoot, entry.configuration.nativeToolPolicy, "native-tool-policy");
   const captureProfile = resolveFactoryConfigurationRecord(bundleRoot, queue.captureProfile, "capture-profile");
-  if (entry.harness.id !== FACTORY_HARNESS) throw new Error(`Queue harness must be ${FACTORY_HARNESS}.`);
   const locked = lockedRuntimeExecutable("droid-cli");
   const runtime = await (options.probeRuntime ?? probeFactoryRuntime)(locked.path);
   await recordRuntimeProbe("droid-cli", runtime.version, "executable");

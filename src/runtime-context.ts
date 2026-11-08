@@ -1,3 +1,4 @@
+import {coordinatorRuntimeEnvironment} from "./runtime-environment.js";
 import { readFileSync } from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile, realpath, writeFile } from "node:fs/promises";
@@ -188,7 +189,7 @@ async function resolveRuntimeImport(specifier: string, root: string): Promise<st
 export async function probeLockedRuntimeExecutable(componentId: string, prefix: readonly string[] = []): Promise<{path: string; version: string}> {
   const locked = lockedRuntimeExecutable(componentId);
   const { stdout } = await execFileAsync(locked.path, [...prefix, "--version"], { encoding: "utf8", timeout: 5_000, maxBuffer: 65_536,
-    env: { PATH: process.env.PATH, FACTORY_DROID_AUTO_UPDATE_ENABLED: "false" } });
+    env: coordinatorRuntimeEnvironment({ PATH: process.env.PATH, FACTORY_DROID_AUTO_UPDATE_ENABLED: "false" }) });
   const version = /(?:^|\s)v?(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?)(?:$|\s)/u.exec(stdout.trim())?.[1];
   if (!version) throw new RuntimePolicyError("RUNTIME_PROBE_INVALID", `${componentId}: --version did not report a version.`);
   await recordRuntimeProbe(componentId, version, "executable");

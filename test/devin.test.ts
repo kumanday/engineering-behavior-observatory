@@ -1,5 +1,6 @@
-import { runtimeTest, prepareRuntimeCliFixture } from "./with-runtime-fixture.js";
+import { liveRuntimeTest, runtimeTest, prepareRuntimeCliFixture } from "./with-runtime-fixture.js";
 const test = runtimeTest("devin-cli");
+const liveTest = liveRuntimeTest("devin-cli");
 import assert from "node:assert/strict";
 import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { spawn } from "node:child_process";
@@ -999,7 +1000,7 @@ async function temporaryRoot(): Promise<string> {
   return mkdtemp(join(tmpdir(), "ebo-devin-test-"));
 }
 
-test("approved existing-auth live Devin ACP capture smoke", { skip: process.env.EBO_LIVE_DEVIN_CAPTURE_SMOKE !== "1" }, async (context) => {
+liveTest("approved existing-auth live Devin ACP capture smoke", { skip: process.env.EBO_LIVE_DEVIN_CAPTURE_SMOKE !== "1" }, async (context) => {
   assert.ok(process.env.WINDSURF_API_KEY, "Supply WINDSURF_API_KEY for the live Devin CLI route.");
   const executable = process.env.EBO_LIVE_DEVIN_EXECUTABLE ?? "devin";
   const model = process.env.EBO_LIVE_DEVIN_MODEL ?? "swe-2-high";

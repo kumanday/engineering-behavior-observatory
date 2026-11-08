@@ -9,8 +9,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
-import { runtimeTest } from "./with-runtime-fixture.js";
+import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
 const test = runtimeTest("factory-droid");
+const liveTest = liveRuntimeTest("factory-droid");
 import { captureFactoryDroid, FACTORY_CLI_VERSION, FACTORY_SDK_VERSION, qualifyFactoryCapture,
   describeAndValidateFactoryDataset, type FactoryDroidConfiguration, type FactoryCapture } from "../src/factory-droid.js";
 import { FACTORY_CONTRACT_DIGEST, captureFactoryDroidRun, runFactoryQueueEntry } from "../src/factory-run.js";
@@ -497,7 +498,7 @@ test("pinned native Factory BYOK uses Chat Completions through EBO without Facto
 // Opt-in live check: credentials are supplied through the process environment.
 // EBO_LIVE_FACTORY_EXECUTABLE must be the absolute pinned binary path.
 // EBO_LIVE_FACTORY_MODEL and EBO_LIVE_FACTORY_EFFORT select the authorized condition.
-test("live Factory CLI tool capture and retained readback", { skip: process.env.EBO_LIVE_FACTORY_CAPTURE_SMOKE !== "1", timeout: 180_000 }, async t => {
+liveTest("live Factory CLI tool capture and retained readback", { skip: process.env.EBO_LIVE_FACTORY_CAPTURE_SMOKE !== "1", timeout: 180_000 }, async t => {
   const byok = process.env.EBO_LIVE_FACTORY_ROUTE === "byok";
   const credentialEnv = byok ? "FIREWORKS_API_KEY" : "FACTORY_API_KEY";
   assert.ok(process.env[credentialEnv]);

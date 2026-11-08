@@ -1,5 +1,6 @@
-import { runtimeTest } from "./with-runtime-fixture.js";
+import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
 const test = runtimeTest("claude-agent-sdk");
+const liveTest = liveRuntimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
 import { createClaudeAgentSdkHarborExecutor } from "../src/harbor/harnesses.js";
 import { harborStepFixture } from "./harbor-step-helper.js";
@@ -572,7 +573,7 @@ test("agent-sdk run and export create report usage for incomplete arguments", as
   assert.match(output.join(""), /Usage: ebo export create/);
 });
 
-test("approved live Agent SDK operational runner proves a tool-using trajectory", {
+liveTest("approved live Agent SDK operational runner proves a tool-using trajectory", {
   skip: process.env.EBO_LIVE_AGENT_SDK_RUNNER !== "1",
   timeout: 600_000,
 }, async () => {

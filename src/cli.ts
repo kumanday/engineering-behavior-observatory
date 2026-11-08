@@ -951,7 +951,11 @@ async function runOccurrenceRatingCommand(args: string[], write: (message: strin
       { policy,
         ...(options["--fallback-model"] === undefined ? {} : { fallback: { runtime, model: options["--fallback-model"], effort: (options["--fallback-effort"] ?? "medium") as CodexReasoningEffort } }),
         onDecision: (record, occurrenceId) => appendFileSync(partialPath, `${JSON.stringify({ occurrenceId, record })}\n`, { mode: 0o600 }),
-        onFallback: (record) => appendFileSync(partialPath, `${JSON.stringify({ fallback: record })}\n`, { mode: 0o600 }) });
+        onFallback: (record) => {
+          appendFileSync(partialPath, `${JSON.stringify({ fallback: record })}\n`, { mode: 0o600 });
+          const warnings = record.raw && typeof record.raw === "object" ? (record.raw as {runtime?: {warnings?: unknown}}).runtime?.warnings : undefined;
+          if (Array.isArray(warnings)) for (const warning of warnings) if (typeof warning === "string") write(`Warning: ${warning}\n`);
+        } });
     await writeObservationReport(outputPath, ratings, bundleRoot);
     rmSync(partialPath, { force: true });
     const { coverage } = ratings;

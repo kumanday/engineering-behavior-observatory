@@ -5,8 +5,9 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { runtimeTest } from "./with-runtime-fixture.js";
+import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
 const test = runtimeTest("pi-sdk");
+const liveTest = liveRuntimeTest("pi-sdk");
 import { gzipSync } from "node:zlib";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
@@ -778,7 +779,7 @@ test("recorder close failure prevents a qualified success", async (t) => {
   }
 });
 
-test("approved live Pi SDK smoke", { skip: process.env.EBO_LIVE_PI_SDK_SMOKE !== "1" }, async () => {
+liveTest("approved live Pi SDK smoke", { skip: process.env.EBO_LIVE_PI_SDK_SMOKE !== "1" }, async () => {
   assert.ok(process.env.ZAI_API_KEY, "ZAI_API_KEY is required for the approved live smoke");
   const fixture = createPiFixture({ live: true });
   try {

@@ -1,3 +1,4 @@
+import {resolveHarnessRuntimeRole} from "../study-runtime-bindings.js";
 import { adoptStudyRunBinding, currentStudyRuntime, runInStudyRuntime } from "../runtime-context.js";
 import { readStudyRuntimeLock } from "../study-runtimes.js";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -51,7 +52,7 @@ function processHarnessOptions(input: HarborWorkerInput, model: string, provider
 }
 export function createNativeHarborExecutor(input: HarborWorkerInput): HarborHarnessStepExecutor {
   const options = { studyRoot: input.configurationRoot, configuration: input.configuration };
-  switch (input.prepared.run.harnessId) {
+  switch (resolveHarnessRuntimeRole(input.configurationRoot, input.prepared.run.harnessId, input.configuration.harness)) {
     case "claude-agent-sdk": return createClaudeAgentSdkHarborExecutor(options);
     case "codex-app-server": return createCodexHarborExecutor(options);
     case "devin-cli": return createDevinHarborExecutor(options);
@@ -83,7 +84,7 @@ export function createNativeHarborExecutor(input: HarborWorkerInput): HarborHarn
 
 /** Executes native capture in the actual Harbor working directory. No task packet translation. */
 export async function runHarborWorker(input: HarborWorkerInput, executor?: HarborHarnessStepExecutor): Promise<HarborStepExecution> {
-  const role = input.prepared?.run.harnessId ?? currentStudyRuntime()?.launch.role ?? "unselected";
+  const role = input.prepared?.run.harnessId ? resolveHarnessRuntimeRole(input.configurationRoot, input.prepared.run.harnessId, input.configuration.harness) : currentStudyRuntime()?.launch.role ?? "unselected";
   const current = currentStudyRuntime();
   const binding = input.runtimeLock ? {studyRoot: input.runtimeLock.studyRoot, ...(current?.studyRoot === input.runtimeLock.studyRoot ? {options: current.options} : {})} : undefined;
   return runInStudyRuntime(role, binding, async () => {

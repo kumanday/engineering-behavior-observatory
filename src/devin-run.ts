@@ -1,3 +1,4 @@
+import {coordinatorRuntimeEnvironment} from "./runtime-environment.js";
 import { bindActiveQueueEntry, queueEntryMatches, assertActiveRuntimeQueue, currentStudyRuntime, requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeExecutable, recordRuntimeProbe, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { execFile } from "node:child_process";
@@ -400,7 +401,6 @@ async function runDevinQueueEntryOwned(options: RunDevinQueueEntryOptions): Prom
   const limits = resolveDevinConfigurationRecord(bundleRoot, entry.configuration.nativeLimits, "native-limits");
   const toolPolicy = resolveDevinConfigurationRecord(bundleRoot, entry.configuration.nativeToolPolicy, "native-tool-policy");
   const captureProfile = resolveDevinConfigurationRecord(bundleRoot, queue.captureProfile, "capture-profile");
-  if (entry.harness.id !== DEVIN_HARNESS) throw new Error(`Queue harness must be ${DEVIN_HARNESS}.`);
   const locked = lockedRuntimeExecutable("devin");
   const runtime = await (options.probeRuntime ?? probeDevinRuntime)(locked.path);
   await recordRuntimeProbe("devin", runtime.version, "executable");
@@ -536,7 +536,7 @@ export function resolveDevinConfigurationRecord<Kind extends DevinConfigurationK
 export async function probeDevinRuntime(executable: string): Promise<{ path: string; version: string }> {
   if (!isAbsolute(executable)) throw new Error("Devin harness executable must be an absolute path.");
   const path = await realpath(executable);
-  const { stdout } = await execFileAsync(path, ["--version"], { encoding: "utf8", timeout: 5_000 });
+  const { stdout } = await execFileAsync(path, ["--version"], { encoding: "utf8", timeout: 5_000, env: coordinatorRuntimeEnvironment(process.env) });
   const match = /^devin\s+(\S+)/u.exec(stdout.trim());
   return { path, version: match?.[1] ?? stdout.trim() };
 }

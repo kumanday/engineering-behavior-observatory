@@ -1,3 +1,4 @@
+import {coordinatorRuntimeEnvironment} from "./runtime-environment.js";
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeExecutable, recordRuntimeProbe, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
 import * as developmentNodeSdk from "@factory/droid-sdk/node";
@@ -77,7 +78,7 @@ export async function probeFactoryRuntime(executable: string, args: readonly str
   const path = await realpath(executable);
   const { stdout } = await promisify(execFile)(path, [...args, "--version"], {
     encoding: "utf8", timeout: 5_000, maxBuffer: 64 * 1024,
-    env: { PATH: process.env.PATH, FACTORY_DROID_AUTO_UPDATE_ENABLED: "false" },
+    env: coordinatorRuntimeEnvironment({ PATH: process.env.PATH, FACTORY_DROID_AUTO_UPDATE_ENABLED: "false" }),
   });
   return { path, version: stdout.trim().replace(/^(?:droid|factory(?:[- ]cli)?)\s+/iu, "") };
 }
@@ -199,7 +200,7 @@ export async function captureFactoryDroidOwned(request: FactoryCaptureRequest): 
   if (!credential?.trim()) throw new Error(`${credentialEnv} is required for Factory Droid.`);
   const home = await mkdtemp(join(tmpdir(), "ebo-factory-home-"));
   const environment: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: join(home, ".config"),
+    PATH: coordinatorRuntimeEnvironment(process.env).PATH, HOME: home, XDG_CONFIG_HOME: join(home, ".config"),
     TMPDIR: join(home, "tmp"), FACTORY_DROID_AUTO_UPDATE_ENABLED: "false",
     TERM: "dumb", NO_COLOR: "1", OTEL_LOG_MESSAGE_CONTENT: "false", OTEL_TELEMETRY_GRANULARITY: "aggregate",
   };

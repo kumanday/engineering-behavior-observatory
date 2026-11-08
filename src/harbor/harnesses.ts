@@ -242,7 +242,6 @@ export function createFactoryHarborExecutor(options: FactoryHarborExecutorOption
     const limits = resolveFactoryConfigurationRecord(options.studyRoot, options.configuration.nativeLimits, "native-limits");
     const toolPolicy = resolveFactoryConfigurationRecord(options.studyRoot, options.configuration.nativeToolPolicy, "native-tool-policy");
     const captureProfile = resolveFactoryConfigurationRecord(options.studyRoot, options.configuration.captureProfile, "capture-profile");
-    if (input.prepared.run.harnessId !== "factory-droid") throw new Error("Factory Harbor executor requires the factory-droid harness.");
     const runtime = await (options.probeRuntime ?? probeFactoryRuntime)(lockedRuntimeExecutable("droid-cli").path);
     await recordRuntimeProbe("droid-cli", runtime.version, "executable");
     const definition = harborStepBundleDefinition(input.prepared, input.step, input.stepBundleRoot, {
@@ -307,7 +306,6 @@ export function createCodexHarborExecutor(options: CodexHarborExecutorOptions): 
     const limits = resolveCodexConfigurationRecord(options.studyRoot, options.configuration.nativeLimits, "native-limits");
     const toolPolicy = resolveCodexConfigurationRecord(options.studyRoot, options.configuration.nativeToolPolicy, "native-tool-policy");
     const captureProfile = resolveCodexConfigurationRecord(options.studyRoot, options.configuration.captureProfile, "capture-profile");
-    if (input.prepared.run.harnessId !== "codex-app-server") throw new Error("Codex Harbor executor requires the codex-app-server harness.");
     const runtime = await (options.probeRuntime ?? probeCodexRuntime)(lockedRuntimeExecutable("codex").path);
     await recordRuntimeProbe("codex", runtime.version.replace(/^codex-cli /u, ""), "executable");
     const definition = harborStepBundleDefinition(input.prepared, input.step, input.stepBundleRoot, {

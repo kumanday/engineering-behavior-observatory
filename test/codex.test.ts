@@ -1,5 +1,6 @@
-import { runtimeTest, prepareRuntimeCliFixture, withRuntimeFixture } from "./with-runtime-fixture.js";
+import { liveRuntimeTest, runtimeTest, prepareRuntimeCliFixture, withRuntimeFixture } from "./with-runtime-fixture.js";
 const test = runtimeTest("codex-app-server");
+const liveTest = liveRuntimeTest("codex-app-server");
 import assert from "node:assert/strict";
 import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { createCodexHarborExecutor } from "../src/harbor/harnesses.js";
@@ -188,7 +189,7 @@ test("retained Codex runtime versions preserve their adapter identities", async 
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("approved existing-auth native capture smoke", { skip: process.env.EBO_LIVE_CODEX_CAPTURE_SMOKE !== "1" }, async (context) => {
+liveTest("approved existing-auth native capture smoke", { skip: process.env.EBO_LIVE_CODEX_CAPTURE_SMOKE !== "1" }, async (context) => {
   const model = process.env.EBO_LIVE_CODEX_CAPTURE_MODEL;
   assert.ok(model, "Supply an existing authenticated model route.");
   const root = await temporaryRoot();

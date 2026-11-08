@@ -1,4 +1,5 @@
 import { refreshFrozenRuntimeRelease } from "./runtime-status.js";
+import {assertStudyRuntimeRequest} from "./runtime-request.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -32,7 +33,7 @@ export async function readStudyRuntimeLock(studyRoot: string): Promise<StudyRunt
 }
 /** Idempotent freeze. A different policy or composition requires a new study revision. */
 export async function freezeStudyRuntimes(studyRoot: string, request: StudyRuntimeRequest, options: StudyRuntimeOptions = {}): Promise<StudyRuntimeLock> {
-  if (!request.studyId || !request.roles.length || new Set(request.roles).size !== request.roles.length) throw new RuntimePolicyError("RUNTIME_STUDY_INVALID", "A study ID and unique runtime roles are required.");
+  assertStudyRuntimeRequest(request);
   const locations = paths(studyRoot); await mkdir(join(resolve(studyRoot), "runtimes"), { recursive: true, mode: 0o700 });
   const unlock = await lockfile.lock(locations.lock, { realpath: false, stale: 120_000, update: 30_000, retries: { retries: 300, factor: 1, minTimeout: 100, maxTimeout: 1000 } });
   try {
@@ -51,9 +52,9 @@ export async function freezeStudyRuntimes(studyRoot: string, request: StudyRunti
       const roots: SelectedRuntimeComponent[] = [];
       for (const [index, component] of recipe.components.entries()) {
         const policy = { ...request.policy, ...request.harnessPolicies?.[recipe.harness ?? role] };
-        const override = request.overrides?.[component.id] ?? (index === 0 ? request.overrides?.[role] : undefined) ?? policy.override;
+        const override = request.overrides?.[component.id] ?? (index === 0 ? request.overrides?.[role] ?? policy.override : undefined);
         const releases = await fetchRuntimeReleases(component, options);
-        roots.push({ ...component, selection: selectRuntimeRelease(releases, { ...policy, ...(override ? { override } : {}), now: createdAt }) });
+        roots.push({ ...component, selection: selectRuntimeRelease(releases, { ...policy, override, now: createdAt }) });
       }
       selected.push({ role, roots, target: roleTarget });
     }
