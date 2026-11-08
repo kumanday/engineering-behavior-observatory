@@ -48,7 +48,11 @@ export async function resolvePythonRuntimePlan(roots: readonly SelectedRuntimeCo
         let repository = owner?.repository;
         if (!repository) {
           const detail = await runtimeJson(`https://pypi.org/pypi/${encodeURIComponent(name)}/${encodeURIComponent(version)}/json`, options);
-          const source = Object.values(detail.info?.project_urls ?? {}).find((value) => typeof value === "string" && /^https:\/\/github.com\/[^/]+\/[^/]+\/?$/u.test(value));
+          const source = Object.entries(detail.info?.project_urls ?? {})
+            .filter(([label]) => /^(?:source(?:[ _-]?(?:code|repository))?|repository|code|home[ _-]?page)$/iu.test(label))
+            .sort(([a], [b]) => Number(/^home/iu.test(a)) - Number(/^home/iu.test(b)))
+            .map(([, value]) => value)
+            .find((value) => typeof value === "string" && /^https:\/\/github.com\/(?!sponsors\/|orgs\/)[^/?#]+\/[^/?#]+\/?$/u.test(value));
           repository = typeof source === "string" ? new URL(source).pathname.replace(/^\/|\/$/gu, "") : undefined;
         }
         if (!repository) throw new RuntimePolicyError("RUNTIME_ATTESTATION_IDENTITY_MISSING", `Offered PyPI attestation lacks a repository identity for ${name}.`);

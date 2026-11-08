@@ -29,3 +29,24 @@ test("rejects a Python plan whose declared target differs from its actual interp
   const {roots, options} = fixture();
   await assert.rejects(resolvePythonRuntimePlan(roots, {...options, platform: "linux-x64"}), /RUNTIME_PLATFORM_MISMATCH/);
 });
+
+test("PyPI attestation identity follows source metadata rather than a GitHub funding link", async () => {
+  const {roots, options, sha} = fixture(), originalRun = options.run, originalFetch = options.fetch;
+  const name = "attrs", version = "26.2.0", filename = `attrs-${version}-py3-none-any.whl`, url = `https://files.pythonhosted.org/${filename}`;
+  options.run = async (command, args) => {
+    const result = await originalRun(command, args);
+    if (args.includes("--report")) {
+      const {readFile} = await import("node:fs/promises"); const path = args[args.indexOf("--report") + 1]!, report = JSON.parse(await readFile(path, "utf8"));
+      report.install.push({metadata: {name, version}, download_info: {url, archive_info: {hashes: {sha256: sha}}}}); await writeFile(path, JSON.stringify(report));
+    }
+    return result;
+  };
+  options.fetch = async (request) => {
+    if (!request.includes("/attrs/")) return originalFetch(request);
+    if (request.includes("/simple/")) return Response.json({files: [{filename, provenance: "https://pypi.org/integrity/attrs/provenance"}]});
+    if (request.includes(`/${version}/json`)) return Response.json({info: {project_urls: {Funding: "https://github.com/sponsors/hynek", Source: "https://github.com/python-attrs/attrs"}}});
+    return Response.json({releases: {[version]: [{filename, url, digests: {sha256: sha}, upload_time_iso_8601: "2026-11-05T00:00:00Z", yanked: false}]}});
+  };
+  const result = await resolvePythonRuntimePlan(roots, options);
+  assert.equal(result.plan.artifacts.find((artifact) => artifact.filename === filename)?.attestation?.repository, "https://github.com/python-attrs/attrs");
+});
