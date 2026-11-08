@@ -23,6 +23,7 @@ export type SourceIdentityV2 = {
   producerProfile: EvidenceValue<{ id: string; version: string; digest: Hash }>;
   executedHarness: { id: string; version: EvidenceValue<string> };
   authority: "owned-capture" | "third-party";
+  limitations?: readonly string[];
 };
 export type OperationIdentity = {
   runId: string;
@@ -32,7 +33,7 @@ export type OperationIdentity = {
   scope: string;
   kind: "tool" | "model-request" | "delegation";
   nativeId: string;
-  identityClass: "source-native" | "converter-assigned" | "ebo-derived";
+  identityClass: "source-native" | "source-declared" | "converter-assigned" | "ebo-derived";
 };
 export type Operation = {
   schemaVersion: "ebo.operation/v1";
@@ -59,7 +60,7 @@ export type EventFactsV2 = {
   context?: { type: "compaction" | "summarization" | "delegation" | "conversion-gap" | "other";
     replacementBoundary: EvidenceValue<{ previousEventId: string; nextEventId: string }> };
   inference?: { llmCallCount: EvidenceValue<number>; nativeRequestId: EvidenceValue<string> };
-  resource?: { scope: "attempt" | "session" | "step" | "operation" | "child-inclusive"; authority: "native" | "converter" | "estimated";
+  resource?: { scope: "attempt" | "session" | "step" | "operation" | "child-inclusive"; authority: "native" | "source-declared" | "converter" | "estimated";
     semantics: "increment" | "cumulative-snapshot" | "cumulative-final" | "unknown"; values: Record<string, number>;
     populationId: EvidenceValue<string> };
 };

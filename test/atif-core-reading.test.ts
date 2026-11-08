@@ -115,3 +115,140 @@ test("minor-version field mismatches preserve readable core content with unverif
   assert.ok(evidence.capture.qualification === "imported" && evidence.capture.sourceLimitations?.includes("ATIF_VERSION_FIELD_UNVERIFIED"));
   assert.equal(evidence.dataset.measurements.find(({ id }) => id === "source-declared-inference-count")?.value.status, "unknown");
 });
+
+test("future fields are retained with explicit unmapped pointer coverage", async () => {
+  const source = { schema_version: "ATIF-v1.9", agent: { name: "acme-agent", version: "9.9.9" }, future_field: { value: 7 },
+    steps: [{ step_id: 1, source: "agent", message: "Known content.", llm_call_count: 1, tool_calls: [] }] };
+  const evidence = await projectAtifV2({ read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "future-fields", attemptId: "a",
+    manifestDigest: `sha256:${"0".repeat(64)}` });
+  const coverage = evidence.dataset.recordCoverage.find(({ reference }) => reference.recordLocator === "#/future_field");
+  assert.equal(coverage?.disposition, "unmapped");
+  assert.deepEqual(coverage?.reason, { status: "known", value: "ATIF_FIELD_UNRECOGNIZED" });
+  assert.deepEqual(evidence.resolver.read({ artifactId: "atif-trajectory", recordLocator: "#/future_field" }), { value: 7 });
+});
+
+test("a referenced unsupported major does not erase its readable parent document", async () => {
+  const source = { schema_version: "ATIF-v1.7", agent: { name: "acme-agent", version: "9.9.9" },
+    steps: [{ step_id: 1, source: "agent", message: "Readable parent.", llm_call_count: 1 }],
+    subagent_trajectories: [{ schema_version: "ATIF-v2.0", trajectory_id: "future-child", agent: { name: "future-agent" }, events: [] }] };
+  const read = inspectAtifBytes(Buffer.from(JSON.stringify(source)));
+  const evidence = await projectAtifV2({ read, runId: "parent-readback", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` });
+  assert.ok(evidence.dataset.events.some(({ family }) => family === "message"));
+  assert.equal(evidence.dataset.sources.length, 1);
+  assert.ok(evidence.capture.qualification === "imported" && evidence.capture.sourceLimitations?.includes("ATIF_CHILD_FORMAT_UNSUPPORTED"));
+  assert.deepEqual(evidence.resolver.read({ artifactId: "atif-trajectory", recordLocator: "#/subagent_trajectories/0/events" }), []);
+});
+
+test("unknown metric fields stay unmapped instead of becoming interpreted counters", async () => {
+  const source = { schema_version: "ATIF-v1.9", agent: { name: "acme-agent", version: "9.9.9" },
+    final_metrics: { total_steps: 1, future_tokens: "new representation", future_counter: 12 },
+    steps: [{ step_id: 1, source: "agent", message: "Known content.", llm_call_count: 1 }] };
+  const evidence = await projectAtifV2({ read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "future-metrics", attemptId: "a",
+    manifestDigest: `sha256:${"0".repeat(64)}` });
+  assert.ok(evidence.dataset.events.some(({ family }) => family === "message"));
+  assert.equal(evidence.dataset.measurements.some(({ id }) => id.includes("future_")), false);
+  assert.equal(evidence.dataset.recordCoverage.find(({ reference }) => reference.recordLocator === "#/final_metrics/future_tokens")?.disposition, "unmapped");
+  assert.deepEqual(evidence.dataset.measurements.find(({ id }) => id === "source-final-total_steps")?.value, { status: "known", value: 1 });
+});
+
+test("standard observations without call IDs stay observations and reused IDs stay step-local", async () => {
+  const source = { schema_version: "ATIF-v1.8", agent: { name: "acme-agent", version: "9.9.9" },
+    steps: [1, 2].map((step_id) => ({ step_id, source: "agent", message: "Recorded action.", llm_call_count: 1,
+      tool_calls: [{ tool_call_id: "reused", function_name: "read", arguments: { step_id } }],
+      observation: { results: [{ source_call_id: "reused", content: "result" }, { content: "environment notice" }] } })) };
+  const evidence = await projectAtifV2({ read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "observations", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` });
+  assert.equal(evidence.dataset.operations.length, 2);
+  assert.ok(evidence.dataset.operations.every(({ callEventIds, resultEventIds }) => callEventIds.length === 1 && resultEventIds.length === 1));
+  assert.equal(evidence.dataset.events.filter(({ attributes }) => attributes.observationOnly === true).length, 2);
+  assert.equal(new Set(evidence.dataset.operations.map(({ identity }) => identity.scope)).size, 2);
+});
+
+test("standard metrics, timestamps, references and different-version children project without producer context", async () => {
+  const source = { schema_version: "ATIF-v1.8", trajectory_id: "parent", agent: { name: "acme-agent", version: "9.9.9", tool_definitions: [] },
+    continued_trajectory_ref: "next.json", steps: [{ step_id: 1, source: "agent", message: [{ type: "image", source: { path: "image.png", media_type: "image/png" } }],
+      timestamp: "2026-11-07T03:00:00Z", llm_call_count: 1, metrics: { prompt_tokens: 5, completion_tokens: 2 },
+      observation: { results: [{ content: "delegated", subagent_trajectory_ref: [{ trajectory_id: "child" }] }] } }],
+    subagent_trajectories: [{ schema_version: "ATIF-v1.7", trajectory_id: "child", agent: { name: "different-agent", version: "100.0.0" },
+      steps: [{ step_id: 1, source: "agent", message: "Child record.", llm_call_count: 1 }] }] };
+  const evidence = await projectAtifV2({ read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "standard-fields", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` });
+  assert.equal(evidence.dataset.sources.length, 2);
+  assert.ok(evidence.dataset.events.some(({ facts }) => facts.resource?.values.prompt_tokens === 5));
+  assert.ok(evidence.dataset.events.some(({ clock }) => clock.status === "known" && clock.value.kind === "producer-observation"));
+  for (const kind of ["media", "embedded", "continuation"]) assert.ok(evidence.dataset.events.some(({ attributes }) => attributes.referenceKind === kind), kind);
+  assert.ok(evidence.dataset.measurements.every(({ scope }) => scope.kind === "recorded-document"));
+});
+
+test("typed structural measures stay document-scoped across embedded source documents", async () => {
+  const { createStructuralObservationSetV2 } = await import("../src/analysis-v2.js");
+  const source = { schema_version: "ATIF-v1.8", agent: { name: "acme-agent" }, steps: [{ step_id: 1, source: "agent", message: "Parent.", llm_call_count: 1 }],
+    subagent_trajectories: [{ schema_version: "ATIF-v1.7", trajectory_id: "child", agent: { name: "child" }, steps: [{ step_id: 1, source: "agent", message: "Child.", llm_call_count: 1 }] }] };
+  const evidence = await projectAtifV2({ read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "document-measures", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` });
+  const observations = await createStructuralObservationSetV2(evidence.dataset, evidence.resolver);
+  assert.ok(observations.observations.every(({ scope }) => scope.kind === "recorded-document"));
+  assert.equal(observations.observations.filter(({ measure }) => measure === "declared-inference-count").length, 2);
+});
+
+test("legacy entry points and Atlas resolve an unknown producer through the same core", async () => {
+  const { normalizePiAtif } = await import("../src/atif-pi.js");
+  const { projectAdditionalAtifV2 } = await import("../src/atif-additional-v2.js");
+  const { buildAtlasViewV2 } = await import("../src/atlas-v2.js");
+  const source = { schema_version: "ATIF-v1.7", agent: { name: "acme-agent", version: "9.9.9" }, steps: [{ step_id: 1, source: "agent", message: "Visible record.", llm_call_count: 1,
+    tool_calls: [{ tool_call_id: "c", function_name: "read", arguments: {} }], observation: { results: [{ source_call_id: "c", content: "retained" }] } }] };
+  const input = { read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "all-entrypoints", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` as const };
+  const legacy = await normalizePiAtif(input), typed = await projectAdditionalAtifV2(input), view = await buildAtlasViewV2(typed);
+  assert.ok(legacy.dataset.events.length > 0);
+  assert.equal(typed.dataset.operations.length, 1);
+  assert.ok(view.units.some(({ kind }) => kind === "tool"));
+  assert.ok(view.units.some(({ kind }) => kind === "message"));
+});
+
+test("blank source identifiers retain recorded content without inventing native identities", async () => {
+  const source = { schema_version: "ATIF-v1.7", agent: { name: "acme-agent", version: "9.9.9" }, steps: [{ step_id: 1, source: "agent", message: "A record with an unavailable call identity.",
+    tool_calls: [{ tool_call_id: "", function_name: "read", arguments: {} }], observation: { results: [{ source_call_id: "", content: "Unlinked observation." }] } }] };
+  const evidence = await projectAtifV2({ read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "unidentified-call", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` });
+  assert.ok(evidence.dataset.events.some(({ family }) => family === "message"));
+  assert.equal(evidence.dataset.operations.length, 1);
+  assert.equal(evidence.dataset.operations[0]!.identity.identityClass, "ebo-derived");
+  assert.equal(evidence.dataset.operations[0]!.scope.status, "unknown");
+  assert.equal(evidence.dataset.operations[0]!.resultEventIds.length, 0);
+});
+
+test("declared final metrics cite their recorded fields with spec units", async () => {
+  const source = { schema_version: "ATIF-v1.7", agent: { name: "acme-agent" }, final_metrics: { total_cost_usd: 0, total_steps: 1 },
+    steps: [{ step_id: 1, source: "user", message: "Recorded task." }] };
+  const evidence = await projectAtifV2({ read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "declared-metrics", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` });
+  const measure = evidence.dataset.measurements.find(({ id }) => id === "source-final-total_cost_usd")!;
+  assert.deepEqual(measure.value, { status: "known", value: 0 });
+  assert.equal(measure.unit, "usd");
+  assert.ok(measure.sourceEventIds.some((id) => evidence.dataset.events.find((event) => event.id === id)?.source.nativeReference.recordLocator === "#/final_metrics/total_cost_usd"));
+});
+
+test("legacy v1 admission profile data never gates current core reinterpretation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-v1-admission-"));
+  try {
+    const sourcePath = join(root, "source.json"), destination = join(root, "import");
+    writeFileSync(sourcePath, readFileSync(new URL("../../test/fixtures/atif/core/acme.json", import.meta.url)));
+    await importAtifFile({ sourcePath, destination, runId: "old", attemptId: "a" });
+    const manifest = JSON.parse(readFileSync(join(destination, "manifest.json"), "utf8"));
+    manifest.schemaVersion = "ebo.import-manifest/v1"; manifest.producerAuthority = "operator-declared";
+    manifest.profile = { status: "supported", id: "retired-exact-fingerprint", digest: `sha256:${"1".repeat(64)}` };
+    delete manifest.overlays; delete manifest.interpretation;
+    const frozen = Buffer.from(`${JSON.stringify(manifest)}\n`);writeFileSync(join(destination, "manifest.json"), frozen);
+    assert.ok((await readImportedBehaviorEvidence(destination)).dataset.events.length > 0);
+    const evidence = await readImportedBehaviorEvidenceV2(destination);
+    assert.equal(evidence.dataset.operations.length, 2); assert.equal(evidence.interpretationRevision?.changed, true);
+    assert.deepEqual(readFileSync(join(destination, "manifest.json")), frozen);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("standard semantic projection is independent of arbitrary producer names and operator fingerprints", async () => {
+  const original = JSON.parse(readFileSync(new URL("../../test/fixtures/atif/core/acme.json", import.meta.url), "utf8"));
+  const results = [];
+  for (const name of ["acme-agent", "pi", "codex", "another-unseen-agent"]) {
+    const source = structuredClone(original);source.agent.name = name;
+    const evidence = await projectAtifV2({ read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "independence", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` });
+    results.push({ events: evidence.dataset.events.filter(({ attributes }) => !attributes.sourceMetadata), operations: evidence.dataset.operations, measurements: evidence.dataset.measurements });
+  }
+  for (const result of results.slice(1)) assert.deepEqual(result, results[0]);
+});

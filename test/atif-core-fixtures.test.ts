@@ -41,3 +41,15 @@ test("retained real OpenClaw evidence imports at an unregistered newer version",
   assert.equal(evidence.dataset.sources[0]!.executedHarness.version.status, "known");
   assert.ok(evidence.dataset.sources.every(({ producerProfile }) => producerProfile.status === "unknown"));
 });
+
+for (const [name, calls] of [["hermes", 28], ["openclaw-partial", 0]] as const) {
+  test(`retained real ${name} is readable through standard ATIF core`, { skip: !process.env.EBO_ATIF_PRIVATE_FIXTURES }, async () => {
+    const root = process.env.EBO_ATIF_PRIVATE_FIXTURES!;
+    const evidence = await projectAtifV2({ read: inspectAtifBytes(readFileSync(`${root}/unknown-producers/${name}.json`)),
+      runId: "private-unknowns", attemptId: name, manifestDigest: `sha256:${"0".repeat(64)}` });
+    assert.equal(evidence.dataset.operations.reduce((n, op) => n + op.callEventIds.length, 0), calls);
+    assert.ok(evidence.dataset.sources.every(({ producerProfile }) => producerProfile.status === "unknown"));
+    assert.equal(evidence.dataset.events.some(({ facts }) => facts.context?.type === "compaction"), false);
+    assert.equal(evidence.dataset.measurements.find(({ id }) => id === "source-declared-inference-count")?.value.status, "unknown");
+  });
+}

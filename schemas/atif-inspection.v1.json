@@ -171,7 +171,8 @@
               "trajectory",
               "step",
               "call",
-              "result"
+              "result",
+              "field"
             ]
           },
           "copied": {
@@ -245,6 +246,29 @@
     },
     "harborCrossCheck": {
       "$ref": "#/properties/structural"
+    },
+    "unmappedFields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pointer",
+          "reason"
+        ],
+        "properties": {
+          "pointer": {
+            "type": "string",
+            "pattern": "^#"
+          },
+          "reason": {
+            "enum": [
+              "ATIF_FIELD_UNRECOGNIZED",
+              "ATIF_EXTENSION_OPAQUE", "ATIF_VERSION_FIELD_UNVERIFIED"
+            ]
+          }
+        }
+      }
     }
   }
 }

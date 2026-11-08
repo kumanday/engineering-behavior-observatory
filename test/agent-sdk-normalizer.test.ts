@@ -14,6 +14,7 @@ import {
   claudeAgentSdkNormalizationAdapter,
   captureClaudeAgentSdkRun,
   createAgentSdkNativeEvidenceResolver,
+  createRetainedBehaviorEvidence,
   digestBytes,
   normalizeClaudeAgentSdkRunBundle,
   probeClaudeAgentSdkCapabilities,
@@ -523,6 +524,12 @@ test(`loads qualified semantic evidence with missing workspace=${missingWorkspac
     writeFileSync(manifestPath, canonicalizeMetadata(manifest));
 
     await assert.rejects(normalizeClaudeAgentSdkRunBundle(bundleRoot), /persisted unqualified structural/u);
+    Object.assign(report.structuralQualification, { reasons: [{ code: "HOOK_CAPABILITY_VERSION_MISMATCH", dimension: "hooks", detail: "A retained version-only qualification decision." }] });
+    const versionOnlyBytes = Buffer.from(canonicalizeMetadata(report));writeFileSync(reportPath, versionOnlyBytes);
+    reportDescriptor.digest = `sha256:${digestBytes(versionOnlyBytes).value}`;reportDescriptor.sizeBytes = versionOnlyBytes.length;
+    writeFileSync(manifestPath, canonicalizeMetadata(manifest));
+    assert.ok((await createRetainedBehaviorEvidence(bundleRoot)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_UNVERIFIED"));
+
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

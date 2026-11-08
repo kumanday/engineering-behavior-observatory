@@ -124,13 +124,13 @@ Missing imported failure classes and terminal states are excluded from those
 rates with explicit reasons; they are not observed zeroes. Exact structural
 attempt measures retain the importer's coverage limits.
 
-Comparison candidates bind imported origin and producer-profile digest to their
-indexed manifest and observation set. A declared harness difference cannot
-waive task, fixture, budget, tool policy or evidence-origin gates. No complete
-attempt measure has a registered cross-origin invariance gate yet. The paired
-Pi fixtures validate selected-source mappings and do not authorize cross-origin
-attempt comparisons. Two imported instruments also require the same explicit
-producer profile.
+Comparison candidates bind imported origin to their indexed manifest and
+observation set. Admission overlay digests remain audit metadata rather than
+comparison eligibility keys. Complete-attempt measures require complete-attempt
+evidence; imported document counts do not establish that population. Task,
+fixture, budget and tool-policy requirements remain independent. Mixed retained
+harness versions are labelled as a comparison caveat, and exact replicate
+selection retains exact version matching.
 
 Atlas exposes an origin facet and an imported-evidence label with source format
 and producer digest. Its existing capture-qualification column carries

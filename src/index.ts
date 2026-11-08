@@ -682,6 +682,9 @@ export * from "./atif-profiles.js";
 
 export * from "./atif-import.js";
 export * from "./atif-pi.js";
+export * from "./atif-core.js";
+export * from "./atif-normalizer.js";
+export * from "./atif-overlays.js";
 export type { ImportedNativeEvidence, RetainedNormalizationInput } from "./uniform-events.js";
 export { describeImportedDataset } from "./normalization-integrity.js";
 export type { OutcomeEvidenceInput, ImportedOutcomeRecord } from "./outcome-evidence.js";
@@ -719,4 +722,4 @@ export { loadRetainedAnalysisV2 } from "./analysis-v2-cli.js";
 export { prepareMigrationTargetV2 } from "./migration-targets-v2.js";
 export { ratingAnswerSchemaV2, semanticJudgeAnswerSchemaV2 } from "./model-contracts-v2.js";
 
-export { listAdditionalAtifProfilesV2, listAtifProfilesV2, selectAdditionalAtifProfileV2, HLB_TRAJECTORIES_REVISION, type AdditionalAtifProfileV2 } from "./atif-producers-v2.js";
+export { listAdditionalAtifProfilesV2, listAtifProfilesV2, selectAdditionalAtifProfileV2, type AdditionalAtifProfileV2 } from "./atif-producers-v2.js";

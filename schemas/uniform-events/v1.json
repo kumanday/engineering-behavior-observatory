@@ -243,6 +243,7 @@
       "properties": {
         "schemaVersion": { "const": "ebo.adapter-capability-profile/v1" },
         "adapterId": { "$ref": "#/$defs/identifier" },
+        "limitations": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
         "harness": { "$ref": "#/$defs/identifier" },
         "nativeTypes": {
           "type": "array",

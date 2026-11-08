@@ -9,6 +9,7 @@ on:
       - 'compatibility/**'
       - 'scripts/atif-*'
       - 'scripts/convert-atif-producer-fixtures.py'
+      - 'scripts/check-atif-harness-fixtures.py'
       - 'scripts/atif-import-pilot/**'
       - 'scripts/compatibility/**'
       - 'scripts/freeze-native-baseline.mjs'
@@ -49,6 +50,12 @@ jobs:
           .atif-venv/bin/python -m pip check
         env:
           GIT_LFS_SKIP_SMUDGE: '1'
+      - name: Prepare independent Harbor 0.25 fixture lane
+        run: |
+          .atif-venv/bin/python -m venv .atif-025-venv
+          .atif-025-venv/bin/python -m pip install --no-deps --require-hashes -r scripts/atif-import-pilot/requirements-harbor-025.lock.txt
+          .atif-venv/bin/python -c "import pathlib,site; target=next(pathlib.Path('.atif-025-venv/lib').glob('python*/site-packages')); (target/'atif-ci-dependencies.pth').write_text(site.getsitepackages()[0]+'\\n')"
+          .atif-025-venv/bin/python scripts/check-atif-harness-fixtures.py test/fixtures/atif/harnesses
       - name: Check independent producer conversions and retained media
         run: |
           .atif-venv/bin/python scripts/convert-pi-fixtures.py test/fixtures/atif/pi --check
@@ -59,6 +66,8 @@ jobs:
           node --test --test-concurrency=4 \
             dist/test/atif-*.test.js \
             dist/test/retained-versions.test.js \
+            dist/test/retained-version-policy.test.js \
+            dist/test/retained-comparison-version.test.js \
             dist/test/occurrences.test.js \
             dist/test/evidence-pointers.test.js \
             dist/test/import-origins.test.js \
@@ -74,4 +83,5 @@ jobs:
         env:
           EBO_ATIF_TEST_PYTHON: '${{ github.workspace }}/.atif-venv/bin/python'
           EBO_LEADERBOARD_TEST_PYTHON: '${{ github.workspace }}/.atif-venv/bin/python'
+          EBO_ATIF_NEXT_PYTHON: '${{ github.workspace }}/.atif-025-venv/bin/python'
       # Private study bundles and optional live capture checks remain local gates.

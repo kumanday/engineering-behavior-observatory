@@ -155,6 +155,7 @@ export type CaptureQualificationReasonCode =
   | "HOOK_RECORDS_MISSING"
   | "HOOK_CAPABILITY_NOT_CHECKED"
   | "HOOK_CAPABILITY_VERSION_MISMATCH"
+  | "HARNESS_VERSION_UNVERIFIED"
   | "HOOK_SUPPORTED_BUT_MISSING"
   | "HOOK_UNSUPPORTED_BY_PINNED_SDK"
   | "HOOK_CAPABILITY_CONTRADICTION"
@@ -961,9 +962,15 @@ function qualifyHooks(
   }
   const runtimeVersion = manifest.run.runtime.find((component) => component.name === "agent-sdk")?.version;
   if (runtimeVersion !== capabilities.sdkVersion) {
-    addQualificationReason(report, "hooks", "unqualified", "HOOK_CAPABILITY_VERSION_MISMATCH", undefined, `Retained Agent SDK ${String(runtimeVersion)} does not match capability profile ${capabilities.sdkVersion}.`);
+    addQualificationReason(report, "hooks", "gap", "HARNESS_VERSION_UNVERIFIED", undefined, `Retained Agent SDK ${String(runtimeVersion)} does not match capability profile ${capabilities.sdkVersion}.`);
   }
   const observed = new Set(hooks.flatMap(({ hookNames }) => hookNames ?? []));
+  if (runtimeVersion !== capabilities.sdkVersion) {
+    for (const hook of options.expectedHooks ?? []) if (!observed.has(hook)) {
+      addQualificationReason(report, "hooks", "gap", "HOOK_SUPPORTED_BUT_MISSING", undefined, `Expected hook ${hook} was not retained; runtime capabilities are unverified.`);
+    }
+    return;
+  }
   const supported = new Set(Object.keys(capabilities.hooks));
   const unsupported = new Set(capabilities.unsupportedHooks);
   for (const hook of options.expectedHooks ?? []) {

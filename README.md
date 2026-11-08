@@ -80,6 +80,12 @@ Icons identify the upstream projects or publishers. Support is **capability-spec
 not every harness exposes the same hooks, histories, or telemetry.
 [Choose a harness](docs/harnesses/README.md) for prerequisites and limitations.
 
+EBO also [imports ATIF](docs/reference/atif.md) from any conforming producer for
+document-scoped analysis, cited evaluation and Atlas. Producer overlays are
+optional; the [coverage matrix](docs/reference/atif-harness-coverage.md) explains
+upstream converters and measured fidelity. Retained native evidence stays
+readable across unfamiliar harness versions with explicit confidence limits.
+
 ## Quickstart
 
 Use a source checkout for the bundled no-credentials demo. Node is pinned in

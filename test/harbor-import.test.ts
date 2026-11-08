@@ -214,14 +214,14 @@ test("Harbor readback binds capture, execution, assessment and retained raw cont
   } finally { temp.cleanup(); }
 });
 
-test("Harbor imports reject incompatible ATIF and trial agent identities", { skip: !python }, async () => {
+test("Harbor imports retain conflicting ATIF and trial version annotations", { skip: !python }, async () => {
   const temp = temporary();
   try {
     const source = fixture(temp.root); source.result.agent_info.version = "9.0.0";
     const trajectoryPath = join(source.directory, "agent/trajectory.json");
     const trajectory = JSON.parse(readFileSync(trajectoryPath, "utf8")); trajectory.agent.version = "1.2.0";
     writeFileSync(trajectoryPath, JSON.stringify(trajectory)); save(source.directory, source.result);
-    assert.ok((await inspect(source.directory)).inspection.diagnostics.includes("ATIF_TRIAL_AGENT_CONFLICT"));
+    assert.ok((await inspect(source.directory)).inspection.diagnostics.includes("ATIF_TRIAL_AGENT_VERSION_UNVERIFIED"));
   } finally { temp.cleanup(); }
 });
 
@@ -412,5 +412,18 @@ test("Harbor CLI exit status distinguishes rejected admission from eligible cont
     assert.equal(inspected.code, 0); assert.equal(inspected.receipt.status, "eligible");
     const rejected = await invoke("import-harbor");
     assert.equal(rejected.receipt.status, "inspect-only"); assert.equal(rejected.code, 1);
+  } finally { temp.cleanup(); }
+});
+
+test("Harbor admission reads an unfamiliar ATIF producer without an overlay selection", { skip: !python }, async () => {
+  const temp = temporary();
+  try {
+    const source = fixture(temp.root);
+    const path = join(source.directory, "agent/trajectory.json"), document = JSON.parse(readFileSync(path, "utf8"));
+    document.agent = { ...document.agent, name: "acme-agent", version: "9.9.9" };
+    source.result.agent_info.name = "acme-agent"; source.result.agent_info.version = "9.9.9";
+    save(source.directory, source.result);writeFileSync(path, JSON.stringify(document));
+    let output = "";
+    assert.equal(await main(["atif", "import-harbor", source.directory, join(temp.root, "generic-store"), "--namespace", "generic-source", "--python", python!], (value) => { output += value; }), 0, output);
   } finally { temp.cleanup(); }
 });

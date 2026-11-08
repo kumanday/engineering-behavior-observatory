@@ -1,3 +1,4 @@
+import { documentProducer } from "./atif-overlays.js";
 import { validateHarborTrialBytes, type HarborTrialValidation } from "./harbor-record-reader.js";
 import { linkSync, lstatSync, mkdirSync, mkdtempSync, opendirSync, readFileSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -114,8 +115,8 @@ export async function inspectHarborTrial(options: { directory: string; namespace
     try {
       const trajectory = parseObject(files.get("agent/trajectory.json")!);
       const sourceAgent = object(trajectory.agent);
-      if (sourceAgent.name !== info.name || text(sourceAgent.version) === undefined
-          || sourceAgent.version !== "unknown" && info.version !== "unknown" && sourceAgent.version !== info.version) return stop("ATIF_TRIAL_AGENT_CONFLICT");
+      if (sourceAgent.name !== info.name) return stop("ATIF_TRIAL_AGENT_CONFLICT");
+      if (text(sourceAgent.version) === undefined || sourceAgent.version !== "unknown" && info.version !== "unknown" && sourceAgent.version !== info.version) inspection.diagnostics.push("ATIF_TRIAL_AGENT_VERSION_UNVERIFIED");
     } catch { return stop("ATIF_HEADER_INVALID"); }
     inspection.captureRevision = hash({ execution: inspection.execution.id, agentFiles: agentFiles(files), trajectory: rawHash(files.get("agent/trajectory.json")!) });
     const rewards = object(object(result.verifier_result).rewards);
@@ -134,7 +135,7 @@ export async function inspectHarborTrial(options: { directory: string; namespace
 }
 
 /** Immutable source snapshots, execution identities, capture revisions and assessments occupy separate records. */
-export async function importHarborTrial(options: { directory: string; store: string; namespace: string; producer: AtifProducerFingerprint;
+export async function importHarborTrial(options: { directory: string; store: string; namespace: string; producer?: AtifProducerFingerprint;
   originals?: readonly HarborOriginalBinding[]; pythonExecutable?: string; additionalModelAliases?: readonly string[] }) {
   const source = await inspectHarborTrial(options);
   const store = resolve(options.store);
@@ -162,7 +163,8 @@ export async function importHarborTrial(options: { directory: string; store: str
   if (modelAliases.length > 256) throw new Error("Harbor model alias context exceeds its limits.");
   const extraAliases = modelAliases.filter((value) => !execution.modelAliases.includes(value));
   const blindingContext = extraAliases.length ? { authority: "operator-declared" as const, modelAliases: extraAliases } : undefined;
-  const revision = hash({ source: source.inspection.captureRevision, producer: options.producer, ...(blindingContext === undefined ? {} : { blindingContext }) });
+  const producer = documentProducer(parseObject(source.files.get("agent/trajectory.json")!), options.producer);
+  const revision = hash({ source: source.inspection.captureRevision, producer, ...(blindingContext === undefined ? {} : { blindingContext }) });
   const destination = join(store, "captures", revision.slice(7));
   assertNoStoreLinks(store, `captures/${revision.slice(7)}`);
   mkdirSync(join(store, "captures"), { recursive: true, mode: 0o700 });
@@ -177,7 +179,7 @@ export async function importHarborTrial(options: { directory: string; store: str
   let imported;
   try {
     imported = await importAtifFile({ sourcePath: join(snapshot, "agent/trajectory.json"), destination: pending === undefined ? destination : join(pending, "bundle"),
-      runId: execution.runId, attemptId: execution.attemptId, producer: options.producer, pythonExecutable: options.pythonExecutable, modelAliases });
+      runId: execution.runId, attemptId: execution.attemptId, producer, pythonExecutable: options.pythonExecutable, modelAliases });
     if (pending !== undefined) { renameSync(join(pending, "bundle"), destination); rmdirSync(pending); }
   } catch (error) {
     if (error instanceof AtifAdmissionError) return { status: "inspect-only" as const, inspection: source.inspection, snapshot,

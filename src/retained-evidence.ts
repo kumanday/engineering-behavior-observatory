@@ -1,16 +1,18 @@
+import { markRetainedVersion, retainedVersionProfile } from "./retained-version-policy.js";
+import { probeClaudeAgentSdkCapabilities } from "./agent-sdk.js";
 import type { OutcomeEvidenceInput } from "./outcome-evidence.js";
 import { isAtifImportSchema, readImportedBehaviorEvidence } from "./atif-import.js";
 import { digestMetadata } from "./artifacts.js";
 import { factoryModelSelection } from "./factory-model.js";
-import { FACTORY_HARNESS, RETAINED_FACTORY_ADAPTER_VERSIONS, RETAINED_FACTORY_SDK_VERSIONS, qualifyFactoryCapture, describeAndValidateFactoryDataset } from "./factory-droid.js";
+import { FACTORY_HARNESS, RETAINED_FACTORY_CLI_VERSIONS, RETAINED_FACTORY_ADAPTER_VERSIONS, RETAINED_FACTORY_SDK_VERSIONS, qualifyFactoryCapture, describeAndValidateFactoryDataset } from "./factory-droid.js";
 import { join } from "node:path";
 import { CLAUDE_AGENT_SDK_HARNESS, readQualifiedRunCapture, createAgentSdkNativeEvidenceResolver } from "./agent-sdk-normalizer.js";
 import { createAgentSdkBehaviorEvidence } from "./behavior-assertions.js";
-import { describeAndValidateCodexDataset, CODEX_HARNESS } from "./codex.js";
+import { describeAndValidateCodexDataset, CODEX_HARNESS, RETAINED_CODEX_APP_SERVER_VERSIONS } from "./codex.js";
 import { describeAndValidateDevinDataset, DEVIN_HARNESS, qualifyRetainedDevinCapture, RETAINED_DEVIN_CLI_VERSIONS } from "./devin.js";
-import { normalizeOpenHandsCapture, openHandsCapabilityProfile, type OpenHandsNativeRecord } from "./openhands.js";
+import { normalizeOpenHandsCapture, openHandsCapabilityProfile, RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS, type OpenHandsNativeRecord } from "./openhands.js";
 import { createDeepSeekHarnessAdapter, DEEPSEEK_HARNESS_ID, RETAINED_DEEPSEEK_SDK_VERSIONS, normalizeDeepSeekCapture, qualifyRetainedDeepSeekCapture, type DeepSeekNativeObservation } from "./deepseek-adapter.js";
-import { createCursorSdkBehaviorEvidence, CURSOR_SDK_HARNESS } from "./cursor-sdk.js";
+import { createCursorSdkBehaviorEvidence, CURSOR_SDK_HARNESS, RETAINED_CURSOR_SDK_VERSIONS } from "./cursor-sdk.js";
 import { createCapturedNativeEvidenceResolver, describeNormalizedDataset, validateNormalizedDataset, type AdapterCoverageReport, type NormalizedDataset } from "./normalization-integrity.js";
 import { readBoundedFile } from "./scheduler.js";
 import { assertProtocolObservation, type ProtocolObservation } from "./process-protocol.js";
@@ -33,6 +35,7 @@ export type RetainedBehaviorEvidence = {
   capture: RetainedNormalizationInput<unknown>;
   /** Known source model and route aliases, used together for evaluator blinding. */
   modelAliases?: readonly string[];
+  overlayAdjustments?: readonly import("./atif-overlays.js").AtifInterpretationAdjustment[];
   interpretationRevision?: { changed: boolean; admitted: unknown; current: unknown };
   /** Verified bundle metadata for outcome import; never replaces native session records. */
   outcomeCapture: OutcomeEvidenceInput;
@@ -42,6 +45,37 @@ export type RetainedBehaviorEvidence = {
 };
 
 export async function createRetainedBehaviorEvidence(bundleRoot: string): Promise<RetainedBehaviorEvidence> {
+  const evidence = await readRetainedBehaviorEvidence(bundleRoot);
+  if (evidence.capture.qualification === "imported") return evidence;
+  const manifest = JSON.parse(readBoundedFile(join(bundleRoot, "manifest.json"), "Run manifest").toString("utf8")) as RunManifest;
+  const harness = manifest.run.harness.id;
+  const verified: Record<string, readonly string[]> = {
+    [CLAUDE_AGENT_SDK_HARNESS]: [probeClaudeAgentSdkCapabilities().sdkVersion],
+    "agent-sdk": [probeClaudeAgentSdkCapabilities().sdkVersion],
+    [CODEX_HARNESS]: RETAINED_CODEX_APP_SERVER_VERSIONS,
+    [DEVIN_HARNESS]: RETAINED_DEVIN_CLI_VERSIONS,
+    [PI_HARNESS]: RETAINED_PI_SDK_VERSIONS,
+    [FACTORY_HARNESS]: RETAINED_FACTORY_CLI_VERSIONS,
+    [CURSOR_SDK_HARNESS]: RETAINED_CURSOR_SDK_VERSIONS,
+    "openhands-agent-server": RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS,
+    [DEEPSEEK_HARNESS_ID]: RETAINED_DEEPSEEK_SDK_VERSIONS,
+  };
+  let profile = retainedVersionProfile(evidence.dataset.capabilityProfile, verified[harness] ?? [], manifest.run.harness.version);
+  const components = harness === PI_HARNESS ? [["pi-sdk-adapter", RETAINED_PI_ADAPTER_VERSIONS]] as const
+    : harness === FACTORY_HARNESS ? [["factory-adapter", RETAINED_FACTORY_ADAPTER_VERSIONS], ["@factory/droid-sdk", RETAINED_FACTORY_SDK_VERSIONS]] as const : [];
+  for (const [name, versions] of components) for (const runtime of manifest.run.runtime.filter((runtime) => runtime.name === name)) {
+    profile = retainedVersionProfile(profile, versions, runtime.version);
+  }
+  const componentVersions = manifest.run.runtime.filter(({ name, source }) => name === harness || source === harness
+    || [CLAUDE_AGENT_SDK_HARNESS, "agent-sdk"].includes(harness) && [CLAUDE_AGENT_SDK_HARNESS, "agent-sdk"].includes(name)).map(({ version }) => version);
+  const confidence = markRetainedVersion(evidence.capture, manifest.run.harness.version, verified[harness] ?? [], componentVersions);
+  if (confidence.sourceLimitations?.length) profile = { ...profile, limitations: [...new Set([...(profile.limitations ?? []), ...confidence.sourceLimitations])] };
+  if (profile === evidence.dataset.capabilityProfile) return evidence;
+  const dataset = { ...evidence.dataset, capabilityProfile: profile };
+  return { ...evidence, dataset, coverage: await validateNormalizedDataset(dataset, evidence.resolver) };
+}
+
+async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<RetainedBehaviorEvidence> {
   const manifest = JSON.parse(readBoundedFile(join(bundleRoot, "manifest.json"), "Run manifest").toString("utf8")) as RunManifest;
   if (isAtifImportSchema((manifest as unknown as { schemaVersion: string }).schemaVersion)) return readImportedBehaviorEvidence(bundleRoot);
   const harness = manifest.run.harness.id;
@@ -56,15 +90,6 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
     throw new Error(`Unsupported retained harness ${harness}; refusing Agent SDK fallback normalization.`);
   }
   if (harness === "openhands-agent-server") openHandsCapabilityProfile(manifest.run.harness.version);
-  if (harness === DEEPSEEK_HARNESS_ID && !RETAINED_DEEPSEEK_SDK_VERSIONS.includes(manifest.run.harness.version)) {
-    throw new Error(`Unsupported retained DeepSeek runtime ${manifest.run.harness.version}.`);
-  }
-  if (harness === DEVIN_HARNESS && !RETAINED_DEVIN_CLI_VERSIONS.includes(manifest.run.harness.version)) {
-    throw new Error(`Unsupported retained Devin runtime ${manifest.run.harness.version}.`);
-  }
-  if (harness === PI_HARNESS && !RETAINED_PI_SDK_VERSIONS.includes(manifest.run.harness.version)) {
-    throw new Error(`Unsupported retained Pi runtime ${manifest.run.harness.version}.`);
-  }
   if (harness === PI_HARNESS) {
     const expected = new Map([
       ["pi-coding-agent", { source: "earendil-works", version: manifest.run.harness.version }],
@@ -72,19 +97,19 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
     ]);
     for (const [name, identity] of expected) {
       const matches = manifest.run.runtime.filter((runtime) => runtime.name === name);
-      if (matches.length !== 1 || matches[0]!.source !== identity.source || matches[0]!.version !== identity.version) {
+      if (matches.length !== 1 || matches[0]!.source !== identity.source) {
         throw new Error(`Retained Pi runtime identity ${name} differs from the pinned adapter manifest.`);
       }
     }
     const adapters = manifest.run.runtime.filter(({ name }) => name === "pi-sdk-adapter");
-    if (adapters.length !== 1 || adapters[0]!.source !== "EBO" || !RETAINED_PI_ADAPTER_VERSIONS.includes(adapters[0]!.version)) {
+    if (adapters.length !== 1 || adapters[0]!.source !== "EBO") {
       throw new Error("Retained Pi runtime identity pi-sdk-adapter differs from the supported capture adapter manifest.");
     }
   }
   const outcomeCapture = await readQualifiedRunCapture(bundleRoot);
   // A verifier task failure also presupposes a normally completed native run.
   const expectsCompletion = manifest.terminal.state === "completed" || manifest.terminal.failureClass === "task";
-  const capture = {
+  let capture: NormalizationInput<unknown> = {
     ...outcomeCapture,
     records: outcomeCapture.records.filter(({ record }) => record.kind === "session")
       .map(({ reference, record }) => {
@@ -105,9 +130,7 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
       return value.channel === "adapter" && value.nativeType === "session_created";
     }).map(({ record }) => record as { payload?: { sdk?: { version?: unknown } } });
     if (compositions.length !== 1) throw new Error(`Retained Pi capture has ${String(compositions.length)} native composition records; expected exactly one.`);
-    if (compositions[0]!.payload?.sdk?.version !== manifest.run.harness.version) {
-      throw new Error("Retained Pi native composition version differs from the run manifest.");
-    }
+    capture = markRetainedVersion(capture, manifest.run.harness.version, RETAINED_PI_SDK_VERSIONS, [compositions[0]!.payload?.sdk?.version]);
     const native = qualifyRetainedPiCapture(capture as NormalizationInput<PiNativeRecord>, manifest.run.native?.sessionId, expectsCompletion);
     capture.qualification = native.qualification;
     outcomeCapture.qualification = native.qualification;
@@ -119,18 +142,16 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
       nativeType: piNativeType,
     });
   } else if (harness === CODEX_HARNESS) {
-    const native = capture as NormalizationInput<ProtocolObservation> & { threadId?: string; turnId?: string };
+    let native = capture as NormalizationInput<ProtocolObservation> & { threadId?: string; turnId?: string };
     const handshakeVersions = native.records.filter(({ record }) => record.kind === "response" && record.source === CODEX_HARNESS && record.method === "initialize")
       .map(({ record }) => String((record.payload as Record<string, unknown> | undefined)?.userAgent ?? "").match(/^[^\s/]+\/([^\s]+)/u)?.[1]);
     const telemetryVersions = outcomeCapture.records.flatMap(({ record }) => {
       const document = record.document as Record<string, any> | undefined;
       return document?.schemaVersion === "ebo.codex-telemetry/v1" ? [document.runtime?.version] : [];
     });
-    if (handshakeVersions.length === 0 || [...handshakeVersions, ...telemetryVersions,
-      ...manifest.run.runtime.filter(({ name }) => name === CODEX_HARNESS).map(({ version }) => version),
-    ].some((version) => version !== manifest.run.harness.version)) {
-      throw new Error("Retained Codex native runtime version differs from the run manifest.");
-    }
+    native = markRetainedVersion(native, manifest.run.harness.version, RETAINED_CODEX_APP_SERVER_VERSIONS, [...handshakeVersions, ...telemetryVersions,
+      ...manifest.run.runtime.filter(({ name }) => name === CODEX_HARNESS).map(({ version }) => version)]);
+    capture = native;
     let acceptedStartSequence = 0;
     const identities = (method: string, key: "thread" | "turn"): string | undefined => {
       const accepted = native.records.filter(({ record }) => {
@@ -172,27 +193,28 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
     const expected = new Map([[FACTORY_HARNESS, { source: "Factory", version: manifest.run.harness.version }]]);
     for (const [name, identity] of expected) {
       const matches = manifest.run.runtime.filter((runtime) => runtime.name === name);
-      if (matches.length !== 1 || matches[0]!.source !== identity.source || matches[0]!.version !== identity.version) {
+      if (matches.length !== 1 || matches[0]!.source !== identity.source) {
         throw new Error(`Retained Factory runtime identity ${name} differs from the manifest.`);
       }
     }
     const adapters = manifest.run.runtime.filter(({ name }) => name === "factory-adapter");
     const sdks = manifest.run.runtime.filter(({ name }) => name === "@factory/droid-sdk");
-    if (adapters.length !== 1 || adapters[0]!.source !== "EBO" || !RETAINED_FACTORY_ADAPTER_VERSIONS.includes(adapters[0]!.version)
-      || sdks.length !== 1 || sdks[0]!.source !== "Factory" || !RETAINED_FACTORY_SDK_VERSIONS.includes(sdks[0]!.version)) {
-      throw new Error("Retained Factory capture adapter or SDK version is unsupported or ambiguous.");
+    if (adapters.length !== 1 || adapters[0]!.source !== "EBO"
+      || sdks.length !== 1 || sdks[0]!.source !== "Factory") {
+      throw new Error("Retained Factory runtime composition requires one EBO adapter and one Factory SDK identity.");
     }
     const captureAdapterVersion = adapters[0]!.version;
     const captureSdkVersion = sdks[0]!.version;
     const runtimeDocuments = outcomeCapture.records.filter(({ record }) => record.kind === "telemetry")
       .map(({ record }) => record.document as Record<string, any> | undefined);
     const runtime = runtimeDocuments[0]?.runtime;
-    if (runtimeDocuments.length !== 1 || runtimeDocuments[0]?.schemaVersion !== "ebo.factory-runtime/v1"
-      || runtime?.version !== manifest.run.harness.version || runtime?.sdkVersion !== captureSdkVersion
-      || runtime?.adapterVersion !== captureAdapterVersion) throw new Error("Retained Factory runtime document differs from the manifest.");
+    if (runtimeDocuments.length !== 1 || runtimeDocuments[0]?.schemaVersion !== "ebo.factory-runtime/v1" || !runtime || typeof runtime !== "object") throw new Error("Retained Factory runtime document has an invalid capture format.");
+    capture = markRetainedVersion(capture, manifest.run.harness.version, RETAINED_FACTORY_CLI_VERSIONS, [runtime.version]);
+    capture = markRetainedVersion(capture, captureSdkVersion, RETAINED_FACTORY_SDK_VERSIONS, [runtime.sdkVersion]);
+    capture = markRetainedVersion(capture, captureAdapterVersion, RETAINED_FACTORY_ADAPTER_VERSIONS, [runtime.adapterVersion]);
     if (runtimeDocuments[0]?.effectiveConfiguration?.model !== manifest.run.model.id) throw new Error("Retained Factory model differs from the run manifest.");
     const native = qualifyFactoryCapture(capture as NormalizationInput<ProtocolObservation>, {
-      sessionId: manifest.run.native?.sessionId, expectsCompletion, cliVersion: manifest.run.harness.version, sdkVersion: runtime.sdkVersion,
+      sessionId: manifest.run.native?.sessionId, expectsCompletion, cliVersion: manifest.run.harness.version, sdkVersion: captureSdkVersion,
       adapterVersion: captureAdapterVersion,
     });
     const initialization = native.records.find(({ record }) => record.source === "ebo-factory-client" && record.method === "droid.initialize_session")?.record;
@@ -207,8 +229,8 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
     if (selection.route.kind === "byok" && (effective.customModelSource !== "attempt-settings-override"
       || composition?.customModelSource !== "attempt-settings-override")) throw new Error("Retained Factory BYOK route lacks an attempt-owned settings override.");
     if (effective.modelSelection !== undefined && digestMetadata(composition?.modelSelection ?? null).value !== digestMetadata(selection).value) throw new Error("Retained Factory route differs from recorded composition.");
-    if (composition?.binaryDigest !== runtime.binaryDigest || composition?.protocolVersion !== runtime.protocolVersion) {
-      throw new Error("Retained Factory runtime digest or protocol differs from native composition.");
+    if (composition?.binaryDigest !== runtime.binaryDigest) {
+      throw new Error("Retained Factory runtime digest differs from native composition.");
     }
     dataset = (await describeAndValidateFactoryDataset(native)).dataset;
   } else if (harness === DEVIN_HARNESS) {
@@ -218,9 +240,7 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
       throw new Error("Retained Devin capture requires exactly one recognized ebo.devin-telemetry/v1 runtime document.");
     }
     const telemetryVersion = telemetryDocuments[0].runtime?.version;
-    if (typeof telemetryVersion !== "string") throw new Error("Retained Devin runtime document lacks a native runtime version.");
     const runtimeVersions = manifest.run.runtime.filter(({ name }) => name === DEVIN_HARNESS).map(({ version }) => version);
-    if (runtimeVersions.length !== 1) throw new Error("Retained Devin runtime identity devin-cli differs from the pinned adapter manifest.");
     const native = qualifyRetainedDevinCapture(capture as NormalizationInput<ProtocolObservation>, {
       sessionId: manifest.run.native?.sessionId,
       expectsCompletion,
@@ -234,9 +254,7 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
     const serverInfo = native.records.filter(({ record }) => record.channel === "server-info");
     if (serverInfo.length !== 1) throw new Error("Retained OpenHands capture requires exactly one native server-info record.");
     for (const { record } of native.records) {
-      if (record.channel === "server-info" && record.payload.version !== manifest.run.harness.version) {
-        throw new Error("Retained OpenHands native server version differs from the run manifest.");
-      }
+      if (record.channel === "server-info") capture = markRetainedVersion(capture, manifest.run.harness.version, RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS, [record.payload.version]);
       if (record.session_id !== undefined && record.session_id !== sessionId
         || ["conversation-created", "websocket-status", "websocket-event", "rest-event", "conversation-final"].includes(record.channel)
           && (sessionId === undefined || record.session_id !== sessionId)
@@ -248,7 +266,7 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
     if (expectsCompletion && (finals.length !== 1 || finals[0]!.record.payload.execution_status !== "finished")) {
       throw new Error("Completed retained OpenHands capture lacks owned finished conversation evidence.");
     }
-    dataset = describeNormalizedDataset({ capture: native, normalization: await normalizeOpenHandsCapture(native),
+    dataset = describeNormalizedDataset({ capture: { ...native, sourceLimitations: capture.sourceLimitations }, normalization: await normalizeOpenHandsCapture({ ...native, sourceLimitations: capture.sourceLimitations }),
       capabilityProfile: openHandsCapabilityProfile(manifest.run.harness.version), adapterVersion: manifest.run.harness.version,
       nativeType: (record) => typeof record.payload.kind === "string" ? record.payload.kind : record.channel });
   } else {

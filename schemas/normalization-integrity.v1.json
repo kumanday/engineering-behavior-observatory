@@ -234,7 +234,7 @@
       "required": ["code", "dimension", "detail"],
       "properties": {
         "code": {
-          "enum": ["evidence-origin-mismatch", "producer-profile-mismatch", "task-mismatch", "fixture-mismatch", "material-configuration-mismatch", "undeclared-model-difference", "declared-model-difference", "undeclared-harness-difference", "declared-harness-difference", "capability-unsupported", "capability-partial"]
+          "enum": ["evidence-origin-mismatch", "producer-profile-mismatch", "capture-completeness-unproven", "mixed-harness-versions", "task-mismatch", "fixture-mismatch", "material-configuration-mismatch", "undeclared-model-difference", "declared-model-difference", "undeclared-harness-difference", "declared-harness-difference", "capability-unsupported", "capability-partial"]
         },
         "dimension": { "$ref": "#/$defs/identifier" },
         "detail": { "type": "string", "minLength": 1, "maxLength": 1024 }

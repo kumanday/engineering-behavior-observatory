@@ -1,3 +1,4 @@
+import { isAtifImportSchema } from "./atif-import.js";
 import { createHash } from "node:crypto";
 import { canonicalizeMetadata, digestBytes } from "./artifacts.js";
 import { readEvidencePointer } from "./evidence-pointers.js";
@@ -74,7 +75,7 @@ export class NativeLines {
   constructor(private bundleRoot: string, private displayRoot: string) {
     const manifest = JSON.parse(readFileSync(join(bundleRoot, "manifest.json"), "utf8")) as { schemaVersion?: string; source?: { artifactId: string; path: string; digest: string; bytes: number }; evidence?: Array<{ id: string; relativePath?: string }> };
     for (const e of manifest.evidence ?? []) if (e.relativePath) this.files.set(e.id, e.relativePath);
-    if (manifest.schemaVersion === "ebo.import-manifest/v1") {
+    if (isAtifImportSchema(manifest.schemaVersion)) {
       if (manifest.source?.path !== "trajectory.json" || manifest.source.artifactId !== "atif-trajectory") throw new Error("Unsupported imported source descriptor.");
       this.imported = true; this.importedSource = manifest.source;
       this.files.set(manifest.source.artifactId, manifest.source.path);

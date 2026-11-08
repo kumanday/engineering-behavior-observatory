@@ -55,8 +55,7 @@
       "additionalProperties": false,
       "required": [
         "factId",
-        "directory",
-        "profileId"
+        "directory"
       ],
       "properties": {
         "factId": {

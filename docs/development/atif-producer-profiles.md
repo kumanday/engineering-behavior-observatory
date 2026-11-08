@@ -1,122 +1,64 @@
-# ATIF producer profiles
+# ATIF interpretation
 
-The closed registry in `src/atif-profiles.ts` separates schema conformance from
-producer semantics. A profile key includes the ATIF version, agent version,
-converter package version and source digest, and any source-context revision
-and wrapper digest. Unknown fields remain explicit; an agent name alone never
-selects a profile. Pi profiles are `ebo.atif-producer-profile/v1` artifacts and can
-be checked with `ebo validate`. Additional v2 profile metadata is consumed by
-the typed projection registry described below.
+ATIF core projection is producer-agnostic. It maps standard fields according to
+`schema_version`, retains extensions and supplies the same EBO analytical
+contracts as native projections. Producers outside EBO's eight maintained native
+harnesses use this generic path. Reading, visualization and document-scoped
+measurements require no overlay.
 
-The initial profiles cover Harbor 0.24.0's Pi converter with its explicit
-`unknown` agent version, and the pilot Harness Leaderboard HFPi wrapper at
-revision `0583ba55ac8ddaea3464c85b54828baeaa8d834a` with Pi 1.2.0. The pinned
-wrapper inherits trajectory conversion from Pi; its lock pins Harbor 0.24.0.
-Each profile retains source links and source-file digests.
+## Optional overlays
 
-The rules identify document-scoped native tool-call IDs, Pi's result error
-field, inclusive prompt accounting with cache reads and writes, active-branch
-selection, copied-context exclusion and source-declared inference counts.
-They keep native request identities unavailable. A registered profile grants a
-mapping vocabulary; document coverage, usage reconciliation and import
-admission determine which measurements are eligible. Imported evidence retains
-its source class and never acquires native capture qualification from a profile.
+Only Pi and Codex have dedicated overlays. Matching uses rules over the document's
+`agent.name` and version plus optional operator-declared converter ID and version.
+Source digests and wrapper revisions are audit context, not matching keys. Each
+overlay records its ID, version, implementation digest and verified ranges.
 
-Converter upgrades require a new fingerprint, fixture comparisons and review.
-An unregistered fingerprint remains structurally inspectable without receiving
-behavioral mapping rules. The registry accepts no runtime plugins or arbitrary
-profile registration.
+| Overlay | Verified agent range | Converter ID and range | Measured interpretation |
+| --- | --- | --- | --- |
+| `ebo.pi-harbor` | `>=0.85.0 <2.0.0` | `harbor.agents.installed.pi.Pi`, `>=0.24.0 <0.26.0` | Positive `is_error` extension flags; context-management extensions; inclusive prompt/cache reconciliation. False error flags and zero-filled usage do not prove success or component completeness. Active-branch conversion can omit other history. |
+| `ebo.codex-harbor` | `>=0.162.0 <0.163.0` | `harbor.agents.installed.codex.Codex`, `>=0.24.0 <0.26.0` | Original argument representations and converter inference groups. Converted output order and clocks have limited authority; unanswered calls can be omitted and orphan-call/result slots can be synthesized by conversion. |
 
-## Public conformance checks
+A matching overlay outside its verified ranges supplies conservative limitations
+and marks the version unverified. It preserves the core projection and recorded
+counts. A missing converter declaration uses core alone. Adjustments identify
+the affected subject, reason, source pointers, prior value and interpreted value.
+Standard declared counts remain visible separately from converter-specific
+interpretations. [Limitation definitions](../reference/atif-limitations.md) own
+the meaning of each code.
 
-The ATIF import conformance workflow runs the independent Pi converter, retained
-media checks, reader/profile gates and imported-consumer regressions on authored
-fixtures. Its production Python dependencies are pinned separately in
-`scripts/atif-import-pilot/requirements-ci.lock.txt`: the board policy and
-exploratory atif-scan tool require different Hugging Face Hub versions. The
-production gate sets both `EBO_ATIF_TEST_PYTHON` and
-`EBO_LEADERBOARD_TEST_PYTHON` so those checks execute instead of skipping.
-Private study readback and optional live captures retain their own gates.
+Codex function arguments use canonical decoded objects when retained raw
+provenance agrees with the converted object. Custom and malformed arguments keep
+their raw representation. Missing provenance qualifies native input equality;
+recorded calls and standard argument content remain inspectable. Converter API
+groups are not native provider request IDs. Folded results have unknown arrival
+order and cannot establish tool execution durations.
 
-## Additional v2 interpretations
+## Evidence and conformance
 
-`src/atif-producers-v2.ts` registers exact fingerprints for these additional
-sources. `listAtifProfilesV2()` and `ebo atif profiles --v2` list their identities.
-The EBO normalization maintainer owns the profiles; each upgrade requires an
-independent converter check and immutable-head code review.
+The [coverage matrix](../reference/atif-harness-coverage.md) is generated from the
+native adapter registry and actual core fixture imports. It distinguishes
+converter availability, source-surface differences, authored examples and real
+same-run evidence. An authored selection derived from a capture demonstrates
+readability; it is not an independent conversion-equivalence result.
 
-| Producer | Pinned source | Interpretation and limits |
-| --- | --- | --- |
-| Codex 0.162.1, ATIF v1.7 | Harbor 0.24.0 Codex converter; HFCodex wrapper at `0583ba55` | Document-scoped converted calls and grouped declared inference. Converted step order can reverse native interleavings, so native precedence stays unknown. Unanswered native calls can be omitted. Converted timestamps remain producer observations; tool execution durations and tool failure status are unavailable. |
-| Hermes v0.22.1, ATIF v1.2 | Harbor 0.24.0 Hermes converter; HFHermes wrapper at `0583ba55` | Tool IDs can be converter-assigned. Ambiguous `raw` argument fallback objects cannot establish identical inputs. Inference counts, tool failure state and component-complete usage stay unknown. The inserted `[tool call]` placeholder produces no assistant-report event. |
-| OpenClaw 2026.10.4, ATIF v1.8 | HLB 0.1.1 `hlb.harbor_ext.trajectories` and HFOpenClaw wrapper at `c4a8c4cb` | Explicit `context_management.type` records real compaction. HLB gap steps record missing history. Positive result `is_error`, including a bodyless primary response, is failure evidence; nested results are observations of their parent, not completed parent endpoints. |
+Real Hermes and OpenClaw trajectories are private generic-producer fixtures,
+with authored public counterparts. OpenClaw includes both a partial zero-call
+history and a positive 65-call/65-result document. Their producer names and
+versions have no dedicated interpretation code. Hermes's missing inference
+count remains unknown; OpenClaw history-marker text remains ordinary content.
 
-Their source-file digests and full revisions are in the closed registry. The
-native authorities are Codex rollout records, Hermes session messages and
-OpenClaw session transcript entries. Public bucket metadata alone does not
-verify the operator's producer declaration. Claude and Kimi imports await
-independent native companions and scope gates.
+Public conformance checks run without a Harbor prerequisite for core reading.
+Pinned independent converter lanes preserve reproducible fixture generation;
+those pins describe test provenance. The optional installed-validator lane
+records whatever Harbor version it uses. Private fixture gates also verify raw
+source digests, supporting artifacts, capture-derived values and same-run
+call/result identity populations. No fixture generation invokes an agent.
 
-Admission retains these sources through the existing import manifest and v1
-reader. Its `profile.status: unsupported` describes the frozen v1 mapping
-registry. `readImportedBehaviorEvidenceV2()` independently validates the exact
-v2 fingerprint and derives a typed dataset. This keeps existing Pi admission
-receipts readable. The v2 CLI and leaderboard bindings accept the additional
-profile IDs; v1 analysis remains retained-only for them.
+## Durable interpretation identity
 
-Recorded operations are distinguishable from whole-attempt totals. Positive
-source attempt counts are lower bounds; zero recorded calls never proves zero
-calls executed. Missing or duplicate results preserve unknown outcomes. Folded results retain unknown
-endpoint order because the issuing step ordinal does not establish when its
-result arrived. A bodyless primary result still records a response when the producer retains
-its response provenance. Codex built-in web-search slots can be placeholders. Copied
-steps and unqualified children produce no new behavior. Child contents remain
-retained; parent final usage has its own source-reported population and is never
-added to child totals. Step and final usage preserve the converter's field names
-and unknown aggregation semantics instead of becoming normalized native input
-usage. Replacement boundaries remain unknown, so these profiles cannot rebuild
-the model's context.
-
-`scripts/convert-atif-producer-fixtures.py` regenerates eighteen authored native/ATIF
-pairs twice, checks converter source digests, and verifies byte-identical output.
-`test/atif-producers-v2.test.ts` separately checks admission, offline readback,
-typed consumers, partial histories and unsupported measures. Restricted
-same-run source comparisons retain their own reports; an ATIF-only conformance
-pass never establishes native equivalence.
-
-The retained four-trial pilot independently reproduces Codex's 45 native calls
-and 44 converted calls; the omitted call has no native result. Hermes matches
-28 call IDs and tool names between its session export and ATIF. OpenClaw's
-fallback conversion reproduces its retained steps and partial marker, with zero
-recorded calls and unknown whole-attempt count. Its native session is absent,
-so paired native fidelity remains unavailable. These case-specific results do
-not authorize cross-origin pooling. The implementation's public regression gate
-passes the focused producer and import tests with pinned Harbor and board-policy runtimes; all eighteen
-independent authored conversions reproduce byte for byte.
-
-Codex input signatures retain the recorded item type and raw input. Function-call
-JSON objects use canonical decoded values when they agree with the converted
-arguments; custom or malformed inputs retain their raw representation. Missing
-provenance leaves the signature unknown. Converted `unknown` tool-name
-placeholders in Hermes and OpenClaw also stay unknown, preventing false repeats.
-
-A blank or missing tool name leaves `toolName` unknown while retaining the
-identified call and its linked result endpoints. Tool identity and name
-availability are independent facts.
-
-Codex function/custom responses retain completion even when conversion removes
-the body. Original item-type provenance distinguishes real calls from entries
-fabricated for orphan results. Orphans become result-only operations with
-unknown issuing inference; orphan-only steps also withhold inference counts.
-Built-in web-search records preserve their calls and synthetic result slots as
-observations, without asserting an independently recorded response.
-
-Codex steps sharing a retained `api_call_id` contribute one converter-declared
-inference group and a common sibling identity. Conflicting or missing group
-evidence withholds the count and binding. These converter IDs are not native
-provider request IDs. Explicit Codex cost zeros remain reported observations;
-ambiguous zero-filled token fields remain unavailable.
-
-Codex resource snapshots sharing a converter API group retain the same reported
-population, so copies split across steps cannot become separate usage totals.
-Their aggregation semantics remain unknown.
+Admission manifests retain the IDs and digests of applied overlays. Reopening
+reprojects with current code and reports an interpretation revision rather than
+requiring today's registry to reproduce an admission key. Source and receipt
+integrity remain mandatory. New core or overlay semantics change derivation
+identity and require selective downstream dependency reconciliation. Frozen
+compatibility readers and the rc.1 artifact retain their own implementations.

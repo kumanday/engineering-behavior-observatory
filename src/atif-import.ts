@@ -1,9 +1,11 @@
+import { normalizeAtif } from "./atif-normalizer.js";
+import { atifOverlayReceipts } from "./atif-overlays.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { assertNoDuplicateJsonKeys, digestBytes, digestMetadata, validateArtifact } from "./artifacts.js";
 import { ATIF_LIMITS, inspectAtifBytes, readAtifFile, atifPointerValue, type AtifInspection } from "./atif-reader.js";
 import type { AtifProducerFingerprint } from "./atif-profiles.js";
-import { atifCoreIdentity, projectAtifCore } from "./atif-core.js";
+import { atifCoreIdentity } from "./atif-core.js";
 import { object } from "./projection-v2.js";
 import { readBoundedFile } from "./scheduler.js";
 
@@ -66,19 +68,21 @@ export async function importAtifFile(options: AtifImportOptions) {
     agent: { name: String(agent.name), version: typeof agent.version === "string" ? agent.version : null },
     converter: { id: converter?.id ?? "unreported", packageVersion: converter?.packageVersion ?? "unknown", sourceDigest: converter?.sourceDigest ?? null },
     context: { kind: context?.kind ?? "unknown", revision: context?.revision ?? null, wrapperDigest: context?.wrapperDigest ?? null } };
-  const interpretation = { schemaVersion: "ebo.atif-interpretation/v1", sourceDigest: bytesDigest(bytes), core: coreIdentity(), overlays: [] as AtifOverlayReference[] };
+  const interpretation = { schemaVersion: "ebo.atif-interpretation/v1", sourceDigest: bytesDigest(bytes), core: coreIdentity(), overlays: atifOverlayReceipts({ read, producer }) };
   const interpretationBytes = writeJson(destination, "interpretation.json", interpretation);
   const manifest: AtifImportManifestV2 = { schemaVersion: "ebo.import-manifest/v2", importer: { id: "ebo.atif", version: ATIF_IMPORTER_VERSION },
     identity: { runId: options.runId, attemptId: options.attemptId, authority: "operator-declared" }, qualification: "imported", sharing: "restricted", createdAt: new Date().toISOString(),
     source: { artifactId: "atif-trajectory", path: "trajectory.json", digest: bytesDigest(bytes), bytes: bytes.length },
-    inspection: { path: "inspection.json", digest: bytesDigest(inspectionBytes) }, producer, producerAuthority: "document-and-operator", overlays: [],
+    inspection: { path: "inspection.json", digest: bytesDigest(inspectionBytes) }, producer, producerAuthority: "document-and-operator", overlays: interpretation.overlays,
     interpretation: { path: "interpretation.json", digest: bytesDigest(interpretationBytes) }, ...(blinding ? { blinding } : {}) };
   assertManifest(manifest);
-  const projected = await projectAtifCore({ read, ...manifest.identity, manifestDigest: hash(manifest) });
-  writeJson(destination, "mapping.json", coreMapping(projected.v2.dataset.measurements, read.inspection.limitations));
+  const projected = await normalizeAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) });
+  const mappingErrors = validateArtifact("ATIF mapping", projected.mapping);
+  if (mappingErrors.length) throw new AtifAdmissionError(`ATIF mapping failed its contract: ${mappingErrors[0]!.field}: ${mappingErrors[0]!.message}`);
+  writeJson(destination, "mapping.json", projected.mapping);
   writeJson(destination, "manifest.json", manifest);
-  return { manifest: manifest as AtifImportManifest, reused: false, evidence: withDeclaredAliases({ ...projected.v1,
-    mapping: coreMapping(projected.v2.dataset.measurements, read.inspection.limitations), interpretationRevision: { changed: false, admitted: interpretation, current: interpretation } }, manifest) };
+  return { manifest: manifest as AtifImportManifest, reused: false, evidence: withDeclaredAliases({ ...projected,
+    mapping: projected.mapping, interpretationRevision: { changed: false, admitted: interpretation, current: interpretation } }, manifest) };
 }
 
 export function readImportManifest(bundleRoot: string): AtifImportManifest {
@@ -91,8 +95,8 @@ export function readImportManifest(bundleRoot: string): AtifImportManifest {
 
 export async function readImportedBehaviorEvidence(bundleRoot: string) {
   const { manifest, read, interpretationRevision } = readAtifImportAdmission(bundleRoot);
-  const projected = await projectAtifCore({ read, ...manifest.identity, manifestDigest: hash(manifest) });
-  return withDeclaredAliases({ ...projected.v1, mapping: coreMapping(projected.v2.dataset.measurements, read.inspection.limitations), interpretationRevision }, manifest);
+  const projected = await normalizeAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) });
+  return withDeclaredAliases({ ...projected, mapping: projected.mapping, interpretationRevision }, manifest);
 }
 
 export function readAtifImportAdmission(bundleRoot: string) {
@@ -119,13 +123,10 @@ export function readAtifImportAdmission(bundleRoot: string) {
     if (receipt.schemaVersion !== "ebo.atif-interpretation/v1" || receipt.sourceDigest !== manifest.source.digest
         || hash(receipt.overlays) !== hash(manifest.overlays)) throw new Error("Interpretation receipt differs from its admission binding.");
   } else admitted = { core: { id: "ebo.legacy-atif", version: manifest.importer.version }, profile: manifest.profile };
-  const current = { schemaVersion: "ebo.atif-interpretation/v1", sourceDigest: manifest.source.digest, core: coreIdentity(), overlays: [] as AtifOverlayReference[] };
+  const current = { schemaVersion: "ebo.atif-interpretation/v1", sourceDigest: manifest.source.digest, core: coreIdentity(), overlays: atifOverlayReceipts({ read, producer: manifest.producer }) };
   return { manifest, read, interpretationRevision: { changed: hash(admitted) !== hash(current), admitted, current } };
 }
 
-function coreMapping(measurements: import("./normalization-v2.js").MeasurementV2[], limitations: readonly string[]) {
-  return { schemaVersion: "ebo.atif-core-mapping/v1", scope: "recorded-documents", measurements, limitations };
-}
 function withDeclaredAliases<T extends { modelAliases?: readonly string[] }>(evidence: T, manifest: AtifImportManifest): T {
   return manifest.blinding === undefined ? evidence : { ...evidence, modelAliases: [...new Set([...evidence.modelAliases ?? [], ...manifest.blinding.modelAliases])].sort() };
 }

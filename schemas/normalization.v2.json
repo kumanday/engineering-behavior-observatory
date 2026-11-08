@@ -59,6 +59,7 @@
         "identityClass": {
           "enum": [
             "source-native",
+            "source-declared",
             "converter-assigned",
             "ebo-derived"
           ]
@@ -143,6 +144,7 @@
             "identityClass": {
               "enum": [
                 "source-native",
+                "source-declared",
                 "converter-assigned",
                 "ebo-derived"
               ]
@@ -932,6 +934,7 @@
                             "identityClass": {
                               "enum": [
                                 "source-native",
+                                "source-declared",
                                 "converter-assigned",
                                 "ebo-derived"
                               ]
@@ -1168,6 +1171,7 @@
                 "authority": {
                   "enum": [
                     "native",
+                    "source-declared",
                     "converter",
                     "estimated"
                   ]
@@ -1609,6 +1613,14 @@
                   "owned-capture",
                   "third-party"
                 ]
+              },
+              "limitations": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             }
           }

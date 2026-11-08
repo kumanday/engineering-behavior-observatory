@@ -5,21 +5,21 @@ This path launches no candidate agent, verifier or environment:
 
 ```sh
 ebo atif inspect-harbor ./trial --namespace source-collection \
-  --python /path/to/harbor-0.24.0/bin/python
+  --python /path/to/python
 
 ebo atif import-harbor ./trial ./restricted-store \
   --namespace source-collection \
-  --profile 'pi/harbor-0.24.0/atif-1.7/agent-unknown/harbor' \
-  --python /path/to/harbor-0.24.0/bin/python
+  --python /path/to/python
 ```
 
-The producer profile is an explicit operator declaration. An unversioned
-`lock.json` does not establish the Harbor converter version. Source-context
-validation uses Harbor 0.24.0's `TrialResult` model in an isolated bounded
-subprocess, records its model-source and validation-policy digests, and keeps
-the original JSON as evidence. EBO also requires explicit source identity and
-lineage fields; model defaults never supply an execution UUID or prove that a
-trial was an original execution.
+EBO validates the retained trial-result fields it consumes and preserves the
+original JSON. Python is optional for this structural check; supplying it adds
+an installed-Harbor cross-check with its actual version and model digest.
+Explicit source identity and lineage fields remain required. Model defaults do
+not supply an execution UUID or prove that a trial was an original execution.
+Optional converter context can select a fixture-backed overlay; generic ATIF
+reading needs no producer profile. An unversioned `lock.json` does not establish
+the converter version.
 
 ## Identity and lineage
 
@@ -31,7 +31,7 @@ the original task checksum, agent/model configuration and declared start. A
 conflicting reuse of the UUID cannot replace the retained execution record.
 
 Capture revisions hash the original execution identity, native agent-file
-inventory and retained ATIF bytes. The selected producer fingerprint also enters
+inventory and retained ATIF bytes. Document-derived producer metadata and optional converter context also enter
 the stored capture revision. An ATIF backfill or changed native log therefore
 creates a revision of the same execution. Assessment IDs separately bind the
 trial-result bytes, verifier-file inventory and original executor. Regrading or
@@ -85,7 +85,8 @@ portable export policy are separate integrations.
 explicitly selected revision without Python. It verifies retained source bytes,
 the ATIF admission receipt and the execution, inspection, assessment and revision
 bindings before returning source context. Changed or linked retained evidence
-fails readback. ATIF and trial agent names and explicit versions must agree.
+fails readback. ATIF and trial agent names must identify the same agent. Different version
+declarations are retained as a confidence limitation without blocking reading.
 
 Source and context writes are staged under unique `pending-writes` paths and
 published without replacing existing files. Interrupted staged bytes stay
@@ -107,7 +108,7 @@ Execution model aliases from Harbor config/result records are bound into the
 capture’s operator-declared blinding metadata and unioned with ATIF aliases on
 retained readback. Regrading preserves the capture manifest and its blinding input.
 
-Expected ATIF structure or producer-projection rejection retains the partial admission and returns inspect-only. Store and I/O failures propagate as errors. A cohort can exclude the rejected source while continuing with valid selected trials.
+Expected ATIF structural rejection retains the partial admission and returns inspect-only. Store and I/O failures propagate as errors. A cohort can exclude the rejected source while continuing with valid selected trials.
 
 The library can bind additional operator-declared model aliases from protected source context. That context participates in derived capture-revision identity. Readback verifies the alias union against the admission manifest and execution; an updated alias inventory preserves the existing revision and creates another projection of the same execution.
 

@@ -49,7 +49,7 @@ test("retained OpenHands profiles preserve historical runtime identities", () =>
   assert.equal(openHandsCapabilityProfile("1.44.1").adapterId, "openhands-agent-server-v1.44.1");
   assert.equal(openHandsCapabilityProfile("1.46.0").adapterId, "openhands-agent-server-v1.46.0");
   assert.deepEqual(openHandsCapabilityProfile("1.54.0"), OPENHANDS_AGENT_SERVER_CAPABILITIES);
-  assert.throws(() => openHandsCapabilityProfile("1.45.0"), /Unsupported retained/);
+  assert.ok(openHandsCapabilityProfile("1.45.0").limitations?.includes("HARNESS_VERSION_UNVERIFIED"));
 });
 
 import {

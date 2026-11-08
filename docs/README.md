@@ -70,8 +70,9 @@ The [evaluation reading path](evaluation/README.md) explains how the parts fit:
   qualification, normalization and compatibility boundaries.
 - [Harbor source imports](reference/harbor-imports.md): execution identity,
   capture revisions and separate assessments.
-- [ATIF producer profiles](development/atif-producer-profiles.md): closed converter
-  identities, mapping vocabulary and source limitations.
+- [ATIF interpretation](development/atif-producer-profiles.md): generic core,
+  optional overlays, [harness coverage](reference/atif-harness-coverage.md) and
+  [limitation definitions](reference/atif-limitations.md).
 - [Documentation sync findings](development/documentation-sync.md): why generated
   change provenance is kept separate from public documentation.
 - [Release records](../release/README.md): versioned verification and limitations.

@@ -68,7 +68,7 @@ export function createSourceEvidenceResolverV2(input: { runId: string; attemptId
 
 /** An independent derivation over qualified source records. Original v1 dataset and manifests remain untouched. */
 export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence, binding: { manifestDigest: Hash; harnessVersion: string; modelAliases?: readonly string[] }): Promise<RetainedBehaviorEvidenceV2> {
-  if (evidence.capture.qualification === "imported" || evidence.dataset.origin?.kind === "imported") throw new Error("Native v2 projection requires owned qualified evidence; imported sources need their own profile.");
+  if (evidence.capture.qualification === "imported" || evidence.dataset.origin?.kind === "imported") throw new Error("Native v2 projection requires owned qualified evidence; imported documents use the ATIF core reader.");
   await validateNormalizedDataset(evidence.dataset, evidence.resolver);
   if (evidence.capture.runId !== evidence.dataset.runId || evidence.capture.attemptId !== evidence.dataset.attemptId) throw new Error("V2 capture and dataset identities differ.");
   const harness = evidence.dataset.adapter.harness === "agent-sdk" ? "claude-agent-sdk" : evidence.dataset.adapter.harness;
@@ -132,7 +132,7 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
     origin: { kind: "owned", qualification: evidence.capture.qualification, manifestDigest: binding.manifestDigest },
     sources: [{ id: sourceId, format: { kind: "native", version: "ebo.run-bundle/v1" }, reader: { id: profile.id, version: profile.version, implementationDigest },
       producerProfile: { status: "known", value: { id: profile.id, version: profile.version, digest: digestValue({ id: profile.id, version: profile.version, harness, implementationDigest }) } },
-      executedHarness: { id: harness, version: { status: "known", value: binding.harnessVersion } }, authority: "owned-capture" }],
+      executedHarness: { id: harness, version: evidence.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT") ? { status: "unknown", reason: "HARNESS_VERSION_CONFLICT" } : { status: "known", value: binding.harnessVersion } }, authority: "owned-capture", ...(evidence.dataset.capabilityProfile.limitations?.length ? { limitations: [...evidence.dataset.capabilityProfile.limitations] } : {}) }],
     events, operations, measurements: [], nativeRecords, contentReferences: [...contentReferences.values()],
     recordCoverage: nativeRecords.map(({ reference }) => {
       const key = referenceKey(reference), eventIds = mapped.get(key) ?? [], reason = unmapped.get(key);
@@ -145,9 +145,10 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
 }
 
 export async function createRetainedBehaviorEvidenceV2(bundleRoot: string): Promise<RetainedBehaviorEvidenceV2> {
+  const bytes = readBoundedFile(join(bundleRoot, "manifest.json"), "Retained v2 manifest");
+  const manifest = JSON.parse(bytes.toString("utf8")) as { schemaVersion?: string; run?: { harness?: { version?: string }; model?: { id?: string } } };
+  if (["ebo.import-manifest/v1", "ebo.import-manifest/v2"].includes(manifest.schemaVersion ?? "")) return (await import("./atif-v2.js")).readImportedBehaviorEvidenceV2(bundleRoot);
   const evidence = await createRetainedBehaviorEvidence(bundleRoot);
-  const bytes = readBoundedFile(join(bundleRoot, "manifest.json"), "Native v2 manifest");
-  const manifest = JSON.parse(bytes.toString("utf8")) as { run?: { harness?: { version?: string }; model?: { id?: string } } };
   if (!manifest.run?.harness?.version) throw new Error("Native v2 manifest has no executed harness version.");
   return projectNativeEvidenceV2(evidence, { manifestDigest: `sha256:${digestBytes(bytes).value}`, harnessVersion: manifest.run.harness.version, modelAliases: manifest.run.model?.id ? [manifest.run.model.id] : [] });
 }

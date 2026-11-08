@@ -7,10 +7,9 @@ import { projectPiAtifV2 } from "../src/atif-v2.js";
 import { analysisDigestV2 } from "../src/analysis-v2.js";
 export async function atifFixtureV2(name = "parallel-failure-cache-write", edit?: (source: AtifObject) => void) {
   const source = JSON.parse(readFileSync(new URL(`../../test/fixtures/atif/pi/${name}.atif.json`, import.meta.url), "utf8")) as AtifObject;
+  (source.agent as AtifObject).version = "1.2.0";
   edit?.(source);
   const read = inspectAtifBytes(Buffer.from(JSON.stringify(source)));
-  // Projection-only authored fixture; retained admission tests exercise the pinned validator receipt.
-  read.inspection.structural = { status: "valid", validator: "harbor", version: "0.24.0", diagnostics: [] };
   const evidence = await projectPiAtifV2({ read, producer: listAtifProducerProfiles()[0]!.producer, runId: "run", attemptId: "attempt", manifestDigest: analysisDigestV2("fixture") });
   return { ...evidence, modelAliases: ["synthetic-model"] };
 }

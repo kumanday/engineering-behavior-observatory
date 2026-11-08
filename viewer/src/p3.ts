@@ -209,7 +209,7 @@ export class Evidence {
         (u.hook_copies_omitted ? `<p class="muted">${num(u.hook_copies_omitted)} hook record(s) repeating this call/result not shown.</p>` : "")
         : nat ? `<p class="muted">No native record for this unit (episodes summarize many records; open a tool or message instead).</p>`
               : `<p class="muted">Native records are not part of this packet variant (withheld under policy; their digests are listed in the packet manifest).</p>`}
-      <p class="muted small">Native lines are read from the corpus file named above; the SHA-256 is of the full line. Long lines keep their head and tail.</p>`,
+      <p class="muted small">Native records are read from retained corpus files; SHA-256 identifies the referenced record or pointed JSON value. Long records keep their head and tail.</p>`,
       (el) => {
         el.querySelector("[data-lanes]")!.addEventListener("click", () => run("focusAttempt", { attemptId, row }));
         el.querySelector("[data-cloud]")!.addEventListener("click", () => run("highlightRows", { rows: [row] }));

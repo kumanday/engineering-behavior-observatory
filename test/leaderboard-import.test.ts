@@ -28,7 +28,7 @@ function fixture() {
   const acquisition: LeaderboardAcquisition = { schemaVersion: "ebo.leaderboard-acquisition/v1", source: LEADERBOARD_BUCKET, retrievedAt: "2026-11-07T00:00:00Z", sharing: "restricted", terms: "unstated", attribution: "Synthetic fixtures; source policy by Joël Niklaus / Harness Leaderboard",
     artifacts: [...metadata].map(([path, bytes]) => ({ remotePath: path, localPath: path, sha256: rawHash(bytes).slice(7), bytes: bytes.length, listedXetHash: null, authority: "protected-leaderboard-record" })) };
   write(join(snapshot, "acquisition.json"), acquisition);
-  const request: LeaderboardCohortRequest = { schemaVersion: "ebo.leaderboard-cohort-request/v1", policyRevision: LEADERBOARD_PUBLIC_POLICY.revision, snapshotRoot: snapshot, historyCompleteness: "bounded-subset", nativeBindings: [{ factId: id, directory: trial, profileId: listAtifProducerProfiles()[1]!.id }] };
+  const request: LeaderboardCohortRequest = { schemaVersion: "ebo.leaderboard-cohort-request/v1", policyRevision: LEADERBOARD_PUBLIC_POLICY.revision, snapshotRoot: snapshot, historyCompleteness: "bounded-subset", nativeBindings: [{ factId: id, directory: trial, profileId: listAtifProducerProfiles()[0]!.id }] };
   return { root, store, snapshot, trial, trajectory, acquisition, request, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 test("protected source records remain distinct from agent-writable logs and preserve relocation identity", () => {

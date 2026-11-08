@@ -184,7 +184,7 @@ export async function readQualifiedClaudeAgentSdkCapture(
 export async function readQualifiedRunCapture(bundleRoot: string): Promise<NormalizationInput<AgentSdkNativeRecord>> {
   const root = resolve(bundleRoot);
   const manifest = readManifest(root);
-  await assertPersistedStructuralQualification(root, manifest);
+  const versionOnlyRevision = await assertPersistedStructuralQualification(root, manifest);
   const qualification = await qualifyRunBundle(root);
   if (!qualification.semanticAnalysisUsable || Object.entries(qualification.dimensions)
     .some(([dimension, result]) => dimension !== "workspace" && result.status === "unqualified")) {
@@ -242,6 +242,7 @@ export async function readQualifiedRunCapture(bundleRoot: string): Promise<Norma
     runId: manifest.run.id,
     attemptId: manifest.attempt.id,
     qualification: qualification.status === "qualified" ? "qualified" : "qualified-with-gaps",
+    ...(versionOnlyRevision ? { sourceLimitations: ["HARNESS_VERSION_UNVERIFIED"] } : {}),
     records,
   };
   return input;
@@ -906,9 +907,9 @@ function readManifest(root: string): RunManifest {
   return document as RunManifest;
 }
 
-async function assertPersistedStructuralQualification(root: string, manifest: RunManifest): Promise<void> {
+async function assertPersistedStructuralQualification(root: string, manifest: RunManifest): Promise<boolean> {
   const descriptor = manifest.evidence.find(({ kind, sanitizedFrom }) => kind === "capture-report" && sanitizedFrom === undefined);
-  if (descriptor === undefined) return;
+  if (descriptor === undefined) return false;
   const report = asRecord(parseJson(await readVerifiedArtifact(
     root,
     descriptor.relativePath,
@@ -918,8 +919,11 @@ async function assertPersistedStructuralQualification(root: string, manifest: Ru
   const structural = asRecord(report?.structuralQualification);
   if (structural?.semanticAnalysisUsable === false
     || structural?.status === "unqualified" && structural?.semanticAnalysisUsable !== true) {
+    const reasons = Array.isArray(structural.reasons) ? structural.reasons : [];
+    if (reasons.length && reasons.every((reason) => asRecord(reason)?.code === "HOOK_CAPABILITY_VERSION_MISMATCH")) return true;
     throw new Error("Agent SDK normalization rejects the persisted unqualified structural capture report.");
   }
+  return false;
 }
 
 function parseJsonl(bytes: Buffer): Array<{ line: number; document: unknown }> {

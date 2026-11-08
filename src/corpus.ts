@@ -1,3 +1,4 @@
+import { digestMetadata } from "./artifacts.js";
 import { isAtifImportSchema, readAtifImportAdmission } from "./atif-import.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -294,6 +295,8 @@ function projectManifest(root: string, manifestPath: string): CorpusIndexEntry {
       entry.captureQualification = "imported"; entry.sharingClass = "restricted";
       entry.evidenceOrigin = "imported"; entry.sourceFormat = manifest.producer.formatVersion;
       entry.captureArtifactIds = [manifest.source.artifactId];
+      if (manifest.schemaVersion === "ebo.import-manifest/v2" && manifest.overlays.length) entry.producerProfileDigest = `sha256:${digestMetadata(manifest.overlays).value}`;
+      else if (manifest.schemaVersion === "ebo.import-manifest/v1" && manifest.profile.status === "supported") entry.producerProfileDigest = manifest.profile.digest;
     } catch (error) { entry.issues.push({ field: "/source", message: errorMessage(error) }); }
   }
   entry.issues = uniqueSourceIssues(entry.issues);

@@ -7,7 +7,7 @@ Status: accepted. The additive 1.x implementation preserves existing capture and
 1. Retain ATIF as an additional source format. Analytical consumers read EBO
    normalized datasets and operations. Native sessions, hooks and protocol
    evidence remain authoritative for their recorded facts.
-2. Add a version-aware reader, an explicit producer-profile registry, and
+2. Add a version-aware reader, a producer-agnostic core with optional Pi and Codex overlays, and
    Harbor/leaderboard source-context importers. Imported evidence has its own
    qualification class and cannot contribute to capture-qualified rates.
 3. Ship the compatibility guard, occurrence-order correction, and first Pi
@@ -36,7 +36,7 @@ validator and Atlas unit builder without changing product code. Two native Pi
 pairs matched five selected measures and their operation signatures. A third
 converted successfully while native qualification rejected it. Public Codex
 logs preserved one call absent from the matching ATIF. These results require
-distinct import qualification and producer-specific fidelity gates.
+distinct import qualification and fixture-backed fidelity qualifications.
 
 Replacing every analytical input with ATIF v1 steps would move failure status,
 source-local ordering, provenance and completeness into an EBO-specific
@@ -51,7 +51,7 @@ See the [design and implementation sequence](atif-adoption-design.md),
 
 Pinned converters can fold results into issuing steps, reorder Codex outputs
 around intervening messages, insert placeholders and collapse distinct raw
-inputs. Producer profiles retain surviving raw evidence and withhold unsupported
+inputs. Optional overlays retain surviving raw evidence and qualify unsupported
 precedence, input equality and completion facts. A known call identity remains
 available when its tool name is unknown. These source-specific rules feed typed
 EBO operations; downstream consumers do not infer native behavior from ATIF step

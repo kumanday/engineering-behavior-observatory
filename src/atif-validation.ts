@@ -19,14 +19,18 @@ export function validateAtifStructure(document: Record<string, unknown>): { code
     if (!record(v)) { issue(pointer); return; }
     for (const [key, value] of Object.entries(v)) {
       if (key === "extra" || value === null) continue;
-      if (/(?:tokens|cost|count|seconds|duration|steps)$/u.test(key) && (typeof value !== "number" || !Number.isFinite(value) || value < 0)) issue(`${pointer}/${key}`);
+      if (["prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd", "total_prompt_tokens", "total_completion_tokens", "total_cached_tokens", "total_cost_usd", "total_steps"].includes(key)
+          && (typeof value !== "number" || !Number.isFinite(value) || value < 0)) issue(`${pointer}/${key}`);
       if (["prompt_token_ids", "completion_token_ids", "logprobs"].includes(key)
           && (!Array.isArray(value) || value.some((x) => typeof x !== "number" || !Number.isFinite(x)))) issue(`${pointer}/${key}`);
     }
   };
   const visit = (trajectory: Record<string, unknown>, pointer: string) => {
+    // A nested document owns its format contract. An unsupported child is retained,
+    // and its known-v1 parent can still be inspected and projected.
+    if (pointer !== "#" && typeof trajectory.schema_version === "string" && !/^ATIF-v1\.\d+$/u.test(trajectory.schema_version)) return;
     if (typeof trajectory.schema_version !== "string") issue(`${pointer}/schema_version`, "ATIF_SCHEMA_VERSION_REQUIRED");
-    if (!record(trajectory.agent) || typeof trajectory.agent.name !== "string") issue(`${pointer}/agent`, "ATIF_AGENT_REQUIRED");
+    if (!record(trajectory.agent) || (typeof trajectory.agent.name !== "string" || !trajectory.agent.name.trim())) issue(`${pointer}/agent`, "ATIF_AGENT_REQUIRED");
     else {
       optional(trajectory.agent, "version", `${pointer}/agent`, string);
       optional(trajectory.agent, "model_name", `${pointer}/agent`, string);
@@ -41,7 +45,7 @@ export function validateAtifStructure(document: Record<string, unknown>): { code
     for (const [index, step] of trajectory.steps.entries()) {
       const sp = `${pointer}/steps/${index}`;
       if (!record(step)) { issue(sp); continue; }
-      if (!Number.isSafeInteger(step.step_id) || Number(step.step_id) < 1 || ids.has(Number(step.step_id))) issue(`${sp}/step_id`, "ATIF_STEP_ID_INVALID");
+      if (!Number.isSafeInteger(step.step_id) || Number(step.step_id) !== index + 1 || ids.has(Number(step.step_id))) issue(`${sp}/step_id`, "ATIF_STEP_ID_INVALID");
       ids.add(Number(step.step_id));
       if (!["agent", "system", "user"].includes(String(step.source))) issue(`${sp}/source`, "ATIF_STEP_SOURCE_INVALID");
       optional(step, "message", sp, content);
@@ -55,7 +59,7 @@ export function validateAtifStructure(document: Record<string, unknown>): { code
         else for (const [ci, call] of step.tool_calls.entries()) {
           const cp = `${sp}/tool_calls/${ci}`;
           if (!record(call)) { issue(cp); continue; }
-          if (typeof call.tool_call_id !== "string" || !call.tool_call_id.length) issue(`${cp}/tool_call_id`);
+          if (typeof call.tool_call_id !== "string") issue(`${cp}/tool_call_id`);
           if (typeof call.function_name !== "string") issue(`${cp}/function_name`);
           optional(call, "arguments", cp, record);
         }

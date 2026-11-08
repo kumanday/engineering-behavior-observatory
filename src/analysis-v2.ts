@@ -67,8 +67,25 @@ export async function validateCitationV2(dataset: NormalizedDatasetV2, resolver:
 
 export async function createStructuralObservationSetV2(dataset: NormalizedDatasetV2, resolver: NativeEvidenceResolver): Promise<ObservationSetV2> {
   await validateNormalizedDatasetV2(dataset, resolver);
+  if (dataset.origin.kind === "imported") {
+    const observations: ObservationV2[] = [];
+    for (const source of dataset.sources) {
+      const events = dataset.events.filter((event) => event.source.sourceId === source.id);
+      const ids = new Set(events.map(({ id }) => id));
+      const document = source.id.slice(source.id.indexOf(":#") + 1);
+      const population = { ...dataset, events, operations: dataset.operations.filter((operation) => operation.identity.sourceId === source.id),
+        measurements: dataset.measurements.filter((measurement) => measurement.scope.id.endsWith(`:${document}`) || measurement.sourceEventIds.some((id) => ids.has(id))) };
+      observations.push(...await deriveStructuralObservationsV2(population, resolver, { kind: "recorded-document", id: source.id }));
+    }
+    return { schemaVersion: "ebo.structural-observation-set/v2", runId: dataset.runId, attemptId: dataset.attemptId, extractorVersion: ANALYSIS_V2_VERSION,
+      dataset: { schemaVersion: dataset.schemaVersion, digest: datasetV2Digest(dataset) }, origin: structuredClone(dataset.origin), observations };
+  }
+  return { schemaVersion: "ebo.structural-observation-set/v2", runId: dataset.runId, attemptId: dataset.attemptId, extractorVersion: ANALYSIS_V2_VERSION,
+    dataset: { schemaVersion: dataset.schemaVersion, digest: datasetV2Digest(dataset) }, origin: structuredClone(dataset.origin),
+    observations: await deriveStructuralObservationsV2(dataset, resolver, { kind: "recorded-operations", id: `${dataset.runId}/${dataset.attemptId}` }) };
+}
+async function deriveStructuralObservationsV2(dataset: NormalizedDatasetV2, resolver: NativeEvidenceResolver, scope: MeasurementV2["scope"]): Promise<ObservationV2[]> {
   const observations: ObservationV2[] = [], events = new Map(dataset.events.map((event) => [event.id, event]));
-  const scope: MeasurementV2["scope"] = { kind: "recorded-operations", id: `${dataset.runId}/${dataset.attemptId}` };
   const add = async (measure: string, definition: string, unit: string, value: MeasurementV2["value"], ids: readonly string[], population = scope) => {
     const sourceEventIds = [...new Set(ids)].sort(), citations = await Promise.all(sourceEventIds.map((id) => citeEventV2(dataset, resolver, id)));
     observations.push({ schemaVersion: "ebo.structural-observation/v2", id: `observation:${analysisDigestV2({ runId: dataset.runId, attemptId: dataset.attemptId, measure, population, version: ANALYSIS_V2_VERSION }).slice(7)}`,
@@ -117,23 +134,22 @@ export async function createStructuralObservationSetV2(dataset: NormalizedDatase
   for (const type of ["compaction", "summarization", "conversion-gap"] as const) {
     const selected = dataset.events.filter(({ facts }) => facts.context?.type === type), references = new Set(selected.map(({ source }) => referenceKeyV2(source.nativeReference)));
     await add(`context-${type}-record-count`, `Recorded context events explicitly typed as ${type}.`, "native-records",
-      selected.length ? { status: "known", value: references.size } : { status: "unknown", reason: "CONTEXT_POPULATION_COMPLETENESS_UNREPORTED" }, selected.map(({ id }) => id), { kind: "recorded-document", id: `${dataset.runId}/${dataset.attemptId}` });
+      selected.length ? { status: "known", value: references.size } : { status: "unknown", reason: "CONTEXT_POPULATION_COMPLETENESS_UNREPORTED" }, selected.map(({ id }) => id), dataset.origin.kind === "imported" ? scope : { kind: "recorded-document", id: `${dataset.runId}/${dataset.attemptId}` });
   }
   for (const measurement of dataset.measurements) {
     if (observations.some((observation) => observation.measure === measurement.id && analysisDigestV2(observation.scope) === analysisDigestV2(measurement.scope))) throw new Error("V2 source and derived measurements declare the same population.");
-    await add(measurement.id, "Producer-profile measurement retained with its declared population and coverage.", measurement.unit, measurement.value, measurement.sourceEventIds, measurement.scope);
+    await add(measurement.id, "Source measurement retained with its declared population and coverage.", measurement.unit, measurement.value, measurement.sourceEventIds, measurement.scope);
   }
   await resourceObservationsV2(dataset, add);
   for (const observation of observations) if (observation.sourceEventIds.some((id) => !events.has(id))) throw new Error("V2 observation source event is unresolved.");
-  return { schemaVersion: "ebo.structural-observation-set/v2", runId: dataset.runId, attemptId: dataset.attemptId, extractorVersion: ANALYSIS_V2_VERSION,
-    dataset: { schemaVersion: dataset.schemaVersion, digest: datasetV2Digest(dataset) }, origin: structuredClone(dataset.origin), observations };
+  return observations;
 }
 
 async function resourceObservationsV2(dataset: NormalizedDatasetV2, add: (measure: string, definition: string, unit: string, value: MeasurementV2["value"], ids: readonly string[], population?: MeasurementV2["scope"]) => Promise<void>): Promise<void> {
   const groups = new Map<string, { scope: MeasurementV2["scope"]; dimension: string; semantics: string; authority: string; seen: Set<string>; rows: Array<{ event: UniformEventV2; value: number }> }>();
   for (const event of dataset.events) {
     const resource = event.facts.resource; if (!resource) continue;
-    const population: MeasurementV2["scope"] = resource.scope === "attempt" && resource.populationId.status === "known"
+    const population: MeasurementV2["scope"] = dataset.origin.kind === "imported" ? { kind: "recorded-document", id: `${event.source.sourceId}/${resource.scope}:${resource.populationId.status === "known" ? resource.populationId.value : referenceKeyV2(event.source.nativeReference)}` } : resource.scope === "attempt" && resource.populationId.status === "known"
       ? { kind: "attempt", id: resource.populationId.value }
       : resource.scope === "session" && resource.populationId.status === "known" ? { kind: "session", id: `${event.source.sourceId}/${resource.populationId.value}` }
         : { kind: "recorded-document", id: resource.populationId.status === "known" ? `${event.source.sourceId}/${resource.scope}:${resource.populationId.value}` : `${event.source.sourceId}/${referenceKeyV2(event.source.nativeReference)}` };

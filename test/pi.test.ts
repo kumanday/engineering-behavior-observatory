@@ -370,7 +370,7 @@ test("completed retained Pi evidence rejects an aborted settled terminal", async
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
 });
 
-test("retained Pi readback rejects unsupported versions, identity mismatches, and corrupt native lineage", async () => {
+test("retained Pi readback detects conflicting runtime declarations, identity mismatches, and corrupt native lineage", async () => {
   const fixture = createPiFixture();
   try {
     const summary = await runPiQueueEntry({ ...fixture, createSession: fakePiSessionFactory().createSession });
@@ -379,15 +379,14 @@ test("retained Pi readback rejects unsupported versions, identity mismatches, an
     const unsupported = JSON.parse(before.toString()) as RunManifest;
     unsupported.run.harness.version = "0.0.0";
     writeFileSync(manifestPath, JSON.stringify(unsupported));
-    await assert.rejects(createRetainedBehaviorEvidence(summary.bundlePath), /Unsupported retained Pi runtime/u);
+    assert.ok((await createRetainedBehaviorEvidence(summary.bundlePath)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_UNVERIFIED"));
     writeFileSync(manifestPath, before);
 
     const legacy = JSON.parse(before.toString()) as RunManifest;
     legacy.run.harness.version = "0.85.1";
     legacy.run.runtime = legacy.run.runtime.map((runtime) => ["pi-coding-agent", "pi-sdk"].includes(runtime.name) ? { ...runtime, version: "0.85.1" } : runtime);
     writeFileSync(manifestPath, JSON.stringify(legacy));
-    await assert.rejects(createRetainedBehaviorEvidence(summary.bundlePath), /native composition version differs/u,
-      "a manifest relabeled to another retained version does not match the SDK the capture recorded");
+    assert.ok((await createRetainedBehaviorEvidence(summary.bundlePath)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"));
     // A consistent legacy bundle: the native composition record names the same SDK version as the manifest.
     const eventsDescriptor = legacy.evidence.find(({ relativePath }) => relativePath === "pi-events.jsonl")!;
     const eventsPath = join(summary.bundlePath, eventsDescriptor.relativePath);

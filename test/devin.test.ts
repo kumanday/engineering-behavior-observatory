@@ -119,8 +119,8 @@ test("Devin ACP success turn ends on the native session/prompt response and norm
     const retainedOptions = { sessionId: "fixture-session", expectsCompletion: true, harnessVersion: DEVIN_CLI_VERSION, runtimeVersions: [DEVIN_CLI_VERSION] };
     assert.equal(qualifyRetainedDevinCapture(capture, retainedOptions).promptRequestId, capture.promptRequestId);
     assert.throws(() => qualifyRetainedDevinCapture(capture, { ...retainedOptions, sessionId: "foreign-session" }), /session identity differs/u);
-    assert.throws(() => qualifyRetainedDevinCapture(capture, { ...retainedOptions, runtimeVersions: [DEVIN_CLI_VERSION, "3000.10.0"] }), /runtime version differs/u);
-    assert.throws(() => qualifyRetainedDevinCapture(capture, { ...retainedOptions, harnessVersion: "3000.10.0" }), /Unsupported retained Devin runtime/u);
+    assert.ok(qualifyRetainedDevinCapture(capture, { ...retainedOptions, runtimeVersions: [DEVIN_CLI_VERSION, "3000.10.0"] }).sourceLimitations?.includes("HARNESS_VERSION_CONFLICT"));
+    assert.ok(qualifyRetainedDevinCapture(capture, { ...retainedOptions, harnessVersion: "3000.10.0" }).sourceLimitations?.includes("HARNESS_VERSION_UNVERIFIED"));
     const { dataset, coverage } = await describeAndValidateDevinDataset(capture);
     const families = dataset.events.map(({ family }) => family);
     assert.deepEqual([...new Set(families)].sort(), ["message", "outcome", "runtime", "tool"]);
@@ -618,7 +618,8 @@ test("runDevinQueueEntry executes a frozen queue entry and produces a normalized
       await writeFile(telemetryPath, telemetry);
       await writeFile(join(summary.bundlePath, "manifest.json"), JSON.stringify(manifest));
       await mutate();
-      await assert.rejects(createRetainedBehaviorEvidence(summary.bundlePath), expected, name);
+      if (name === "telemetry-version") assert.ok((await createRetainedBehaviorEvidence(summary.bundlePath)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"));
+      else await assert.rejects(createRetainedBehaviorEvidence(summary.bundlePath), expected, name);
     }
     await writeFile(sessionPath, originalSession);
     await writeFile(telemetryPath, telemetry);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, chmodSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -17,7 +17,7 @@ test("ATIF inspection recognizes every admitted version without claiming behavio
   for (const version of Object.keys(ATIF_VERSION_FEATURES)) {
     const { inspection } = inspect(fixture(version));
     assert.equal(inspection.versionPolicy.status, "supported");
-    assert.equal(inspection.structural.status, "unavailable");
+    assert.equal(inspection.structural.status, "valid");
     assert.equal(inspection.fieldCoverage.declaredInferenceFields, undefined);
     assert.deepEqual(validateArtifact("inspection", inspection), []);
     assert.equal("qualification" in inspection, false);
@@ -199,7 +199,7 @@ test("references use explicit retained-file admission and reject traversal, URLs
   } finally { cleanup(); }
 });
 
-test("pinned Harbor independently validates every supported version and reports model identity", { skip: python === undefined }, async () => {
+test("optional installed Harbor cross-check records its version independently of EBO structural validation", { skip: python === undefined }, async () => {
   const { root, cleanup } = temporary();
   try {
     const path = join(root, "trajectory.json");
@@ -207,7 +207,7 @@ test("pinned Harbor independently validates every supported version and reports 
       writeFileSync(path, JSON.stringify(fixture(version)));
       const { inspection } = await readAtifFile(path, { pythonExecutable: python });
       assert.equal(inspection.structural.status, "valid", version);
-      assert.match(inspection.structural.modelDigest!, /^sha256:[0-9a-f]{64}$/u);
+      assert.match(inspection.harborCrossCheck!.modelDigest!, /^sha256:[0-9a-f]{64}$/u);
     }
     const relabelled = fixture("ATIF-v1.2"); (relabelled.steps as AtifObject[])[0]!.llm_call_count = 1;
     writeFileSync(path, JSON.stringify(relabelled));
@@ -225,8 +225,8 @@ test("pinned Harbor independently validates every supported version and reports 
     writeFileSync(path, JSON.stringify(legacy));
     const compatible = await readAtifFile(path, { pythonExecutable: python });
     assert.equal(compatible.inspection.structural.status, "valid");
-    assert.equal(compatible.inspection.structural.nativeModelStatus, "invalid");
-    assert.equal(compatible.inspection.structural.compatibilityDiagnostics!.length, 1);
+    assert.equal(compatible.inspection.harborCrossCheck!.nativeModelStatus, "invalid");
+    assert.equal(compatible.inspection.harborCrossCheck!.compatibilityDiagnostics!.length, 1);
     assert.equal(compatible.inspection.references[0]!.status, "unavailable");
     assert.equal((compatible.document!.steps as AtifObject[])[0]!.observation !== undefined, true);
     assert.equal(JSON.stringify(compatible.document).includes("ebo-validation-unresolved"), false, "validation placeholders never enter retained source data");
@@ -238,22 +238,49 @@ test("pinned Harbor independently validates every supported version and reports 
       writeFileSync(path, JSON.stringify(malformed));
       const { inspection } = await readAtifFile(path, { pythonExecutable: python });
       assert.equal(inspection.structural.status, "invalid");
-      assert.match(inspection.structural.modelDigest!, /^sha256:/u);
-      assert.equal(inspection.structural.diagnostics[0]!.code, "HARBOR_STRUCTURAL_INVALID");
+      assert.match(inspection.harborCrossCheck!.modelDigest!, /^sha256:/u);
+      assert.equal(inspection.harborCrossCheck!.diagnostics[0]!.code, "HARBOR_STRUCTURAL_INVALID");
     }
     const many = fixture("ATIF-v1.6");
     (many.steps as AtifObject[])[0]!.observation = { results: [{ subagent_trajectory_ref: Array.from({ length: 600 }, (_, index) => ({ session_id: `child-${index}` })) }] };
     writeFileSync(path, JSON.stringify(many));
     const bounded = await readAtifFile(path, { pythonExecutable: python });
     assert.equal(bounded.inspection.structural.status, "valid");
-    assert.equal(bounded.inspection.structural.compatibilityDiagnosticCount, 600);
-    assert.equal(bounded.inspection.structural.compatibilityDiagnostics!.length, 32);
-    assert.equal(bounded.inspection.structural.compatibilityDiagnosticsTruncated, true);
+    assert.equal(bounded.inspection.harborCrossCheck!.compatibilityDiagnosticCount, 600);
+    assert.equal(bounded.inspection.harborCrossCheck!.compatibilityDiagnostics!.length, 32);
+    assert.equal(bounded.inspection.harborCrossCheck!.compatibilityDiagnosticsTruncated, true);
     assert.equal(bounded.inspection.references.length, 600);
     assert.deepEqual(validateArtifact("bounded compatibility receipt", bounded.inspection), []);
     writeFileSync(path, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify(fixture()))]));
     assert.equal((await readAtifFile(path, { pythonExecutable: python })).inspection.structural.status, "valid");
     writeFileSync(path, JSON.stringify({ ...fixture(), ["x".repeat(70_000)]: true }));
-    assert.equal((await readAtifFile(path, { pythonExecutable: python })).inspection.structural.status, "invalid");
+    const extended = await readAtifFile(path, { pythonExecutable: python });
+    assert.equal(extended.inspection.structural.status, "valid");
+    assert.ok(extended.inspection.unmappedFields?.some(({ reason }) => reason === "ATIF_FIELD_UNRECOGNIZED"));
+  } finally { cleanup(); }
+});
+
+
+test("a second installed Harbor version remains an optional cross-check", { skip: !process.env.EBO_ATIF_NEXT_PYTHON }, async () => {
+  const { root, cleanup } = temporary();
+  try {
+    const path = join(root, "trajectory.json");writeFileSync(path, JSON.stringify(fixture()));
+    const read = await readAtifFile(path, { pythonExecutable: process.env.EBO_ATIF_NEXT_PYTHON });
+    assert.equal(read.inspection.structural.validator, "ebo");assert.equal(read.inspection.structural.status, "valid");
+    assert.equal(read.inspection.harborCrossCheck!.version, "0.25.0");assert.equal(read.inspection.harborCrossCheck!.status, "valid");
+  } finally { cleanup(); }
+});
+
+
+test("an unfamiliar installed validator version and its disagreement never replace EBO validation", async () => {
+  const { root, cleanup } = temporary();
+  try {
+    const path = join(root, "trajectory.json"), executable = join(root, "validator");
+    writeFileSync(path, JSON.stringify(fixture()));
+    writeFileSync(executable, `#!${process.execPath}\nprocess.stdin.resume();process.stdin.on("end",()=>process.stdout.write(JSON.stringify({status:"invalid",version:"9.9.9",modelDigest:"sha256:${"0".repeat(64)}",diagnostics:[{code:"HARBOR_STRUCTURAL_INVALID",pointer:"#"}]})));\n`);
+    chmodSync(executable, 0o700);
+    const read = await readAtifFile(path, { pythonExecutable: executable });
+    assert.equal(read.inspection.structural.status, "valid");assert.equal(read.inspection.structural.validator, "ebo");
+    assert.equal(read.inspection.harborCrossCheck!.version, "9.9.9");assert.equal(read.inspection.harborCrossCheck!.status, "invalid");
   } finally { cleanup(); }
 });

@@ -70,6 +70,7 @@ export type AdapterCapabilityProfile = {
   adapterId: string;
   harness: string;
   nativeTypes: readonly string[];
+  limitations?: readonly string[];
   families: Record<UniformEventFamily, AdapterCapability>;
   evidence: Record<"nativeOrder" | "nativeTime" | "parentage" | "content", AdapterCapability>;
 };
@@ -89,6 +90,7 @@ export type QualifiedNativeCapture<NativeRecord> = {
   runId: string;
   attemptId: string;
   qualification: "qualified" | "qualified-with-gaps";
+  sourceLimitations?: readonly string[];
   records: readonly CapturedNativeRecord<NativeRecord>[];
 };
 
