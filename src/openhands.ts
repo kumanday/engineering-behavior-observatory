@@ -1,6 +1,5 @@
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, recordRuntimeProbe, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { withLockedOpenHandsServer } from "./openhands-runtime.js";
-import { retainedVersionProfile } from "./retained-version-policy.js";
 import type {
   AdapterCapabilityProfile,
   CapturedNativeRecord,
@@ -13,6 +12,7 @@ import type {
 
 export const OPENHANDS_AGENT_SERVER_VERSION = "1.54.0";
 /** Agent Server versions with checked conformance fixtures; other retained releases carry confidence limitations. */
+/** Historical fixture inventory; not a runtime confidence list. */
 export const RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS: readonly string[] = [OPENHANDS_AGENT_SERVER_VERSION, "1.46.0", "1.44.1"];
 export const OPENHANDS_TYPESCRIPT_CLIENT_VERSION = "1.54.0";
 export const OPENHANDS_DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
@@ -63,7 +63,7 @@ export const OPENHANDS_AGENT_SERVER_CAPABILITIES = {
 
 /** Retained evidence keeps the identity of the runtime that produced it. */
 export function openHandsCapabilityProfile(version: string): AdapterCapabilityProfile {
-  return retainedVersionProfile({ ...OPENHANDS_AGENT_SERVER_CAPABILITIES, adapterId: `openhands-agent-server-v${version}` }, RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS, version);
+  return { ...OPENHANDS_AGENT_SERVER_CAPABILITIES, adapterId: `openhands-agent-server-v${version}` };
 }
 
 export interface OpenHandsWebSocket {

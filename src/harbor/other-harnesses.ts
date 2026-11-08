@@ -75,7 +75,7 @@ export function createDeepSeekHarborExecutor(options: DeepSeekHarborExecutorOpti
     const terminal = { ...attempt.terminal };
     if (outcome) terminal.workspaceArtifactId = outcome.descriptor.id;
     else delete terminal.workspaceArtifactId;
-    const manifest = await assembler.finalize({ terminal,
+    const manifest = await assembler.finalize({ terminal, attemptRecord: attempt.record,
       missingEvidence: [{ kind: "telemetry", reason: composition.telemetry.status === "enabled" ? "not-collected" : "unsupported", affects: ["timing-resource"] }, ...(outcomeError ? [{ kind: "workspace", reason: "not-collected" as const, affects: ["outcome" as const], detail: outcomeError }] : [])], qualification });
     const qualified = await qualifyRunBundle(input.stepBundleRoot, qualification);
     return { bundleLocator: relative(input.prepared.evidence.attemptRoot, join(input.stepBundleRoot, "manifest.json")), qualification: qualified.status,

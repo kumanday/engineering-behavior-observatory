@@ -31,6 +31,7 @@ import type {
 
 export const DEEPSEEK_SDK_VERSION = "0.2.0-rc.2";
 /** DeepSeek client versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
+/** Historical fixture inventory; not a runtime confidence list. */
 export const RETAINED_DEEPSEEK_SDK_VERSIONS: readonly string[] = [DEEPSEEK_SDK_VERSION, "0.1.7-rc.2", "0.1.1-rc.2"];
 export const DEEPSEEK_ADAPTER_ID = "deepseek-harness-sdk";
 export const DEEPSEEK_HARNESS_ID = "deepseek-harness";
@@ -519,7 +520,7 @@ export function qualifyRetainedDeepSeekCapture(
   const children = new Map<string, string[]>();
   for (const observation of records) {
     const payload = record(observation.payload) ?? {};
-    if (observation.kind === "composition") input = markRetainedVersion(input, manifestVersion, RETAINED_DEEPSEEK_SDK_VERSIONS, [record(payload.runtime)?.clientVersion]);
+    if (observation.kind === "composition") input = markRetainedVersion(input, String(record(payload.runtime)?.clientVersion ?? manifestVersion), []);
     if (observation.kind === "notification" && ["subagent.started", "subagent.finished"].includes(observation.method ?? "")
       && typeof payload.parentSessionId === "string" && typeof payload.childSessionId === "string") {
       children.set(payload.parentSessionId, [...(children.get(payload.parentSessionId) ?? []), payload.childSessionId]);

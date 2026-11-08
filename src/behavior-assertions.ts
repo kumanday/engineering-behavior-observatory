@@ -224,6 +224,13 @@ export async function validateAgentSdkBehaviorAssertion(
 }
 
 export async function createAgentSdkBehaviorEvidence(bundleRoot: string): Promise<AgentSdkBehaviorEvidence> {
+  const evidence = await createRetainedBehaviorEvidence(bundleRoot);
+  if (evidence.dataset.capabilityProfile.harness !== "claude-agent-sdk") throw new Error("Run bundle is not an Agent SDK capture.");
+  return evidence as AgentSdkBehaviorEvidence;
+}
+
+/** Internal projection; the public reader binds the frozen verification interpretation first. */
+export async function projectAgentSdkBehaviorEvidence(bundleRoot: string): Promise<AgentSdkBehaviorEvidence> {
   const capture = await readQualifiedClaudeAgentSdkCapture(bundleRoot);
   const normalization = await claudeAgentSdkNormalizationAdapter.normalize(capture);
   const dataset = describeNormalizedDataset({

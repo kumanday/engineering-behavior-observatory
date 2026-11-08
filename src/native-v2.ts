@@ -127,12 +127,13 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
   const mapped = new Map<string, string[]>();
   for (const event of events) { const key = referenceKey(event.source.nativeReference); mapped.set(key, [...mapped.get(key) ?? [], event.id]); }
   const unmapped = new Map(evidence.dataset.unmapped.map((record) => [referenceKey(record.reference), record.reason]));
+  const sourceLimitations = [...new Set([...(evidence.dataset.capabilityProfile.limitations ?? []), ...(evidence.verification?.limitations ?? [])])];
   const dataset: NormalizedDatasetV2 = { schemaVersion: "ebo.normalized-dataset/v2", runId: population.runId, attemptId: population.attemptId,
     normalizer: { id: profile.id, version: profile.version, implementationDigest },
     origin: { kind: "owned", qualification: evidence.capture.qualification, manifestDigest: binding.manifestDigest },
     sources: [{ id: sourceId, format: { kind: "native", version: "ebo.run-bundle/v1" }, reader: { id: profile.id, version: profile.version, implementationDigest },
       producerProfile: { status: "known", value: { id: profile.id, version: profile.version, digest: digestValue({ id: profile.id, version: profile.version, harness, implementationDigest }) } },
-      executedHarness: { id: harness, version: evidence.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT") ? { status: "unknown", reason: "HARNESS_VERSION_CONFLICT" } : { status: "known", value: binding.harnessVersion } }, authority: "owned-capture", ...(evidence.dataset.capabilityProfile.limitations?.length ? { limitations: [...evidence.dataset.capabilityProfile.limitations] } : {}) }],
+      executedHarness: { id: harness, version: evidence.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT") ? { status: "unknown", reason: "HARNESS_VERSION_CONFLICT" } : { status: "known", value: binding.harnessVersion } }, authority: "owned-capture", ...(sourceLimitations.length ? { limitations: sourceLimitations } : {}) }],
     events, operations, measurements: [], nativeRecords, contentReferences: [...contentReferences.values()],
     recordCoverage: nativeRecords.map(({ reference }) => {
       const key = referenceKey(reference), eventIds = mapped.get(key) ?? [], reason = unmapped.get(key);

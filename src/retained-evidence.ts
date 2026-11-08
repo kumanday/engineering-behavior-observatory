@@ -1,18 +1,20 @@
-import { markRetainedVersion, retainedVersionProfile } from "./retained-version-policy.js";
-import { probeClaudeAgentSdkCapabilities } from "./agent-sdk.js";
+import {readRunVerification} from "./verification-retained.js";
+import {verificationScopeForRun, verificationDigest, type VerificationResult} from "./harness-verification.js";
+import {withVerificationContext, currentVerificationResult} from "./verification-context.js";
+import { markRetainedVersion, versionConfidence } from "./retained-version-policy.js";
 import type { OutcomeEvidenceInput } from "./outcome-evidence.js";
 import { isAtifImportSchema, readImportedBehaviorEvidence } from "./atif-import.js";
 import { digestMetadata } from "./artifacts.js";
 import { factoryModelSelection } from "./factory-model.js";
-import { FACTORY_HARNESS, RETAINED_FACTORY_CLI_VERSIONS, RETAINED_FACTORY_ADAPTER_VERSIONS, RETAINED_FACTORY_SDK_VERSIONS, qualifyFactoryCapture, describeAndValidateFactoryDataset } from "./factory-droid.js";
+import { FACTORY_HARNESS, qualifyFactoryCapture, describeAndValidateFactoryDataset } from "./factory-droid.js";
 import { join } from "node:path";
 import { CLAUDE_AGENT_SDK_HARNESS, readQualifiedRunCapture, createAgentSdkNativeEvidenceResolver } from "./agent-sdk-normalizer.js";
-import { createAgentSdkBehaviorEvidence } from "./behavior-assertions.js";
-import { describeAndValidateCodexDataset, CODEX_HARNESS, RETAINED_CODEX_APP_SERVER_VERSIONS } from "./codex.js";
-import { describeAndValidateDevinDataset, DEVIN_HARNESS, qualifyRetainedDevinCapture, RETAINED_DEVIN_CLI_VERSIONS } from "./devin.js";
-import { normalizeOpenHandsCapture, openHandsCapabilityProfile, RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS, type OpenHandsNativeRecord } from "./openhands.js";
-import { createDeepSeekHarnessAdapter, DEEPSEEK_HARNESS_ID, RETAINED_DEEPSEEK_SDK_VERSIONS, normalizeDeepSeekCapture, qualifyRetainedDeepSeekCapture, type DeepSeekNativeObservation } from "./deepseek-adapter.js";
-import { createCursorSdkBehaviorEvidence, CURSOR_SDK_HARNESS, RETAINED_CURSOR_SDK_VERSIONS } from "./cursor-sdk.js";
+import { projectAgentSdkBehaviorEvidence } from "./behavior-assertions.js";
+import { describeAndValidateCodexDataset, CODEX_HARNESS } from "./codex.js";
+import { describeAndValidateDevinDataset, DEVIN_HARNESS, qualifyRetainedDevinCapture } from "./devin.js";
+import { normalizeOpenHandsCapture, openHandsCapabilityProfile, type OpenHandsNativeRecord } from "./openhands.js";
+import { createDeepSeekHarnessAdapter, DEEPSEEK_HARNESS_ID, normalizeDeepSeekCapture, qualifyRetainedDeepSeekCapture, type DeepSeekNativeObservation } from "./deepseek-adapter.js";
+import { projectCursorSdkBehaviorEvidence, CURSOR_SDK_HARNESS } from "./cursor-sdk.js";
 import { createCapturedNativeEvidenceResolver, describeNormalizedDataset, validateNormalizedDataset, type AdapterCoverageReport, type NormalizedDataset } from "./normalization-integrity.js";
 import { readBoundedFile } from "./scheduler.js";
 import { assertProtocolObservation, type ProtocolObservation } from "./process-protocol.js";
@@ -25,9 +27,7 @@ import {
   piNativeType,
   qualifyRetainedPiCapture,
   PI_NORMALIZATION_ADAPTER_VERSION,
-  RETAINED_PI_ADAPTER_VERSIONS,
   PI_HARNESS,
-  RETAINED_PI_SDK_VERSIONS,
   type PiNativeRecord,
 } from "./pi.js";
 
@@ -36,6 +36,7 @@ export type RetainedBehaviorEvidence = {
   /** Known source model and route aliases, used together for evaluator blinding. */
   modelAliases?: readonly string[];
   overlayAdjustments?: readonly import("./atif-overlays.js").AtifInterpretationAdjustment[];
+  verification?: VerificationResult;
   interpretationRevision?: { changed: boolean; admitted: unknown; current: unknown };
   /** Verified bundle metadata for outcome import; never replaces native session records. */
   outcomeCapture: OutcomeEvidenceInput;
@@ -45,46 +46,41 @@ export type RetainedBehaviorEvidence = {
 };
 
 export async function createRetainedBehaviorEvidence(bundleRoot: string): Promise<RetainedBehaviorEvidence> {
-  const evidence = await readRetainedBehaviorEvidence(bundleRoot);
-  if (evidence.capture.qualification === "imported") return evidence;
   const manifest = JSON.parse(readBoundedFile(join(bundleRoot, "manifest.json"), "Run manifest").toString("utf8")) as RunManifest;
-  const harness = manifest.run.harness.id;
-  const verified: Record<string, readonly string[]> = {
-    [CLAUDE_AGENT_SDK_HARNESS]: [probeClaudeAgentSdkCapabilities().sdkVersion],
-    "agent-sdk": [probeClaudeAgentSdkCapabilities().sdkVersion],
-    [CODEX_HARNESS]: RETAINED_CODEX_APP_SERVER_VERSIONS,
-    [DEVIN_HARNESS]: RETAINED_DEVIN_CLI_VERSIONS,
-    [PI_HARNESS]: RETAINED_PI_SDK_VERSIONS,
-    [FACTORY_HARNESS]: RETAINED_FACTORY_CLI_VERSIONS,
-    [CURSOR_SDK_HARNESS]: RETAINED_CURSOR_SDK_VERSIONS,
-    "openhands-agent-server": RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS,
-    [DEEPSEEK_HARNESS_ID]: RETAINED_DEEPSEEK_SDK_VERSIONS,
-  };
-  let profile = retainedVersionProfile(evidence.dataset.capabilityProfile, verified[harness] ?? [], manifest.run.harness.version);
-  const components = harness === PI_HARNESS ? [["pi-sdk-adapter", RETAINED_PI_ADAPTER_VERSIONS]] as const
-    : harness === FACTORY_HARNESS ? [["factory-adapter", RETAINED_FACTORY_ADAPTER_VERSIONS], ["@factory/droid-sdk", RETAINED_FACTORY_SDK_VERSIONS]] as const : [];
-  for (const [name, versions] of components) for (const runtime of manifest.run.runtime.filter((runtime) => runtime.name === name)) {
-    profile = retainedVersionProfile(profile, versions, runtime.version);
-  }
-  const componentVersions = manifest.run.runtime.filter(({ name, source }) => name === harness || source === harness
-    || [CLAUDE_AGENT_SDK_HARNESS, "agent-sdk"].includes(harness) && [CLAUDE_AGENT_SDK_HARNESS, "agent-sdk"].includes(name)).map(({ version }) => version);
-  const confidence = markRetainedVersion(evidence.capture, manifest.run.harness.version, verified[harness] ?? [], componentVersions);
-  if (confidence.sourceLimitations?.length) profile = { ...profile, limitations: [...new Set([...(profile.limitations ?? []), ...confidence.sourceLimitations])] };
-  if (retainedRuntimeProbeConflict(bundleRoot, manifest)) profile = {...profile, limitations: [...new Set([...(profile.limitations ?? []), "HARNESS_VERSION_UNVERIFIED", "HARNESS_VERSION_CONFLICT"])]};
-  if (profile === evidence.dataset.capabilityProfile) return evidence;
-  const dataset = { ...evidence.dataset, capabilityProfile: profile };
-  return { ...evidence, dataset, coverage: await validateNormalizedDataset(dataset, evidence.resolver) };
+  if (isAtifImportSchema(manifest.schemaVersion)) return readRetainedBehaviorEvidence(bundleRoot);
+  const recorded = readRunVerification(bundleRoot, manifest);
+  const scope = verificationScopeForRun(manifest.run, manifest.configuration);
+  const nativeHarness = manifest.runtimeLock?.role ?? (manifest.run.harness.id === "agent-sdk" ? "claude-agent-sdk" : manifest.run.harness.id);
+  if (recorded && (recorded.subject.harness !== nativeHarness
+      || verificationDigest(recorded.scope) !== verificationDigest(scope))) throw new Error("HARNESS_VERIFICATION_INVALID: run scope differs from retained verification.");
+  return withVerificationContext(recorded?.snapshot ?? undefined, async () => {
+    const evidence = await readRetainedBehaviorEvidence(bundleRoot);
+    if (evidence.capture.qualification === "imported") return evidence;
+    const harness = nativeHarness;
+    let profile = evidence.dataset.capabilityProfile;
+    const componentVersions = manifest.run.runtime.filter(({name}) => name === harness || ["agent-sdk", "claude-agent-sdk"].includes(harness) && ["agent-sdk", "claude-agent-sdk"].includes(name)).map(({version}) => version);
+    const confidence = markRetainedVersion(evidence.capture, manifest.run.harness.version, componentVersions);
+    if (confidence.sourceLimitations?.length) profile = {...profile, limitations: [...new Set([...(profile.limitations ?? []), ...confidence.sourceLimitations])]};
+    if (retainedRuntimeProbeConflict(bundleRoot, manifest)) profile = {...profile, limitations: [...new Set([...(profile.limitations ?? []), "HARNESS_VERSION_UNVERIFIED", "HARNESS_VERSION_CONFLICT"])]};
+    const dataset = {...evidence.dataset, capabilityProfile: profile};
+    const conflict = profile.limitations?.includes("HARNESS_VERSION_CONFLICT"), result = currentVerificationResult();
+    const unverified = conflict || versionConfidence(harness, manifest.run.harness.version).includes("HARNESS_VERSION_UNVERIFIED");
+    const verification = {...result, ...(unverified ? {state: "unverified" as const} : {}), limitations: [...new Set([...result.limitations,
+      ...unverified ? ["HARNESS_VERSION_UNVERIFIED"] : [], ...conflict ? ["HARNESS_VERSION_CONFLICT"] : []])]};
+    return {...evidence, capture: conflict ? {...confidence, sourceLimitations: profile.limitations} : confidence, dataset,
+      verification, coverage: await validateNormalizedDataset(dataset, evidence.resolver)};
+  }, scope, recorded?.subject);
 }
 
 async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<RetainedBehaviorEvidence> {
   const manifest = JSON.parse(readBoundedFile(join(bundleRoot, "manifest.json"), "Run manifest").toString("utf8")) as RunManifest;
   if (isAtifImportSchema((manifest as unknown as { schemaVersion: string }).schemaVersion)) return readImportedBehaviorEvidence(bundleRoot);
   const harness = manifest.run.harness.id;
-  if (harness === CURSOR_SDK_HARNESS) return createCursorSdkBehaviorEvidence(bundleRoot);
+  if (harness === CURSOR_SDK_HARNESS) return projectCursorSdkBehaviorEvidence(bundleRoot);
   const isAgentSdk = [CLAUDE_AGENT_SDK_HARNESS, "agent-sdk"].includes(harness)
     || manifest.run.runtime.some(({ source, name }) => source === "anthropic" && [CLAUDE_AGENT_SDK_HARNESS, "agent-sdk"].includes(name));
   if (isAgentSdk) {
-    const evidence = await createAgentSdkBehaviorEvidence(bundleRoot);
+    const evidence = await projectAgentSdkBehaviorEvidence(bundleRoot);
     return { ...evidence, outcomeCapture: evidence.capture };
   }
   if (![CODEX_HARNESS, DEVIN_HARNESS, FACTORY_HARNESS, "openhands-agent-server", DEEPSEEK_HARNESS_ID, PI_HARNESS].includes(harness)) {
@@ -131,7 +127,7 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
       return value.channel === "adapter" && value.nativeType === "session_created";
     }).map(({ record }) => record as { payload?: { sdk?: { version?: unknown } } });
     if (compositions.length !== 1) throw new Error(`Retained Pi capture has ${String(compositions.length)} native composition records; expected exactly one.`);
-    capture = markRetainedVersion(capture, manifest.run.harness.version, RETAINED_PI_SDK_VERSIONS, [compositions[0]!.payload?.sdk?.version]);
+    capture = markRetainedVersion(capture, manifest.run.harness.version, [compositions[0]!.payload?.sdk?.version]);
     const native = qualifyRetainedPiCapture(capture as NormalizationInput<PiNativeRecord>, manifest.run.native?.sessionId, expectsCompletion);
     capture.qualification = native.qualification;
     outcomeCapture.qualification = native.qualification;
@@ -150,7 +146,7 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
       const document = record.document as Record<string, any> | undefined;
       return document?.schemaVersion === "ebo.codex-telemetry/v1" ? [document.runtime?.version] : [];
     });
-    native = markRetainedVersion(native, manifest.run.harness.version, RETAINED_CODEX_APP_SERVER_VERSIONS, [...handshakeVersions, ...telemetryVersions,
+    native = markRetainedVersion(native, manifest.run.harness.version, [...handshakeVersions, ...telemetryVersions,
       ...manifest.run.runtime.filter(({ name }) => name === CODEX_HARNESS).map(({ version }) => version)]);
     capture = native;
     let acceptedStartSequence = 0;
@@ -210,9 +206,9 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
       .map(({ record }) => record.document as Record<string, any> | undefined);
     const runtime = runtimeDocuments[0]?.runtime;
     if (runtimeDocuments.length !== 1 || runtimeDocuments[0]?.schemaVersion !== "ebo.factory-runtime/v1" || !runtime || typeof runtime !== "object") throw new Error("Retained Factory runtime document has an invalid capture format.");
-    capture = markRetainedVersion(capture, manifest.run.harness.version, RETAINED_FACTORY_CLI_VERSIONS, [runtime.version]);
-    capture = markRetainedVersion(capture, captureSdkVersion, RETAINED_FACTORY_SDK_VERSIONS, [runtime.sdkVersion]);
-    capture = markRetainedVersion(capture, captureAdapterVersion, RETAINED_FACTORY_ADAPTER_VERSIONS, [runtime.adapterVersion]);
+    capture = markRetainedVersion(capture, manifest.run.harness.version, [runtime.version]);
+    capture = markRetainedVersion(capture, captureSdkVersion, [runtime.sdkVersion]);
+    if (captureAdapterVersion !== runtime.adapterVersion) capture = {...capture, sourceLimitations: [...new Set([...(capture.sourceLimitations ?? []), "HARNESS_VERSION_CONFLICT", "HARNESS_VERSION_UNVERIFIED"])]};
     if (runtimeDocuments[0]?.effectiveConfiguration?.model !== manifest.run.model.id) throw new Error("Retained Factory model differs from the run manifest.");
     const native = qualifyFactoryCapture(capture as NormalizationInput<ProtocolObservation>, {
       sessionId: manifest.run.native?.sessionId, expectsCompletion, cliVersion: manifest.run.harness.version, sdkVersion: captureSdkVersion,
@@ -255,7 +251,7 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
     const serverInfo = native.records.filter(({ record }) => record.channel === "server-info");
     if (serverInfo.length !== 1) throw new Error("Retained OpenHands capture requires exactly one native server-info record.");
     for (const { record } of native.records) {
-      if (record.channel === "server-info") capture = markRetainedVersion(capture, manifest.run.harness.version, RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS, [record.payload.version]);
+      if (record.channel === "server-info") capture = markRetainedVersion(capture, manifest.run.harness.version, [record.payload.version]);
       if (record.session_id !== undefined && record.session_id !== sessionId
         || ["conversation-created", "websocket-status", "websocket-event", "rest-event", "conversation-final"].includes(record.channel)
           && (sessionId === undefined || record.session_id !== sessionId)

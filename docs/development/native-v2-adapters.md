@@ -60,3 +60,12 @@ The v2 API is opt-in while typed consumers and migration reconciliation pass
 their gates. Current v1 entry points retain their published contracts. A release
 candidate must also pass the native baseline, package and mixed-runtime tests
 described in [migration accounting](migration-accounting.md).
+
+## Verification interpretation
+
+The [verification catalog](../reference/harness-verification.md) supplies native
+confidence through frozen study snapshots. Adapter constants enumerate historical
+fixture versions only. Reading a retained run binds its diagnostic snapshot and
+profile/route before normalization; it does not consult the current operator
+catalog. Runtime declarations remain cohort dimensions. A version disagreement
+adds a limitation without removing native records or measurements.

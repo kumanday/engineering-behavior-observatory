@@ -1,6 +1,6 @@
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, probeLockedRuntimeExecutable, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
-import { markRetainedVersion, retainedVersionProfile } from "./retained-version-policy.js";
+import { markRetainedVersion } from "./retained-version-policy.js";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -35,6 +35,7 @@ import {
 
 export const DEVIN_CLI_VERSION = "3000.11.3";
 /** Every Devin CLI pin whose retained captures this adapter still reads. */
+/** Historical fixture inventory; not a runtime confidence list. */
 export const RETAINED_DEVIN_CLI_VERSIONS: readonly string[] = [DEVIN_CLI_VERSION];
 export const DEVIN_ADAPTER_VERSION = "0.1.0";
 export const DEVIN_HARNESS = "devin-cli";
@@ -586,13 +587,13 @@ export async function normalizeDevinCapture(
 
 export async function describeAndValidateDevinDataset(
   capture: QualifiedNativeCapture<ProtocolObservation>,
-  runtimeVersion = (capture as Partial<DevinCliCapture>).telemetry?.runtime?.version ?? DEVIN_CLI_VERSION,
+  _runtimeVersion = (capture as Partial<DevinCliCapture>).telemetry?.runtime?.version ?? DEVIN_CLI_VERSION,
 ): Promise<{ dataset: NormalizedDataset; coverage: AdapterCoverageReport }> {
   const normalization = await normalizeDevinCapture(capture);
   const dataset = describeNormalizedDataset({
     capture,
     normalization,
-    capabilityProfile: retainedVersionProfile(DEVIN_CLI_CAPABILITIES, RETAINED_DEVIN_CLI_VERSIONS, runtimeVersion),
+    capabilityProfile: DEVIN_CLI_CAPABILITIES,
     adapterVersion: DEVIN_ADAPTER_VERSION,
     nativeType: devinNativeType,
   });
@@ -611,8 +612,7 @@ export function qualifyRetainedDevinCapture(
   capture: QualifiedNativeCapture<ProtocolObservation>,
   options: { sessionId: string | undefined; expectsCompletion: boolean; harnessVersion: string; runtimeVersions: readonly unknown[] },
 ): RetainedDevinCapture {
-  capture = markRetainedVersion(capture, options.harnessVersion, RETAINED_DEVIN_CLI_VERSIONS,
-    options.runtimeVersions.length ? options.runtimeVersions : [undefined]);
+  capture = markRetainedVersion(capture, options.harnessVersion, options.runtimeVersions.length ? options.runtimeVersions : [undefined]);
   const records = capture.records.map(({ record }) => record);
   for (const record of records) {
     if (record.source !== DEVIN_HARNESS && record.source !== DEVIN_CLIENT) throw new Error(`Retained Devin capture contains a foreign source ${record.source}.`);

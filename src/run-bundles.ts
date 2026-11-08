@@ -1,4 +1,7 @@
-import { currentStudyRuntime } from "./runtime-context.js";
+import {createRunVerification} from "./verification-retained.js";
+import {verificationScopeForRun} from "./harness-verification.js";
+import {bindVerificationScope} from "./verification-context.js";
+import { currentStudyRuntime, refreshRuntimeVerificationWarnings } from "./runtime-context.js";
 import { studyRunId } from "./runtime-run-id.js";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -303,6 +306,17 @@ export class RunBundleAssembler {
         const inspected = await inspectRetainedArtifact(this.bundleRoot, relativePath);
         this.evidence.push({id: "study-freeze", source: "ebo-runtime", kind: "diagnostic", authority: "outcome", mediaType: "application/json", sharingClass: "internal", relativePath, digest: digestString(inspected.digest.value), sizeBytes: inspected.sizeBytes});
       }
+      if (context.launch.verificationSubject) {
+        const scope = verificationScopeForRun(this.run, this.configuration);
+        bindVerificationScope(scope);
+        refreshRuntimeVerificationWarnings();
+        await writeFile(join(context.studyRoot, context.launch.receiptLocator), JSON.stringify({...context.launch, probes: context.probes, status: "probed"}), {mode: 0o600});
+        const record = createRunVerification(context.launch.verificationSubject, context.launch.verification, scope);
+        const relativePath = "runtime/harness-verification.json";
+        await writeArtifactAtomically(this.bundleRoot, relativePath, Buffer.from(JSON.stringify(record)), undefined, {overwrite: false});
+        const inspected = await inspectRetainedArtifact(this.bundleRoot, relativePath);
+        this.evidence.push({id: "harness-verification", source: "ebo-runtime", kind: "diagnostic", authority: "outcome", mediaType: "application/json", sharingClass: "internal", relativePath, digest: digestString(inspected.digest.value), sizeBytes: inspected.sizeBytes});
+      }
       for (const [id, sourcePath] of [["runtime-lock", "runtimes/lock.json"], ["runtime-launch", context.launch.receiptLocator]]) {
         const relativePath = `runtime/${id}.json`;
         await writeArtifactAtomically(this.bundleRoot, relativePath, await readFile(join(context.studyRoot, sourcePath!)), undefined, { overwrite: false });
@@ -466,6 +480,7 @@ export class RunBundleAssembler {
     terminal: TerminalRecord;
     missingEvidence?: CaptureMissingEvidence[];
     qualification?: CaptureQualificationOptions;
+    attemptRecord?: import("./lifecycle.js").AttemptRecord;
   }): Promise<RunManifest> {
     this.assertOpen();
     this.finalizing = true;
@@ -475,6 +490,17 @@ export class RunBundleAssembler {
 
   private async finalizeOwned(input: Parameters<RunBundleAssembler["finalize"]>[0]): Promise<RunManifest> {
     const terminal = structuredClone(input.terminal);
+    if (input.attemptRecord) {
+      const record = input.attemptRecord;
+      if (record.run.id !== this.run.id || record.attempt.id !== this.attempt.id || record.terminal?.state !== terminal.state) throw new Error("CAPTURE_LIFECYCLE_BINDING: lifecycle does not belong to this captured attempt.");
+      const relativePath = "runtime/capture-lifecycle.json";
+      await writeMetadataAtomically(this.bundleRoot, relativePath, {
+        schemaVersion: "ebo.capture-lifecycle/v1", runId: record.run.id, attemptId: record.attempt.id,
+        lifecycle: record.lifecycle, terminal: record.terminal, capture: record.capture ?? null, cleanup: record.cleanup ?? null,
+        harnessTerminationConfirmed: record.harnessTerminationConfirmed ?? null,
+      }, undefined, {overwrite: false});
+      await this.registerArtifactOwned({id: "capture-lifecycle", source: "ebo-runtime", kind: "diagnostic", mediaType: "application/json", sharingClass: "internal", relativePath});
+    }
     const context = currentStudyRuntime();
     if (this.runtimeLock && context && context.launch.lockDigest === this.runtimeLock.lockDigest && context.launch.role === this.runtimeLock.role) {
       const actual = context.probes.findLast((probe) => probe.componentId === context.launch.roots[0]!.id)?.actualVersion ?? "not-probed";
@@ -1037,7 +1063,7 @@ function qualifyHooks(
   }
   const runtimeVersion = manifest.run.runtime.find((component) => component.name === "agent-sdk")?.version;
   if (runtimeVersion !== capabilities.sdkVersion) {
-    addQualificationReason(report, "hooks", "gap", "HARNESS_VERSION_UNVERIFIED", undefined, `Retained Agent SDK ${String(runtimeVersion)} does not match capability profile ${capabilities.sdkVersion}.`);
+    addQualificationReason(report, "hooks", "gap", "HOOK_CAPABILITY_VERSION_MISMATCH", undefined, `Retained Agent SDK ${String(runtimeVersion)} does not match capability profile ${capabilities.sdkVersion}.`);
   }
   const observed = new Set(hooks.flatMap(({ hookNames }) => hookNames ?? []));
   if (runtimeVersion !== capabilities.sdkVersion) {
@@ -1073,6 +1099,8 @@ function qualifyTelemetry(
     && Array.isArray(entry.affects) && entry.affects.includes("timing-resource"));
   const unsupported = missing.some((entry) => entry.reason === "unsupported"
     && Array.isArray(entry.affects) && entry.affects.includes("timing-resource"));
+  const uncollected = missing.some((entry) => ["not-collected", "process-interrupted"].includes(String(entry.reason))
+    && Array.isArray(entry.affects) && entry.affects.includes("timing-resource"));
   if (optionalBeta) {
     addQualificationReason(report, "telemetry", "gap", "OPTIONAL_BETA_TIMING_UNAVAILABLE", undefined, "Optional detailed-beta timing is unavailable; semantic hook evidence remains usable.");
   }
@@ -1080,7 +1108,7 @@ function qualifyTelemetry(
     if (unsupported) {
       addQualificationReason(report, "telemetry", "unsupported", "TELEMETRY_UNSUPPORTED_BY_PINNED_RUNTIME", undefined, "Pinned runtime explicitly does not support telemetry evidence.");
     } else if (!optionalBeta) {
-      addQualificationReason(report, "telemetry", "unqualified", "TELEMETRY_EVIDENCE_MISSING", undefined, "No valid telemetry evidence is retained.");
+      addQualificationReason(report, "telemetry", uncollected ? "gap" : "unqualified", "TELEMETRY_EVIDENCE_MISSING", undefined, "No valid telemetry evidence is retained.");
     }
     return;
   }

@@ -40,6 +40,16 @@ The harness roles are `claude-agent-sdk`, `codex-app-server`, `devin-cli`,
 `deepseek-harness`. `codex-judge`, `harbor` and `smol` select supporting runtimes.
 The `list` output names each role's components and upstream package sources.
 
+## Verification evidence
+
+The [verification catalog](harness-verification.md) records admitted probe and
+scoped capture results for the selected runtime. New study locks snapshot that
+interpretation; later admissions do not change an existing freeze. Use
+`runtime verify` to prepare a no-inference candidate and pass
+`--verification-catalog <path>` to `runtime freeze` when adopting an operator
+catalog. A package version in EBO’s development dependencies does not establish
+capture verification.
+
 ## Bind a queue to the freeze
 
 After compiling a task-packet or Harbor queue, bind it to the study:

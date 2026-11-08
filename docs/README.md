@@ -35,7 +35,9 @@ the `ebo` command is installed as described in the quickstart.
 [DeepSeek Harness](harnesses/deepseek-harness.md) ·
 [Factory Droid](harnesses/factory-droid.md)
 
-These guides own runtime pins, configuration, native evidence, and known gaps.
+These guides explain runtime selection, configuration, native evidence and known gaps.
+The [verification guide](reference/harness-verification.md) explains admitted
+probe and capture evidence across all eight harnesses.
 
 ## Evaluate behavior
 

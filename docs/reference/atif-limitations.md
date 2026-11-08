@@ -17,11 +17,18 @@ measures remain available alongside limitations on completeness or native semant
 | `ATIF_FIELD_UNRECOGNIZED` | A field is retained without a known standard interpretation. |
 | `ATIF_EXTENSION_OPAQUE` | An extension is retained without core interpretation. |
 | `PRODUCER_VERSION_UNVERIFIED` | A matching overlay's agent or converter version is outside its verified ranges; core and conservative limitations apply. |
-| `HARNESS_VERSION_UNVERIFIED` | A retained native runtime or capture-adapter version lacks verified conformance evidence; its format contract is still read. |
-| `HARNESS_VERSION_CONFLICT` | Retained version declarations disagree. The disagreement is visible and the executed version remains uncertain. |
 | `ATIF_TRIAL_AGENT_VERSION_UNVERIFIED` | An ATIF or trial version declaration is missing, unknown or conflicting; source association retains the uncertainty. |
 | `NO_OVERLAY_APPLIED` | Core projection is available without a matching optional overlay. |
 | `NO_MATCHING_OVERLAY` | The supplied agent/converter context matches no dedicated interpretation. |
+
+## Native version confidence
+
+| Code | Meaning |
+| --- | --- |
+| `HARNESS_VERSION_UNVERIFIED` | No matching admitted runtime probe is frozen, or the runtime declarations disagree. The format contract remains readable. |
+| `HARNESS_CAPTURE_UNVERIFIED` | One or more named capture capabilities lack matching verification for this profile and model route. Checked capabilities remain available. |
+| `HARNESS_VERIFICATION_CONFLICT` | Active receipts disagree about a named capability. An explicit resolving admission is required. |
+| `HARNESS_VERSION_CONFLICT` | Retained version declarations disagree. The executed version remains uncertain. |
 
 ## Recorded populations and references
 

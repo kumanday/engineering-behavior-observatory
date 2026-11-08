@@ -1,15 +1,23 @@
-import type { AdapterCapabilityProfile } from "./uniform-events.js";
+import { currentVerificationContext, currentVerificationResult } from "./verification-context.js";
+import { listRuntimeRecipes } from "./runtime-catalog.js";
 
-/** Verified versions affect confidence in the format interpretation, never admission. */
-export function retainedVersionProfile(profile: AdapterCapabilityProfile, versions: readonly string[], actual: string): AdapterCapabilityProfile {
-  return versions.includes(actual) ? profile : { ...profile, limitations: [...new Set([...(profile.limitations ?? []), "HARNESS_VERSION_UNVERIFIED"])] };
+/** Only admitted, frozen verification evidence decides confidence. Runtime versions never gate parsing. */
+export function versionConfidence(harness: string, actual: string, componentName?: string): string[] {
+  harness = harness === "agent-sdk" ? "claude-agent-sdk" : harness;
+  const current = currentVerificationContext(), snapshot = current?.snapshot;
+  const expectedName = componentName ?? listRuntimeRecipes().find(recipe => recipe.harness === harness)?.components[0]?.name;
+  const matches = snapshot?.subject.harness === harness && snapshot.subject.components.some(component => component.name === expectedName && component.version === actual);
+  const result = currentVerificationResult();
+  if (!matches || result.state === "unverified") return ["HARNESS_VERSION_UNVERIFIED"];
+  const limitations: string[] = [];
+  if (Object.entries(result.claims).some(([claim, status]) => !["installation", "runtime-probe", "module-api"].includes(claim) && status !== "checked")) limitations.push("HARNESS_CAPTURE_UNVERIFIED");
+  if (Object.values(result.claims).includes("conflict")) limitations.push("HARNESS_VERIFICATION_CONFLICT");
+  return limitations;
 }
-
-/** Retained declarations may disagree; preserve the evidence and mark version confidence. */
 export function markRetainedVersion<T extends import("./uniform-events.js").QualifiedNativeCapture<unknown>>(
-  capture: T, declared: string, verified: readonly string[], observed: readonly unknown[] = [],
+  capture: T, declared: string, observed: readonly unknown[] = [],
 ): T {
-  const conflict = observed.some((version) => typeof version === "string" && version !== declared);
-  const unverified = !verified.includes(declared) || observed.some((version) => typeof version !== "string" || !verified.includes(version)) || conflict;
-  return unverified ? { ...capture, sourceLimitations: [...new Set([...(capture.sourceLimitations ?? []), "HARNESS_VERSION_UNVERIFIED", ...conflict ? ["HARNESS_VERSION_CONFLICT"] : []])] } : capture;
+  const conflict = capture.sourceLimitations?.includes("HARNESS_VERSION_CONFLICT") || observed.some(version => typeof version === "string" && version !== declared);
+  return {...capture, sourceLimitations: [...new Set([...(capture.sourceLimitations ?? []).filter(value => !["HARNESS_VERSION_UNVERIFIED", "HARNESS_CAPTURE_UNVERIFIED"].includes(value)),
+    ...conflict ? ["HARNESS_VERSION_UNVERIFIED", "HARNESS_VERSION_CONFLICT"] : []])]};
 }

@@ -257,6 +257,9 @@ export async function captureClaudeAgentSdkRunOwned(options: CaptureClaudeAgentS
     await assembler.writeAgentSdkTelemetry({ evidence: agentSdkEvidence, ...(options.traceId === undefined ? {} : { traceId: options.traceId }) });
   }
   const missingEvidence: CaptureMissingEvidence[] = [
+    ...(agentSdkEvidence?.telemetry === undefined && agentSdkEvidence?.usage === undefined ? [{
+      kind: "telemetry", reason: "not-collected" as const, affects: ["timing-resource" as const],
+    }] : []),
     ...(stream.status === "complete" ? [] : [{
       kind: "session-completion",
       reason: attempt.terminal.state === "interrupted" ? "process-interrupted" as const : "not-emitted" as const,
@@ -287,7 +290,7 @@ export async function captureClaudeAgentSdkRunOwned(options: CaptureClaudeAgentS
   const terminal = structuredClone(attempt.terminal);
   if (workspaceOutcome === undefined) delete terminal.workspaceArtifactId;
   const manifest = await assembler.finalize({
-    terminal,
+    terminal, attemptRecord: attempt.record,
     missingEvidence,
     qualification: qualificationOptions,
   });

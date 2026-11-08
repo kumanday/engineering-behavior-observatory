@@ -1,6 +1,6 @@
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
 import * as developmentSdk from "@cursor/sdk";
-import { markRetainedVersion, retainedVersionProfile } from "./retained-version-policy.js";
+import { markRetainedVersion } from "./retained-version-policy.js";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, open, stat, type FileHandle } from "node:fs/promises";
@@ -67,6 +67,7 @@ import { readBoundedFile } from "./scheduler.js";
 
 export const CURSOR_SDK_VERSION = "1.0.37";
 /** Cursor SDK versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
+/** Historical fixture inventory; not a runtime confidence list. */
 export const RETAINED_CURSOR_SDK_VERSIONS: readonly string[] = [CURSOR_SDK_VERSION, "1.0.31"];
 export const CURSOR_SDK_HARNESS = "cursor-sdk";
 export const CURSOR_SDK_ADAPTER_ID = "ebo-cursor-sdk-v1";
@@ -376,7 +377,7 @@ export async function captureCursorSdkRunOwned(options: CaptureCursorSdkRunOptio
   const terminal = structuredClone(attempt.terminal);
   if (workspaceOutcome === undefined) delete terminal.workspaceArtifactId;
   const qualificationOptions = { startingWorkspacePath: options.startingWorkspacePath, semanticEvidenceKinds: ["session"] as const };
-  const manifest = await assembler.finalize({ terminal, missingEvidence, qualification: qualificationOptions });
+  const manifest = await assembler.finalize({ terminal, attemptRecord: attempt.record, missingEvidence, qualification: qualificationOptions });
   const qualification = await qualifyRunBundle(assembler.bundleRoot, qualificationOptions);
   return {
     runtime: runtimeExecutionSummary(),
@@ -747,6 +748,14 @@ function restrictCursorProcessEnvironment(apiKey: string): { keys: string[]; res
 
 /** Read and normalize one retained, capture-qualified Cursor SDK bundle. */
 export async function createCursorSdkBehaviorEvidence(bundleRoot: string): Promise<CursorSdkBehaviorEvidence> {
+  const {createRetainedBehaviorEvidence} = await import("./retained-evidence.js");
+  const evidence = await createRetainedBehaviorEvidence(bundleRoot);
+  if (evidence.dataset.capabilityProfile.harness !== CURSOR_SDK_HARNESS) throw new Error("Run bundle is not a Cursor capture.");
+  return evidence as CursorSdkBehaviorEvidence;
+}
+
+/** Internal projection, called after the frozen interpretation has been bound. */
+export async function projectCursorSdkBehaviorEvidence(bundleRoot: string): Promise<CursorSdkBehaviorEvidence> {
   const manifest = JSON.parse(readBoundedFile(join(resolve(bundleRoot), "manifest.json"), "Run manifest").toString("utf8")) as RunManifest;
   const retainedVersion = manifest.run.harness.version;
   if (manifest.run.harness.id !== CURSOR_SDK_HARNESS || !manifest.run.runtime.some(({ source, name }) => source === "cursor" && name === "cursor-sdk")) {
@@ -765,12 +774,12 @@ export async function createCursorSdkBehaviorEvidence(bundleRoot: string): Promi
   };
   assertRetainedCursorIdentity(manifest, capture.records.map(({ record }) => record));
   const nativeVersion = asRecord(capture.records.find(({ record }) => record.channel === "configuration")?.record.payload)?.sdkVersion;
-  capture = markRetainedVersion(capture, retainedVersion, RETAINED_CURSOR_SDK_VERSIONS, [nativeVersion, ...manifest.run.runtime.filter(({ name }) => name === "cursor-sdk").map(({ version }) => version)]);
+  capture = markRetainedVersion(capture, retainedVersion, [nativeVersion, ...manifest.run.runtime.filter(({ name }) => name === "cursor-sdk").map(({ version }) => version)]);
   const normalization = normalizeCursorSdkCapture(capture);
   const dataset = describeNormalizedDataset({
     capture,
     normalization,
-    capabilityProfile: retainedVersionProfile(CURSOR_SDK_CAPABILITIES, RETAINED_CURSOR_SDK_VERSIONS, retainedVersion),
+    capabilityProfile: CURSOR_SDK_CAPABILITIES,
     adapterVersion: CURSOR_SDK_ADAPTER_VERSION,
     nativeType: cursorNativeType,
   });

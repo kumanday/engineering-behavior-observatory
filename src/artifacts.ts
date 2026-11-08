@@ -1190,6 +1190,8 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("semantic-judge.v1.json"));
   ajv.addSchema(readSchema("semantic-judge-runtime.v1.json"));
   ajv.addSchema(readSchema("study-runtimes.v1.json"));
+  ajv.addSchema(readSchema("study-runtimes.v2.json"));
+  ajv.addSchema(readSchema("harness-verification.v1.json"));
   ajv.addSchema(readSchema("study-runtime-bindings.v1.json"));
   ajv.addSchema(readSchema("migration.v1.json"));
   ajv.addSchema(readSchema("human-calibration.v1.json"));
@@ -1208,6 +1210,12 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("run-queue.v2.schema.json"));
 
   return new Map([
+    ["ebo.harness-verification/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/receipt")],
+    ["ebo.harness-verification-admission/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/admission")],
+    ["ebo.harness-verification-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/snapshot")],
+    ["ebo.harness-verification-candidate/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/candidate")],
+    ["ebo.run-verification/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/run")],
+    ["ebo.capture-lifecycle/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/lifecycle")],
     ["ebo.leaderboard-request-receipt/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/requestReceipt")],
     ["ebo.leaderboard-policy-input/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/policyInput")],
     ["ebo.leaderboard-policy-receipt/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/policyReceipt")],
@@ -1266,6 +1274,8 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.atlas-bundle/v1", requiredValidator(ajv, "urn:ebo:schema:atlas-bundle:v1#/$defs/bundle")],
     ["ebo.semantic-judge-request/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/request")],
     ["ebo.semantic-judge-input/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/input")],
+    ["ebo.study-runtime-lock/v2", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v2#/$defs/lock")],
+    ["ebo.runtime-launch/v2", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v2#/$defs/launch")],
     ["ebo.study-runtime-lock/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/lock")],
     ["ebo.runtime-launch/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/launch")],
     ["ebo.semantic-judgment/v3", requiredValidator(ajv, "urn:ebo:schema:semantic-judge-runtime:v1#/$defs/judgment")],
@@ -1714,8 +1724,8 @@ function runtimeBindingEvidenceErrors(artifact: string, manifest: Record<string,
     };
     const lock = read(binding.lockArtifactId), launch = read(binding.launchArtifactId);
     const { digest, ...body } = lock;
-    if (lock.schemaVersion !== "ebo.study-runtime-lock/v1" || digest !== binding.lockDigest || digest !== `sha256:${digestMetadata(body).value}`) throw new Error("Runtime lock digest differs from retained lock bytes.");
-    if (launch.schemaVersion !== "ebo.runtime-launch/v1" || launch.lockDigest !== binding.lockDigest || launch.role !== binding.role) throw new Error("Runtime launch and run identity differ.");
+    if (!["ebo.study-runtime-lock/v1", "ebo.study-runtime-lock/v2"].includes(String(lock.schemaVersion)) || digest !== binding.lockDigest || digest !== `sha256:${digestMetadata(body).value}`) throw new Error("Runtime lock digest differs from retained lock bytes.");
+    if (!["ebo.runtime-launch/v1", "ebo.runtime-launch/v2"].includes(String(launch.schemaVersion)) || launch.lockDigest !== binding.lockDigest || launch.role !== binding.role) throw new Error("Runtime launch and run identity differ.");
     if (!Array.isArray(launch.probes) || launch.probes.some((probe) => !isRecord(probe) || typeof probe.actualVersion !== "string" || typeof probe.expectedVersion !== "string")) throw new Error("Runtime manifest lacks a retained actual version probe.");
     if (binding.studyFreezeArtifactId !== undefined) {
       const freeze = read(binding.studyFreezeArtifactId), {digest: freezeDigest, ...freezeBody} = freeze;
