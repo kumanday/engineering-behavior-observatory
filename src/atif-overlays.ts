@@ -37,6 +37,7 @@ export async function applyAtifOverlays(core: RetainedBehaviorEvidenceV2, input:
   if (core.capture.qualification !== "imported" || core.outcomeCapture.qualification !== "imported") throw new Error("ATIF overlays require imported evidence.");
   const appended = new Map<string, UniformEventV2[]>();
   const dataset = structuredClone(core.dataset), adjustments: AtifInterpretationAdjustment[] = [], limits = new Set(core.capture.sourceLimitations ?? []);
+  const aliases = new Set(core.modelAliases ?? []);
   for (const source of dataset.sources) {
     const pointer = source.id.slice(source.id.indexOf(":#") + 1), document = object(atifPointerValue(input.read.document, pointer));
     const selected = selectAtifOverlay(documentProducer(document, input.producer));
@@ -59,6 +60,12 @@ export async function applyAtifOverlays(core: RetainedBehaviorEvidenceV2, input:
     if (object(document.extra).partial) limits.add("PRODUCER_PARTIAL_HISTORY");
     if (!selected.verified) continue;
     if (profile.family === "pi") {
+      for (const [index, value] of array(document.steps).entries()) {
+        const alias = object(object(value).extra).response_model;
+        if (typeof alias !== "string" || !alias.trim()) continue;
+        const prior = [...aliases].sort(); aliases.add(alias);
+        recordAdjustment("modelAliases", "PI_RESPONSE_MODEL_ALIAS", prior, [...aliases].sort(), [`${pointer}/steps/${index}/extra/response_model`]);
+      }
       for (const event of events) {
         const value = object(atifPointerValue(input.read.document, event.source.nativeReference.recordLocator));
         if (event.facts.operation?.endpoint === "result" && object(value.extra).is_error === true) {
@@ -161,7 +168,7 @@ export async function applyAtifOverlays(core: RetainedBehaviorEvidenceV2, input:
   if (core.capture.qualification !== "imported" || core.outcomeCapture.qualification !== "imported") throw new Error("ATIF overlays require imported evidence.");
   dataset.events = dataset.events.flatMap((event) => [event, ...appended.get(event.id) ?? []]);
   await validateNormalizedDatasetV2(dataset, core.resolver);
-  return { ...core, dataset, capture: { ...core.capture, sourceLimitations: [...limits].sort() },
+  return { ...core, dataset, modelAliases: [...aliases].sort(), capture: { ...core.capture, sourceLimitations: [...limits].sort() },
     outcomeCapture: { ...core.outcomeCapture, sourceLimitations: [...limits].sort() }, overlayAdjustments: adjustments };
 }
 

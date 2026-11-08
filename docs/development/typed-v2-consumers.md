@@ -3,9 +3,9 @@
 The opt-in v2 lane derives structural observations, occurrence ledgers, rating
 inputs, semantic judge inputs, assertions and Atlas units from typed operations
 and event facts. It accepts all eight registered owned-native projections and
-the registered Pi, Codex, Hermes and OpenClaw ATIF producers. Imported evidence
+conforming ATIF documents through the generic core, with optional Pi/Codex overlays. Imported evidence
 retains imported qualification; each measurement names its recorded population
-or a partial whole-attempt lower bound.
+with imported measures scoped to their recorded document.
 
 ```sh
 ebo v2 inspect /path/to/retained-bundle /path/to/new-analysis-directory

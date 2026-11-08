@@ -920,7 +920,13 @@ async function assertPersistedStructuralQualification(root: string, manifest: Ru
   if (structural?.semanticAnalysisUsable === false
     || structural?.status === "unqualified" && structural?.semanticAnalysisUsable !== true) {
     const reasons = Array.isArray(structural.reasons) ? structural.reasons : [];
-    if (reasons.length && reasons.every((reason) => asRecord(reason)?.code === "HOOK_CAPABILITY_VERSION_MISMATCH")) return true;
+    // Historical reports combine hard failures and benign capability gaps in one list.
+    // Fresh qualification below still checks all retained bytes and required native evidence.
+    const nonblocking = new Set(["HOOK_CAPABILITY_VERSION_MISMATCH", "HARNESS_VERSION_UNVERIFIED", "HOOK_CAPABILITY_NOT_CHECKED",
+      "HOOK_UNSUPPORTED_BY_PINNED_SDK", "HOOK_CAPTURE_WARNING", "OPTIONAL_BETA_TIMING_UNAVAILABLE", "TELEMETRY_UNSUPPORTED_BY_PINNED_RUNTIME",
+      "TELEMETRY_RECEIPT_MISSING", "WORKSPACE_ENTRIES_OMITTED", "WORKSPACE_PATCH_NOT_CHECKED", "SHARING_CLASSIFICATION_UNKNOWN", "EVENT_LOG_COMPLETENESS_UNPROVEN"]);
+    if (reasons.some((reason) => asRecord(reason)?.code === "HOOK_CAPABILITY_VERSION_MISMATCH")
+        && reasons.every((reason) => nonblocking.has(String(asRecord(reason)?.code)))) return true;
     throw new Error("Agent SDK normalization rejects the persisted unqualified structural capture report.");
   }
   return false;

@@ -80,7 +80,7 @@ for converter availability and same-run evidence.
 An import contains `trajectory.json`, `inspection.json`, `interpretation.json`,
 `mapping.json` and an `ebo.import-manifest/v2` manifest. The manifest binds raw
 source bytes, inspection, operator context and admission overlay IDs/digests.
-The interpretation receipt binds the core implementation and overlays used at
+The interpretation receipt binds the core implementation, compatibility projector and overlays used at
 admission. Mapping is a derivation, not an editable source of truth.
 
 Reopening verifies source and receipt digests, then projects with the current

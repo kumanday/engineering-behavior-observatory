@@ -3,9 +3,15 @@ import { applyAtifOverlays } from "./atif-overlays.js";
 import { validateNormalizedDataset } from "./normalization-integrity.js";
 import { digestValue, object } from "./projection-v2.js";
 import { atifPointerValue } from "./atif-reader.js";
+import { readFileSync } from "node:fs";
+import { digestBytes } from "./artifacts.js";
 import type { UniformEvent } from "./uniform-events.js";
 import type { MeasurementV2 } from "./normalization-v2.js";
 type Measure = { status: "known"; value: number; unit: string } | { status: "unavailable"; reason: string };
+export function atifCompatibilityIdentity() {
+  return { id: "ebo.atif-compatibility", version: "2.0.0", digest: digestValue(["atif-normalizer.js", "../../schemas/atif-core-mapping.v1.json"]
+    .map((path) => ({ path, digest: digestBytes(readFileSync(new URL(path, import.meta.url))).value }))) };
+}
 export type AtifMappingReport = {
   schemaVersion: "ebo.atif-core-mapping/v1"; scope: "recorded-documents"; producerStatus: "supported";
   profileDigest?: `sha256:${string}`; limitations: string[]; measurements: MeasurementV2[];
@@ -55,7 +61,7 @@ export async function normalizeAtif(input: AtifCoreInput) {
       failed: op.failure.status === "known" ? op.failure.value : null })), measures,
     ...(rootSource.producerProfile.status === "known" ? { profileDigest: rootSource.producerProfile.value.digest } : {}) };
   const steps = Array.isArray(input.read.document?.steps) ? input.read.document.steps : [];
-  return { ...core.v1, dataset, coverage, capture: enhanced.capture, outcomeCapture: enhanced.outcomeCapture, mapping,
+  return { ...core.v1, dataset, coverage, modelAliases: enhanced.modelAliases, capture: enhanced.capture, outcomeCapture: enhanced.outcomeCapture, mapping,
     overlayAdjustments: enhanced.overlayAdjustments, projection: { agentSteps: steps.flatMap((value, i) => object(value).source === "agent"
       ? [{ pointer: `#/steps/${i}`, llmCallCount: typeof object(value).llm_call_count === "number" ? Number(object(value).llm_call_count) : null }] : []) } };
 }

@@ -1,4 +1,4 @@
-import { normalizeAtif } from "./atif-normalizer.js";
+import { atifCompatibilityIdentity, normalizeAtif } from "./atif-normalizer.js";
 import { atifOverlayReceipts } from "./atif-overlays.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -68,7 +68,7 @@ export async function importAtifFile(options: AtifImportOptions) {
     agent: { name: String(agent.name), version: typeof agent.version === "string" ? agent.version : null },
     converter: { id: converter?.id ?? "unreported", packageVersion: converter?.packageVersion ?? "unknown", sourceDigest: converter?.sourceDigest ?? null },
     context: { kind: context?.kind ?? "unknown", revision: context?.revision ?? null, wrapperDigest: context?.wrapperDigest ?? null } };
-  const interpretation = { schemaVersion: "ebo.atif-interpretation/v1", sourceDigest: bytesDigest(bytes), core: coreIdentity(), overlays: atifOverlayReceipts({ read, producer }) };
+  const interpretation = { schemaVersion: "ebo.atif-interpretation/v1", sourceDigest: bytesDigest(bytes), core: coreIdentity(), compatibilityReader: atifCompatibilityIdentity(), overlays: atifOverlayReceipts({ read, producer }) };
   const interpretationBytes = writeJson(destination, "interpretation.json", interpretation);
   const manifest: AtifImportManifestV2 = { schemaVersion: "ebo.import-manifest/v2", importer: { id: "ebo.atif", version: ATIF_IMPORTER_VERSION },
     identity: { runId: options.runId, attemptId: options.attemptId, authority: "operator-declared" }, qualification: "imported", sharing: "restricted", createdAt: new Date().toISOString(),
@@ -123,7 +123,7 @@ export function readAtifImportAdmission(bundleRoot: string) {
     if (receipt.schemaVersion !== "ebo.atif-interpretation/v1" || receipt.sourceDigest !== manifest.source.digest
         || hash(receipt.overlays) !== hash(manifest.overlays)) throw new Error("Interpretation receipt differs from its admission binding.");
   } else admitted = { core: { id: "ebo.legacy-atif", version: manifest.importer.version }, profile: manifest.profile };
-  const current = { schemaVersion: "ebo.atif-interpretation/v1", sourceDigest: manifest.source.digest, core: coreIdentity(), overlays: atifOverlayReceipts({ read, producer: manifest.producer }) };
+  const current = { schemaVersion: "ebo.atif-interpretation/v1", sourceDigest: manifest.source.digest, core: coreIdentity(), compatibilityReader: atifCompatibilityIdentity(), overlays: atifOverlayReceipts({ read, producer: manifest.producer }) };
   return { manifest, read, interpretationRevision: { changed: hash(admitted) !== hash(current), admitted, current } };
 }
 

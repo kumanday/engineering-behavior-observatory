@@ -92,12 +92,18 @@ export async function projectAtifCore(input: AtifCoreInput): Promise<{ v1: Retai
       }
       if (Array.isArray(step.tool_calls)) explicitCalls = true;
       const names = new Map<string, string | undefined>();
+      const callIds = new Map<string, number>();
+      for (const value of array(step.tool_calls)) {
+        const id = object(value).tool_call_id;
+        if (typeof id === "string" && id.trim()) callIds.set(id, (callIds.get(id) ?? 0) + 1);
+      }
       for (const [ci, value] of array(step.tool_calls).entries()) {
         const call = object(value), cp = `${sp}/tool_calls/${ci}`, id = typeof call.tool_call_id === "string" && call.tool_call_id.trim() ? call.tool_call_id : undefined;
+        const ambiguous = id !== undefined && callIds.get(id)! > 1;
         const name = typeof call.function_name === "string" && call.function_name.trim() ? call.function_name : undefined;
         if (id !== undefined) names.set(id, names.has(id) ? undefined : name); calls++;
-        emit(cp, sp, pointer, step, "tool", "before", { clock: unreported, facts: {}, operation: { nativeId: id, scope: operationScope,
-          identityClass: "source-declared", ...(id === undefined ? { scopeStatus: "record-local" as const } : {}), endpoint: "call", canonical: true, toolName: name,
+        emit(cp, sp, pointer, step, "tool", "before", { clock: unreported, facts: {}, operation: { nativeId: ambiguous ? undefined : id, scope: operationScope,
+          identityClass: "source-declared", ...(id === undefined || ambiguous ? { scopeStatus: "record-local" as const } : {}), endpoint: "call", canonical: true, toolName: name,
           ...(Object.hasOwn(call, "arguments") && call.arguments !== null ? { inputDigest: digestValue(call.arguments) } : {}),
           issuingInference: declaredInference === 1 ? known({ id: sp, scope, identityClass: "declared-single-inference" }) : unreported } },
           Object.hasOwn(call, "arguments") && call.arguments !== null ? `${cp}/arguments` : undefined, { ...(id === undefined ? { identityUnavailable: "SOURCE_IDENTITY_UNREPORTED" } : { nativeToolCallId: id }), ...(name ? { toolName: name } : {}) });
@@ -108,6 +114,12 @@ export async function projectAtifCore(input: AtifCoreInput): Promise<{ v1: Retai
         if (id === undefined) {
           emit(rp, sp, pointer, step, "message", "instant", { clock: unreported, facts: { message: messageFact("tool", undefined, "canonical") } },
             Object.hasOwn(result, "content") && result.content !== null ? `${rp}/content` : undefined, { observationOnly: true });
+          continue;
+        }
+        if (callIds.get(id)! > 1) {
+          emit(rp, sp, pointer, step, "message", "instant", { clock: unreported, facts: { message: messageFact("tool", undefined, "canonical") } },
+            Object.hasOwn(result, "content") && result.content !== null ? `${rp}/content` : undefined,
+            { observationOnly: true, declaredSourceCallId: id, associationLimitation: "AMBIGUOUS_TOOL_CALL_ID" });
           continue;
         }
         emit(rp, sp, pointer, step, "tool", "after", { clock: unreported, facts: {}, operation: { nativeId: id, scope: operationScope,

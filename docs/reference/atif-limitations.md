@@ -19,7 +19,7 @@ measures remain available alongside limitations on completeness or native semant
 | `PRODUCER_VERSION_UNVERIFIED` | A matching overlay's agent or converter version is outside its verified ranges; core and conservative limitations apply. |
 | `HARNESS_VERSION_UNVERIFIED` | A retained native runtime or capture-adapter version lacks verified conformance evidence; its format contract is still read. |
 | `HARNESS_VERSION_CONFLICT` | Retained version declarations disagree. The disagreement is visible and the executed version remains uncertain. |
-| `ATIF_TRIAL_AGENT_VERSION_UNVERIFIED` | ATIF and trial records declare different agent versions; source association retains that discrepancy. |
+| `ATIF_TRIAL_AGENT_VERSION_UNVERIFIED` | An ATIF or trial version declaration is missing, unknown or conflicting; source association retains the uncertainty. |
 | `NO_OVERLAY_APPLIED` | Core projection is available without a matching optional overlay. |
 | `NO_MATCHING_OVERLAY` | The supplied agent/converter context matches no dedicated interpretation. |
 
@@ -32,6 +32,7 @@ measures remain available alongside limitations on completeness or native semant
 | `DECLARED_INFERENCE_INCOMPLETE` | At least one relevant agent step lacks a usable declared inference count. |
 | `NATIVE_REQUEST_IDENTITIES_UNAVAILABLE` | Recorded inference declarations do not establish provider request identities. |
 | `RESULT_CHRONOLOGY_UNRECORDED` | A result record does not establish its arrival order. |
+| `AMBIGUOUS_TOOL_CALL_ID` | Several calls in one step declare the same identity; their results cannot be assigned to a particular call. |
 | `SOURCE_IDENTITY_UNREPORTED` | The record lacks a usable source identity; a local observation identity cannot prove a logical operation. |
 | `SOURCE_UNREPORTED` | The source does not supply the fact. |
 | `RETAINED_SOURCE_WITHOUT_CORE_EVENT` | The record remains available without a corresponding standard event. |

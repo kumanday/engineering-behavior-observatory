@@ -529,6 +529,12 @@ test(`loads qualified semantic evidence with missing workspace=${missingWorkspac
     reportDescriptor.digest = `sha256:${digestBytes(versionOnlyBytes).value}`;reportDescriptor.sizeBytes = versionOnlyBytes.length;
     writeFileSync(manifestPath, canonicalizeMetadata(manifest));
     assert.ok((await createRetainedBehaviorEvidence(bundleRoot)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_UNVERIFIED"));
+    const gap = { code: "HOOK_UNSUPPORTED_BY_PINNED_SDK", dimension: "hooks", detail: "An independent benign capability gap." };
+    const persist = () => { const bytes = Buffer.from(canonicalizeMetadata(report));writeFileSync(reportPath, bytes);reportDescriptor.digest = `sha256:${digestBytes(bytes).value}`;reportDescriptor.sizeBytes = bytes.length;writeFileSync(manifestPath, canonicalizeMetadata(manifest)); };
+    Object.assign(report.structuralQualification, { reasons: [{ code: "HOOK_CAPABILITY_VERSION_MISMATCH", dimension: "hooks", detail: "Unverified version." }, gap] });persist();
+    assert.ok((await createRetainedBehaviorEvidence(bundleRoot)).dataset.events.length > 0);
+    Object.assign(report.structuralQualification, { reasons: [{ code: "HOOK_CAPABILITY_VERSION_MISMATCH", dimension: "hooks", detail: "Unverified version." }, { code: "ARTIFACT_INTEGRITY_INVALID", dimension: "semanticEvidence", detail: "Independent blocking integrity failure." }] });persist();
+    await assert.rejects(createRetainedBehaviorEvidence(bundleRoot), /persisted unqualified structural/u);
 
   } finally {
     rmSync(root, { recursive: true, force: true });

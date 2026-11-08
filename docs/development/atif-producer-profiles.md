@@ -15,7 +15,7 @@ overlay records its ID, version, implementation digest and verified ranges.
 
 | Overlay | Verified agent range | Converter ID and range | Measured interpretation |
 | --- | --- | --- | --- |
-| `ebo.pi-harbor` | `>=0.85.0 <2.0.0` | `harbor.agents.installed.pi.Pi`, `>=0.24.0 <0.26.0` | Positive `is_error` extension flags; context-management extensions; inclusive prompt/cache reconciliation. False error flags and zero-filled usage do not prove success or component completeness. Active-branch conversion can omit other history. |
+| `ebo.pi-harbor` | `>=0.85.0 <2.0.0` | `harbor.agents.installed.pi.Pi`, `>=0.24.0 <0.26.0` | Positive `is_error` extension flags; response-model aliases for blinding; context-management extensions; inclusive prompt/cache reconciliation. False error flags and zero-filled usage do not prove success or component completeness. Active-branch conversion can omit other history. |
 | `ebo.codex-harbor` | `>=0.162.0 <0.163.0` | `harbor.agents.installed.codex.Codex`, `>=0.24.0 <0.26.0` | Original argument representations and converter inference groups. Converted output order and clocks have limited authority; unanswered calls can be omitted and orphan-call/result slots can be synthesized by conversion. |
 
 A matching overlay outside its verified ranges supplies conservative limitations

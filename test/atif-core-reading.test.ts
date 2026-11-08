@@ -252,3 +252,35 @@ test("standard semantic projection is independent of arbitrary producer names an
   }
   for (const result of results.slice(1)) assert.deepEqual(result, results[0]);
 });
+
+test("duplicate IDs within one step retain call records without inventing logical association", async () => {
+  const source = { schema_version: "ATIF-v1.7", agent: { name: "acme-agent", version: "9.9.9" }, steps: [{ step_id: 1, source: "agent", message: "Inspect files.", llm_call_count: 1,
+    tool_calls: [{ tool_call_id: "duplicate", function_name: "read", arguments: { path: "a" } }, { tool_call_id: "duplicate", function_name: "read", arguments: { path: "b" } }],
+    observation: { results: [{ source_call_id: "duplicate", content: "a" }, { source_call_id: "duplicate", content: "b" }] } }] };
+  const evidence = await projectAtifV2({ read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "ambiguous", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` });
+  assert.equal(evidence.dataset.events.filter(({ family, phase }) => family === "tool" && phase === "before").length, 2);
+  assert.ok(evidence.dataset.operations.every(({ scope }) => scope.status === "unknown"));
+  assert.equal(evidence.dataset.operations.some(({ callEventIds, resultEventIds }) => callEventIds.length > 0 && resultEventIds.length > 0), false);
+  const set = await (await import("../src/analysis-v2.js")).createStructuralObservationSetV2(evidence.dataset, evidence.resolver);
+  assert.equal(set.observations.find(({ measure }) => measure === "tool-operation-count")!.value.status, "unknown");
+  assert.deepEqual(set.observations.find(({ measure }) => measure === "source-tool-operation-count")!.value, { status: "known", value: 2 });
+});
+
+test("the admission interpretation binds changes to the compatibility projector independently of core", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-bridge-identity-"));
+  try {
+    const sourcePath = join(root, "source.json"), destination = join(root, "import");
+    writeFileSync(sourcePath, readFileSync(new URL("../../test/fixtures/atif/core/acme.json", import.meta.url)));
+    await importAtifFile({ sourcePath, destination, runId: "bridge", attemptId: "a" });
+    const manifest = JSON.parse(readFileSync(join(destination, "manifest.json"), "utf8")), admitted = JSON.parse(readFileSync(join(destination, "interpretation.json"), "utf8"));
+    assert.equal(admitted.compatibilityReader.id, "ebo.atif-compatibility");
+    admitted.compatibilityReader.digest = `sha256:${"2".repeat(64)}`;
+    const bytes = Buffer.from(`${JSON.stringify(admitted)}\n`);writeFileSync(join(destination, "interpretation.json"), bytes);
+    manifest.interpretation.digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;writeFileSync(join(destination, "manifest.json"), JSON.stringify(manifest));
+    const revised = await readImportedBehaviorEvidenceV2(destination);
+    assert.equal(revised.interpretationRevision!.changed, true);
+    const current = revised.interpretationRevision!.current as typeof admitted;
+    assert.deepEqual(current.core, admitted.core);assert.notEqual(current.compatibilityReader.digest, admitted.compatibilityReader.digest);
+    assert.ok((await readImportedBehaviorEvidence(destination)).dataset.events.length > 0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

@@ -59,7 +59,7 @@ export async function inspectHarborTrial(options: { directory: string; namespace
       result = parseObject(files.get("result.json")!);
       config = object(result.config);
       if (!uuid(result.id) || !text(result.task_name) || String(result.task_name).length > 4096 || !/^[a-f0-9]{64}$/iu.test(String(result.task_checksum)) || !text(object(result.agent_info).name)
-          || !text(object(result.agent_info).version) || !Object.keys(config).length) return stop("TRIAL_IDENTITY_INCOMPLETE");
+          || !Object.keys(config).length) return stop("TRIAL_IDENTITY_INCOMPLETE");
       if (files.has("config.json")) {
         const standalone = parseObject(files.get("config.json")!);
         // Harbor serializes defaults only in result.config; compare explicitly retained configuration fields.
@@ -94,8 +94,11 @@ export async function inspectHarborTrial(options: { directory: string; namespace
       if (retained.inspection.trialId) inspection.originalBindings.push({ sourceReference, snapshotDigest: retained.inspection.snapshotDigest, trialId: retained.inspection.trialId, inspectionDigest: hash(retained.inspection) });
       if (retained.inspection.structural?.status !== "valid" || retained.result === undefined || retained.inspection.execution === undefined) return stop("ORIGINAL_EXECUTOR_UNRESOLVED");
       if (source.trial_id && String(source.trial_id).toLowerCase() !== retained.inspection.trialId) return stop("SOURCE_TRIAL_BINDING_CONFLICT");
-      if (retained.result.task_name !== result.task_name || hash(retained.result.agent_info) !== hash(result.agent_info)
+      const { version: originalVersion, ...originalAgent } = object(retained.result.agent_info);
+      const { version: assessmentVersion, ...assessmentAgent } = object(result.agent_info);
+      if (retained.result.task_name !== result.task_name || hash(originalAgent) !== hash(assessmentAgent)
           || hash(agentFiles(files)) !== hash(agentFiles(retained.files)) || agentFiles(files).length === 0) return stop("REGRADE_EXECUTION_EVIDENCE_CONFLICT");
+      if (originalVersion !== assessmentVersion) inspection.diagnostics.push("HARNESS_VERSION_CONFLICT");
       original = retained.result;
       originalTrialId = retained.inspection.execution.originalTrialId;
       originalFiles = retained.files;
@@ -116,7 +119,8 @@ export async function inspectHarborTrial(options: { directory: string; namespace
       const trajectory = parseObject(files.get("agent/trajectory.json")!);
       const sourceAgent = object(trajectory.agent);
       if (sourceAgent.name !== info.name) return stop("ATIF_TRIAL_AGENT_CONFLICT");
-      if (text(sourceAgent.version) === undefined || sourceAgent.version !== "unknown" && info.version !== "unknown" && sourceAgent.version !== info.version) inspection.diagnostics.push("ATIF_TRIAL_AGENT_VERSION_UNVERIFIED");
+      if (text(sourceAgent.version) === undefined || text(info.version) === undefined || sourceAgent.version === "unknown" || info.version === "unknown"
+          || sourceAgent.version !== info.version) inspection.diagnostics.push("ATIF_TRIAL_AGENT_VERSION_UNVERIFIED");
     } catch { return stop("ATIF_HEADER_INVALID"); }
     inspection.captureRevision = hash({ execution: inspection.execution.id, agentFiles: agentFiles(files), trajectory: rawHash(files.get("agent/trajectory.json")!) });
     const rewards = object(object(result.verifier_result).rewards);

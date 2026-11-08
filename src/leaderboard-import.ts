@@ -90,7 +90,7 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
     const assessment = inspected.inspection.assessment;
     const profile = listAtifProfilesV2().find(({ id }) => id === binding.profileId);
     if (inspected.inspection.status !== "eligible" || inspected.inspection.trialId !== binding.factId.toLowerCase()
-        || facts.some((fact) => fact.harness !== info?.name || fact.harness_version !== info?.version
+        || facts.some((fact) => fact.harness !== info?.name
           || fact.task !== String(taskPath ?? "").replace(/\/+$/u, "").split("/").at(-1)
           || fact.reward !== (assessment?.rewards?.reward ?? null) || fact.exception !== assessment?.exceptionType)) {
       cases.push({ factId: binding.factId, status: "inspect-only", reason: "SOURCE_FACT_OR_PRODUCER_CONTEXT_UNRESOLVED", sourceSnapshotDigest: inspected.inspection.snapshotDigest }); continue;
@@ -120,7 +120,8 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
     if (prior && prior.captureRevision !== member.captureRevision) throw new Error("A selected execution has multiple capture revisions; select one revision explicitly.");
     if (prior) { prior.factIds.push(binding.factId); prior.groups.push(...member.groups); prior.sourceOutcomes.push(...member.sourceOutcomes); prior.assessments.push(...member.assessments); }
     else members.set(executionId, member);
-    cases.push({ factId: binding.factId, status: "imported", sourceSnapshotDigest: imported.inspection.snapshotDigest });
+    cases.push({ factId: binding.factId, status: "imported", sourceSnapshotDigest: imported.inspection.snapshotDigest,
+      ...(facts.some((fact) => fact.harness_version !== info?.version) ? { reason: "HARNESS_VERSION_CONFLICT" } : {}) });
   }
   const orderedMembers = [...members.values()].sort((a, b) => a.executionId.localeCompare(b.executionId));
   const body = { schemaVersion: "ebo.leaderboard-cohort/v1" as const, sharing: "restricted" as const, sourceSnapshotDigest: source.snapshotDigest,

@@ -271,3 +271,20 @@ test('rejected context appends preserve an existing cohort at the retained inven
     assert.equal(reused.status, 'imported'); if (reused.status === 'imported') assert.equal(reused.reused, true);
   } finally { f.cleanup(); }
 });
+
+test("a trial version disagreement stays readable without a producer profile", { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    delete f.request.nativeBindings[0]!.profileId;
+    const resultPath = join(f.trial, "result.json"), result = JSON.parse(readFileSync(resultPath, "utf8"));
+    result.agent_info.version = "9.9.9";write(resultPath, result);
+    f.trajectory.agent.version = "9.9.9";write(join(f.trial, "agent/trajectory.json"), f.trajectory);
+    const imported = await importLeaderboardCohort(f.request, f.store, python);
+    assert.equal(imported.status, "imported");if (imported.status !== "imported") return;
+    assert.equal(imported.admittedExecutions, 1);
+    assert.equal(imported.cases[0]!.reason, "HARNESS_VERSION_CONFLICT");
+    const retained = readLeaderboardCohort(f.store, imported.cohortId);
+    const evidence = await (await import("../src/atif-v2.js")).readImportedBehaviorEvidenceV2(join(retained.root, retained.manifest.members[0]!.corpusPath));
+    assert.equal(evidence.dataset.operations.length, 2);assert.equal(evidence.dataset.sources[0]!.producerProfile.status, "unknown");
+  } finally { f.cleanup(); }
+});

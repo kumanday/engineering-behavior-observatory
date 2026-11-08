@@ -51,3 +51,18 @@ test("Codex conversion limits qualify order and original-input signatures withou
   assert.ok(enhanced.capture.qualification === "imported" && enhanced.capture.sourceLimitations?.includes("CONVERTER_OMITS_PENDING_CALLS"));
   assert.ok(enhanced.overlayAdjustments?.every(({ reason, pointers }) => reason.length > 0 && pointers.length > 0));
 });
+
+test("verified Pi response aliases reach both judge views without interpreting generic core extensions", async () => {
+  const request = input(), doc = source() as Record<string, any>;
+  doc.agent.model_name = "configured-model";doc.steps[0].extra = { response_model: "served-model" };
+  doc.steps[0].message = "served-model is recorded here.";request.read = inspectAtifBytes(Buffer.from(JSON.stringify(doc)));
+  const core = (await projectAtifCore(request)).v2;assert.equal(core.modelAliases?.includes("served-model"), false);
+  const typed = await projectAtifV2(request), legacy = await (await import("../src/atif-normalizer.js")).normalizeAtif(request);
+  assert.ok(typed.modelAliases?.includes("served-model"));assert.ok(legacy.modelAliases?.includes("served-model"));
+  const observations = await (await import("../src/analysis-v2.js")).createStructuralObservationSetV2(typed.dataset, typed.resolver);
+  const ledger = await (await import("../src/occurrences-v2.js")).createOccurrenceLedgerV2(typed.dataset, typed.resolver);
+  const { prepareSemanticJudgeInputV2, semanticJudgePromptV2 } = await import("../src/semantic-judge-v2.js");
+  const prepared = await prepareSemanticJudgeInputV2(typed, observations, ledger, { schemaVersion: "ebo.semantic-judge-request/v2", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+    rubric: { id: "check", version: "1", instructions: "Read retained evidence." }, evaluator: { id: "mock", version: "1", configuration: {} }, eventIds: typed.dataset.events.map(({ id }) => id), limits: { maxRecordChars: 6000, maxInputChars: 1000000 } });
+  assert.equal(semanticJudgePromptV2(prepared).includes("served-model"), false);
+});

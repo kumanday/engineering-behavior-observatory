@@ -72,7 +72,8 @@ function validateTrialFields(value: unknown): HarborTrialValidation["diagnostics
   if (typeof value.task_name !== "string" || !value.task_name.trim()) issue("#/task_name");
   if (typeof value.task_checksum !== "string" || !/^[a-f0-9]{64}$/iu.test(value.task_checksum)) issue("#/task_checksum");
   if (!object(value.config) || !object(value.config.agent)) issue("#/config/agent");
-  if (!object(value.agent_info) || typeof value.agent_info.name !== "string" || typeof value.agent_info.version !== "string") issue("#/agent_info");
+  if (!object(value.agent_info) || typeof value.agent_info.name !== "string") issue("#/agent_info");
+  else if (value.agent_info.version != null && typeof value.agent_info.version !== "string") issue("#/agent_info/version");
   for (const key of ["started_at", "finished_at"]) if (value[key] != null && (typeof value[key] !== "string" || !Number.isFinite(Date.parse(value[key])))) issue(`#/${key}`);
   if (value.task_id != null && (!object(value.task_id) || typeof value.task_id.path !== "string")) issue("#/task_id");
   if (value.exception_info != null && (!object(value.exception_info) || typeof value.exception_info.exception_type !== "string")) issue("#/exception_info");

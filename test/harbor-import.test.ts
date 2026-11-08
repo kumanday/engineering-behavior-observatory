@@ -427,3 +427,28 @@ test("Harbor admission reads an unfamiliar ATIF producer without an overlay sele
     assert.equal(await main(["atif", "import-harbor", source.directory, join(temp.root, "generic-store"), "--namespace", "generic-source", "--python", python!], (value) => { output += value; }), 0, output);
   } finally { temp.cleanup(); }
 });
+
+test("missing trial agent version is uncertainty metadata rather than missing execution identity", async () => {
+  const temp = temporary();
+  try {
+    const source = fixture(temp.root);delete (source.result.agent_info as ObjectValue).version;save(source.directory, source.result);
+    const imported = await importHarborTrial({ directory: source.directory, store: join(temp.root, "store"), namespace: "missing-version" });
+    assert.equal(imported.status, "imported");
+    assert.ok(imported.inspection.diagnostics.includes("ATIF_TRIAL_AGENT_VERSION_UNVERIFIED"));
+  } finally { temp.cleanup(); }
+});
+
+test("regrade agent version annotations do not invalidate its recorded original execution", async () => {
+  const temp = temporary();
+  try {
+    const original = fixture(temp.root), regrade = fixture(temp.root, "versioned-regrade", ids[1]);
+    regrade.result.config.source_trial = { action: "regrade", type: "hub", trial_id: ids[0] };
+    regrade.result.agent_info.version = "9.9.9";save(regrade.directory, regrade.result);
+    const imported = await importHarborTrial({ directory: regrade.directory, store: join(temp.root, "store"), namespace: "regrade-version",
+      originals: [{ sourceReference: ids[0]!, directory: original.directory }] });
+    assert.equal(imported.status, "imported");if (imported.status !== "imported") return;
+    assert.ok(imported.inspection.diagnostics.includes("HARNESS_VERSION_CONFLICT"));
+    assert.equal(imported.inspection.execution!.originalTrialId, ids[0]);
+    readHarborCapture(join(temp.root, "store"), imported.binding.captureRevision, imported.inspection.snapshotDigest, imported.inspectionDigest);
+  } finally { temp.cleanup(); }
+});
