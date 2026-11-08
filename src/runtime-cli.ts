@@ -5,7 +5,7 @@ import { bindStudyRuntimeQueue, queueRunId } from "./study-runtime-bindings.js";
 import { listRuntimeRecipes } from "./runtime-catalog.js";
 import { currentStudyRuntime, runtimeExecutionSummary, withStudyRuntime } from "./runtime-context.js";
 import { freezeStudyRuntimes, readStudyRuntimeLock, type StudyRuntimeLock, type StudyRuntimeOptions, type StudyRuntimeRequest } from "./study-runtimes.js";
-import {prepareHarnessVerification, validateHarnessVerificationCandidate, admitHarnessVerification, withdrawHarnessVerification, type VerificationRequest} from "./harness-verification-candidate.js";
+import {prepareHarnessVerification, validateHarnessVerificationCandidate, admitHarnessVerification, withdrawHarnessVerification, verificationCandidateWarnings, type VerificationRequest} from "./harness-verification-candidate.js";
 import {readVerificationCatalog, evaluateVerification, type VerificationHash} from "./harness-verification.js";
 import {readBoundedFile} from "./scheduler.js";
 import {dirname, basename} from "node:path";
@@ -35,7 +35,7 @@ export async function runRuntimeCommandLine(args: readonly string[], write: (tex
       const candidate = await prepareHarnessVerification(json(args[1]!) as VerificationRequest, options), destination = resolve(args[2]!);
       writeMetadataAtomicallyIfAbsentSync(dirname(destination), basename(destination), candidate);
       if (canonicalizeMetadata(json(destination)) !== canonicalizeMetadata(candidate)) throw new Error("HARNESS_VERIFICATION_DESTINATION_EXISTS: candidate destination contains different evidence.");
-      emit({candidatePath: destination, receiptDigest: candidate.receipt.digest, claims: candidate.receipt.claims, scope: candidate.receipt.scope}); return 0;
+      emit({candidatePath: destination, receiptDigest: candidate.receipt.digest, claims: candidate.receipt.claims, scope: candidate.receipt.scope, warnings: verificationCandidateWarnings(candidate)}); return 0;
     }
     if (args[0] === "verification" && args[1] === "inspect" && args.length === 3) {
       emit(await readVerificationCatalog(resolve(args[2]!))); return 0;
@@ -44,7 +44,8 @@ export async function runRuntimeCommandLine(args: readonly string[], write: (tex
       const operator = json(args[4]!);
       if (!operator || typeof operator !== "object" || Object.keys(operator).some(key => !["id", "reason", "supersedes"].includes(key))) throw new Error("HARNESS_VERIFICATION_INVALID: admission requires operator id, reason and optional superseded receipt digests.");
       const candidate = await validateHarnessVerificationCandidate(json(args[3]!), options);
-      emit(await admitHarnessVerification(resolve(args[2]!), candidate, {id: operator.id, reason: operator.reason}, operator.supersedes ?? [])); return 0;
+      const admission = await admitHarnessVerification(resolve(args[2]!), candidate, {id: operator.id, reason: operator.reason}, operator.supersedes ?? []);
+      emit({admission, warnings: verificationCandidateWarnings(candidate)}); return 0;
     }
     if (args[0] === "verification" && args[1] === "withdraw" && args.length === 4) {
       const operator = json(args[3]!);

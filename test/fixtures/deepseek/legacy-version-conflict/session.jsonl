@@ -1,0 +1,5 @@
+{"schemaVersion":"ebo.deepseek-native-observation/v1","sequence":1,"observedAt":"2026-11-08T00:00:00Z","kind":"composition","payload":{"runtime":{"clientVersion":"0.1.7-rc.2"}}}
+{"schemaVersion":"ebo.deepseek-native-observation/v1","sequence":2,"observedAt":"2026-11-08T00:00:00Z","kind":"capability","payload":{}}
+{"schemaVersion":"ebo.deepseek-native-observation/v1","sequence":3,"observedAt":"2026-11-08T00:00:00Z","kind":"response","method":"initialize","payload":{}}
+{"schemaVersion":"ebo.deepseek-native-observation/v1","sequence":4,"observedAt":"2026-11-08T00:00:00Z","kind":"response","method":"session/prompt","sessionId":"s","payload":{"messageId":"m"}}
+{"schemaVersion":"ebo.deepseek-native-observation/v1","sequence":5,"observedAt":"2026-11-08T00:00:00Z","kind":"notification","method":"session.event","sessionId":"s","payload":{"sessionId":"s","event":{"type":"turn/start","seq":1,"data":{"turn":1}}}}

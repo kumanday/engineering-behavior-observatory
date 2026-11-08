@@ -124,3 +124,32 @@ test("unfamiliar native v1 projections keep the base dataset digest and retained
     await validateBehaviorAssertion(assertion, evidence.dataset, evidence.resolver, undefined, evidence.capture);
   } finally {await rm(root, {recursive: true, force: true});}
 });
+
+test("legacy DeepSeek client conflicts keep the exact base v1 digest without blocking recorded events", async () => {
+  const evidence = await createRetainedBehaviorEvidence("test/fixtures/deepseek/legacy-version-conflict");
+  assert.equal(digestMetadata(evidence.dataset).value, "d462bde77ef8327d371c527198883142fafefa5d34ad2850803f5e9775a647df");
+  assert.ok(evidence.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"));
+  assert.ok(evidence.verification?.limitations.includes("HARNESS_VERSION_CONFLICT"));
+  assert.equal(evidence.dataset.events.length, 5);
+});
+
+test("DeepSeek current version facts compare client with client while preserving historical v1 labels", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ebo-deepseek-component-domains-"));
+  try {
+    await cp("test/fixtures/deepseek/legacy-version-conflict", root, {recursive: true});
+    const path = join(root, "manifest.json"), manifest = JSON.parse(await readFile(path, "utf8"));
+    manifest.run.runtime.push({source: "npm", name: "@deepseek-ai/dsh-sdk-client", version: "0.1.7-rc.2"});
+    await writeFile(path, JSON.stringify(manifest));
+    const legacy = await createRetainedBehaviorEvidence(root);
+    assert.ok(legacy.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"), "Historical v1 representation");
+    assert.ok(!legacy.verification?.limitations.includes("HARNESS_VERSION_CONFLICT"), "Declared client and native client agree even though server version differs");
+    const {createRetainedBehaviorEvidenceV2} = await import("../src/native-v2.js"), modern = await createRetainedBehaviorEvidenceV2(root);
+    assert.ok(!modern.dataset.sources[0]!.limitations?.includes("HARNESS_VERSION_CONFLICT"));
+    assert.equal(modern.dataset.sources[0]!.executedHarness.version.status, "known");
+    manifest.run.runtime.at(-1).version = "0.1.1-rc.2"; await writeFile(path, JSON.stringify(manifest));
+    const conflicting = await createRetainedBehaviorEvidenceV2(root);
+    assert.ok(conflicting.dataset.sources[0]!.limitations?.includes("HARNESS_VERSION_CONFLICT"));
+    assert.equal(conflicting.dataset.sources[0]!.executedHarness.version.status, "unknown");
+    assert.equal(conflicting.dataset.events.length, modern.dataset.events.length);
+  } finally {await rm(root, {recursive: true, force: true});}
+});

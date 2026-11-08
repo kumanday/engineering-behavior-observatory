@@ -113,6 +113,9 @@ ebo runtime verification inspect ./catalog
 ebo runtime freeze ./research-study ./runtime-request.json --verification-catalog ./catalog
 ```
 
+Verification and admission output include current deprecation and advisory
+warnings. Each warning also remains in its retained launch receipt.
+
 Admission reloads and validates the candidate's source evidence and performs fresh
 launch security checks. Library callers must similarly prepare or validate the
 candidate before calling `admitHarnessVerification`. Changing a candidate does

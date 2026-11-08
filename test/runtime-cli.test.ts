@@ -37,7 +37,7 @@ test("runtime CLI freezes an exact SDK graph, inspects the freeze and checks it 
 });
 
 test("runtime CLI prepares and admits real probe outputs at the mocked registry boundary, then freezes the selected catalog", async () => {
-  const root = await mkdtemp(join(tmpdir(), "ebo-verification-cli-")), options = fakeSdkRuntimeOptions("9.9.9"); let output = "";
+  const root = await mkdtemp(join(tmpdir(), "ebo-verification-cli-")), options = fakeSdkRuntimeOptions("9.9.9", true); let output = "";
   const run = async (args: string[]) => {output = ""; const code = await runRuntimeCommandLine(args, text => {output += text;}, options); assert.equal(code, 0, output); return JSON.parse(output);};
   try {
     const qualification = join(root, "qualification"), request = join(root, "request.json"), candidate = join(root, "candidate.json"), operator = join(root, "operator.json"), catalog = join(root, "catalog");
@@ -46,8 +46,12 @@ test("runtime CLI prepares and admits real probe outputs at the mocked registry 
     await writeFile(request, JSON.stringify({studyRoot: qualification, role: "cursor-sdk"}));
     const probe = await run(["verify", request, candidate]);
     assert.equal(probe.claims["module-api"], "checked");
+    assert.match(probe.warnings.join(), /RUNTIME_DEPENDENCY_DEPRECATED.*fixture-deprecated-dependency@2.0.0/);
     await writeFile(operator, JSON.stringify({id: "test-only", reason: "Authored test registry; never a production verification seed"}));
-    await run(["verification", "admit", catalog, candidate, operator]);
+    options.query = async () => ({vulns: [{id: "GHSA-new-at-admission", summary: "New operator warning"}]});
+    const admitted = await run(["verification", "admit", catalog, candidate, operator]);
+    assert.match(admitted.warnings.join(), /GHSA-new-at-admission/);
+    assert.match(admitted.warnings.join(), /RUNTIME_DEPENDENCY_DEPRECATED.*fixture-deprecated-dependency@2.0.0/);
     assert.equal((await run(["verification", "inspect", catalog])).receipts.length, 1);
     await writeFile(request, JSON.stringify({studyId: "research", roles: ["cursor-sdk"]}));
     const research = await run(["freeze", join(root, "research"), request, "--verification-catalog", catalog]);

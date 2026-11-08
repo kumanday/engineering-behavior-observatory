@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { digestBytes, assertNoDuplicateJsonKeys, canonicalizeMetadata } from "./artifacts.js";
-import { withStudyRuntime, currentStudyRuntime, probeLockedRuntimeExecutable, recordRuntimeProbe } from "./runtime-context.js";
+import { withStudyRuntime, currentStudyRuntime, probeLockedRuntimeExecutable, recordRuntimeProbe, runtimeExecutionSummary } from "./runtime-context.js";
 import { readStudyRuntimeLock, type StudyRuntimeOptions } from "./study-runtimes.js";
 import {readOpenHandsServerInfo} from "./openhands.js";
 import { withLockedOpenHandsServer } from "./openhands-runtime.js";
@@ -20,7 +20,9 @@ import { resolveBundleArtifact } from "./contracts.js";
 export type VerificationCase = {kind: "owned-capture"; case: "success" | "failure-recovery" | "interruption"; bundleRoot: string};
 export type VerificationRequest = {studyRoot: string; role: string; cases?: VerificationCase[]};
 export type VerificationCandidate = {schemaVersion: "ebo.harness-verification-candidate/v1"; request: VerificationRequest; receipt: HarnessVerificationReceipt; digest: VerificationHash};
-const prepared = new WeakMap<object, {digest: VerificationHash; options: StudyRuntimeOptions}>();
+const prepared = new WeakMap<object, {digest: VerificationHash; options: StudyRuntimeOptions; warnings: string[]}>();
+/** Operator output uses the latest source/security validation, not a stale candidate copy. */
+export function verificationCandidateWarnings(candidate: VerificationCandidate): readonly string[] {return [...(prepared.get(candidate)?.warnings ?? [])];}
 const rawHash = (bytes: Uint8Array): VerificationHash => `sha256:${digestBytes(bytes).value}`;
 const json = (path: string) => {const text = readBoundedFile(path, "Harness verification input", undefined, 4 * 1024 * 1024).toString("utf8"); assertNoDuplicateJsonKeys(text); return JSON.parse(text);};
 function assertRequest(value: VerificationRequest): void {
@@ -104,7 +106,7 @@ export async function prepareHarnessVerification(request: VerificationRequest, o
       evidence: [{kind: "probe" as const, lockDigest: lock.digest, launchDigest: rawHash(await readFile(receiptPath))}, ...cases.evidence]});
     assertVerificationReceipt(receipt);
     const candidate = sealVerification({schemaVersion: "ebo.harness-verification-candidate/v1" as const, request: structuredClone(request), receipt});
-    prepared.set(candidate, {digest: candidate.digest, options}); return candidate;
+    prepared.set(candidate, {digest: candidate.digest, options, warnings: [...context.launch.warnings]}); return candidate;
   });
 }
 /** Reloaded candidates regain admission authority only after source validation and fresh launch security checks. */
@@ -129,8 +131,8 @@ export async function validateHarnessVerificationCandidate(value: unknown, optio
   if (verificationDigest(claims) !== verificationDigest(candidate.receipt.claims) || verificationDigest(cases.scope) !== verificationDigest(candidate.receipt.scope)
       || verificationDigest(cases.evidence) !== verificationDigest(candidate.receipt.evidence.filter(proof => proof.kind === "owned-capture"))) throw new VerificationError("HARNESS_VERIFICATION_SOURCE_CHANGED", "Verification claims no longer reproduce from retained evidence.");
   // The fresh launch still enforces integrity, withdrawal and OSV policy; it never rewrites the candidate.
-  await withStudyRuntime({...candidate.request, options}, async () => undefined);
-  prepared.set(candidate, {digest: candidate.digest, options}); return candidate;
+  const warnings = await withStudyRuntime({...candidate.request, options}, async () => runtimeExecutionSummary()?.warnings ?? []);
+  prepared.set(candidate, {digest: candidate.digest, options, warnings}); return candidate;
 }
 export async function admitHarnessVerification(root: string, candidate: VerificationCandidate, operator: VerificationAdmission["operator"], supersedes: VerificationHash[] = []): Promise<VerificationAdmission> {
   const authority = prepared.get(candidate);

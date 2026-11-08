@@ -354,7 +354,7 @@ export function qualifyFactoryCapture(capture: QualifiedNativeCapture<ProtocolOb
   const composition = object(compositions[0]!.evidence)!;
   capture = markRetainedVersion(capture, options.cliVersion, "factory-droid", [composition.version]);
   capture = markRetainedVersion(capture, options.sdkVersion, "@factory/droid-sdk", [composition.sdkVersion]);
-  if (captureAdapterVersion !== composition.adapterVersion) capture = {...capture, sourceLimitations: [...new Set([...(capture.sourceLimitations ?? []), "HARNESS_VERSION_UNVERIFIED", "HARNESS_VERSION_CONFLICT"])]};
+  capture = markRetainedVersion(capture, captureAdapterVersion, "factory-adapter", [composition.adapterVersion]);
   const initializations = records.filter((r) => r.source === FACTORY_CLIENT && r.method === "droid.initialize_session");
   if (initializations.length > 1 || options.expectsCompletion && initializations.length !== 1) throw new Error("Factory requires one owned initialization request.");
   const initialization = initializations[0];

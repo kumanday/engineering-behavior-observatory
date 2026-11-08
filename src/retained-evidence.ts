@@ -65,9 +65,20 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
     const componentVersions = manifest.run.runtime.filter(({name, source}) => name === legacyHarness || source === legacyHarness || ["agent-sdk", "claude-agent-sdk"].includes(legacyHarness) && ["agent-sdk", "claude-agent-sdk"].includes(name)).map(({version}) => version);
     const confidence = markRetainedVersion(evidence.capture, manifest.run.harness.version, legacyHarness, componentVersions);
     if (confidence.sourceLimitations?.length) profile = {...profile, limitations: [...new Set([...(profile.limitations ?? []), ...confidence.sourceLimitations])]};
-    if (retainedRuntimeProbeConflict(bundleRoot, manifest)) profile = {...profile, limitations: [...new Set([...(profile.limitations ?? []), "HARNESS_VERSION_UNVERIFIED", "HARNESS_VERSION_CONFLICT"])]};
+    const probeConflict = retainedRuntimeProbeConflict(bundleRoot, manifest);
+    if (probeConflict) profile = {...profile, limitations: [...new Set([...(profile.limitations ?? []), "HARNESS_VERSION_UNVERIFIED", "HARNESS_VERSION_CONFLICT"])]};
     const dataset = {...evidence.dataset, capabilityProfile: profile};
-    const conflict = profile.limitations?.includes("HARNESS_VERSION_CONFLICT"), result = currentVerificationResult();
+    // Modern DeepSeek identifies server and client separately. Historical v1
+    // rendering compares the client to its old harness declaration; that label
+    // cannot replace a comparison against the actual retained client component.
+    const clientVersion = manifest.run.runtime.find(component => component.name === "@deepseek-ai/dsh-sdk-client")?.version
+      ?? recorded?.subject.components.find(component => component.name === "@deepseek-ai/dsh-sdk-client")?.version ?? manifest.run.harness.version;
+    const nativeConflict = harness === DEEPSEEK_HARNESS_ID ? evidence.capture.records.some(({record}) => {
+      const observation = record as {kind?: string; payload?: {runtime?: {clientVersion?: unknown}}};
+      const actual = observation.payload?.runtime?.clientVersion;
+      return observation.kind === "composition" && typeof actual === "string" && actual !== clientVersion;
+    }) : profile.limitations?.includes("HARNESS_VERSION_CONFLICT");
+    const conflict = probeConflict || nativeConflict, result = currentVerificationResult();
     const unverified = conflict || versionConfidence(harness, manifest.run.harness.version).includes("HARNESS_VERSION_UNVERIFIED");
     const verification = {...result, ...(unverified ? {state: "unverified" as const} : {}), limitations: [...new Set([...result.limitations,
       ...unverified ? ["HARNESS_VERSION_UNVERIFIED"] : [], ...conflict ? ["HARNESS_VERSION_CONFLICT"] : []])]};
@@ -212,7 +223,7 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
     if (runtimeDocuments.length !== 1 || runtimeDocuments[0]?.schemaVersion !== "ebo.factory-runtime/v1" || !runtime || typeof runtime !== "object") throw new Error("Retained Factory runtime document has an invalid capture format.");
     capture = markRetainedVersion(capture, manifest.run.harness.version, "factory-droid", [runtime.version]);
     capture = markRetainedVersion(capture, captureSdkVersion, "@factory/droid-sdk", [runtime.sdkVersion]);
-    if (captureAdapterVersion !== runtime.adapterVersion) capture = {...capture, sourceLimitations: [...new Set([...(capture.sourceLimitations ?? []), "HARNESS_VERSION_CONFLICT", "HARNESS_VERSION_UNVERIFIED"])]};
+    capture = markRetainedVersion(capture, captureAdapterVersion, "factory-adapter", [runtime.adapterVersion]);
     if (runtimeDocuments[0]?.effectiveConfiguration?.model !== manifest.run.model.id) throw new Error("Retained Factory model differs from the run manifest.");
     const native = qualifyFactoryCapture(capture as NormalizationInput<ProtocolObservation>, {
       sessionId: manifest.run.native?.sessionId, expectsCompletion, cliVersion: manifest.run.harness.version, sdkVersion: captureSdkVersion,
