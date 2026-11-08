@@ -35,6 +35,9 @@ export class RuntimePolicyError extends Error {
   constructor(public readonly code: string, message: string, public readonly receipt?: unknown) { super(`${code}: ${message}`); this.name = "RuntimePolicyError"; }
 }
 export function selectRuntimeRelease(releases: readonly RuntimeRelease[], options: RuntimePolicy & { now: string }): RuntimeSelection {
+  if (options.allowPrerelease !== undefined && typeof options.allowPrerelease !== "boolean"
+    || options.minReleaseAgeMs !== undefined && typeof options.minReleaseAgeMs !== "number"
+    || options.override !== undefined && (typeof options.override !== "string" || !options.override.trim())) throw new RuntimePolicyError("RUNTIME_POLICY_INVALID", "Release age must be numeric, prerelease opt-in must be boolean, and an override must be a nonempty exact version.");
   const clock = Date.parse(options.now), age = options.minReleaseAgeMs ?? 86_400_000;
   if (!Number.isFinite(clock) || !Number.isFinite(age) || age < 0) throw new RuntimePolicyError("RUNTIME_POLICY_INVALID", "Clock and nonnegative minReleaseAgeMs are required.");
   const cutoff = clock - age, excluded: RuntimeSelection["excluded"] = [];

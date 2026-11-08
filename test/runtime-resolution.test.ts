@@ -38,3 +38,7 @@ test("the runtime catalog covers the native harness registry, the judge, Harbor 
   assert.ok(recipes.flatMap((r) => r.components).some((c) => c.source === "oci"));
   assert.ok(recipes.flatMap((r) => r.components).every((c) => !("version" in c)));
 });
+
+test("a prerelease opt-in must be a boolean rather than a truthy configuration value", () => {
+  assert.throws(() => selectRuntimeRelease([release("2.0.0-rc.1")], {now: "2026-11-07T12:00:00Z", allowPrerelease: "false" as any}), /RUNTIME_POLICY_INVALID/);
+});
