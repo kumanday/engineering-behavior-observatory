@@ -7,7 +7,7 @@ import { freezeStudyRuntimes, readStudyRuntimeLock, type StudyRuntimeLock, type 
 
 function summary(lock: StudyRuntimeLock): unknown {
   return { studyId: lock.studyId, lockDigest: lock.digest, createdAt: lock.createdAt, target: lock.target,
-    groups: lock.groups.map((group) => ({ id: group.id, roles: group.roles, installationKey: group.installation.key,
+    groups: lock.groups.map((group) => ({ id: group.id, roles: group.roles, installationKey: group.installation.key, platform: group.plan.platform, abi: group.plan.abi,
       components: group.roots.map((root) => ({ id: root.id, name: root.name, version: root.selection.release.version, publishedAt: root.selection.release.publishedAt, cutoff: root.selection.cutoff })),
       dependencyCount: group.components.length })), warnings: [...new Set([...lock.security.warnings, ...lock.groups.flatMap((group) => group.components.flatMap((component) => component.selection.warnings.map((warning) => warning.includes(component.name) ? warning : `${component.name}@${component.version}: ${warning}`)))])] };
 }

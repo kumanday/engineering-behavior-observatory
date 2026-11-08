@@ -48,6 +48,7 @@ export async function withStudyRuntime<T>(binding: { studyRoot: string; role: st
   launch.runtimeRoot = await realpath(launch.runtimeRoot);
   const context: StudyRuntimeContext = { studyRoot: binding.studyRoot, launch, modules: new Map(), packages: new Map(), options: binding.options ?? {}, probes: [] };
   try {
+    if (launch.roots.some((root) => root.source === "npm") && launch.platform !== `${process.platform}-${process.arch}`) throw new RuntimePolicyError("RUNTIME_PLATFORM_MISMATCH", `This ${process.platform}-${process.arch} process cannot load the frozen ${launch.platform} runtime; execute it in its target environment.`);
     for (const component of launch.roots.filter((component) => component.source === "npm")) {
       const root = join(launch.runtimeRoot, "node_modules", component.name), metadata = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
       assertRuntimeProbe(component.id, component.selection.release.version, metadata.version);

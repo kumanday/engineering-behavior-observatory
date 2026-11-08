@@ -40,6 +40,18 @@ The harness roles are `claude-agent-sdk`, `codex-app-server`, `devin-cli`,
 `deepseek-harness`. `codex-judge`, `harbor` and `smol` select supporting runtimes.
 The `list` output names each role's components and upstream package sources.
 
+A request's `target` supplies the default OS and CPU architecture. `roleTargets`
+overrides them for an individual role, for example:
+
+```json
+"roleTargets": { "pi-sdk": { "platform": "linux", "architecture": "arm64" } }
+```
+
+This lets a study prepare guest SDKs alongside host supporting runtimes. npm
+resolution and installation receive explicit OS, CPU and Linux libc settings.
+The inspection output shows each graph's platform and ABI. Loading a graph on
+a different host reports a target mismatch before an SDK can execute.
+
 ## Selection policy
 
 The default minimum release age is 24 hours. `policy.minReleaseAgeMs` changes it

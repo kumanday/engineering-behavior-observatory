@@ -14,14 +14,14 @@ import { checkRuntimeSecurity, type RuntimeSecurityOptions, type RuntimeSecurity
 
 type Hash = `sha256:${string}`;
 export type StudyRuntimeRequest = { studyId: string; roles: string[]; policy?: RuntimePolicy;
-  harnessPolicies?: Record<string, RuntimePolicy>; overrides?: Record<string, string>; target?: { platform: string; architecture: string } };
+  harnessPolicies?: Record<string, RuntimePolicy>; overrides?: Record<string, string>; roleTargets?: Record<string, {platform: string; architecture: string}>; target?: { platform: string; architecture: string } };
 export type StudyRuntimeGroup = { id: string; roles: string[]; roots: SelectedRuntimeComponent[]; components: LockedRuntimeDependency[];
   plan: RuntimeInstallPlan; installation: { key: string; receiptDigest: Hash } };
 export type StudyRuntimeLock = { schemaVersion: "ebo.study-runtime-lock/v1"; studyId: string; request: StudyRuntimeRequest; requestDigest: Hash;
   createdAt: string; target: { platform: string; architecture: string }; groups: StudyRuntimeGroup[]; security: RuntimeSecurityReceipt; digest: Hash };
 export type StudyRuntimeOptions = RuntimeRegistryOptions & RuntimeSecurityOptions & { run?: RuntimeCommandRunner; python?: string; pythonAbi?: string; uv?: string };
 export type RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v1"; lockDigest: Hash; role: string; runtimeRoot: string;
-  roots: SelectedRuntimeComponent[]; security: RuntimeSecurityReceipt; warnings: string[]; receiptLocator: string };
+  roots: SelectedRuntimeComponent[]; platform: string; abi: string; security: RuntimeSecurityReceipt; warnings: string[]; receiptLocator: string };
 const hash = (value: unknown): Hash => `sha256:${digestMetadata(value).value}`;
 const paths = (root: string) => ({ lock: join(resolve(root), "runtimes", "lock.json"), cache: join(resolve(root), "runtimes", "cache"), receipts: join(resolve(root), "runtimes", "launches") });
 const withoutDigest = (lock: StudyRuntimeLock): Omit<StudyRuntimeLock, "digest"> => { const { digest: _digest, ...value } = lock; return value; };
@@ -43,9 +43,10 @@ export async function freezeStudyRuntimes(studyRoot: string, request: StudyRunti
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     const createdAt = (options.now ?? (() => new Date().toISOString()))();
     const target = request.target ?? { platform: process.platform, architecture: process.arch };
-    const catalog = listRuntimeRecipes(target), groups: StudyRuntimeGroup[] = [], selected: { role: string; roots: SelectedRuntimeComponent[] }[] = [];
+    const groups: StudyRuntimeGroup[] = [], selected: { role: string; roots: SelectedRuntimeComponent[]; target: typeof target }[] = [];
     for (const role of request.roles) {
-      const recipe = catalog.find((recipe) => recipe.id === role);
+      const roleTarget = request.roleTargets?.[role] ?? target;
+      const recipe = listRuntimeRecipes(roleTarget).find((recipe) => recipe.id === role);
       if (!recipe) throw new RuntimePolicyError("RUNTIME_ROLE_UNKNOWN", `Unknown maintained execution role ${role}.`);
       const roots: SelectedRuntimeComponent[] = [];
       for (const [index, component] of recipe.components.entries()) {
@@ -54,16 +55,22 @@ export async function freezeStudyRuntimes(studyRoot: string, request: StudyRunti
         const releases = await fetchRuntimeReleases(component, options);
         roots.push({ ...component, selection: selectRuntimeRelease(releases, { ...policy, ...(override ? { override } : {}), now: createdAt }) });
       }
-      selected.push({ role, roots });
+      selected.push({ role, roots, target: roleTarget });
     }
     // Harbor and Smol share one Python interpreter and a jointly resolved dependency graph.
     const python = selected.filter((entry) => entry.roots.every((root) => root.source === "pypi"));
-    const compositions = selected.filter((entry) => !python.includes(entry)).map((entry) => ({ roles: [entry.role], roots: entry.roots }));
-    if (python.length) compositions.push({ roles: python.map((entry) => entry.role), roots: python.flatMap((entry) => entry.roots) });
+    const compositions = selected.filter((entry) => !python.includes(entry)).map((entry) => ({ roles: [entry.role], roots: entry.roots, target: entry.target }));
+    const pythonTargets = new Map<string, typeof python>();
+    for (const entry of python) {
+      const key = `${entry.target.platform}-${entry.target.architecture}`;
+      if (!pythonTargets.has(key)) pythonTargets.set(key, []);
+      pythonTargets.get(key)!.push(entry);
+    }
+    for (const entries of pythonTargets.values()) compositions.push({ roles: entries.map((entry) => entry.role), roots: entries.flatMap((entry) => entry.roots), target: entries[0]!.target });
     for (const composition of compositions) {
       const { roots, roles } = composition;
       let plan: RuntimeInstallPlan, components: LockedRuntimeDependency[];
-      const platform = `${target.platform}-${target.architecture}`;
+      const platform = `${composition.target.platform}-${composition.target.architecture}`;
       if (roots.every((root) => root.source === "npm")) ({ plan, components } = await resolveNpmRuntimePlan(roots, { ...options, platform, abi: `node-${process.versions.node}-modules-${process.versions.modules}` }));
       else if (roots.every((root) => root.source === "pypi")) ({ plan, components } = await resolvePythonRuntimePlan(roots, { ...options, python: options.python ?? "python3", platform, abi: options.pythonAbi ?? "python-bootstrap" }));
       else {
@@ -118,7 +125,7 @@ export async function prepareRuntimeLaunch(studyRoot: string, role: string, opti
   const security = await checkRuntimeSecurity(lock.groups.flatMap((group) => group.components), options);
   const runtimeRoot = join(locations.cache, group.installation.key), receipt = await verifyInstalledRuntime(runtimeRoot, group.plan, options);
   if (hash(receipt) !== group.installation.receiptDigest) throw new RuntimePolicyError("RUNTIME_CACHE_INTEGRITY", "Installation receipt differs from the study freeze.");
-  const launch: RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v1", lockDigest: lock.digest, role, runtimeRoot, roots: group.roots, security, warnings: [...warnings, ...security.warnings], receiptLocator };
+  const launch: RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v1", lockDigest: lock.digest, role, runtimeRoot, roots: group.roots, platform: group.plan.platform, abi: group.plan.abi, security, warnings: [...warnings, ...security.warnings], receiptLocator };
   await mkdir(locations.receipts, { recursive: true, mode: 0o700 });
   await writeFile(join(resolve(studyRoot), receiptLocator), canonicalizeMetadata(launch), { flag: "wx", mode: 0o600 }); return launch;
   } catch (error) {

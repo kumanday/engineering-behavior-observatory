@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { canonicalizeMetadata } from "./artifacts.js";
 import type { RuntimeComponentRecipe } from "./runtime-catalog.js";
-import { runtimeNpmConfiguration, runRuntimeCommand, type RuntimeCommandRunner, type NpmRuntimeInstallPlan } from "./runtime-installation.js";
+import { npmRuntimeTargetArguments, runtimeNpmConfiguration, runRuntimeCommand, type RuntimeCommandRunner, type NpmRuntimeInstallPlan } from "./runtime-installation.js";
 import { fetchRuntimeReleases, type RuntimeRegistryOptions } from "./runtime-registry.js";
 import { RuntimePolicyError, selectRuntimeRelease, type RuntimeSelection } from "./runtime-resolution.js";
 import type { RuntimeSecurityComponent } from "./runtime-security.js";
@@ -34,7 +34,7 @@ export async function resolveNpmRuntimePlan(roots: readonly SelectedRuntimeCompo
     await writeFile(join(staging, "package.json"), canonicalizeMetadata({...packageJson, dependencies: rootTarballs}), { mode: 0o600 });
     const cutoff = roots.map((root) => root.selection.cutoff).sort()[0]!;
     const result = await (options.run ?? runRuntimeCommand)(join(dirname(process.execPath), "npm"), ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund", `--before=${cutoff}`,
-      ...await runtimeNpmConfiguration(staging)], staging);
+      ...npmRuntimeTargetArguments(options.platform), ...await runtimeNpmConfiguration(staging)], staging);
     if (result.code !== 0) throw new RuntimePolicyError("RUNTIME_DEPENDENCY_RESOLUTION_FAILED", result.stderr.slice(0, 2000));
     const packageLock = JSON.parse(await readFile(join(staging, "package-lock.json"), "utf8")) as { lockfileVersion: unknown; packages?: Record<string, any> };
     if (packageLock.lockfileVersion !== 3 || !packageLock.packages) throw new RuntimePolicyError("RUNTIME_DEPENDENCY_LOCK_INVALID", "npm did not produce a v3 exact dependency lock.");

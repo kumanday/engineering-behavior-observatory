@@ -87,7 +87,7 @@ export async function installRuntime(plan: RuntimeInstallPlan, options: { cacheR
     await writeFile(join(staging, "package-lock.json"), canonicalizeMetadata(plan.packageLock), { mode: 0o600 });
     const npm = join(dirname(process.execPath), "npm");
     const config = await runtimeNpmConfiguration(staging);
-    await checkedCommand(run, npm, ["ci", "--ignore-scripts", "--no-audit", "--no-fund", ...config], staging);
+    await checkedCommand(run, npm, ["ci", "--ignore-scripts", "--no-audit", "--no-fund", ...npmRuntimeTargetArguments(plan.platform), ...config], staging);
     proofs = [];
     if (plan.verifyRegistryProofs) {
       const result = await checkedCommand(run, npm, ["audit", "signatures", "--json", "--ignore-scripts", ...config], staging);
@@ -107,4 +107,10 @@ export async function runtimeNpmConfiguration(directory: string): Promise<string
   const user = join(directory, ".ebo-npm-user.rc"), global = join(directory, ".ebo-npm-global.rc");
   await writeFile(user, "", { mode: 0o600 }); await writeFile(global, "", { mode: 0o600 });
   return [`--userconfig=${user}`, `--globalconfig=${global}`, "--registry=https://registry.npmjs.org"];
+}
+
+export function npmRuntimeTargetArguments(platform: string): string[] {
+  const match = /^([a-z0-9]+)-([a-z0-9]+)$/u.exec(platform);
+  if (!match) throw new RuntimePolicyError("RUNTIME_PLATFORM_INVALID", "npm requires an explicit OS-architecture target.");
+  return [`--os=${match[1]}`, `--cpu=${match[2]}`, ...(match[1] === "linux" ? ["--libc=glibc"] : [])];
 }
