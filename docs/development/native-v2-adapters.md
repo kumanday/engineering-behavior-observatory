@@ -69,3 +69,8 @@ fixture versions only. Reading a retained run binds its diagnostic snapshot and
 profile/route before normalization; it does not consult the current operator
 catalog. Runtime declarations remain cohort dimensions. A version disagreement
 adds a limitation without removing native records or measurements.
+
+Historical 1.x payloads render their version annotations from the immutable
+compatibility policy. These fields preserve existing assertion digests. The v2
+projector excludes those historical confidence codes and uses the retained
+verification result for its source limitations.

@@ -1,6 +1,7 @@
+import {legacyV1Profile} from "./legacy-v1-confidence.js";
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, probeLockedRuntimeExecutable, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
-import { markRetainedVersion } from "./retained-version-policy.js";
+import {markRetainedVersion} from "./legacy-v1-confidence.js";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -587,13 +588,13 @@ export async function normalizeDevinCapture(
 
 export async function describeAndValidateDevinDataset(
   capture: QualifiedNativeCapture<ProtocolObservation>,
-  _runtimeVersion = (capture as Partial<DevinCliCapture>).telemetry?.runtime?.version ?? DEVIN_CLI_VERSION,
+  runtimeVersion = (capture as Partial<DevinCliCapture>).telemetry?.runtime?.version ?? DEVIN_CLI_VERSION,
 ): Promise<{ dataset: NormalizedDataset; coverage: AdapterCoverageReport }> {
   const normalization = await normalizeDevinCapture(capture);
   const dataset = describeNormalizedDataset({
     capture,
     normalization,
-    capabilityProfile: DEVIN_CLI_CAPABILITIES,
+    capabilityProfile: legacyV1Profile(DEVIN_CLI_CAPABILITIES, "devin-cli", runtimeVersion),
     adapterVersion: DEVIN_ADAPTER_VERSION,
     nativeType: devinNativeType,
   });
@@ -612,7 +613,7 @@ export function qualifyRetainedDevinCapture(
   capture: QualifiedNativeCapture<ProtocolObservation>,
   options: { sessionId: string | undefined; expectsCompletion: boolean; harnessVersion: string; runtimeVersions: readonly unknown[] },
 ): RetainedDevinCapture {
-  capture = markRetainedVersion(capture, options.harnessVersion, options.runtimeVersions.length ? options.runtimeVersions : [undefined]);
+  capture = markRetainedVersion(capture, options.harnessVersion, "devin-cli", options.runtimeVersions.length ? options.runtimeVersions : [undefined]);
   const records = capture.records.map(({ record }) => record);
   for (const record of records) {
     if (record.source !== DEVIN_HARNESS && record.source !== DEVIN_CLIENT) throw new Error(`Retained Devin capture contains a foreign source ${record.source}.`);

@@ -23,6 +23,10 @@ measures remain available alongside limitations on completeness or native semant
 
 ## Native version confidence
 
+Current confidence appears in the retained verification result and native v2
+source limitations. The normalized 1.x payload preserves its historical annotation
+for existing assertion digests; use the verification result for current confidence.
+
 | Code | Meaning |
 | --- | --- |
 | `HARNESS_VERSION_UNVERIFIED` | No matching admitted runtime probe is frozen, or the runtime declarations disagree. The format contract remains readable. |

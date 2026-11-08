@@ -1,6 +1,7 @@
+import {legacyV1Profile} from "./legacy-v1-confidence.js";
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
 import * as developmentSdk from "@cursor/sdk";
-import { markRetainedVersion } from "./retained-version-policy.js";
+import {markRetainedVersion} from "./legacy-v1-confidence.js";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, open, stat, type FileHandle } from "node:fs/promises";
@@ -774,12 +775,12 @@ export async function projectCursorSdkBehaviorEvidence(bundleRoot: string): Prom
   };
   assertRetainedCursorIdentity(manifest, capture.records.map(({ record }) => record));
   const nativeVersion = asRecord(capture.records.find(({ record }) => record.channel === "configuration")?.record.payload)?.sdkVersion;
-  capture = markRetainedVersion(capture, retainedVersion, [nativeVersion, ...manifest.run.runtime.filter(({ name }) => name === "cursor-sdk").map(({ version }) => version)]);
+  capture = markRetainedVersion(capture, retainedVersion, "cursor-sdk", [nativeVersion, ...manifest.run.runtime.filter(({ name }) => name === "cursor-sdk").map(({ version }) => version)]);
   const normalization = normalizeCursorSdkCapture(capture);
   const dataset = describeNormalizedDataset({
     capture,
     normalization,
-    capabilityProfile: CURSOR_SDK_CAPABILITIES,
+    capabilityProfile: legacyV1Profile(CURSOR_SDK_CAPABILITIES, "cursor-sdk", retainedVersion),
     adapterVersion: CURSOR_SDK_ADAPTER_VERSION,
     nativeType: cursorNativeType,
   });

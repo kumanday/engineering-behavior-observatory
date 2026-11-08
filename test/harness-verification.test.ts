@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { readVerificationCatalog, snapshotVerification, evaluateVerification, verificationDigest } from "../src/harness-verification.js";
 
 const digest = `sha256:${"1".repeat(64)}` as const;
-const subject = { harness: "cursor-sdk", platform: "linux-x64", contractDigest: digest,
+const subject = { harness: "cursor-sdk", platform: "linux-x64", abi: "test-node-24", contractDigest: digest,
   components: [{ id: "cursor-sdk", name: "@cursor/sdk", version: "9.9.9", integrity: "sha512-Zml4dHVyZQ==" }] };
 
 test("an admitted receipt refreshes a new snapshot without changing an existing freeze", async () => {
@@ -93,8 +93,34 @@ test("named capture claims are scoped; disagreements retain limitations even whe
       assert.ok(versionConfidence("cursor-sdk", "9.9.9").includes("HARNESS_CAPTURE_UNVERIFIED"));
       assert.ok(evaluateVerification(snapshot, scope).limitations.includes("HARNESS_VERIFICATION_CONFLICT"));
     }, scope, subject);
-    for (const drift of [{...subject, platform: "other-platform"}, {...subject, contractDigest: `sha256:${"2".repeat(64)}`}, {...subject, components: [{...subject.components[0]!, integrity: "sha512-other"}]}]) {
+    for (const drift of [{...subject, abi: "other-abi"}, {...subject, platform: "other-platform"}, {...subject, contractDigest: `sha256:${"2".repeat(64)}`}, {...subject, components: [{...subject.components[0]!, integrity: "sha512-other"}]}]) {
       assert.equal(evaluateVerification(snapshotVerification(drift, await readVerificationCatalog(root)), scope).state, "unverified");
     }
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
+import {cp, readFile} from "node:fs/promises";
+import {createRetainedBehaviorEvidence} from "../src/retained-evidence.js";
+import {validateBehaviorAssertion} from "../src/behavior-assertions.js";
+import {digestBytes, digestMetadata} from "../src/artifacts.js";
+test("unfamiliar native v1 projections keep the base dataset digest and retained assertions", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ebo-legacy-v1-annotations-"));
+  try {
+    await cp("test/fixtures/codex/legacy-0.150.1", root, {recursive: true});
+    const path = join(root, "manifest.json"), manifest = JSON.parse(await readFile(path, "utf8"));
+    for (const descriptor of manifest.evidence) if (/json/u.test(descriptor.mediaType)) {
+      const target = join(root, descriptor.relativePath), bytes = Buffer.from((await readFile(target, "utf8")).replaceAll("0.150.1", "9000.1.0"));
+      await writeFile(target, bytes); descriptor.digest = `sha256:${digestBytes(bytes).value}`; descriptor.sizeBytes = bytes.length;
+    }
+    await writeFile(path, JSON.stringify(manifest).replaceAll("0.150.1", "9000.1.0"));
+    const evidence = await createRetainedBehaviorEvidence(root);
+    const datasetDigest = `sha256:${digestMetadata(evidence.dataset).value}` as const;
+    assert.equal(datasetDigest, "sha256:09326dff2707f2f5f015a4d7ec8287a2afebd96a38b0dbee8479d683a4b68afa", "Offline 55b187c interpretation of these exact public native records");
+    assert.equal(evidence.verification?.state, "unverified");
+    const assertion = {schemaVersion: "ebo.behavior-assertion/v1", id: "prior-annotation", runId: evidence.dataset.runId, attemptId: evidence.dataset.attemptId,
+      dataset: {schemaVersion: evidence.dataset.schemaVersion, digest: datasetDigest}, behavior: {vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion"},
+      rubric: {id: "fixture", version: "1"}, evaluator: {id: "fixture", version: "1"},
+      judgment: {disposition: "abstained", reason: "Fixture", rationale: "No semantic claim", alternativeExplanation: "Insufficient evidence", citations: []}} as const;
+    await validateBehaviorAssertion(assertion, evidence.dataset, evidence.resolver, undefined, evidence.capture);
   } finally {await rm(root, {recursive: true, force: true});}
 });

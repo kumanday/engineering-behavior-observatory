@@ -127,7 +127,7 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
   const mapped = new Map<string, string[]>();
   for (const event of events) { const key = referenceKey(event.source.nativeReference); mapped.set(key, [...mapped.get(key) ?? [], event.id]); }
   const unmapped = new Map(evidence.dataset.unmapped.map((record) => [referenceKey(record.reference), record.reason]));
-  const sourceLimitations = [...new Set([...(evidence.dataset.capabilityProfile.limitations ?? []), ...(evidence.verification?.limitations ?? [])])];
+  const sourceLimitations = [...new Set([...(evidence.dataset.capabilityProfile.limitations ?? []).filter(code => !["HARNESS_VERSION_UNVERIFIED", "HARNESS_CAPTURE_UNVERIFIED", "HARNESS_VERIFICATION_CONFLICT"].includes(code)), ...(evidence.verification?.limitations ?? [])])];
   const dataset: NormalizedDatasetV2 = { schemaVersion: "ebo.normalized-dataset/v2", runId: population.runId, attemptId: population.attemptId,
     normalizer: { id: profile.id, version: profile.version, implementationDigest },
     origin: { kind: "owned", qualification: evidence.capture.qualification, manifestDigest: binding.manifestDigest },

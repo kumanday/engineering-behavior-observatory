@@ -1,4 +1,4 @@
-import {readVerificationCatalog, snapshotVerification, runtimeVerificationSubject, assertVerificationSnapshot, verificationDigest, type VerificationSnapshot, type VerificationSubject} from "./harness-verification.js";
+import {readVerificationCatalog, snapshotVerification, runtimeVerificationSubject, runtimeExecutionVerificationSubject, assertVerificationSnapshot, verificationDigest, type VerificationSnapshot, type VerificationSubject} from "./harness-verification.js";
 import { refreshFrozenRuntimeRelease } from "./runtime-status.js";
 import {assertStudyRuntimeRequest} from "./runtime-request.js";
 import {discoverArtifactProofs} from "./runtime-proofs.js";
@@ -140,7 +140,7 @@ export async function prepareRuntimeLaunch(studyRoot: string, role: string, opti
   const security = await checkRuntimeSecurity(lock.groups.flatMap((group) => group.components), options);
   const runtimeRoot = join(locations.cache, group.installation.key), receipt = await verifyInstalledRuntime(runtimeRoot, group.plan, options);
   if (hash(receipt) !== group.installation.receiptDigest) throw new RuntimePolicyError("RUNTIME_CACHE_INTEGRITY", "Installation receipt differs from the study freeze.");
-  const launch: RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v2", ...(group.verification?.[role] ? {verification: group.verification[role]} : {}), ...(runtimeVerificationSubject(role, group) ? {verificationSubject: runtimeVerificationSubject(role, group)} : {}), lockDigest: lock.digest, role, runtimeRoot, roots: group.roots, platform: group.plan.platform, abi: group.plan.abi, security, warnings: [...warnings, ...security.warnings], receiptLocator };
+  const launch: RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v2", ...(group.verification?.[role] ? {verification: group.verification[role]} : {}), ...(runtimeExecutionVerificationSubject(role, group) ? {verificationSubject: runtimeExecutionVerificationSubject(role, group)} : {}), lockDigest: lock.digest, role, runtimeRoot, roots: group.roots, platform: group.plan.platform, abi: group.plan.abi, security, warnings: [...warnings, ...security.warnings], receiptLocator };
   await mkdir(locations.receipts, { recursive: true, mode: 0o700 });
   await writeFile(join(resolve(studyRoot), receiptLocator), canonicalizeMetadata(launch), { flag: "wx", mode: 0o600 }); return launch;
   } catch (error) {

@@ -1,7 +1,7 @@
 import {coordinatorRuntimeEnvironment} from "./runtime-environment.js";
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeExecutable, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
 import * as developmentClient from "@deepseek-ai/dsh-sdk-client";
-import { markRetainedVersion } from "./retained-version-policy.js";
+import {markRetainedVersion} from "./legacy-v1-confidence.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -520,7 +520,7 @@ export function qualifyRetainedDeepSeekCapture(
   const children = new Map<string, string[]>();
   for (const observation of records) {
     const payload = record(observation.payload) ?? {};
-    if (observation.kind === "composition") input = markRetainedVersion(input, String(record(payload.runtime)?.clientVersion ?? manifestVersion), []);
+    if (observation.kind === "composition") input = markRetainedVersion(input, String(record(payload.runtime)?.clientVersion ?? manifestVersion), "deepseek-harness", []);
     if (observation.kind === "notification" && ["subagent.started", "subagent.finished"].includes(observation.method ?? "")
       && typeof payload.parentSessionId === "string" && typeof payload.childSessionId === "string") {
       children.set(payload.parentSessionId, [...(children.get(payload.parentSessionId) ?? []), payload.childSessionId]);

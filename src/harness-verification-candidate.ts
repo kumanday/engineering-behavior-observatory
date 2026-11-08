@@ -4,11 +4,12 @@ import { join, resolve } from "node:path";
 import { digestBytes, assertNoDuplicateJsonKeys, canonicalizeMetadata } from "./artifacts.js";
 import { withStudyRuntime, currentStudyRuntime, probeLockedRuntimeExecutable, recordRuntimeProbe } from "./runtime-context.js";
 import { readStudyRuntimeLock, type StudyRuntimeOptions } from "./study-runtimes.js";
+import {readOpenHandsServerInfo} from "./openhands.js";
 import { withLockedOpenHandsServer } from "./openhands-runtime.js";
 import { createRetainedBehaviorEvidenceV2 } from "./native-v2.js";
 import { datasetV2Digest, precedes } from "./normalization-v2.js";
 import { readRunVerification } from "./verification-retained.js";
-import { sealVerification, verificationDigest, runtimeVerificationSubject, assertVerificationReceipt, appendVerificationAdmission,
+import { sealVerification, verificationDigest, runtimeExecutionVerificationSubject, assertVerificationReceipt, appendVerificationAdmission,
   readVerificationCatalog,
   VerificationError, type HarnessVerificationReceipt, type VerificationProof, type VerificationScope, type VerificationAdmission, type VerificationHash,
   type VerificationClaim, type VerificationClaimResult } from "./harness-verification.js";
@@ -79,7 +80,7 @@ export async function prepareHarnessVerification(request: VerificationRequest, o
   assertRequest(request);
   request = {...request, studyRoot: resolve(request.studyRoot), ...(request.cases ? {cases: request.cases.map(item => ({...item, bundleRoot: resolve(item.bundleRoot)}))} : {})};
   const lock = await readStudyRuntimeLock(request.studyRoot), group = lock.groups.find(g => g.roles.includes(request.role));
-  const subject = group && runtimeVerificationSubject(request.role, group);
+  const subject = group && runtimeExecutionVerificationSubject(request.role, group);
   if (!subject) throw new VerificationError("HARNESS_VERIFICATION_ROLE_INVALID", "Only the eight maintained native harnesses have capture verification records.");
   return withStudyRuntime({...request, options}, async () => {
     const context = currentStudyRuntime()!;
@@ -87,13 +88,8 @@ export async function prepareHarnessVerification(request: VerificationRequest, o
     if (request.role === "openhands-agent-server") {
       const sessionApiKey = randomUUID();
       await withLockedOpenHandsServer({sessionApiKey}, async server => {
-        const response = await (options.fetch ?? fetch)(`${server.baseUrl}/server_info`, {headers: {'X-Session-API-Key': sessionApiKey}, signal: AbortSignal.timeout(5000)});
-        if (!response.ok) throw new VerificationError("HARNESS_VERIFICATION_API_FAILED", "OpenHands server-info probe failed.");
-        const chunks: Uint8Array[] = []; let size = 0;
-        if (!response.body) throw new VerificationError("HARNESS_VERIFICATION_API_FAILED", "OpenHands server-info is empty.");
-        for await (const chunk of response.body) {size += chunk.length; if (size > 1024 * 1024) throw new VerificationError("HARNESS_VERIFICATION_API_FAILED", "OpenHands server-info exceeds the probe bound."); chunks.push(chunk);}
-        const text = Buffer.concat(chunks).toString("utf8"); assertNoDuplicateJsonKeys(text);
-        const info = JSON.parse(text); if (typeof info.version !== "string") throw new VerificationError("HARNESS_VERIFICATION_API_FAILED", "OpenHands server-info has no version.");
+        const info = await readOpenHandsServerInfo((url, init) => (options.fetch ?? fetch)(String(url), init), server.baseUrl, sessionApiKey, 1024 * 1024, undefined, 30_000);
+        if (typeof info.version !== "string") throw new VerificationError("HARNESS_VERIFICATION_API_FAILED", "OpenHands server-info has no version.");
         await recordRuntimeProbe("openhands", info.version, "server-info"); (context.launch.contractChecks ??= []).push("openhands/server_info");
       });
     }
@@ -103,7 +99,7 @@ export async function prepareHarnessVerification(request: VerificationRequest, o
       "module-api": (context.launch.contractChecks?.length ?? 0) > 0 ? "checked" : "unavailable", ...cases.claims};
     // recordRuntimeProbe writes executable probes; SDK-only roles retain their initial receipt.
     const receiptPath = join(request.studyRoot, context.launch.receiptLocator);
-    await writeFile(receiptPath, canonicalizeMetadata({...context.launch, probes: context.probes, status: "probed"}), {mode: 0o600});
+    await writeFile(receiptPath, canonicalizeMetadata({...context.launch, probes: context.probes, executions: context.executions ?? [], status: "probed"}), {mode: 0o600});
     const receipt = sealVerification({schemaVersion: "ebo.harness-verification/v1" as const, id: randomUUID(), createdAt: new Date().toISOString(), subject, scope: cases.scope, claims,
       evidence: [{kind: "probe" as const, lockDigest: lock.digest, launchDigest: rawHash(await readFile(receiptPath))}, ...cases.evidence]});
     assertVerificationReceipt(receipt);
@@ -119,7 +115,7 @@ export async function validateHarnessVerificationCandidate(value: unknown, optio
   if (verificationDigest(body) !== digest) throw new VerificationError("HARNESS_VERIFICATION_INVALID", "Candidate bytes differ from their identity.");
   assertRequest(candidate.request); assertVerificationReceipt(candidate.receipt);
   const lock = await readStudyRuntimeLock(candidate.request.studyRoot), group = lock.groups.find(g => g.roles.includes(candidate.request.role));
-  const subject = group && runtimeVerificationSubject(candidate.request.role, group);
+  const subject = group && runtimeExecutionVerificationSubject(candidate.request.role, group);
   if (!subject || verificationDigest(subject) !== verificationDigest(candidate.receipt.subject)) throw new VerificationError("HARNESS_VERIFICATION_CAPTURE_BINDING", "Candidate runtime or current capture contract differs.");
   const probeProof = candidate.receipt.evidence.find(proof => proof.kind === "probe")!;
   const files = await import("node:fs/promises").then(fs => fs.readdir(join(candidate.request.studyRoot, "runtimes/launches")));

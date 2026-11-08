@@ -44,6 +44,6 @@ export function readRunVerification(bundleRoot: string, manifest: RunManifest): 
       || !group || launch.lockDigest !== digest || launch.role !== binding.role
       || verificationDigest(record.snapshot) !== verificationDigest(group.verification?.[binding.role] ?? null)
       || verificationDigest(record.subject) !== verificationDigest(launch.verificationSubject)
-      || verificationDigest(record.subject) !== verificationDigest(runtimeVerificationSubject(binding.role, group, record.subject.contractDigest))) throw new Error("HARNESS_VERIFICATION_INVALID: verification snapshot differs from its frozen runtime binding.");
+      || verificationDigest(record.subject) !== verificationDigest(runtimeVerificationSubject(binding.role, group, record.subject.contractDigest, record.subject.abi))) throw new Error("HARNESS_VERIFICATION_INVALID: verification snapshot differs from its frozen runtime binding.");
   return record;
 }

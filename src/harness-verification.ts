@@ -12,7 +12,7 @@ export type VerificationHash = `sha256:${string}`;
 export const VERIFICATION_CLAIMS = ["installation", "runtime-probe", "module-api", "readback", "session-identity", "tool-call-result", "workspace", "usage", "failure-follow-up", "interruption", "hooks", "terminal", "teardown"] as const;
 export type VerificationClaim = typeof VERIFICATION_CLAIMS[number];
 export type VerificationClaimResult = "checked" | "failed" | "unavailable";
-export type VerificationSubject = { harness: string; platform: string; contractDigest: VerificationHash;
+export type VerificationSubject = { harness: string; platform: string; abi: string; contractDigest: VerificationHash;
   components: Array<{ id: string; name: string; version: string; integrity: string }> };
 export type VerificationScope = { captureProfileDigest: VerificationHash; routeDigest: VerificationHash };
 export type VerificationProof = { kind: "probe" | "owned-capture"; lockDigest: VerificationHash; launchDigest: VerificationHash;
@@ -45,8 +45,8 @@ function sealed(value: unknown, schema: string, allowed: string[]): Record<strin
   return document;
 }
 export function canonicalVerificationSubject(value: unknown): VerificationSubject {
-  const subject = object(value); keys(subject, ["harness", "platform", "contractDigest", "components"]);
-  if (!listRuntimeRecipes().some(recipe => recipe.harness === subject.harness) || !text(subject.platform) || !hashPattern.test(subject.contractDigest)
+  const subject = object(value); keys(subject, ["harness", "platform", "abi", "contractDigest", "components"]);
+  if (!listRuntimeRecipes().some(recipe => recipe.harness === subject.harness) || !text(subject.platform) || !text(subject.abi) || !hashPattern.test(subject.contractDigest)
       || !Array.isArray(subject.components) || !subject.components.length || subject.components.length > 10000) fail("Invalid maintained harness subject.");
   const components: VerificationSubject["components"] = (subject.components as unknown[]).map(value => {
     const component = object(value); keys(component, ["id", "name", "version", "integrity"]);
@@ -54,7 +54,7 @@ export function canonicalVerificationSubject(value: unknown): VerificationSubjec
     return {id: component.id as string, name: component.name as string, version: component.version as string, integrity: component.integrity as string};
   }).sort((a, b) => a.id.localeCompare(b.id));
   if (new Set(components.map(c => c.id)).size !== components.length) fail("Runtime component IDs must be unique.");
-  return {harness: subject.harness, platform: subject.platform, contractDigest: subject.contractDigest, components};
+  return {harness: subject.harness, platform: subject.platform, abi: subject.abi, contractDigest: subject.contractDigest, components};
 }
 export function assertVerificationScope(value: unknown): asserts value is VerificationScope | null {
   if (value === null) return;
@@ -79,6 +79,7 @@ export function assertVerificationReceipt(value: unknown): asserts value is Harn
   }
   if (Object.keys(claims).some(claim => !probeClaims.has(claim as VerificationClaim))
       && (receipt.scope === null || cases.size !== 3)) fail("Capture claims require a scoped success, failure and interruption set.");
+  if (!receipt.evidence.some((proof: VerificationProof) => proof.kind === "probe")) fail("Verification requires a retained runtime probe.");
 }
 function subjectKey(receipt: HarnessVerificationReceipt): VerificationHash {
   return verificationDigest({subject: canonicalVerificationSubject(receipt.subject), scope: receipt.scope});
@@ -204,11 +205,15 @@ export function harnessCaptureContract(harness: string): VerificationHash {
   return verificationDigest([...modules, "run-bundles.js", "native-v2.js", "projection-v2.js", "normalization-v2.js", "retained-evidence.js", "retained-version-policy.js", "verification-context.js", "verification-retained.js", "runtime-context.js", "harness-verification-candidate.js", "harness-verification.js", "normalization-integrity.js", "process-protocol.js", "lifecycle.js", "../../schemas/run-bundles/v2.json"].map(path =>
     ({path, digest: verificationDigest(readFileSync(new URL(path, import.meta.url)).toString("utf8"))})));
 }
-export function runtimeVerificationSubject(role: string, group: Pick<import("./study-runtimes.js").StudyRuntimeGroup, "components" | "plan" | "roots">, contractDigest?: VerificationHash): VerificationSubject | undefined {
+export function runtimeVerificationSubject(role: string, group: Pick<import("./study-runtimes.js").StudyRuntimeGroup, "components" | "plan" | "roots">, contractDigest?: VerificationHash, abi?: string): VerificationSubject | undefined {
   const harness = listRuntimeRecipes().find(recipe => recipe.id === role)?.harness;
   if (!harness) return undefined;
-  return canonicalVerificationSubject({harness, platform: group.plan.platform, contractDigest: contractDigest ?? harnessCaptureContract(harness),
+  return canonicalVerificationSubject({harness, platform: group.plan.platform, abi: abi ?? group.plan.abi, contractDigest: contractDigest ?? harnessCaptureContract(harness),
     components: group.components.map(component => ({id: component.id, name: component.name, version: component.version, integrity: component.selection.release.integrity}))});
+}
+/** Live execution records the coordinator ABI actually used to load an npm graph. */
+export function runtimeExecutionVerificationSubject(role: string, group: Pick<import("./study-runtimes.js").StudyRuntimeGroup, "components" | "plan" | "roots">): VerificationSubject | undefined {
+  return runtimeVerificationSubject(role, group, undefined, group.plan.kind === "npm" ? `node-${process.versions.node}-modules-${process.versions.modules}` : group.plan.abi);
 }
 export function verificationScopeForRun(run: {model: {provider: string; id: string; configurationDigest?: string}}, configuration: {captureProfileDigest?: VerificationHash}): VerificationScope | null {
   if (!configuration.captureProfileDigest) return null;

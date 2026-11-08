@@ -24,7 +24,7 @@ import {
   validateExportManifest,
   validateRunManifestEvidence,
   writeArtifactAtomically,
-  writeMetadataAtomically,
+  writeMetadataAtomically, writeMetadataAtomicallyIfAbsentSync,
 } from "./artifacts.js";
 import { isSafeArtifactRelativePath, type AssessmentMode } from "./contracts.js";
 import { digestWorkspace, digestWorkspaceTree } from "./verifiers.js";
@@ -494,12 +494,14 @@ export class RunBundleAssembler {
       const record = input.attemptRecord;
       if (record.run.id !== this.run.id || record.attempt.id !== this.attempt.id || record.terminal?.state !== terminal.state) throw new Error("CAPTURE_LIFECYCLE_BINDING: lifecycle does not belong to this captured attempt.");
       const relativePath = "runtime/capture-lifecycle.json";
-      await writeMetadataAtomically(this.bundleRoot, relativePath, {
+      const lifecycle = {
         schemaVersion: "ebo.capture-lifecycle/v1", runId: record.run.id, attemptId: record.attempt.id,
         lifecycle: record.lifecycle, terminal: record.terminal, capture: record.capture ?? null, cleanup: record.cleanup ?? null,
         harnessTerminationConfirmed: record.harnessTerminationConfirmed ?? null,
-      }, undefined, {overwrite: false});
-      await this.registerArtifactOwned({id: "capture-lifecycle", source: "ebo-runtime", kind: "diagnostic", mediaType: "application/json", sharingClass: "internal", relativePath});
+      };
+      writeMetadataAtomicallyIfAbsentSync(this.bundleRoot, relativePath, lifecycle);
+      if (canonicalizeMetadata(JSON.parse((await readFile(join(this.bundleRoot, relativePath))).toString("utf8"))) !== canonicalizeMetadata(lifecycle)) throw new Error("CAPTURE_LIFECYCLE_BINDING: retained lifecycle differs from the attempted finalization.");
+      if (!this.evidence.some(item => item.id === "capture-lifecycle")) await this.registerArtifactOwned({id: "capture-lifecycle", source: "ebo-runtime", kind: "diagnostic", mediaType: "application/json", sharingClass: "internal", relativePath});
     }
     const context = currentStudyRuntime();
     if (this.runtimeLock && context && context.launch.lockDigest === this.runtimeLock.lockDigest && context.launch.role === this.runtimeLock.role) {

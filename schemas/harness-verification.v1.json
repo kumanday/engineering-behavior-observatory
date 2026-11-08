@@ -60,13 +60,19 @@
           },
           "minItems": 1,
           "maxItems": 10000
+        },
+        "abi": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
         }
       },
       "required": [
         "harness",
         "platform",
         "contractDigest",
-        "components"
+        "components",
+        "abi"
       ]
     },
     "scope": {

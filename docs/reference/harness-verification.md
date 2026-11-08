@@ -84,7 +84,7 @@ For capture checks, add `cases` to the request after the owned runs exist:
 ```
 
 The three bundles must bind the same runtime graph, artifact integrities,
-platform, capture contract, capture profile and model/provider route. Reuse real
+platform and ABI, capture contract, capture profile and model/provider route. Reuse real
 retained captures when those identities match. Bundles without the required
 binding cannot establish capture verification. Older captures without lifecycle
 evidence leave interruption and teardown unverified.
@@ -141,7 +141,7 @@ New freezes use `ebo.study-runtime-lock/v2` and retain the selected receipts,
 admissions and catalog digest. Runs use `ebo.runtime-launch/v2`; their
 `run-manifest/v2` retains `runtime/harness-verification.json` alongside its lock
 and launch receipt. The run selects capture claims by capture-profile digest
-and model/provider route digest. A changed component, artifact, platform or
+and model/provider route digest. A changed component, artifact, platform, ABI or
 capture contract requires matching evidence; changing a route or profile leaves
 its capture claims unverified.
 
@@ -153,7 +153,12 @@ bindings fail with a specific integrity error. Lock and launch v1 remain
 readable; captures without a verification snapshot have unverified confidence.
 The frozen rc.1 and rc.2 archives retain their original interpretations.
 
-Verification is metadata alongside the retained reader result. It does not alter
+Verification is metadata alongside the retained reader result. The immutable
+`compatibility/native-v1-annotations.json` policy reproduces historical v1
+annotations, including unfamiliar-version flags, solely for serialization. Historical
+version membership does not select current confidence, qualification or measure
+availability. Contradictory native declarations remain visible as evidence.
+Current verification and native v2 source confidence come from the catalog. It does not alter
 the normalized 1.x dataset payload, so existing assertion digests and frozen Atlas
 readers keep their original contract. Native v2 sources include verification
 limitations; those interpreted v2 dataset digests can change with a new explicit
