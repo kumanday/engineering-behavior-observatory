@@ -40,6 +40,29 @@ The harness roles are `claude-agent-sdk`, `codex-app-server`, `devin-cli`,
 `deepseek-harness`. `codex-judge`, `harbor` and `smol` select supporting runtimes.
 The `list` output names each role's components and upstream package sources.
 
+## Bind a queue to the freeze
+
+After compiling a task-packet or Harbor queue, bind it to the study:
+
+```sh
+ebo runtime bind-queue ./study ./study/queue.json ./study/queue-with-runtime.json
+```
+
+The command writes `ebo.run-queue/v3`, containing the validated source queue and
+an `ebo.study-freeze/v1` record. The freeze binds the queue digest to the runtime
+lock and remains identical when repeated. The command reports each original
+assignment ID as `sourceRunId` and its executable `runId`. Use the executable ID
+with the existing harness run command. A source ID also resolves to that same
+execution. Captures derive their run identity from the study freeze and retain
+both identities in their manifest.
+
+The source queue's bytes and existing readers remain usable. Retained queues
+open without installing their runtimes. Execution checks that a bound queue's
+runtime lock matches the active study before reading harness configuration or
+starting capture. A different runtime selection belongs to a new study revision.
+All arms in the queue must have a frozen native adapter runtime; arm names can
+refer to that adapter through their harness configuration.
+
 A request's `target` supplies the default OS and CPU architecture. `roleTargets`
 overrides them for an individual role, for example:
 
@@ -132,6 +155,9 @@ does not prevent loading a compatible SDK.
 
 Run bundles created in this context use `run-manifest/v2`. They retain the lock
 and launch receipt as internal diagnostics and bind them through `runtimeLock`.
+Queue-bound captures also retain the study freeze, its digest and the original
+assignment ID. Bundle verification checks the derived run ID against those
+retained records. Direct capture APIs keep the run IDs supplied by their caller.
 The launch receipt records actual package-version, executable or server-info
 probes. A reported executable or server release that differs from its selected
 release blocks the launch and retains both values. DeepSeek and Devin also

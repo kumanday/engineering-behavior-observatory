@@ -1,4 +1,4 @@
-import { currentStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, studyRuntimeModule, type StudyRuntimeBinding, type RuntimeExecutionSummary } from "./runtime-context.js";
+import { bindActiveQueueEntry, queueEntryMatches, assertActiveRuntimeQueue, currentStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, studyRuntimeModule, type StudyRuntimeBinding, type RuntimeExecutionSummary } from "./runtime-context.js";
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { randomUUID } from "node:crypto";
 import { lstatSync } from "node:fs";
@@ -116,7 +116,8 @@ export async function runCursorSdkQueueEntry(options: RunCursorSdkQueueEntryOpti
 async function runCursorSdkQueueEntryOwned(options: RunCursorSdkQueueEntryOptions): Promise<CursorSdkRunSummary> {
   const bundleRoot = resolve(options.bundleRoot);
   const queue = readRunQueue(options.queuePath, undefined, { bundleRoot });
-  const matches = queue.entries.filter((candidate) => candidate.runId === options.runId);
+  assertActiveRuntimeQueue(queue);
+  const matches = queue.entries.filter((entry) => queueEntryMatches(queue, entry, options.runId)).map((entry) => bindActiveQueueEntry(queue, entry));
   if (matches.length === 0) throw new Error(`Run "${options.runId}" is not in the queue.`);
   if (matches.length > 1) throw new Error(`Run "${options.runId}" matches more than one queue entry.`);
   const entry = matches[0]!;

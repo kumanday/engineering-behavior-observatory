@@ -731,3 +731,5 @@ export type { StudyRuntimeContext, RuntimeProbe, StudyRuntimeBinding, RuntimeExe
 export { listRuntimeRecipes } from "./runtime-catalog.js";
 export { selectRuntimeRelease, RuntimePolicyError } from "./runtime-resolution.js";
 export type { RuntimePolicy, RuntimeRelease, RuntimeSelection } from "./runtime-resolution.js";
+
+export {bindStudyRuntimeQueue, queueRunId, type StudyFreeze, type RuntimeBoundQueue} from "./study-runtime-bindings.js";

@@ -739,3 +739,22 @@ test("Harbor reading accepts an unfamiliar package version and records the versi
     assert.equal(inspection.harborPackageVersion, "99.9.9");
   } finally {rmSync(root, {recursive: true, force: true});}
 });
+
+
+test("runtime-bound Harbor queues use the versioned reader with frozen source identities", async () => {
+ const {bindStudyRuntimeQueue, queueRunId} = await import("../src/study-runtime-bindings.js");
+ const {readHarborRunQueue, readRunQueueVersioned} = await import("../src/harbor/queue.js");
+ const {fakeSdkRuntimeOptions} = await import("./runtime-fixture-helper.js");
+ const {root, taskSourceId, adapter} = await frozenStudyWithTask();
+ const python = fakePythonRuntimeOptions(), sdk = fakeSdkRuntimeOptions("9.9.9");
+ const options = {...python, fetch: (url: string, init?: RequestInit) => url.startsWith("https://registry.npmjs.org/") ? sdk.fetch(url) : python.fetch!(url, init),
+  run: (command: string, args: readonly string[], cwd: string) => args[0] === "ci" || args.includes("--package-lock-only") ? sdk.run(command, args, cwd) : python.run!(command, args, cwd)};
+ const queue = await compileHarborRunQueue(experimentFor(root, taskSourceId, {environmentProfile: "local-fs-test", contextPolicy: "fresh"}) as never, {studyRoot: root, adapter});
+ await freezeStudyRuntimes(root, {studyId: "harbor-bound", roles: ["claude-agent-sdk", "harbor", "smol"]}, options);
+ const bound = await bindStudyRuntimeQueue(root, queue), path = join(root, "bound.json");
+ writeFileSync(path, JSON.stringify(bound));
+ const reopened = await readHarborRunQueue(path, {studyRoot: root, adapter});
+ assert.deepEqual(reopened, queue);
+ assert.notEqual(queueRunId(reopened, queue.entries[0]!.runId), queue.entries[0]!.runId);
+ assert.deepEqual(await readRunQueueVersioned(path, {studyRoot: root, adapter}), queue);
+});

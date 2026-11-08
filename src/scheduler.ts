@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { unwrapRuntimeBoundQueue } from "./study-runtime-bindings.js";
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 
@@ -266,7 +267,7 @@ export function readRunQueue(
   const bytes = readBoundedFile(path, "Run queue");
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   assertNoDuplicateJsonKeys(text);
-  const queue = JSON.parse(text) as unknown;
+  const queue = unwrapRuntimeBoundQueue(JSON.parse(text));
   assertValidRunQueue(queue, experiment, path, options);
   return queue as RunQueue;
 }

@@ -1,4 +1,5 @@
 import { currentStudyRuntime } from "./runtime-context.js";
+import { studyRunId } from "./runtime-run-id.js";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
@@ -75,7 +76,8 @@ export type RunBundleEvidenceDescriptor = {
   sanitizedFrom?: { artifactId: string; digest: DigestString };
 };
 
-export type RunRuntimeBinding = { lockDigest: DigestString; role: string; lockArtifactId: string; launchArtifactId: string };
+export type RunRuntimeBinding = { lockDigest: DigestString; role: string; lockArtifactId: string; launchArtifactId: string;
+  studyFreezeArtifactId?: string; studyFreezeDigest?: DigestString; sourceRunId?: string };
 
 export type RunManifest = {
   schemaVersion: "run-manifest/v1" | "run-manifest/v2";
@@ -291,6 +293,14 @@ export class RunBundleAssembler {
         return root ? { ...component, version: context.probes.findLast((probe) => probe.componentId === root.id)?.actualVersion ?? "not-probed" } : component;
       }).concat(context.launch.roots.filter((root) => !this.run.runtime.some((component) => component.name === root.name)).map((root) => ({ source: root.source, name: root.name, version: context.probes.findLast((probe) => probe.componentId === root.id)?.actualVersion ?? "not-probed" })));
       this.runtimeLock = { lockDigest: context.launch.lockDigest, role: context.launch.role, lockArtifactId: "runtime-lock", launchArtifactId: "runtime-launch" };
+      if (context.studyFreeze && context.sourceRunId) {
+        if (studyRunId(context.studyFreeze.digest, context.sourceRunId) !== this.run.id) throw new Error("RUNTIME_QUEUE_RUN_MISMATCH: captured run differs from its frozen queue assignment.");
+        Object.assign(this.runtimeLock, {studyFreezeArtifactId: "study-freeze", studyFreezeDigest: context.studyFreeze.digest, sourceRunId: context.sourceRunId});
+        const relativePath = "runtime/study-freeze.json";
+        await writeArtifactAtomically(this.bundleRoot, relativePath, Buffer.from(JSON.stringify(context.studyFreeze)), undefined, {overwrite: false});
+        const inspected = await inspectRetainedArtifact(this.bundleRoot, relativePath);
+        this.evidence.push({id: "study-freeze", source: "ebo-runtime", kind: "diagnostic", authority: "outcome", mediaType: "application/json", sharingClass: "internal", relativePath, digest: digestString(inspected.digest.value), sizeBytes: inspected.sizeBytes});
+      }
       for (const [id, sourcePath] of [["runtime-lock", "runtimes/lock.json"], ["runtime-launch", context.launch.receiptLocator]]) {
         const relativePath = `runtime/${id}.json`;
         await writeArtifactAtomically(this.bundleRoot, relativePath, await readFile(join(context.studyRoot, sourcePath!)), undefined, { overwrite: false });

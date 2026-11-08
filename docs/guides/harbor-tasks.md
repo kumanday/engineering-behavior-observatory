@@ -284,11 +284,12 @@ Reference the environment manifest by digest in the execution policy:
 
 ```sh
 ebo harbor compile study experiment.json queue.json
+ebo runtime bind-queue study queue.json queue-with-runtime.json
 # Terminal A: keep this foreground owner alive until all attempts finish.
-ebo harbor environment serve study queue.json
+ebo harbor environment serve study queue-with-runtime.json
 # Terminal B: use the run IDs printed by compile (trialCount: 2 for two entries).
-ebo harbor run study queue.json <first-run-id> runs
-ebo harbor run study queue.json <second-run-id> runs
+ebo harbor run study queue-with-runtime.json <first-run-id-from-bind> runs
+ebo harbor run study queue-with-runtime.json <second-run-id-from-bind> runs
 # Then Ctrl-C in terminal A to drain borrowers and delete the owned parents.
 ```
 

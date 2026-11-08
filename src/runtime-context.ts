@@ -9,12 +9,38 @@ import { canonicalizeMetadata } from "./artifacts.js";
 import { RuntimePolicyError } from "./runtime-resolution.js";
 import { prepareRuntimeLaunch, type RuntimeLaunch, type StudyRuntimeOptions } from "./study-runtimes.js";
 import { runRuntimeCommand } from "./runtime-installation.js";
+import { assertQueueRuntimeBinding, assertStudyFreeze, queueStudyFreeze, queueRunId, type StudyFreeze } from "./study-runtime-bindings.js";
+import { studyRunId } from "./runtime-run-id.js";
 
 export type RuntimeProbe = { componentId: string; package: string; expectedVersion: string; actualVersion: string; source: "package-metadata" | "executable" | "server-info" };
 export type StudyRuntimeContext = { studyRoot: string; launch: RuntimeLaunch; modules: Map<string, Record<string, any>>;
-  packages: Map<string, { root: string; metadata: Record<string, any> }>; options: StudyRuntimeOptions; probes: RuntimeProbe[]; executions?: Record<string, unknown>[] };
+  packages: Map<string, { root: string; metadata: Record<string, any> }>; options: StudyRuntimeOptions; probes: RuntimeProbe[]; executions?: Record<string, unknown>[];
+  studyFreeze?: StudyFreeze; sourceRunId?: string };
 const storage = new AsyncLocalStorage<StudyRuntimeContext>();
 export const currentStudyRuntime = (): StudyRuntimeContext | undefined => storage.getStore();
+export function assertActiveRuntimeQueue(queue: object): void {
+  const context = currentStudyRuntime();
+  if (!context) throw new RuntimePolicyError("RUNTIME_STUDY_LOCK_REQUIRED", "Queue execution needs its frozen study runtime.");
+  assertQueueRuntimeBinding(queue, context.launch.lockDigest);
+  delete context.studyFreeze; delete context.sourceRunId;
+}
+export function queueEntryMatches(queue: object, entry: {runId: string}, requestedRunId: string): boolean {
+  return entry.runId === requestedRunId || queueRunId(queue, entry.runId) === requestedRunId;
+}
+export function bindActiveQueueEntry<T extends {runId: string}>(queue: object, entry: T): T {
+  const freeze = queueStudyFreeze(queue);
+  if (!freeze) return entry;
+  const runId = queueRunId(queue, entry.runId);
+  adoptStudyRunBinding(freeze, entry.runId, runId);
+  return {...entry, runId};
+}
+export function adoptStudyRunBinding(freeze: unknown, sourceRunId: string, runId: string): void {
+  const context = currentStudyRuntime();
+  if (!context) throw new RuntimePolicyError("RUNTIME_STUDY_LOCK_REQUIRED", "A study run needs a checked runtime.");
+  assertStudyFreeze(freeze);
+  if (freeze.runtimeLockDigest !== context.launch.lockDigest || studyRunId(freeze.digest, sourceRunId) !== runId) throw new RuntimePolicyError("RUNTIME_QUEUE_LOCK_MISMATCH", "The run identity differs from its frozen study.");
+  context.studyFreeze = freeze; context.sourceRunId = sourceRunId;
+}
 export function studyRuntimeModule<T>(specifier: string, developmentModule: T): T {
   const context = currentStudyRuntime();
   if (!context) return developmentModule;
@@ -119,7 +145,13 @@ export async function runInStudyRuntime<T>(role: string, binding: StudyRuntimeBi
   const current = currentStudyRuntime();
   const selected = binding ?? (current ? { studyRoot: current.studyRoot, options: current.options } : undefined);
   if (!selected) throw new RuntimePolicyError("RUNTIME_STUDY_LOCK_REQUIRED", `Execute ${role} inside its frozen study runtime. Prepare it with ebo runtime freeze.`);
-  return withStudyRuntime({ ...selected, role }, callback);
+  return withStudyRuntime({ ...selected, role }, async () => {
+    const context = currentStudyRuntime()!;
+    if (!binding && current?.launch.role === role && current.launch.lockDigest === context.launch.lockDigest && current.studyFreeze && current.sourceRunId) {
+      context.studyFreeze = current.studyFreeze; context.sourceRunId = current.sourceRunId;
+    }
+    return callback();
+  });
 }
 
 function conformanceVersions(): Record<string, string> {

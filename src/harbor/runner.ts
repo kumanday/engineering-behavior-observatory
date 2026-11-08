@@ -1,4 +1,4 @@
-import { currentStudyRuntime, runInStudyRuntime } from "../runtime-context.js";
+import { bindActiveQueueEntry, queueEntryMatches, assertActiveRuntimeQueue, currentStudyRuntime, runInStudyRuntime } from "../runtime-context.js";
 import { randomUUID } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
@@ -68,7 +68,8 @@ async function runHarborBackedQueueEntryOwned(options: RunHarborQueueEntryOption
   const queue = await readHarborRunQueue(options.queuePath, options.adapter === undefined
     ? { studyRoot: options.studyRoot }
     : { studyRoot: options.studyRoot, adapter: options.adapter });
-  const matches = queue.entries.filter((entry) => entry.runId === options.runId);
+  assertActiveRuntimeQueue(queue);
+  const matches = queue.entries.filter((entry) => queueEntryMatches(queue, entry, options.runId)).map((entry) => bindActiveQueueEntry(queue, entry));
   if (matches.length === 0) throw new Error(`Run "${options.runId}" is not in the queue.`);
   if (matches.length > 1) throw new Error(`Run "${options.runId}" matches more than one queue entry.`);
   const entry = matches[0]!;

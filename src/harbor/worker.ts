@@ -1,4 +1,4 @@
-import { currentStudyRuntime, runInStudyRuntime } from "../runtime-context.js";
+import { adoptStudyRunBinding, currentStudyRuntime, runInStudyRuntime } from "../runtime-context.js";
 import { readStudyRuntimeLock } from "../study-runtimes.js";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
@@ -17,6 +17,7 @@ import type { HarborHarnessStepExecutor, HarborStepExecution } from "./runner.js
 
 export type HarborWorkerInput = {
   runtimeLock?: {studyRoot: string; digest: string};
+  queueBinding?: {studyFreeze: import("../study-runtime-bindings.js").StudyFreeze; sourceRunId: string};
   prepared: PreparedHarborExecution; configuration: HarborHarnessConfigurationReferences;
   configurationRoot: string; instruction: string; stepIndex: number; workspacePath: string;
   outputRoot: string; maxWallClockMs: number;
@@ -87,6 +88,7 @@ export async function runHarborWorker(input: HarborWorkerInput, executor?: Harbo
   const binding = input.runtimeLock ? {studyRoot: input.runtimeLock.studyRoot, ...(current?.studyRoot === input.runtimeLock.studyRoot ? {options: current.options} : {})} : undefined;
   return runInStudyRuntime(role, binding, async () => {
     if (input.runtimeLock && (await readStudyRuntimeLock(input.runtimeLock.studyRoot)).digest !== input.runtimeLock.digest) throw new Error("RUNTIME_LOCK_INTEGRITY: guest study lock differs from the host's frozen lock.");
+    if (input.queueBinding) adoptStudyRunBinding(input.queueBinding.studyFreeze, input.queueBinding.sourceRunId, input.prepared.run.id);
     return runHarborWorkerOwned(input, executor);
   });
 }

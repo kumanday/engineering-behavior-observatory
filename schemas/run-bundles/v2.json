@@ -303,7 +303,32 @@
         "launchArtifactId": {
           "type": "string",
           "minLength": 1
+        },
+        "studyFreezeArtifactId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "studyFreezeDigest": {
+          "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/digest"
+        },
+        "sourceRunId": {
+          "type": "string",
+          "minLength": 1
         }
+      },
+      "dependentRequired": {
+        "studyFreezeArtifactId": [
+          "studyFreezeDigest",
+          "sourceRunId"
+        ],
+        "studyFreezeDigest": [
+          "studyFreezeArtifactId",
+          "sourceRunId"
+        ],
+        "sourceRunId": [
+          "studyFreezeArtifactId",
+          "studyFreezeDigest"
+        ]
       }
     }
   }

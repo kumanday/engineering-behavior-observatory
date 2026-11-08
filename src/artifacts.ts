@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { studyRunId } from "./runtime-run-id.js";
 import {
   closeSync,
   constants,
@@ -1189,6 +1190,7 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("semantic-judge.v1.json"));
   ajv.addSchema(readSchema("semantic-judge-runtime.v1.json"));
   ajv.addSchema(readSchema("study-runtimes.v1.json"));
+  ajv.addSchema(readSchema("study-runtime-bindings.v1.json"));
   ajv.addSchema(readSchema("migration.v1.json"));
   ajv.addSchema(readSchema("human-calibration.v1.json"));
   ajv.addSchema(readSchema("aggregation.v1.json"));
@@ -1233,6 +1235,8 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.task-packet/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet.v1.schema.json")],
     ["ebo.task-packet-freeze/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet-freeze.v1.schema.json")],
     ["ebo.experiment/v1", requiredValidator(ajv, "https://ebo.dev/schemas/experiment.v1.schema.json")],
+    ["ebo.study-freeze/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/freeze")],
+    ["ebo.run-queue/v3", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/queue")],
     ["ebo.run-queue/v1", requiredValidator(ajv, "https://ebo.dev/schemas/run-queue.v1.schema.json")],
     ["run-manifest/v1", requiredValidator(ajv, runBundleSchemaId)],
     ["run-manifest/v2", requiredValidator(ajv, "urn:ebo:schema:run-bundle:v2")],
@@ -1713,6 +1717,10 @@ function runtimeBindingEvidenceErrors(artifact: string, manifest: Record<string,
     if (lock.schemaVersion !== "ebo.study-runtime-lock/v1" || digest !== binding.lockDigest || digest !== `sha256:${digestMetadata(body).value}`) throw new Error("Runtime lock digest differs from retained lock bytes.");
     if (launch.schemaVersion !== "ebo.runtime-launch/v1" || launch.lockDigest !== binding.lockDigest || launch.role !== binding.role) throw new Error("Runtime launch and run identity differ.");
     if (!Array.isArray(launch.probes) || launch.probes.some((probe) => !isRecord(probe) || typeof probe.actualVersion !== "string" || typeof probe.expectedVersion !== "string")) throw new Error("Runtime manifest lacks a retained actual version probe.");
+    if (binding.studyFreezeArtifactId !== undefined) {
+      const freeze = read(binding.studyFreezeArtifactId), {digest: freezeDigest, ...freezeBody} = freeze;
+      if (validateArtifact("study freeze", freeze).length || freezeDigest !== binding.studyFreezeDigest || freezeDigest !== `sha256:${digestMetadata(freezeBody).value}` || freeze.runtimeLockDigest !== binding.lockDigest || typeof binding.sourceRunId !== "string" || manifest.run.id !== studyRunId(String(freezeDigest), binding.sourceRunId)) throw new Error("Captured run identity differs from the retained study freeze.");
+    }
     return [];
   } catch (error) { return [{ artifact, schemaVersion: "run-manifest/v2", field: "/runtimeLock", message: error instanceof Error ? error.message : "Runtime evidence is invalid." }]; }
 }

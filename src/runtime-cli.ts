@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { canonicalizeMetadata } from "./artifacts.js";
+import { canonicalizeMetadata, writeMetadataAtomicallyIfAbsentSync } from "./artifacts.js";
+import { bindStudyRuntimeQueue, queueRunId } from "./study-runtime-bindings.js";
 import { listRuntimeRecipes } from "./runtime-catalog.js";
 import { currentStudyRuntime, withStudyRuntime } from "./runtime-context.js";
 import { freezeStudyRuntimes, readStudyRuntimeLock, type StudyRuntimeLock, type StudyRuntimeOptions, type StudyRuntimeRequest } from "./study-runtimes.js";
@@ -20,6 +21,17 @@ export async function runRuntimeCommandLine(args: readonly string[], write: (tex
       emit(summary(await freezeStudyRuntimes(resolve(args[1]!), request, options))); return 0;
     }
     if (args[0] === "inspect" && args.length === 2) { emit(summary(await readStudyRuntimeLock(resolve(args[1]!)))); return 0; }
+    if (args[0] === "bind-queue" && args.length === 4) {
+      const {readRunQueueVersioned} = await import("./harbor/queue.js");
+      const studyRoot = resolve(args[1]!), queue = await readRunQueueVersioned(resolve(args[2]!), {bundleRoot: studyRoot, studyRoot});
+      const bound = await bindStudyRuntimeQueue(studyRoot, queue);
+      const {dirname, basename} = await import("node:path");
+      const destination = resolve(args[3]!);
+      writeMetadataAtomicallyIfAbsentSync(dirname(destination), basename(destination), bound);
+      const retained = JSON.parse(await readFile(destination, "utf8"));
+      if (canonicalizeMetadata(retained) !== canonicalizeMetadata(bound)) throw new Error("RUNTIME_QUEUE_DESTINATION_EXISTS: destination contains a different queue binding.");
+      emit({queuePath: destination, studyFreezeDigest: bound.studyFreeze.digest, runtimeLockDigest: bound.studyFreeze.runtimeLockDigest, runs: bound.queue.entries.map((entry) => ({sourceRunId: entry.runId, runId: queueRunId(bound.queue, entry.runId)}))}); return 0;
+    }
     if (args[0] === "check" && args.length === 3) {
       await withStudyRuntime({ studyRoot: resolve(args[1]!), role: args[2]!, options }, async () => {
         const context = currentStudyRuntime()!;
@@ -27,6 +39,6 @@ export async function runRuntimeCommandLine(args: readonly string[], write: (tex
           receiptLocator: context.launch.receiptLocator, warnings: context.launch.warnings });
       }); return 0;
     }
-    write("Usage: ebo runtime list | freeze <study-root> <request.json> | inspect <study-root> | check <study-root> <role>\n"); return 1;
+    write("Usage: ebo runtime list | freeze <study-root> <request.json> | inspect <study-root> | check <study-root> <role> | bind-queue <study-root> <queue.json> <output.json>\n"); return 1;
   } catch (error) { write(`${error instanceof Error ? error.message : String(error)}\n`); return 1; }
 }

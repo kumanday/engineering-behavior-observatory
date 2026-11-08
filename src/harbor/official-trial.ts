@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { openSync, writeSync, closeSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { digestMetadata, digestBytes, assertNoDuplicateJsonKeys, writeMetadataAtomically, writeArtifactAtomically } from "../artifacts.js";
 import { resolveBundleConfiguration, isSafeArtifactRelativePath, type ArtifactReference } from "../contracts.js";
@@ -47,7 +47,7 @@ export type OfficialHarborTrialInput = {
 };
 export async function runOfficialHarborTrial(input: OfficialHarborTrialInput): Promise<HarborRunSummary> {
   const current = currentStudyRuntime();
-  const binding = input.studyRoot ? {studyRoot: input.studyRoot, ...(current?.studyRoot === input.studyRoot ? {options: current.options} : {})} : undefined;
+  const binding = input.studyRoot && (!current || resolve(current.studyRoot) !== resolve(input.studyRoot)) ? {studyRoot: input.studyRoot} : undefined;
   return runInStudyRuntime("harbor", binding, async () => ({...await runOfficialHarborTrialOwned(input), runtime: runtimeExecutionSummary()}));
 }
 async function runOfficialHarborTrialOwned(input: OfficialHarborTrialInput): Promise<HarborRunSummary> {
@@ -84,7 +84,7 @@ async function runOfficialHarborTrialOwned(input: OfficialHarborTrialInput): Pro
     model: entry.modelId, verified: prepared.verifier.requested, budgetMs: prepared.budget.coordinatorWallClockMs,
     build: "ebo-harbor-smol-v1", nativeRoot,
     runtime: { ...runtime, archiveDigest: digestBytes(archive).value }, configurationFiles,
-    workerInput: { prepared, configuration, configurationRoot: "/tmp/ebo-worker/config", runtimeLock: {studyRoot: "/opt/ebo/study", digest: runtimeLock.digest} },
+    workerInput: { prepared, configuration, configurationRoot: "/tmp/ebo-worker/config", runtimeLock: {studyRoot: "/opt/ebo/study", digest: runtimeLock.digest}, ...(host.studyFreeze && host.sourceRunId ? {queueBinding: {studyFreeze: host.studyFreeze, sourceRunId: host.sourceRunId}} : {}) },
   };
   const requestPath = join(prepared.evidence.harborDir, "request.json");
   await writeFile(requestPath, JSON.stringify(request), { flag: "wx", mode: 0o600 });

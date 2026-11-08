@@ -1,4 +1,4 @@
-import { currentStudyRuntime, requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
+import { bindActiveQueueEntry, queueEntryMatches, assertActiveRuntimeQueue, currentStudyRuntime, requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
 import * as developmentSdk from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { renameSync } from "node:fs";
@@ -1186,7 +1186,8 @@ export async function runPiQueueEntry(options: RunPiQueueEntryOptions): Promise<
 async function runPiQueueEntryOwned(options: RunPiQueueEntryOptions): Promise<PiRunSummary> {
   const bundleRoot = resolve(options.bundleRoot);
   const queue = readRunQueue(options.queuePath, undefined, { bundleRoot });
-  const matches = queue.entries.filter((entry) => entry.runId === options.runId);
+  assertActiveRuntimeQueue(queue);
+  const matches = queue.entries.filter((entry) => queueEntryMatches(queue, entry, options.runId)).map((entry) => bindActiveQueueEntry(queue, entry));
   if (matches.length !== 1) throw new Error(matches.length === 0 ? `Run "${options.runId}" is not in the queue.` : `Run "${options.runId}" matches more than one queue entry.`);
   const entry = matches[0]!;
   if (entry.harness.id !== PI_HARNESS) throw new Error(`Queue harness must be ${PI_HARNESS}.`);
