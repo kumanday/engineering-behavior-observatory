@@ -74,3 +74,17 @@ called qualified completion. See [failure recovery](../guides/operator-guide.md#
 Library operators can call `runAgentSdkQueueEntry` for queue execution or
 `captureClaudeAgentSdkRun` for an already-resolved attempt. The latter
 requires explicit workspace/lifecycle composition; it is not a task preparer.
+
+## Retained evidence and ATIF
+
+Retained evidence is read through this adapter's native format contract.
+Unfamiliar runtime or capture-adapter versions add a confidence limitation;
+version declarations and disagreements remain visible as cohort metadata.
+Malformed records and corrupted source bindings receive specific diagnostics.
+[Limitation definitions](../reference/atif-limitations.md) explain version confidence.
+
+Conforming ATIF uses EBO's generic core reader regardless of producer identity
+or version. The [coverage matrix](../reference/atif-harness-coverage.md) identifies
+this harness's upstream converter, source-surface differences, fixture provenance
+and measured equivalence. Imported document measures retain their own scope and
+do not acquire native capture qualification.

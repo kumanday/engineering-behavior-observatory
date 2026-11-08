@@ -108,6 +108,8 @@ export type ComparisonReason = {
   code:
     | "evidence-origin-mismatch"
     | "producer-profile-mismatch"
+    | "capture-completeness-unproven"
+    | "mixed-harness-versions"
     | "task-mismatch"
     | "fixture-mismatch"
     | "material-configuration-mismatch"
@@ -204,7 +206,7 @@ function describeEvidenceDataset<NativeRecord>(input: Omit<NormalizedDatasetInpu
       version: required(input.adapterVersion, "Adapter version"),
       harness: input.capabilityProfile.harness,
     },
-    capabilityProfile: structuredClone(input.capabilityProfile),
+    capabilityProfile: { ...structuredClone(input.capabilityProfile), ...(input.capture.sourceLimitations?.length ? { limitations: [...new Set([...(input.capabilityProfile.limitations ?? []), ...input.capture.sourceLimitations])] } : {}) },
     nativeRecords,
     contentReferences: [...contentReferences.values()],
     events: structuredClone(input.normalization.events),
@@ -379,14 +381,12 @@ export function assessComparisonEligibility(request: ComparisonRequest): Compari
   const blockers: ComparisonReason[] = [];
   const caveats: ComparisonReason[] = [];
   const origin = (candidate: ComparisonCandidate) => candidate.evidenceOrigin?.kind === "imported" || candidate.harness.id.startsWith("atif.") ? "imported" : "owned";
-  // No complete-attempt cross-origin instruments have passed the registered invariance gate yet.
-  // Fixture diagnostics qualify retained-source mapping; they do not qualify attempt-wide comparisons.
+  // This legacy comparison contract describes complete-attempt instruments.
+  // Imported documents retain their own independently available document-scoped observations.
   if (origin(request.left) !== origin(request.right)) blockers.push({ code: "evidence-origin-mismatch", dimension: "evidence origin",
-    detail: "Cross-origin comparison has no registered profile-and-measure invariance gate." });
-  const imported = [request.left, request.right].filter((candidate) => origin(candidate) === "imported");
-  if (imported.some((candidate) => candidate.evidenceOrigin?.kind !== "imported" || candidate.evidenceOrigin.profileDigest === undefined)
-      || imported.length === 2 && imported[0]!.evidenceOrigin!.profileDigest !== imported[1]!.evidenceOrigin!.profileDigest) {
-    blockers.push({ code: "producer-profile-mismatch", dimension: "producer profile", detail: "Imported comparison requires the same explicitly bound producer profile." });
+    detail: "Complete-attempt comparisons require established capture populations; imported histories retain document scope." });
+  if ([request.left, request.right].some((candidate) => origin(candidate) === "imported")) {
+    blockers.push({ code: "capture-completeness-unproven", dimension: "measurement population", detail: "Imported documents do not establish complete-attempt populations. Their document-scoped measures remain available without a producer overlay." });
   }
   compareExact(request.left.task, request.right.task, "task", "task-mismatch", blockers);
   compareExact(request.left.fixture, request.right.fixture, "fixture", "fixture-mismatch", blockers);
@@ -403,14 +403,16 @@ export function assessComparisonEligibility(request: ComparisonRequest): Compari
     });
   }
   compareDeclaredCondition("model", request.left.model, request.right.model, request.policy.declaredDifferences, blockers, caveats);
-  compareDeclaredCondition("harness", request.left.harness, request.right.harness, request.policy.declaredDifferences, blockers, caveats);
+  const mixedVersions = request.left.harness.id === request.right.harness.id && request.left.harness.version !== request.right.harness.version;
+  if (mixedVersions) caveats.push({ code: "mixed-harness-versions", dimension: "harness version", detail: "The recorded harness versions differ; retain separate version cohorts and label this comparison." });
+  compareDeclaredCondition("harness", request.left.harness, mixedVersions ? { ...request.right.harness, version: request.left.harness.version } : request.right.harness, request.policy.declaredDifferences, blockers, caveats);
   if (request.left.harness.id === request.right.harness.id
       && (request.left.capabilityProfile.adapterId !== request.right.capabilityProfile.adapterId
         || request.left.adapterVersion !== request.right.adapterVersion)) {
-    blockers.push({
-      code: "material-configuration-mismatch",
+    (mixedVersions ? caveats : blockers).push({
+      code: mixedVersions ? "mixed-harness-versions" : "material-configuration-mismatch",
       dimension: "normalization adapter",
-      detail: "normalization adapter identity differs for the same harness condition.",
+      detail: "Normalization adapter identity differs; each interpretation retains its source and version.",
     });
   }
   for (const capability of request.policy.requiredCapabilities) {

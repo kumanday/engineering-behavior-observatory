@@ -491,7 +491,6 @@ function candidateMatchesAttempt(
   observations: ReadonlyMap<string, StructuralObservationSet>,
 ): boolean {
   const exact = (candidate.evidenceOrigin?.kind ?? (candidate.harness.id.startsWith("atif.") ? "imported" : "owned")) === evidenceOrigin(attempt)
-    && (evidenceOrigin(attempt) !== "imported" || candidate.evidenceOrigin?.profileDigest === attempt.producerProfileDigest)
     && candidate.id === attempt.runId
     && candidate.manifestDigest === attempt.manifestDigest
     && candidate.task.id === attempt.taskId

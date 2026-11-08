@@ -188,7 +188,8 @@
           ]
         },
         "version": {
-          "const": "0.24.0"
+          "type": "string",
+          "minLength": 1
         },
         "modelDigest": {
           "type": "string",
@@ -218,6 +219,64 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 4096
+              }
+            }
+          }
+        },
+        "validator": {
+          "const": "ebo"
+        },
+        "harborCrossCheck": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "version",
+            "policyDigest",
+            "diagnostics"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "valid",
+                "invalid",
+                "unavailable"
+              ]
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "modelDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "policyDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "diagnostics": {
+              "type": "array",
+              "maxItems": 4096,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "code",
+                  "pointer"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "pointer": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  }
+                }
               }
             }
           }

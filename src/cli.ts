@@ -7,7 +7,6 @@ import { redactSecrets } from "./redaction.js";
 import { createHash } from "node:crypto";
 import { readAtifFile } from "./atif-reader.js";
 import { importAtifFile } from "./atif-import.js";
-import { listAtifProducerProfiles } from "./atif-profiles.js";
 import { listAtifProfilesV2 } from "./atif-producers-v2.js";
 import { importHarborTrial, inspectHarborTrial, type HarborOriginalBinding } from "./harbor-import.js";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
@@ -91,11 +90,11 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo v2 inspect <retained-bundle> <new-directory>
        ebo v2 prepare-judge <retained-bundle> <new-directory> <request.json>
        ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...
-       ebo atif profiles [--v2]
-       ebo atif import-harbor <trial-directory> <store> --namespace <source-id> --profile <id> [--python <executable>]
+       ebo atif overlays
+       ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--profile <overlay-context-id>] [--python <executable>]
        ebo atif import-leaderboard <cohort-request.json> <store> [--python <executable>]
        ebo atif read-leaderboard <store> <cohort-digest>
-       ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> --profile <id> [--python <executable>]
+       ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--profile <overlay-context-id>] [--python <executable>]
        ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
        ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
        ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
@@ -540,7 +539,7 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
     const directory = args[1], store = importing ? args[2] : undefined;
     const flags = args.slice(importing ? 3 : 2), values = new Map<string, string>();
     if (!directory || importing && !store || flags.length % 2) {
-      write("Usage: ebo atif import-harbor <trial-directory> <store> --namespace <source-id> --profile <id> [--python <executable>] [--originals <bindings.json>]\n"); return 1;
+      write("Usage: ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--profile <overlay-context-id>] [--python <executable>] [--originals <bindings.json>]\n"); return 1;
     }
     for (let index = 0; index < flags.length; index += 2) {
       const flag = flags[index]!, value = flags[index + 1]!;
@@ -551,13 +550,13 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
     }
     const namespace = values.get("--namespace");
     const profile = listAtifProfilesV2().find(({ id }) => id === values.get("--profile"));
-    if (!namespace || importing && !profile) { write("Harbor import requires --namespace and an explicit registered --profile.\n"); return 1; }
+    if (!namespace) { write("Harbor import requires --namespace. Producer metadata is read from the document.\n"); return 1; }
     try {
       const document = values.has("--originals") ? readJson(values.get("--originals")!) : [];
       if (!Array.isArray(document) || document.some((value) => value === null || typeof value !== "object"
           || typeof value.sourceReference !== "string" || typeof value.directory !== "string")) throw new Error("Original bindings require an array of sourceReference/directory records.");
       const options = { directory, namespace, pythonExecutable: values.get("--python"), originals: document as HarborOriginalBinding[] };
-      const result = importing ? await importHarborTrial({ ...options, store: store!, producer: profile!.producer }) : await inspectHarborTrial(options);
+      const result = importing ? await importHarborTrial({ ...options, store: store!, producer: profile?.producer }) : await inspectHarborTrial(options);
       const inspection = result.inspection;
       const status = "status" in result ? result.status : inspection.status;
       write(`${JSON.stringify({ status, executionId: inspection.execution?.id,
@@ -569,13 +568,13 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
   if (args[0] === "profiles" && args.length === 2 && args[1] === "--v2") {
     write(`${JSON.stringify(listAtifProfilesV2(), null, 2)}\n`); return 0;
   }
-  if (args[0] === "profiles" && args.length === 1) {
-    write(`${JSON.stringify(listAtifProducerProfiles(), null, 2)}\n`); return 0;
+  if (["profiles", "overlays"].includes(args[0]!) && args.length === 1) {
+    write(`${JSON.stringify(listAtifProfilesV2(), null, 2)}\n`); return 0;
   }
   if (args[0] === "import") {
     const [_, sourcePath, destination, ...flags] = args;
     const values = new Map<string, string>();
-    if (!sourcePath || !destination || flags.length % 2) { write("Usage: ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> --profile <registered-id> [--python <executable>]\n"); return 1; }
+    if (!sourcePath || !destination || flags.length % 2) { write("Usage: ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--profile <overlay-context-id>] [--python <executable>]\n"); return 1; }
     for (let index = 0; index < flags.length; index += 2) {
       const flag = flags[index]!, value = flags[index + 1]!;
       if (!["--run", "--attempt", "--profile", "--python"].includes(flag) || values.has(flag) || value.startsWith("--")) {
@@ -584,10 +583,10 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
       values.set(flag, value);
     }
     const profile = listAtifProfilesV2().find(({ id }) => id === values.get("--profile"));
-    if (!profile || !values.has("--run") || !values.has("--attempt")) { write("ATIF import requires --run, --attempt and an explicit registered --profile (see ebo atif profiles).\n"); return 1; }
+    if (!values.has("--run") || !values.has("--attempt")) { write("ATIF import requires --run and --attempt. Producer metadata is read from the document.\n"); return 1; }
     try {
       const result = await importAtifFile({ sourcePath, destination, runId: values.get("--run")!, attemptId: values.get("--attempt")!,
-        producer: profile.producer, pythonExecutable: values.get("--python") });
+        producer: profile?.producer, pythonExecutable: values.get("--python") });
       write(`${JSON.stringify({ destination, reused: result.reused, qualification: result.manifest.qualification, mapping: result.evidence.mapping }, null, 2)}\n`);
       return 0;
     } catch (error) { write(`ATIF import failed: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }

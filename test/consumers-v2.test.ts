@@ -15,7 +15,7 @@ test("typed imported measures retain record scope, unknown success and independe
   assert.equal(evidence.dataset.origin.qualification, "imported");
   const measure = (id: string) => set.observations.find(({ measure }) => measure === id)!;
   assert.deepEqual(measure("tool-operation-count").value, { status: "known", value: 2 });
-  assert.equal(measure("tool-operation-count").scope.kind, "recorded-operations");
+  assert.equal(measure("tool-operation-count").scope.kind, "recorded-document");
   assert.equal(measure("tool-error-count").value.status, "lower-bound");
   assert.equal(measure("native-request-count").value.status, "unknown");
   assert.equal(evidence.dataset.operations.find(({ identity }) => identity.nativeId === "call-b")!.failure.status, "unknown");
@@ -39,14 +39,13 @@ test("same-output sibling calls never become failure responses and order alone s
   assert.equal(ledger.coverage.find(({ type }) => type === "inference-conditioned-response")!.limitation.status, "known");
   await validateOccurrenceLedgerV2(ledger, evidence.dataset, evidence.resolver);
 });
-test("execution follow-up requires explicit failed endpoint and a later independently issued call", async () => {
+test("folded ATIF failure results cannot establish execution follow-up despite later call steps", async () => {
   const evidence = await atifFixtureV2("parallel-failure-cache-write", (source) => {
     const steps = source.steps as AtifObject[], next = structuredClone(steps[1]!);
-    next.step_id = 3; next.tool_calls = [{ tool_call_id: "retry", function_name: "bash", arguments: { command: "npm test" } }]; delete next.observation; steps.push(next);
+    next.step_id = steps.length + 1; next.tool_calls = [{ tool_call_id: "retry", function_name: "bash", arguments: { command: "npm test" } }]; delete next.observation; steps.push(next);
   });
   const ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver), follow = ledger.occurrences.find(({ type }) => type === "execution-follow-up")!;
-  assert.ok(follow); assert.equal(follow.facts.modelConditionedOnFailure!.status, "unknown");
-  assert.equal(follow.eventIds.length, 2); assert.ok(ledger.occurrences.some(({ type }) => type === "validation-run"));
+  assert.equal(follow, undefined); assert.ok(ledger.occurrences.some(({ type }) => type === "validation-run"));
   const retry = evidence.dataset.operations.find(({ identity }) => identity.nativeId === "retry")!;
   assert.equal(operationCommandV2(evidence.dataset, retry, evidence.resolver), "npm test");
   for (const event of evidence.dataset.events) event.nativeOrder = { status: "unknown", reason: "COLLECTOR_ORDER_ONLY" };
@@ -129,7 +128,7 @@ test("paired native and ATIF fixtures retain known equal measures and explicit s
     const get = (index: number, id: string) => sets[index]!.observations.find(({ measure }) => measure === id)!.value;
     assert.deepEqual(get(0, "tool-operation-count"), { status: "known", value: nativeCalls }, name);
     if (importedCalls) assert.deepEqual(get(1, "tool-operation-count"), { status: "known", value: importedCalls }, name);
-    else { assert.equal(get(1, "tool-operation-count").status, "unknown"); assert.deepEqual(get(1, "source-tool-operation-count"), { status: "known", value: 0 }); }
+    else { assert.equal(get(1, "tool-operation-count").status, "unknown"); assert.equal(get(1, "source-tool-operation-count").status, "unknown"); }
     assert.equal(get(0, "declared-inference-count").status, "unknown", name);
     assert.equal(get(1, "native-request-count").status, "unknown", name);
     assert.equal(imported.dataset.origin.kind, "imported"); assert.equal(native.dataset.origin.kind, "owned");

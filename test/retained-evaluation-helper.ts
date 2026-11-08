@@ -188,7 +188,9 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
         }
         writeFileSync(path, bytes);
         writeFileSync(join(bundleRoot, "manifest.json"), JSON.stringify(changed));
-        await assert.rejects(createRetainedBehaviorEvidence(bundleRoot), /native envelope|protocol observation|protocol method|owned identity|request\/response pair|owned terminal evidence|native server version|server-info record|conversation identity|finished conversation|native client version|runtime-reap evidence/u, mutation);
+        if (["server-version", "client-version"].includes(mutation)) {
+          assert.ok((await createRetainedBehaviorEvidence(bundleRoot)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_UNVERIFIED"), mutation);
+        } else await assert.rejects(createRetainedBehaviorEvidence(bundleRoot), /native envelope|protocol observation|protocol method|owned identity|request\/response pair|owned terminal evidence|server-info record|conversation identity|finished conversation|runtime-reap evidence/u, mutation);
       } finally {
         writeFileSync(path, original);
         writeFileSync(reportPath, reportBefore);
@@ -201,7 +203,7 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
     changed.run.harness.version = "unsupported-fixture-version";
     try {
       writeFileSync(join(bundleRoot, "manifest.json"), JSON.stringify(changed));
-      await assert.rejects(createRetainedBehaviorEvidence(bundleRoot), /Unsupported retained (OpenHands|DeepSeek) runtime/u);
+      assert.ok((await createRetainedBehaviorEvidence(bundleRoot)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_UNVERIFIED"));
     } finally { writeFileSync(join(bundleRoot, "manifest.json"), before); }
     assert.deepEqual(readFileSync(join(bundleRoot, "manifest.json")), before);
   }

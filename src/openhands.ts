@@ -1,3 +1,4 @@
+import { retainedVersionProfile } from "./retained-version-policy.js";
 import type {
   AdapterCapabilityProfile,
   CapturedNativeRecord,
@@ -60,10 +61,7 @@ export const OPENHANDS_AGENT_SERVER_CAPABILITIES = {
 
 /** Retained evidence keeps the identity of the runtime that produced it. */
 export function openHandsCapabilityProfile(version: string): AdapterCapabilityProfile {
-  if (!RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS.includes(version)) {
-    throw new Error(`Unsupported retained OpenHands runtime ${version}.`);
-  }
-  return { ...OPENHANDS_AGENT_SERVER_CAPABILITIES, adapterId: `openhands-agent-server-v${version}` };
+  return retainedVersionProfile({ ...OPENHANDS_AGENT_SERVER_CAPABILITIES, adapterId: `openhands-agent-server-v${version}` }, RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS, version);
 }
 
 export interface OpenHandsWebSocket {

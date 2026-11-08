@@ -1,3 +1,4 @@
+import { isAtifImportSchema } from "./atif-import.js";
 import { join, resolve } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { assertNoDuplicateJsonKeys, validateArtifact } from "./artifacts.js";
@@ -9,7 +10,7 @@ import { prepareOccurrenceRatingInputsV2 } from "./ratings-v2.js";
 import { prepareSemanticJudgeInputV2, type JudgeRequestV2 } from "./semantic-judge-v2.js";
 export async function loadRetainedAnalysisV2(bundleRoot: string) {
   const manifest = JSON.parse(readBoundedFile(join(bundleRoot, "manifest.json"), "V2 manifest").toString("utf8")) as { schemaVersion?: string };
-  return manifest.schemaVersion === "ebo.import-manifest/v1" ? readImportedBehaviorEvidenceV2(bundleRoot) : createRetainedBehaviorEvidenceV2(bundleRoot);
+  return isAtifImportSchema(manifest.schemaVersion) ? readImportedBehaviorEvidenceV2(bundleRoot) : createRetainedBehaviorEvidenceV2(bundleRoot);
 }
 export async function runAnalysisV2Command(args: string[], write: (text: string) => void): Promise<number> {
   const [command, bundleRoot, destination, requestPath] = args;

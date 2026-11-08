@@ -1,3 +1,4 @@
+import { markRetainedVersion, retainedVersionProfile } from "./retained-version-policy.js";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, open, stat, type FileHandle } from "node:fs/promises";
@@ -741,13 +742,12 @@ function restrictCursorProcessEnvironment(apiKey: string): { keys: string[]; res
 export async function createCursorSdkBehaviorEvidence(bundleRoot: string): Promise<CursorSdkBehaviorEvidence> {
   const manifest = JSON.parse(readBoundedFile(join(resolve(bundleRoot), "manifest.json"), "Run manifest").toString("utf8")) as RunManifest;
   const retainedVersion = manifest.run.harness.version;
-  if (manifest.run.harness.id !== CURSOR_SDK_HARNESS || !RETAINED_CURSOR_SDK_VERSIONS.includes(retainedVersion)
-      || !manifest.run.runtime.some(({ source, name, version }) => source === "cursor" && name === "cursor-sdk" && version === retainedVersion)) {
-    throw new Error(`Unsupported retained Cursor SDK runtime ${manifest.run.harness.version}.`);
+  if (manifest.run.harness.id !== CURSOR_SDK_HARNESS || !manifest.run.runtime.some(({ source, name }) => source === "cursor" && name === "cursor-sdk")) {
+    throw new Error("Retained Cursor format requires cursor-sdk harness and runtime identities.");
   }
   const outcomeCapture = await readQualifiedRunCapture(bundleRoot);
   const manifestRecord = outcomeCapture.records.find(({ record }) => record.kind === "manifest")?.record.document as RunManifest["terminal"] | undefined;
-  const capture: NormalizationInput<CursorNativeRecord> = {
+  let capture: NormalizationInput<CursorNativeRecord> = {
     runId: outcomeCapture.runId,
     attemptId: outcomeCapture.attemptId,
     qualification: outcomeCapture.qualification,
@@ -757,11 +757,13 @@ export async function createCursorSdkBehaviorEvidence(bundleRoot: string): Promi
     }),
   };
   assertRetainedCursorIdentity(manifest, capture.records.map(({ record }) => record));
+  const nativeVersion = asRecord(capture.records.find(({ record }) => record.channel === "configuration")?.record.payload)?.sdkVersion;
+  capture = markRetainedVersion(capture, retainedVersion, RETAINED_CURSOR_SDK_VERSIONS, [nativeVersion, ...manifest.run.runtime.filter(({ name }) => name === "cursor-sdk").map(({ version }) => version)]);
   const normalization = normalizeCursorSdkCapture(capture);
   const dataset = describeNormalizedDataset({
     capture,
     normalization,
-    capabilityProfile: CURSOR_SDK_CAPABILITIES,
+    capabilityProfile: retainedVersionProfile(CURSOR_SDK_CAPABILITIES, RETAINED_CURSOR_SDK_VERSIONS, retainedVersion),
     adapterVersion: CURSOR_SDK_ADAPTER_VERSION,
     nativeType: cursorNativeType,
   });
@@ -796,7 +798,7 @@ function assertRetainedCursorIdentity(manifest: RunManifest, records: readonly C
   }
   const configuration = asRecord(configurations[0]!.payload);
   const configuredModel = configuration?.model;
-  if (configuration?.sdkVersion !== manifest.run.harness.version || modelId(configuredModel) !== manifest.run.model.id
+  if (modelId(configuredModel) !== manifest.run.model.id
       || configuration?.workingDirectoryPolicy !== "isolated-local.cwd"
       || !Array.isArray(configuration?.environmentKeys) || configuration.environmentKeys.some((key) => typeof key !== "string")) {
     throw new Error("Retained Cursor configuration differs from the effective run manifest or policy.");

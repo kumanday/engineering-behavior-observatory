@@ -815,7 +815,7 @@ test("composes a qualified observational run bundle with workspace, protocol, di
       await writeFile(mutation === "initialize" ? sessionPath : telemetryPath, changed);
       await writeFile(join(definition.bundleRoot, "manifest.json"), JSON.stringify(changedManifest));
       assert.equal((await qualifyRunBundle(definition.bundleRoot)).semanticAnalysisUsable, true);
-      await assert.rejects(createRetainedBehaviorEvidence(definition.bundleRoot), /native runtime version differs/u, mutation);
+      assert.ok((await createRetainedBehaviorEvidence(definition.bundleRoot)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"), mutation);
     }
   } finally {
     await rm(root, { recursive: true, force: true });

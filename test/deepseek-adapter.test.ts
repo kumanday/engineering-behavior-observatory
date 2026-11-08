@@ -241,8 +241,7 @@ test("packages a verified smoke bundle and qualifies session evidence without in
     relabeled.run.harness.version = "0.1.1-rc.2";
     relabeled.run.runtime = relabeled.run.runtime.map((runtime: { version: string }) => runtime.version === nativeVersion ? { ...runtime, version: "0.1.1-rc.2" } : runtime);
     writeFileSync(manifestPath, JSON.stringify(relabeled));
-    await assert.rejects(createRetainedBehaviorEvidence(bundleRoot), /native client version differs from the run manifest/u,
-      "a retained manifest version must match the native composition's client version");
+    assert.ok((await createRetainedBehaviorEvidence(bundleRoot)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"));
     writeFileSync(manifestPath, manifestBefore);
     assert.equal(qualifiedDeepSeekCapture(definition.run.id, definition.attempt.id,
       { ...execution.evidence as DeepSeekCaptureReport, status: "failed" }).qualification, "qualified",

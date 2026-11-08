@@ -3,9 +3,9 @@ import { lstatSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { assertNoDuplicateJsonKeys, digestBytes, digestMetadata } from "./artifacts.js";
 import { readBoundedFile } from "./scheduler.js";
+import { validateAtifStructure } from "./atif-validation.js";
 
-export const ATIF_READER_VERSION = "1.0.0";
-export const ATIF_HARBOR_VERSION = "0.24.0";
+export const ATIF_READER_VERSION = "2.0.0";
 export const ATIF_LIMITS = Object.freeze({ documentBytes: 64 * 1024 * 1024, stepBytes: 4 * 1024 * 1024,
   attachmentBytes: 16 * 1024 * 1024, attachmentTotalBytes: 64 * 1024 * 1024, depth: 64,
   nodes: 1_000_000, pointerRecords: 100_000, tokenArrayItems: 100_000 });
@@ -19,14 +19,20 @@ export const ATIF_VERSION_FEATURES = Object.freeze({
   "ATIF-v1.8": { completionTokenIds: true, promptTokenIds: true, toolDefinitions: true, toolCallExtra: true, multimodal: true, copiedContext: true, declaredInference: true, embeddedTrajectories: true, audio: true },
 });
 export type AtifVersion = keyof typeof ATIF_VERSION_FEATURES;
+export function atifFeaturesForVersion(version: unknown): typeof ATIF_VERSION_FEATURES[AtifVersion] | undefined {
+  if (typeof version !== "string") return undefined;
+  if (Object.hasOwn(ATIF_VERSION_FEATURES, version)) return ATIF_VERSION_FEATURES[version as AtifVersion];
+  const minor = /^ATIF-v1\.(\d+)$/u.exec(version);
+  return minor ? ATIF_VERSION_FEATURES[Number(minor[1]) > 8 ? "ATIF-v1.8" : "ATIF-v1.2"] : undefined;
+}
 export type AtifObject = Record<string, unknown>;
 export type AtifDigest = `sha256:${string}`;
 export type AtifDiagnostic = { code: string; pointer: string };
 export type AtifPointerRecord = { pointer: string; digest: AtifDigest; sourceDigest: AtifDigest;
-  kind: "trajectory" | "step" | "call" | "result"; copied: boolean; gap: boolean };
+  kind: "trajectory" | "step" | "call" | "result" | "field"; copied: boolean; gap: boolean };
 export type AtifReference = { pointer: string; target: string; kind: "media" | "continuation" | "subagent-file" | "embedded" | "session-only"; status: "retained" | "unavailable";
   reason?: string; digest?: AtifDigest; bytes?: number };
-export type AtifStructuralResult = { status: "valid" | "invalid" | "unavailable"; validator: "harbor";
+export type AtifStructuralResult = { status: "valid" | "invalid" | "unavailable"; validator: "ebo" | "harbor";
   version: string; modelDigest?: AtifDigest; validationPolicyDigest?: AtifDigest; nativeModelStatus?: "valid" | "invalid";
   compatibilityDiagnostics?: AtifDiagnostic[]; compatibilityDiagnosticCount?: number; compatibilityDiagnosticsTruncated?: boolean;
   diagnostics: AtifDiagnostic[] };
@@ -34,8 +40,9 @@ export type AtifInspection = {
   schemaVersion: "ebo.atif-inspection/v1"; readerVersion: string;
   source: { bytes?: number; digest?: AtifDigest }; sourceVersion?: string;
   versionPolicy: { status: "supported" | "unsupported" | "inconsistent" | "unavailable"; diagnostics: AtifDiagnostic[] };
-  structural: AtifStructuralResult; records: AtifPointerRecord[]; references: AtifReference[];
+  structural: AtifStructuralResult; harborCrossCheck?: AtifStructuralResult; records: AtifPointerRecord[]; references: AtifReference[];
   fieldCoverage: Record<string, number>; limitations: string[];
+  unmappedFields?: Array<{ pointer: string; reason: "ATIF_FIELD_UNRECOGNIZED" | "ATIF_EXTENSION_OPAQUE" | "ATIF_VERSION_FIELD_UNVERIFIED" }>;
 };
 export type AtifReadResult = { inspection: AtifInspection; document?: AtifObject };
 export type AtifReadOptions = { pythonExecutable?: string; retainedFiles?: readonly string[]; propagateReadErrors?: boolean };
@@ -67,27 +74,55 @@ export function inspectAtifBytes(bytes: Uint8Array): AtifReadResult {
   const pointerDigests = new Map<string, AtifDigest>();
   const record = (value: unknown, pointer: string, kind: AtifPointerRecord["kind"], copied: boolean, gap: boolean) => {
     if (inspection.records.length >= ATIF_LIMITS.pointerRecords) throw new AtifLimitError("POINTER_RECORD_LIMIT");
+    if (pointerDigests.has(pointer)) return;
     const digest = hashValue(value);
     pointerDigests.set(pointer, digest);
     inspection.records.push({ pointer, digest, sourceDigest, kind, copied, gap });
   };
   const violation = (code: string, pointer: string) => policyDiagnostics.push({ code, pointer });
+  const fields = (value: AtifObject, pointer: string, recognized: readonly string[]) => {
+    for (const key of Object.keys(value)) if (key === "extra" || !recognized.includes(key)) {
+      const location = `${pointer}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`;
+      (inspection.unmappedFields ??= []).push({ pointer: location, reason: key === "extra" ? "ATIF_EXTENSION_OPAQUE" : "ATIF_FIELD_UNRECOGNIZED" });
+      record(value[key], location, "field", false, false);
+    }
+  };
   const visit = (trajectory: AtifObject, pointer: string, inheritedCopied: boolean, inheritedGap: boolean) => {
     const version = typeof trajectory.schema_version === "string" ? trajectory.schema_version : "";
-    const features = Object.hasOwn(ATIF_VERSION_FEATURES, version) ? ATIF_VERSION_FEATURES[version as AtifVersion] : undefined;
-    if (features === undefined) { unsupported = true; violation("UNSUPPORTED_ATIF_VERSION", `${pointer}/schema_version`); }
+    const minor = /^ATIF-v1\.(\d+)$/u.exec(version);
+    const verified = Object.hasOwn(ATIF_VERSION_FEATURES, version);
+    const features = atifFeaturesForVersion(version);
+    if (!verified && minor) inspection.limitations.push("ATIF_MINOR_VERSION_UNVERIFIED");
+    if (features === undefined) {
+      if (pointer === "#") unsupported = true;
+      else inspection.limitations.push("ATIF_CHILD_FORMAT_UNSUPPORTED");
+      violation("ATIF_MAJOR_VERSION_UNSUPPORTED", `${pointer}/schema_version`);
+      // A child with an unsupported major remains retained without interpreting it as v1.
+      record(trajectory, pointer, "trajectory", inheritedCopied, inheritedGap);
+      return;
+    }
     if (features !== undefined && !features.embeddedTrajectories) {
       for (const key of ["trajectory_id", "subagent_trajectories"]) if (key in trajectory) violation(`VERSION_FIELD:${key}`, `${pointer}/${key}`);
       if (typeof trajectory.session_id !== "string") violation("VERSION_REQUIRES_SESSION_ID", `${pointer}/session_id`);
     }
     if (features !== undefined && !features.toolDefinitions && "tool_definitions" in object(trajectory.agent)) violation("VERSION_FIELD:agent.tool_definitions", `${pointer}/agent/tool_definitions`);
     record(trajectory, pointer, "trajectory", inheritedCopied, inheritedGap);
+    fields(trajectory, pointer, ["schema_version", "agent", "session_id", "trajectory_id", "steps", "notes", "final_metrics", "continued_trajectory_ref", "subagent_trajectories", "extra"]);
+    record(trajectory.agent, `${pointer}/agent`, "field", inheritedCopied, inheritedGap);
+    if (trajectory.final_metrics !== undefined && trajectory.final_metrics !== null) {
+      record(trajectory.final_metrics, `${pointer}/final_metrics`, "field", inheritedCopied, inheritedGap);
+      for (const key of ["total_prompt_tokens", "total_completion_tokens", "total_cached_tokens", "total_cost_usd", "total_steps"]) {
+        if (Object.hasOwn(object(trajectory.final_metrics), key)) record(object(trajectory.final_metrics)[key], `${pointer}/final_metrics/${key}`, "field", inheritedCopied, inheritedGap);
+      }
+    }
+    fields(object(trajectory.agent), `${pointer}/agent`, ["name", "version", "model_name", "tool_definitions", "extra"]);
+    fields(object(trajectory.final_metrics), `${pointer}/final_metrics`, ["total_prompt_tokens", "total_completion_tokens", "total_cached_tokens", "total_cost_usd", "total_steps", "extra"]);
     for (const [index, value] of array(trajectory.steps).entries()) {
       if (!isAtifObject(value)) continue;
       const stepPointer = `${pointer}/steps/${index}`;
       if (Buffer.byteLength(JSON.stringify(value)) > ATIF_LIMITS.stepBytes) throw new AtifLimitError("STEP_BYTE_LIMIT");
       const copied = inheritedCopied || value.is_copied_context === true;
-      const gap = inheritedGap || object(value.extra).added_by === "hlb";
+      const gap = inheritedGap;
       if (features !== undefined) {
         if (!features.copiedContext && "is_copied_context" in value) violation("VERSION_FIELD:is_copied_context", `${stepPointer}/is_copied_context`);
         if (!features.declaredInference && "llm_call_count" in value) violation("VERSION_FIELD:llm_call_count", `${stepPointer}/llm_call_count`);
@@ -96,6 +131,10 @@ export function inspectAtifBytes(bytes: Uint8Array): AtifReadResult {
         if (!features.promptTokenIds && "prompt_token_ids" in object(value.metrics)) violation("VERSION_FIELD:prompt_token_ids", `${stepPointer}/metrics/prompt_token_ids`);
       }
       record(value, stepPointer, "step", copied, gap);
+      fields(value, stepPointer, ["step_id", "source", "message", "reasoning_content", "reasoning_effort", "timestamp", "model_name", "tool_calls", "observation", "metrics", "llm_call_count", "is_copied_context", "extra"]);
+      if (value.metrics !== undefined && value.metrics !== null) record(value.metrics, `${stepPointer}/metrics`, "field", copied, gap);
+      fields(object(value.observation), `${stepPointer}/observation`, ["results"]);
+      fields(object(value.metrics), `${stepPointer}/metrics`, ["prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd", "prompt_token_ids", "completion_token_ids", "logprobs", "extra"]);
       count("steps");
       if (copied) count("copiedSteps");
       if (gap) count("gapSteps");
@@ -103,11 +142,13 @@ export function inspectAtifBytes(bytes: Uint8Array): AtifReadResult {
       for (const [callIndex, call] of array(value.tool_calls).entries()) {
         if (features !== undefined && !features.toolCallExtra && "extra" in object(call)) violation("VERSION_FIELD:tool_call.extra", `${stepPointer}/tool_calls/${callIndex}/extra`);
         record(call, `${stepPointer}/tool_calls/${callIndex}`, "call", copied, gap);
+        fields(object(call), `${stepPointer}/tool_calls/${callIndex}`, ["tool_call_id", "function_name", "arguments", "extra"]);
         count("toolCallFields");
       }
       for (const [resultIndex, result] of array(object(value.observation).results).entries()) {
         const resultPointer = `${stepPointer}/observation/results/${resultIndex}`;
         record(result, resultPointer, "result", copied, gap);
+        fields(object(result), resultPointer, ["source_call_id", "content", "subagent_trajectory_ref", "extra"]);
         if (!features?.multimodal && Array.isArray(object(result).content)) violation("VERSION_FIELD:multimodal", `${resultPointer}/content`);
         if (features !== undefined && !features.embeddedTrajectories && "extra" in object(result)) violation("VERSION_FIELD:result.extra", `${resultPointer}/extra`);
         if (typeof object(object(result).extra).is_error === "boolean") count("explicitIsErrorFields");
@@ -123,12 +164,31 @@ export function inspectAtifBytes(bytes: Uint8Array): AtifReadResult {
   // Reference walking is recursive over a trajectory, so visit children only once for the reference inventory.
   inspection.references = [...new Map(inspection.references.map((reference) => [reference.pointer, reference])).values()];
   if (inspection.references.some(({ status }) => status === "unavailable")) inspection.limitations.push("EXTERNAL_REFERENCE_UNAVAILABLE");
-  inspection.versionPolicy = { status: unsupported ? "unsupported" : policyDiagnostics.length ? "inconsistent" : "supported",
+  inspection.limitations = [...new Set(inspection.limitations)];
+  try {
+    for (const reference of inspection.references) {
+      const value = atifPointerValue(document, reference.pointer);
+      if (value !== undefined) record(value, reference.pointer, "field", false, false);
+    }
+  } catch (error) { return rejected(inspection, error instanceof AtifLimitError ? error.code : "POINTER_INVENTORY_FAILED"); }
+  for (const diagnostic of policyDiagnostics) if (diagnostic.code.startsWith("VERSION_FIELD:")) {
+    const value = atifPointerValue(document, diagnostic.pointer);
+    if (value !== undefined) {
+      (inspection.unmappedFields ??= []).push({ pointer: diagnostic.pointer, reason: "ATIF_VERSION_FIELD_UNVERIFIED" });
+      try { record(value, diagnostic.pointer, "field", false, false); }
+      catch (error) { return rejected(inspection, error instanceof AtifLimitError ? error.code : "POINTER_INVENTORY_FAILED"); }
+    }
+  }
+  inspection.versionPolicy = { status: unsupported ? "unsupported" : policyDiagnostics.some(({ code }) => code !== "ATIF_MAJOR_VERSION_UNSUPPORTED") ? "inconsistent" : "supported",
     diagnostics: [...new Map(policyDiagnostics.map((diagnostic) => [`${diagnostic.code}\0${diagnostic.pointer}`, diagnostic])).values()] };
+  if (inspection.versionPolicy.status === "inconsistent") inspection.limitations.push("ATIF_VERSION_FIELD_UNVERIFIED");
+  const diagnostics = validateAtifStructure(document);
+  inspection.structural = { status: diagnostics.length ? "invalid" : "valid", validator: "ebo", version: ATIF_READER_VERSION,
+    modelDigest: hashValue(validateAtifStructure.toString()), validationPolicyDigest: hashValue(ATIF_VERSION_FEATURES), diagnostics };
   return { inspection, document };
 }
 
-/** Reads a bounded local file and validates it using the pinned independent Harbor model. No fetches occur. */
+/** EBO validation owns admission. A caller may additionally request an installed Harbor cross-check. */
 export async function readAtifFile(path: string, options: AtifReadOptions = {}): Promise<AtifReadResult> {
   let bytes: Buffer;
   try { bytes = readBoundedFile(path, "ATIF document", undefined, ATIF_LIMITS.documentBytes); }
@@ -141,7 +201,7 @@ export async function readAtifFile(path: string, options: AtifReadOptions = {}):
   }
   const result = inspectAtifBytes(bytes);
   if (result.document === undefined) return result;
-  result.inspection.structural = await validateWithHarbor(bytes, options.pythonExecutable ?? "python3");
+  if (options.pythonExecutable !== undefined) result.inspection.harborCrossCheck = await validateWithHarbor(bytes, options.pythonExecutable);
   let totalBytes = 0;
   const admitted = new Set(options.retainedFiles ?? []);
   const retainedTargets = new Map<string, Pick<AtifReference, "status" | "reason" | "digest" | "bytes">>();
@@ -200,7 +260,7 @@ const hashBytes = (bytes: Uint8Array): AtifDigest => `sha256:${digestBytes(bytes
 const hashValue = (value: unknown): AtifDigest => `sha256:${digestMetadata(value).value}`;
 class AtifLimitError extends Error { constructor(public readonly code: string) { super(code); } }
 function unavailableValidator(code: string): AtifStructuralResult {
-  return { status: "unavailable", validator: "harbor", version: ATIF_HARBOR_VERSION, diagnostics: [{ code, pointer: "#" }] };
+  return { status: "unavailable", validator: "harbor", version: "unknown", diagnostics: [{ code, pointer: "#" }] };
 }
 function rejected(inspection: AtifInspection, code: string): AtifReadResult {
   inspection.versionPolicy = { status: "unavailable", diagnostics: [{ code, pointer: "#" }] };
@@ -292,8 +352,7 @@ function resolveRelativeRegularFile(root: string, path: string): string {
 // Static validation code only. Input bytes are data on stdin, never Python source or paths to import.
 const HARBOR_VALIDATOR = `import sys,json,hashlib,pathlib
 from importlib.metadata import version
-if version('harbor') != '${ATIF_HARBOR_VERSION}':
- print(json.dumps({'status':'unavailable','code':'HARBOR_VERSION_MISMATCH'}));sys.exit(0)
+harbor_version=version('harbor')
 import harbor.models.trajectories as package
 from harbor.models.trajectories import Trajectory
 root=pathlib.Path(package.__file__).parent
@@ -322,7 +381,7 @@ def legacy_view(trajectory,pointer='#'):
       compatibility.append(diagnostic('PRE_V1_7_SESSION_REFERENCE_VALIDATION_VIEW',pointer+'/steps/'+str(si)+'/observation/results/'+str(ri)+'/subagent_trajectory_ref/'+str(fi)))
  for ci,child in enumerate(collection(trajectory.get('subagent_trajectories'))): legacy_view(child,pointer+'/subagent_trajectories/'+str(ci))
 if native_status=='invalid': legacy_view(document)
-base={'modelDigest':model_digest,'nativeModelStatus':native_status,'compatibilityDiagnostics':compatibility[:32],
+base={'version':harbor_version,'modelDigest':model_digest,'nativeModelStatus':native_status,'compatibilityDiagnostics':compatibility[:32],
  'compatibilityDiagnosticCount':len(compatibility),'compatibilityDiagnosticsTruncated':len(compatibility)>32}
 try:
  Trajectory.model_validate(document)
@@ -350,10 +409,9 @@ async function validateWithHarbor(bytes: Uint8Array, python: string): Promise<At
       if (code !== 0) { finish(unavailableValidator("HARBOR_VALIDATOR_UNAVAILABLE")); return; }
       try {
         const response = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
-        if (response.status === "unavailable") { finish(unavailableValidator("HARBOR_VERSION_MISMATCH")); return; }
         if (!["valid", "invalid"].includes(String(response.status)) || typeof response.modelDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(response.modelDigest)
           || !Array.isArray(response.diagnostics)) throw new Error("Invalid validator receipt");
-        finish({ status: response.status as "valid" | "invalid", validator: "harbor", version: ATIF_HARBOR_VERSION,
+        finish({ status: response.status as "valid" | "invalid", validator: "harbor", version: typeof response.version === "string" ? response.version : "unknown",
           modelDigest: response.modelDigest as AtifDigest, validationPolicyDigest: hashBytes(Buffer.from(HARBOR_VALIDATOR)),
           nativeModelStatus: response.nativeModelStatus as "valid" | "invalid",
           compatibilityDiagnostics: response.compatibilityDiagnostics as AtifDiagnostic[],

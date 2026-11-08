@@ -28,7 +28,7 @@ function fixture() {
   const acquisition: LeaderboardAcquisition = { schemaVersion: "ebo.leaderboard-acquisition/v1", source: LEADERBOARD_BUCKET, retrievedAt: "2026-11-07T00:00:00Z", sharing: "restricted", terms: "unstated", attribution: "Synthetic fixtures; source policy by Joël Niklaus / Harness Leaderboard",
     artifacts: [...metadata].map(([path, bytes]) => ({ remotePath: path, localPath: path, sha256: rawHash(bytes).slice(7), bytes: bytes.length, listedXetHash: null, authority: "protected-leaderboard-record" })) };
   write(join(snapshot, "acquisition.json"), acquisition);
-  const request: LeaderboardCohortRequest = { schemaVersion: "ebo.leaderboard-cohort-request/v1", policyRevision: LEADERBOARD_PUBLIC_POLICY.revision, snapshotRoot: snapshot, historyCompleteness: "bounded-subset", nativeBindings: [{ factId: id, directory: trial, profileId: listAtifProducerProfiles()[1]!.id }] };
+  const request: LeaderboardCohortRequest = { schemaVersion: "ebo.leaderboard-cohort-request/v1", policyRevision: LEADERBOARD_PUBLIC_POLICY.revision, snapshotRoot: snapshot, historyCompleteness: "bounded-subset", nativeBindings: [{ factId: id, directory: trial, profileId: listAtifProducerProfiles()[0]!.id }] };
   return { root, store, snapshot, trial, trajectory, acquisition, request, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 test("protected source records remain distinct from agent-writable logs and preserve relocation identity", () => {
@@ -269,5 +269,22 @@ test('rejected context appends preserve an existing cohort at the retained inven
     readLeaderboardCohort(f.store, first.cohortId);
     const reused = await importLeaderboardCohort(request, f.store, python);
     assert.equal(reused.status, 'imported'); if (reused.status === 'imported') assert.equal(reused.reused, true);
+  } finally { f.cleanup(); }
+});
+
+test("a trial version disagreement stays readable without a producer profile", { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    delete f.request.nativeBindings[0]!.profileId;
+    const resultPath = join(f.trial, "result.json"), result = JSON.parse(readFileSync(resultPath, "utf8"));
+    result.agent_info.version = "9.9.9";write(resultPath, result);
+    f.trajectory.agent.version = "9.9.9";write(join(f.trial, "agent/trajectory.json"), f.trajectory);
+    const imported = await importLeaderboardCohort(f.request, f.store, python);
+    assert.equal(imported.status, "imported");if (imported.status !== "imported") return;
+    assert.equal(imported.admittedExecutions, 1);
+    assert.equal(imported.cases[0]!.reason, "HARNESS_VERSION_CONFLICT");
+    const retained = readLeaderboardCohort(f.store, imported.cohortId);
+    const evidence = await (await import("../src/atif-v2.js")).readImportedBehaviorEvidenceV2(join(retained.root, retained.manifest.members[0]!.corpusPath));
+    assert.equal(evidence.dataset.operations.length, 2);assert.equal(evidence.dataset.sources[0]!.producerProfile.status, "unknown");
   } finally { f.cleanup(); }
 });

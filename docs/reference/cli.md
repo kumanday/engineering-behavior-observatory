@@ -186,13 +186,13 @@ Use `ebo atif inspect <trajectory.json> [--python <executable>]
 [--retain <relative-path>]...` for offline inspection. See [ATIF source
 inspection](atif.md) for version, validation and reference limits.
 
-### Retain a Pi ATIF trajectory
+### Retain an ATIF trajectory
 
-Use `ebo atif profiles` to choose an exact producer identity, then
-`ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id>
---profile <registered-id> [--python <executable>]`.
-The [ATIF reference](atif.md#pi-imports) defines imported qualification,
-validation requirements, repeatability and measurement limits.
+Use `ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id>
+[--profile <overlay-context-id>] [--python <executable>]`.
+`ebo atif overlays` lists optional Pi and Codex converter-context examples.
+The [ATIF reference](atif.md) defines document-scoped measures, imported
+qualification, validation, repeatability and interpretation receipts.
 
 Use `ebo atif import-leaderboard COHORT_REQUEST STORE --python EXECUTABLE` to
 retain a bounded local snapshot, evaluate its pinned public board selection and

@@ -86,15 +86,15 @@ Save a request next to the snapshot and native trial directories:
   "nativeBindings": [
     {
       "factId": "11111111-1111-4111-8111-111111111111",
-      "directory": "./trial",
-      "profileId": "pi/harbor-0.24.0/atif-1.7/agent-1.2.0/harness-leaderboard-0583ba55ac8ddaea3464c85b54828baeaa8d834a"
+      "directory": "./trial"
     }
   ]
 }
 ```
 
-Choose the exact registered profile ID from `ebo atif profiles`. Request-relative
-paths resolve against the request's directory. Original-trial bindings use the
+`profileId` is optional converter context; `ebo atif overlays` lists the
+available examples. Omit it for generic ATIF reading. Request-relative paths
+resolve against the request's directory. Original-trial bindings use the
 [Harbor lineage contract](harbor-imports.md#identity-and-lineage).
 
 ```sh

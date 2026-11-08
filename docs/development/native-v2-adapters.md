@@ -1,8 +1,9 @@
 # Native v2 projections
 
 `createRetainedBehaviorEvidenceV2` reads an owned, capture-qualified bundle and
-creates an independent `ebo.normalized-dataset/v2` derivation. Capture admission
-continues to verify the retained producer and capture-adapter versions. The
+creates an independent `ebo.normalized-dataset/v2` derivation. The reader
+uses each adapter’s native format contract and records unfamiliar producer or
+capture-adapter versions as confidence limitations. The
 original native files, manifest and v1 dataset remain available through their
 supported readers.
 
@@ -14,7 +15,7 @@ await validateNormalizedDatasetV2(evidence.dataset, evidence.resolver);
 The fixed registry supports Claude Agent SDK, Pi, Codex app-server, DeepSeek
 Harness, OpenHands Agent Server, Factory Droid, Cursor SDK and Devin CLI/ACP.
 `listNativeV2Profiles` exposes their implementation identities. Imported ATIF
-requires its own producer profile and retains imported qualification.
+uses schema-version core projection with optional overlays and retains imported qualification.
 
 Each source profile interprets its retained records and supplies message,
 context, clock, resource and operation facts. A shared builder owns operation

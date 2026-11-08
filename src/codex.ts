@@ -1,3 +1,4 @@
+import { retainedVersionProfile } from "./retained-version-policy.js";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { lstat, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -659,14 +660,13 @@ export async function describeAndValidateCodexDataset(
   capture: QualifiedNativeCapture<ProtocolObservation>,
   runtimeVersion = (capture as Partial<CodexAppServerCapture>).telemetry?.runtime?.version ?? CODEX_APP_SERVER_VERSION,
 ): Promise<{ dataset: NormalizedDataset; coverage: AdapterCoverageReport }> {
-  if (!RETAINED_CODEX_APP_SERVER_VERSIONS.includes(runtimeVersion)) throw new Error(`Unsupported retained Codex runtime ${runtimeVersion}.`);
   const normalization = await normalizeCodexCapture(capture);
   const dataset = describeNormalizedDataset({
     capture,
     normalization,
-    capabilityProfile: runtimeVersion === "0.150.1" ? CODEX_0_150_1_CAPABILITIES
+    capabilityProfile: retainedVersionProfile(runtimeVersion === "0.150.1" ? CODEX_0_150_1_CAPABILITIES
       : runtimeVersion === "0.153.4" ? CODEX_0_153_4_CAPABILITIES
-      : runtimeVersion === "0.157.0" ? CODEX_0_157_0_CAPABILITIES : CODEX_APP_SERVER_CAPABILITIES,
+      : runtimeVersion === "0.157.0" ? CODEX_0_157_0_CAPABILITIES : CODEX_APP_SERVER_CAPABILITIES, RETAINED_CODEX_APP_SERVER_VERSIONS, runtimeVersion),
     adapterVersion: CODEX_ADAPTER_VERSION,
     nativeType: codexNativeType,
   });

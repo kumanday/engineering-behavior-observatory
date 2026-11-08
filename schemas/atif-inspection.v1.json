@@ -2,42 +2,273 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:ebo:schema:atif-inspection:v1",
   "$defs": {
-    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-    "diagnostic": { "type": "object", "additionalProperties": false, "required": ["code", "pointer"], "properties": {
-      "code": { "type": "string" }, "pointer": { "type": "string", "pattern": "^#" }
-    } },
-    "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "pointer"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "pointer": {
+          "type": "string",
+          "pattern": "^#"
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    }
   },
-  "type": "object", "additionalProperties": false,
-  "required": ["schemaVersion", "readerVersion", "source", "versionPolicy", "structural", "records", "references", "fieldCoverage", "limitations"],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "readerVersion",
+    "source",
+    "versionPolicy",
+    "structural",
+    "records",
+    "references",
+    "fieldCoverage",
+    "limitations"
+  ],
   "properties": {
-    "schemaVersion": { "const": "ebo.atif-inspection/v1" }, "readerVersion": { "type": "string" },
-    "source": { "type": "object", "additionalProperties": false, "properties": {
-      "bytes": { "type": "integer", "minimum": 0 }, "digest": { "$ref": "#/$defs/digest" }
-    } },
-    "sourceVersion": { "type": "string" },
-    "versionPolicy": { "type": "object", "additionalProperties": false, "required": ["status", "diagnostics"], "properties": {
-      "status": { "enum": ["supported", "unsupported", "inconsistent", "unavailable"] }, "diagnostics": { "$ref": "#/$defs/diagnostics" }
-    } },
-    "structural": { "type": "object", "additionalProperties": false, "required": ["status", "validator", "version", "diagnostics"], "properties": {
-      "status": { "enum": ["valid", "invalid", "unavailable"] }, "validator": { "const": "harbor" }, "version": { "type": "string" },
-      "modelDigest": { "$ref": "#/$defs/digest" }, "diagnostics": { "$ref": "#/$defs/diagnostics" },
-      "validationPolicyDigest": { "$ref": "#/$defs/digest" }, "nativeModelStatus": { "enum": ["valid", "invalid"] },
-      "compatibilityDiagnostics": { "$ref": "#/$defs/diagnostics", "maxItems": 32 },
-      "compatibilityDiagnosticCount": { "type": "integer", "minimum": 0 }, "compatibilityDiagnosticsTruncated": { "type": "boolean" }
-    } },
-    "records": { "type": "array", "maxItems": 100000, "items": { "type": "object", "additionalProperties": false,
-      "required": ["pointer", "digest", "sourceDigest", "kind", "copied", "gap"], "properties": {
-        "pointer": { "type": "string", "pattern": "^#" }, "digest": { "$ref": "#/$defs/digest" }, "sourceDigest": { "$ref": "#/$defs/digest" },
-        "kind": { "enum": ["trajectory", "step", "call", "result"] }, "copied": { "type": "boolean" }, "gap": { "type": "boolean" }
-      } } },
-    "references": { "type": "array", "items": { "type": "object", "additionalProperties": false,
-      "required": ["pointer", "target", "kind", "status"], "properties": {
-        "pointer": { "type": "string" }, "target": { "type": "string" }, "status": { "enum": ["retained", "unavailable"] },
-        "kind": { "enum": ["media", "continuation", "subagent-file", "embedded", "session-only"] },
-        "reason": { "type": "string" }, "digest": { "$ref": "#/$defs/digest" }, "bytes": { "type": "integer", "minimum": 0 }
-      } } },
-    "fieldCoverage": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
-    "limitations": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+    "schemaVersion": {
+      "const": "ebo.atif-inspection/v1"
+    },
+    "readerVersion": {
+      "type": "string"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "sourceVersion": {
+      "type": "string"
+    },
+    "versionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "diagnostics"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "supported",
+            "unsupported",
+            "inconsistent",
+            "unavailable"
+          ]
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/diagnostics"
+        }
+      }
+    },
+    "structural": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "validator",
+        "version",
+        "diagnostics"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "valid",
+            "invalid",
+            "unavailable"
+          ]
+        },
+        "validator": {
+          "enum": [
+            "ebo",
+            "harbor"
+          ]
+        },
+        "version": {
+          "type": "string"
+        },
+        "modelDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/diagnostics"
+        },
+        "validationPolicyDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "nativeModelStatus": {
+          "enum": [
+            "valid",
+            "invalid"
+          ]
+        },
+        "compatibilityDiagnostics": {
+          "$ref": "#/$defs/diagnostics",
+          "maxItems": 32
+        },
+        "compatibilityDiagnosticCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "compatibilityDiagnosticsTruncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "records": {
+      "type": "array",
+      "maxItems": 100000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pointer",
+          "digest",
+          "sourceDigest",
+          "kind",
+          "copied",
+          "gap"
+        ],
+        "properties": {
+          "pointer": {
+            "type": "string",
+            "pattern": "^#"
+          },
+          "digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "sourceDigest": {
+            "$ref": "#/$defs/digest"
+          },
+          "kind": {
+            "enum": [
+              "trajectory",
+              "step",
+              "call",
+              "result",
+              "field"
+            ]
+          },
+          "copied": {
+            "type": "boolean"
+          },
+          "gap": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pointer",
+          "target",
+          "kind",
+          "status"
+        ],
+        "properties": {
+          "pointer": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "retained",
+              "unavailable"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "media",
+              "continuation",
+              "subagent-file",
+              "embedded",
+              "session-only"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "fieldCoverage": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "harborCrossCheck": {
+      "$ref": "#/properties/structural"
+    },
+    "unmappedFields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pointer",
+          "reason"
+        ],
+        "properties": {
+          "pointer": {
+            "type": "string",
+            "pattern": "^#"
+          },
+          "reason": {
+            "enum": [
+              "ATIF_FIELD_UNRECOGNIZED",
+              "ATIF_EXTENSION_OPAQUE", "ATIF_VERSION_FIELD_UNVERIFIED"
+            ]
+          }
+        }
+      }
+    }
   }
 }

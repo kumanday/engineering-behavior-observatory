@@ -267,3 +267,17 @@ environment values, and hidden reasoning are not approved portable fields.
 Protocol details follow the official [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server).
 Exporter fields follow the official [advanced telemetry guidance](https://learn.chatgpt.com/docs/config-file/config-advanced#observability-and-telemetry)
 and [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+
+## Retained evidence and ATIF
+
+Retained evidence is read through this adapter's native format contract.
+Unfamiliar runtime or capture-adapter versions add a confidence limitation;
+version declarations and disagreements remain visible as cohort metadata.
+Malformed records and corrupted source bindings receive specific diagnostics.
+[Limitation definitions](../reference/atif-limitations.md) explain version confidence.
+
+Conforming ATIF uses EBO's generic core reader regardless of producer identity
+or version. The [coverage matrix](../reference/atif-harness-coverage.md) identifies
+this harness's upstream converter, source-surface differences, fixture provenance
+and measured equivalence. Imported document measures retain their own scope and
+do not acquire native capture qualification.

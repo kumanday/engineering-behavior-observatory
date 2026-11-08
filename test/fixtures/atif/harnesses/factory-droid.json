@@ -1,0 +1,35 @@
+{
+  "schema_version": "ATIF-v1.8",
+  "agent": {
+    "name": "factory-droid",
+    "version": "0.238.0"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "user",
+      "message": "Inspect the authored fixture."
+    },
+    {
+      "step_id": 2,
+      "source": "agent",
+      "message": "Retained call shape with fictional content.",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-1",
+          "function_name": "Create",
+          "arguments": {}
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "call-1",
+            "content": "Authored result counterpart."
+          }
+        ]
+      }
+    }
+  ],
+  "notes": "Authored public counterpart of a private ATIF selection from a real retained native capture. Messages and argument values are fictional; the native tool name and argument object shape come from that capture. No upstream ATIF converter exists in the inspected Harbor release."
+}

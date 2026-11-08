@@ -1178,7 +1178,10 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("atif-inspection.v1.json"));
   ajv.addSchema(readSchema("evidence-companion.v1.json"));
   ajv.addSchema(readSchema("import-manifest.v1.json"));
+  ajv.addSchema(readSchema("import-manifest.v2.json"));
   ajv.addSchema(readSchema("pi-atif-mapping.v1.json"));
+  ajv.addSchema(readSchema("atif-core-mapping.v1.json"));
+  ajv.addSchema(readSchema("atif-overlay.v1.json"));
   ajv.addSchema(readSchema("atif-producer-profile.v1.json"));
   ajv.addSchema(readSchema("behavior-assertions.v1.json"));
   ajv.addSchema(readSchema("semantic-judge.v1.json"));
@@ -1215,9 +1218,12 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.harbor-capture-membership/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/membership")],
     ["ebo.harbor-assessment/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/assessment")],
 
+    ["ebo.atif-core-mapping/v1", requiredValidator(ajv, "urn:ebo:schema:atif-core-mapping:v1")],
+    ["ebo.atif-overlay/v1", requiredValidator(ajv, "urn:ebo:schema:atif-overlay:v1")],
     ["ebo.pi-atif-mapping/v1", requiredValidator(ajv, "urn:ebo:schema:pi-atif-mapping:v1")],
     ["ebo.evidence-companion/v1", requiredValidator(ajv, "urn:ebo:schema:evidence-companion:v1")],
     ["ebo.import-manifest/v1", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v1")],
+    ["ebo.import-manifest/v2", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v2")],
     ["ebo.atif-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:atif-inspection:v1")],
     ["ebo.atif-producer-profile/v1", requiredValidator(ajv, "urn:ebo:schema:atif-producer-profile:v1")],
     ["ebo.task-packet/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet.v1.schema.json")],
@@ -1397,7 +1403,6 @@ function runManifestIntegrityErrors(
   const harness = run !== undefined && isRecord(run.harness) ? run.harness : undefined;
   if (run !== undefined && harness !== undefined && Array.isArray(run.runtime)
       && !run.runtime.some((component) => isRecord(component)
-        && component.version === harness.version
         && (component.name === harness.id || component.source === harness.id))) {
     errors.push({ artifact, schemaVersion, field: "/run/runtime", message: "Declared harness is not represented by its runtime composition." });
   }

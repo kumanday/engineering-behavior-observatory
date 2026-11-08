@@ -9,7 +9,7 @@ import { buildCorpusIndex, readCorpusIndex, writeCorpusIndex } from "./corpus.js
 import { LEADERBOARD_PUBLIC_POLICY, selectPinnedLeaderboardFacts, type LeaderboardPolicyReceipt, type LeaderboardPolicyInput } from "./leaderboard-policy.js";
 import { deriveLeaderboardInput, metadataHash, parseImportJson, rawHash, readClosedImportFile, readLeaderboardSource, scanImportedFiles, type Hash } from "./leaderboard-source.js";
 
-export type LeaderboardNativeBinding = { factId: string; directory: string; profileId: string; originals?: HarborOriginalBinding[] };
+export type LeaderboardNativeBinding = { factId: string; directory: string; profileId?: string; originals?: HarborOriginalBinding[] };
 export type LeaderboardCohortRequest = { schemaVersion: "ebo.leaderboard-cohort-request/v1"; policyRevision: string; snapshotRoot: string; acquisitionPath?: string;
   historyCompleteness: "complete" | "bounded-subset"; nativeBindings: LeaderboardNativeBinding[]; withdrawnFactIds?: string[]; priorCohortId?: Hash };
 type CohortMember = { executionId: string; captureRevision: Hash; sourceSnapshotDigest: Hash; inspectionDigest: Hash; nativeScanDigest: Hash; assessmentId: Hash;
@@ -59,7 +59,7 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
   for (const declaredBinding of [...request.nativeBindings].sort((a, b) => a.factId.toLowerCase() < b.factId.toLowerCase() ? -1 : a.factId.toLowerCase() > b.factId.toLowerCase() ? 1 : 0)) {
     const binding = { ...declaredBinding, factId: declaredBinding.factId.toLowerCase() };
     if (!binding || typeof binding.factId !== "string" || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(binding.factId)
-        || typeof binding.directory !== "string" || typeof binding.profileId !== "string" || seen.has(binding.factId.toLowerCase())) throw new Error("Native source bindings require unique bounded trial identities.");
+        || typeof binding.directory !== "string" || binding.profileId !== undefined && typeof binding.profileId !== "string" || seen.has(binding.factId.toLowerCase())) throw new Error("Native source bindings require unique bounded trial identities.");
     const uuid = binding.factId.toLowerCase(), sourceIds = selectedIds.get(uuid);
     seen.add(uuid);
     if (sourceIds?.size === 1) binding.factId = [...sourceIds][0]!;
@@ -89,8 +89,8 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
     const taskPath = (result?.task_id as Record<string, unknown> | undefined)?.path;
     const assessment = inspected.inspection.assessment;
     const profile = listAtifProfilesV2().find(({ id }) => id === binding.profileId);
-    if (inspected.inspection.status !== "eligible" || profile === undefined || inspected.inspection.trialId !== binding.factId.toLowerCase()
-        || facts.some((fact) => fact.harness !== info?.name || fact.harness_version !== info?.version
+    if (inspected.inspection.status !== "eligible" || inspected.inspection.trialId !== binding.factId.toLowerCase()
+        || facts.some((fact) => fact.harness !== info?.name
           || fact.task !== String(taskPath ?? "").replace(/\/+$/u, "").split("/").at(-1)
           || fact.reward !== (assessment?.rewards?.reward ?? null) || fact.exception !== assessment?.exceptionType)) {
       cases.push({ factId: binding.factId, status: "inspect-only", reason: "SOURCE_FACT_OR_PRODUCER_CONTEXT_UNRESOLVED", sourceSnapshotDigest: inspected.inspection.snapshotDigest }); continue;
@@ -106,7 +106,7 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
       if (originalSnapshots.has(original.sourceReference) && originalSnapshots.get(original.sourceReference) !== directory) throw new Error("Original source binding is ambiguous.");
       originalSnapshots.set(original.sourceReference, directory);
     }
-    const imported = await importHarborTrial({ directory: join(store, "native-sources", inspected.inspection.snapshotDigest.slice(7)), store: join(store, "harbor"), namespace: "huggingface-bucket:joelniklaus/harness-leaderboard", producer: profile.producer, additionalModelAliases: aliases, originals: [...originalSnapshots].map(([sourceReference, directory]) => ({ sourceReference, directory })), pythonExecutable });
+    const imported = await importHarborTrial({ directory: join(store, "native-sources", inspected.inspection.snapshotDigest.slice(7)), store: join(store, "harbor"), namespace: "huggingface-bucket:joelniklaus/harness-leaderboard", producer: profile?.producer, additionalModelAliases: aliases, originals: [...originalSnapshots].map(([sourceReference, directory]) => ({ sourceReference, directory })), pythonExecutable });
     if (imported.status !== "imported") { cases.push({ factId: binding.factId, status: "inspect-only", reason: "HARBOR_ADMISSION_UNAVAILABLE" }); continue; }
     readHarborCapture(join(store, "harbor"), imported.binding.captureRevision, imported.inspection.snapshotDigest, imported.inspectionDigest);
     const executionId = imported.binding.execution.id;
@@ -120,7 +120,8 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
     if (prior && prior.captureRevision !== member.captureRevision) throw new Error("A selected execution has multiple capture revisions; select one revision explicitly.");
     if (prior) { prior.factIds.push(binding.factId); prior.groups.push(...member.groups); prior.sourceOutcomes.push(...member.sourceOutcomes); prior.assessments.push(...member.assessments); }
     else members.set(executionId, member);
-    cases.push({ factId: binding.factId, status: "imported", sourceSnapshotDigest: imported.inspection.snapshotDigest });
+    cases.push({ factId: binding.factId, status: "imported", sourceSnapshotDigest: imported.inspection.snapshotDigest,
+      ...(facts.some((fact) => fact.harness_version !== info?.version) ? { reason: "HARNESS_VERSION_CONFLICT" } : {}) });
   }
   const orderedMembers = [...members.values()].sort((a, b) => a.executionId.localeCompare(b.executionId));
   const body = { schemaVersion: "ebo.leaderboard-cohort/v1" as const, sharing: "restricted" as const, sourceSnapshotDigest: source.snapshotDigest,
@@ -131,8 +132,12 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
   const errors = validateArtifact("Leaderboard cohort", manifest);
   if (errors.length) throw new Error(`Invalid generated leaderboard cohort: ${errors[0]!.message}`);
   const files = new Map<string, Buffer>([["cohort.json", jsonBytes(manifest)], ["selection.json", jsonBytes(selection)], ["input.json", jsonBytes(source.input)], ["scan.json", jsonBytes(source.scan)]]);
-  for (const member of orderedMembers) for (const path of ["manifest.json", "trajectory.json", "inspection.json"]) {
-    files.set(`${member.corpusPath}/${path}`, readClosedImportFile(join(store, "harbor", "captures", member.captureRevision.slice(7)), path, path === "trajectory.json" ? 64 * 1024 * 1024 : 32 * 1024 * 1024));
+  for (const member of orderedMembers) {
+    const root = join(store, "harbor", "captures", member.captureRevision.slice(7));
+    const manifest = JSON.parse(readClosedImportFile(root, "manifest.json", 1024 * 1024).toString("utf8"));
+    for (const path of ["manifest.json", "trajectory.json", "inspection.json", ...manifest.schemaVersion === "ebo.import-manifest/v2" ? ["interpretation.json"] : []]) {
+      files.set(`${member.corpusPath}/${path}`, readClosedImportFile(root, path, path === "trajectory.json" ? 64 * 1024 * 1024 : 32 * 1024 * 1024));
+    }
   }
   // Acquisition contexts are independent of relocation-insensitive cohort identity.
   // Retain the content-addressed context before making the cohort visible as complete.

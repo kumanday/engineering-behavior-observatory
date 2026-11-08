@@ -1,3 +1,4 @@
+import { markRetainedVersion } from "./retained-version-policy.js";
 import { FACTORY_BYOK_ENV_NAME, factoryCredentialEnvironment, factoryModelSelection, type FactoryModelRoute } from "./factory-model.js";
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -312,8 +313,6 @@ export function qualifyFactoryCapture(capture: QualifiedNativeCapture<ProtocolOb
   sessionId?: string; expectsCompletion: boolean; cliVersion: string; sdkVersion: string; adapterVersion?: string;
 }): QualifiedFactory {
   const captureAdapterVersion = options.adapterVersion ?? FACTORY_ADAPTER_VERSION;
-  if (!RETAINED_FACTORY_CLI_VERSIONS.includes(options.cliVersion) || !RETAINED_FACTORY_SDK_VERSIONS.includes(options.sdkVersion)
-    || !RETAINED_FACTORY_ADAPTER_VERSIONS.includes(captureAdapterVersion)) throw new Error("Unsupported retained Factory runtime.");
   const records = capture.records.map(({ record, reference }) => {
     const line = Number(reference.recordLocator.match(/^line:(\d+)$/u)?.[1]);
     assertProtocolObservation(record, line);
@@ -327,10 +326,11 @@ export function qualifyFactoryCapture(capture: QualifiedNativeCapture<ProtocolOb
     return record;
   });
   const compositions = records.filter((r) => r.kind === "capability" && r.capability === "runtime-composition");
-  if (compositions.length !== 1 || object(compositions[0]?.evidence)?.version !== options.cliVersion
-    || object(compositions[0]?.evidence)?.sdkVersion !== options.sdkVersion
-    || object(compositions[0]?.evidence)?.adapterVersion !== captureAdapterVersion
-    || object(compositions[0]?.evidence)?.protocolVersion !== FACTORY_PROTOCOL_VERSION) throw new Error("Retained Factory native runtime composition differs from the manifest.");
+  if (compositions.length !== 1 || !object(compositions[0]?.evidence)) throw new Error("Retained Factory capture requires one native runtime composition record.");
+  const composition = object(compositions[0]!.evidence)!;
+  capture = markRetainedVersion(capture, options.cliVersion, RETAINED_FACTORY_CLI_VERSIONS, [composition.version]);
+  capture = markRetainedVersion(capture, options.sdkVersion, RETAINED_FACTORY_SDK_VERSIONS, [composition.sdkVersion]);
+  capture = markRetainedVersion(capture, captureAdapterVersion, RETAINED_FACTORY_ADAPTER_VERSIONS, [composition.adapterVersion]);
   const initializations = records.filter((r) => r.source === FACTORY_CLIENT && r.method === "droid.initialize_session");
   if (initializations.length > 1 || options.expectsCompletion && initializations.length !== 1) throw new Error("Factory requires one owned initialization request.");
   const initialization = initializations[0];

@@ -1,0 +1,52 @@
+[
+  {
+    "type": "user",
+    "uuid": "u",
+    "sessionId": "authored-session",
+    "timestamp": "2026-11-07T00:00:00Z",
+    "message": {
+      "role": "user",
+      "content": "Read fixture.txt."
+    }
+  },
+  {
+    "type": "assistant",
+    "uuid": "a",
+    "sessionId": "authored-session",
+    "timestamp": "2026-11-07T00:00:00Z",
+    "message": {
+      "id": "m1",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Inspecting the fixture."
+        },
+        {
+          "type": "tool_use",
+          "id": "call-1",
+          "name": "Read",
+          "input": {
+            "file_path": "fixture.txt"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "user",
+    "uuid": "r",
+    "sessionId": "authored-session",
+    "timestamp": "2026-11-07T00:00:00Z",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "call-1",
+          "content": "Authored file content."
+        }
+      ]
+    }
+  }
+]

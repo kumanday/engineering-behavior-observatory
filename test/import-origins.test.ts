@@ -59,7 +59,7 @@ test("imported unknown outcomes cannot turn into zero failure or completion rate
   assert.equal(metrics.find(({ id }) => id === "capture-qualified-rate")!.measurement.numerator.value, 0);
 });
 
-test("declaring a harness difference cannot waive origin, producer, fixture or budget gates", () => {
+test("complete-attempt comparisons retain population, fixture and budget requirements without producer gates", () => {
   const request = JSON.parse(readFileSync("test/fixtures/comparison/exact.json", "utf8")) as ComparisonRequest;
   request.right.harness.id = "atif.harbor.pi";
   request.right.evidenceOrigin = { kind: "imported", profileDigest: digest };
@@ -69,7 +69,8 @@ test("declaring a harness difference cannot waive origin, producer, fixture or b
   assert.ok(report.reasons.some(({ code }) => code === "evidence-origin-mismatch"));
   request.left.evidenceOrigin = { kind: "imported", profileDigest: `sha256:${"b".repeat(64)}` };
   report = assessComparisonEligibility(request);
-  assert.ok(report.reasons.some(({ code }) => code === "producer-profile-mismatch"));
+  assert.ok(report.reasons.some(({ code }) => code === "capture-completeness-unproven"));
+  assert.equal(report.reasons.some(({ code }) => code === "producer-profile-mismatch"), false);
   request.left.evidenceOrigin.profileDigest = digest;
   request.right.fixture.digest = `sha256:${"c".repeat(64)}`;
   request.right.budgetDigest = `sha256:${"d".repeat(64)}`;
@@ -77,15 +78,16 @@ test("declaring a harness difference cannot waive origin, producer, fixture or b
   assert.ok(report.reasons.some(({ code }) => code === "fixture-mismatch"));
   assert.ok(report.reasons.some(({ dimension }) => dimension === "budget"));
   request.right.evidenceOrigin = { kind: "owned" };
-  assert.ok(assessComparisonEligibility(request).reasons.some(({ code }) => code === "producer-profile-mismatch"), "an imported harness cannot bypass origin gates by omitting its profile");
+  assert.ok(assessComparisonEligibility(request).reasons.some(({ code }) => code === "capture-completeness-unproven"), "an imported document cannot establish a complete owned attempt by omitting interpretation metadata");
 });
 
-test("imported Pi evidence flows through Atlas with origin labels, unknown outcomes and exact native pointers", { skip: !python }, async () => {
+test("an unknown producer and owned capture build a mixed Atlas cohort with exact pointers", { skip: !python }, async () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-import-origins-"));
   try {
     mkdirSync(join(root, "corpus"));
     const bundleRoot = join(root, "corpus/pi");
     const trajectory = JSON.parse(readFileSync("test/fixtures/atif/pi/parallel-failure-cache-write.atif.json", "utf8"));
+    trajectory.agent = { ...trajectory.agent, name: "acme-agent", version: "9.9.9" };
     trajectory.steps[1].tool_calls.forEach((call: { arguments: unknown }) => { call.arguments = { command: "npm test" }; });
     trajectory.steps[2].message = "All tests passed.";
     const sourcePath = join(root, "trajectory.json"); writeFileSync(sourcePath, JSON.stringify(trajectory));
@@ -99,7 +101,8 @@ test("imported Pi evidence flows through Atlas with origin labels, unknown outco
     const importedEntry = index.find(({ manifestKind }) => manifestKind === "import")!;
     assert.equal(importedEntry.evidenceOrigin, "imported");
     assert.equal(importedEntry.modelId, "synthetic-model");
-    assert.match(importedEntry.producerProfileDigest!, /^sha256:/u);
+    assert.equal(importedEntry.producerProfileDigest, undefined);
+    assert.equal(importedEntry.harnessId, "acme-agent");
     const evidence = await readImportedBehaviorEvidence(bundleRoot);
     const assertion = JSON.parse(readFileSync("test/fixtures/behavior-assertions/positive.json", "utf8")) as BehaviorAssertion;
     assertion.runId = "imported-run"; assertion.attemptId = "imported-attempt";
@@ -165,7 +168,7 @@ test("semantic judging uses every retained model/route alias and never requires 
     source.steps[1].message = "provider/Model[route] Model[route] served-model visible";
     const sourcePath = join(root, "source.json"); writeFileSync(sourcePath, JSON.stringify(source));
     const bundleRoot = join(root, "import");
-    const imported = await importAtifFile({ sourcePath, destination: bundleRoot, runId: "r", attemptId: "a", producer: listAtifProducerProfiles()[0]!.producer, pythonExecutable: python });
+    const imported = await importAtifFile({ sourcePath, destination: bundleRoot, runId: "r", attemptId: "a", producer: listAtifProducerProfiles()[0]!.producer, pythonExecutable: python, modelAliases: ["served-model", "synthetic-model"] });
     assert.deepEqual(new Set(imported.evidence.modelAliases), new Set(["provider/Model[route]", "Model[route]", "served-model", "synthetic-model"]));
     const observations = await createRetainedStructuralObservationSet(bundleRoot);
     const event = imported.evidence.dataset.events.find(({ family, attributes }) => family === "message" && attributes.role === "assistant")!;
@@ -199,13 +202,13 @@ test("origin selection omits indexed excluded-origin derived sources and still r
 });
 
 
-test("omitted ambiguous imported operations never establish zero failures", async () => {
+test("reused call IDs in separate imported steps retain units with unknown failure totals", async () => {
   const source = JSON.parse(readFileSync("test/fixtures/atif/pi/parallel-failure-cache-write.atif.json", "utf8"));
   source.steps.push({ ...structuredClone(source.steps[1]), step_id: 4 });
   const read = inspectAtifBytes(Buffer.from(JSON.stringify(source))); read.inspection.structural = { status: "valid", validator: "harbor", version: "0.24.0", diagnostics: [] };
   const evidence = await normalizePiAtif({ read, producer: listAtifProducerProfiles()[0]!.producer, runId: "r", attemptId: "a", manifestDigest: digest });
   const units = deriveUnits({ attemptId: "a", evidenceOrigin: "imported", events: evidence.dataset.events, occurrences: [], resolveContent: nativeContentResolver(evidence.outcomeCapture) }).units;
-  assert.equal(units.some(({ unit_kind }) => unit_kind === "tool"), false);
+  assert.equal(units.filter(({ unit_kind }) => unit_kind === "tool").length, 4);
   const lane = laneData({ attempt_id: "a", capture_qualification: "imported" } as never, units, evidence.dataset.events).lane;
   assert.equal(lane.errors, null);
 });

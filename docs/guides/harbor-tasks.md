@@ -386,4 +386,4 @@ normal meaning.
 
 This guard also applies with Harbor 0.24.0; it does not depend on a later
 Harbor release detecting the file. Post-run ATIF analysis uses the separate
-[import admission path](../reference/atif.md#pi-imports).
+[import admission path](../reference/atif.md#inspect-and-import).

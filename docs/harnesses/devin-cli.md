@@ -196,3 +196,17 @@ and asserts that the credential value never appears in retained evidence.
   as a non-`end_turn` stop or a process exit, both retained as gaps.
 - Subagent work appears only inside usage statistics; no child session
   identities are exposed over ACP, so child histories are never claimed.
+
+## Retained evidence and ATIF
+
+Retained evidence is read through this adapter's native format contract.
+Unfamiliar runtime or capture-adapter versions add a confidence limitation;
+version declarations and disagreements remain visible as cohort metadata.
+Malformed records and corrupted source bindings receive specific diagnostics.
+[Limitation definitions](../reference/atif-limitations.md) explain version confidence.
+
+Conforming ATIF uses EBO's generic core reader regardless of producer identity
+or version. The [coverage matrix](../reference/atif-harness-coverage.md) identifies
+this harness's upstream converter, source-surface differences, fixture provenance
+and measured equivalence. Imported document measures retain their own scope and
+do not acquire native capture qualification.

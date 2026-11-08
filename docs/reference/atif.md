@@ -1,175 +1,106 @@
-# ATIF source inspection
+# ATIF source imports
 
-`ebo atif inspect trajectory.json --python /path/to/pinned-venv/bin/python`
-reports source identity, structural validation, version policy, JSON-pointer
-records and reference availability. Inspection produces no behavioral measures
-or capture qualification. Its `ebo.atif-inspection/v1` receipt can be checked
-with `ebo validate`.
+EBO reads conforming ATIF documents from any producer. The core reader uses the
+ATIF schema version to project recorded messages, calls, linked results,
+observations, declared metrics and references into EBO events and operations.
+It requires neither a producer profile nor a Python installation.
 
-Install `harbor==0.24.0` in an isolated Python environment. EBO invokes its
-trajectory model in a bounded subprocess and records the installed model-source
-digest and validation-policy digest. An unavailable interpreter or different Harbor version produces an
-unavailable validation result. TypeScript coordinates ingestion and analysis.
-
-The reader accepts ATIF v1.2 through v1.8. Version policy is independent of
-Harbor's permissive current model: completion token IDs require v1.3, prompt
-token IDs v1.4, tool definitions and copied-context fields v1.5,
-multimodal content v1.6, embedded trajectory identities and declared inference
-counts and tool-call/result extensions v1.7, and audio v1.8. Older inference counts remain untracked. External
-subagent file references remain inspectable in older documents; session IDs
-identify runs and do not resolve embedded children. The
-[ATIF RFC changelog](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md#version-history)
-defines these version boundaries.
-
-Pre-v1.7 session-only subagent references use a declared compatibility validation
-view because Harbor's current model requires the v1.7 resolution keys. The receipt
-records the raw model's result, the compatibility-location count and up to 32
-locations, with an explicit truncation indicator. The validation
-placeholder is confined to that subprocess; retained source bytes, pointers and
-reference identities stay unchanged. A session-only reference remains unavailable
-until separately retained evidence binds its target.
-
-References are unavailable unless an operator explicitly admits each relative
-file with `--retain path`. Absolute paths, parent traversal, URLs, symlinks and
-missing files remain unavailable. EBO performs no network fetch. Each admitted
-file receives its own byte digest. Repeated references reuse the retained target
-and the aggregate budget counts unique files before reading them. Embedded references resolve by trajectory
-ID within their containing document and retain canonical pointed-value digests.
-
-Limits are 64 MiB per document, 4 MiB per step, 16 MiB per attachment, 64 MiB
-total attachment bytes, depth 64, one million JSON nodes, 100,000 pointer records
-and 100,000 values per token-ID or logprob array. Oversized or unsupported input
-keeps an inventory receipt with an explicit diagnostic. Oversized files retain
-their declared byte length; their contents are not read or hashed. Duplicate
-keys are rejected. Root byte digests remain separate from canonical pointer
-digests, so whitespace changes source identity without changing a pointed
-value's canonical identity.
-
-Numbers must be finite and integer values must fit JavaScript's safe-integer
-range. Larger integer evidence is retained by its source byte identity and
-rejected with `UNSAFE_JSON_INTEGER` before pointer records are created. UTF-8
-byte-order marks are accepted consistently by the reader and validator.
-
-These checks describe the supplied export. Import eligibility additionally
-requires a registered producer profile and document-specific coverage policy.
-
-## Pi imports
-
-`ebo atif profiles` lists the closed producer registry. Select the exact `id`
-whose agent and converter metadata match the source, then retain a local import:
+## Inspect and import
 
 ```sh
-ebo atif import trajectory.json ./new-import \
-  --run imported-run --attempt attempt-1 \
-  --profile 'pi/harbor-0.24.0/atif-1.7/agent-unknown/harbor' \
-  --python /path/to/pinned-venv/bin/python
+ebo atif inspect trajectory.json
+ebo atif import trajectory.json private-import --run study-1 --attempt trial-1
+ebo v2 inspect private-import private-analysis
 ```
 
-The profile and attempt identity are operator declarations. They do not verify
-upstream provenance or establish an EBO-owned capture. The importer writes an
-`ebo.import-manifest/v1` with qualification `imported` and restricted sharing.
-It retains raw source bytes before validation, writes admission last, and leaves
-failed imports inspectable without a manifest. Repeating the same import at the
-same destination is a verified no-op. A different source, producer or identity
-requires a new destination. References never trigger fetches or candidate code.
+Use a new destination for each admission. Source files are retained with
+restricted sharing. The run and attempt identifiers bind the import to an
+operator-selected analytical case; they do not prove ownership of execution.
+Imported qualification stays separate from qualified native capture.
 
-Retained readback verifies raw bytes, the structural-validation receipt, profile
-identity and JSON-pointer inventory. It needs no Python process. The shared
-retained-evidence loader and corpus index recognize the import manifest;
-existing owned-capture qualification rules remain separate. Corpus entries use
-`manifestKind: import`, and default owned-run aggregation excludes them.
+Inspection reports EBO structural validation, version policy, pointer digests,
+reference availability and unmapped fields. `--python /path/to/python` adds an
+optional cross-check using the installed Harbor validator. Its actual version,
+model digest and result appear in `harborCrossCheck`; disagreement leaves the
+EBO validation result available. Source-supplied code is never executed.
 
-The Pi mapping report describes the **retained selected trajectory**, with
-recorded operation signatures and producer-declared usage/inference diagnostics.
-These diagnostics are not full-attempt measures. The normalized dataset marks
-exact attempt measures unavailable because the converter can omit branches,
-interrupted messages and native request identities. No native request IDs,
-per-tool clocks or owned terminal events are synthesized. All events from a
-step share its native ordinal; a declared single-inference group prevents a
-sibling tool call from being treated as a response to another sibling's failure.
+The reader supports ATIF v1.2 through v1.8. A future v1 minor uses the latest
+known semantics and retains unfamiliar fields as unmapped. An unsupported major
+produces a specific diagnostic. A readable parent can retain a child whose
+major version is unsupported. [Limitation codes](atif-limitations.md) explain
+these qualifications.
 
-Copied steps, conversion gaps, summarizer children and unbound/borrowed children
-remain retained without new-agent-behavior events. Child documents require the
-same registered producer conventions before receiving behavior projections.
-Pending, missing and ambiguous results keep unknown status. Pi's converter can
-zero-fill a missing failure flag to false, so a false flag is retained as
-`producerIsError` without asserting native success. Empty converted arguments
-cannot establish an identical-input digest. Explicit true errors remain failure
-evidence. Zero-filled per-step usage stays unavailable even when positive sibling steps
-make the sum nonzero. Uncached input requires
-cache-write fields and reconciled step/final inclusive prompt totals.
+## Recorded populations
 
-The TypeScript API can also retain structurally valid unregistered producers;
-their records remain inspectable with no behavioral events or measures. New
-profiles require source pins, conformance checks and independent paired gates.
-`mapping.json` is a reproducible diagnostic; source bytes and the admission
-manifest are authoritative. Portable import export and leaderboard cohort
-selection have separate policies.
+Each measurement describes its recorded document. Embedded children have
+independent sources and populations, including when their agent versions
+differ. Parent totals are not added to child totals. Missing fields remain
+unknown; an explicitly empty call collection can establish a document-level
+zero. A zero never establishes the absence of activity outside that document.
 
-For Atlas and aggregation, select `evidenceOrigins: "imported"` in the
-aggregation request, or `"separate"` to include owned captures in separate
-origin groups. The default selects owned captures. See
-[evidence-origin rules](../evaluation/aggregation.md#evidence-origins).
+Tool calls and results correlate by `tool_call_id` within their issuing step.
+Repeated IDs in different steps remain distinct. Missing or ambiguous identities
+retain their content without inventing a logical operation. Bodyless result
+records remain endpoints. Result text does not establish success or failure:
+ATIF core has no tool-failure field. Folded results do not establish when the
+result arrived, so their issuing step ordinal cannot prove an execution follow-up.
 
-[Harbor source imports](harbor-imports.md) bind retained trial directories to
-execution identities, capture revisions and separate assessment records.
+The core retains `extra` without interpreting it. Literal text such as
+`[COMPACTED HISTORY]` is a message, not a compaction event. Copied context remains
+visible without adding new operations or inference counts. Declared inference
+counts remain separate from native provider request identities.
 
-Imported Atlas tool results keep an unknown status unless retained source fields
-explicitly establish an outcome. Result text alone does not establish a successful
-exit. Error totals remain unavailable when any result has an unknown outcome.
-Imported narratives also withhold whole-attempt freshness and last-check claims
-when complete ordered history is unproven. Cited source records remain inspectable.
+Step and final metrics retain their source field names and populations. Final
+values cite the recorded fields. Their presence does not establish component
+completeness or native billing semantics. Media, subagent and continuation
+references remain inspectable; unavailable files remain unavailable. Inspection
+can inventory explicitly admitted local files with `--retain relative/path`.
+The reader does not fetch remote references. Hidden reasoning and reversible
+token arrays remain protected by EBO's evidence projection.
 
-Judge preparation retains ordinary Pi assistant reports as model messages.
-Occurrence ratings resolve pointed argument objects and result strings directly,
-with the same hidden-content projection used for semantic evidence. Imported
-judge inputs carry their source class, unproven completeness and producer
-limitations; these constrain absence and whole-attempt claims. Declared session
-and trajectory IDs partition child operations without manufacturing native
-request or timing identities. Ambiguous duplicate child IDs remain unavailable.
+## Optional interpretation
 
-Pi behavior projection requires canonical JSON booleans and integer ordinals;
-Harbor's structural coercions are not applied silently to the retained source.
-Usage from a step with an untracked or aggregated inference count stays
-unavailable unless its component completeness is established. Positive merged
-usage cannot hide a zero-filled component. Independent fixture gates record
-these cases as named source-information losses.
+Pi and Codex have optional producer overlays for fixture-backed converter
+conventions. `ebo atif overlays` lists their matching rules and version ranges.
+`--profile ebo.pi-harbor` or `--profile ebo.codex-harbor` supplies example converter
+context for import. An agent name alone does not establish which converter ran.
+The library API accepts optional converter and context metadata without requiring
+source or wrapper digests. Document agent and schema fields remain authoritative
+for the recorded declaration.
 
-For a structural-only viewer pilot, run
-`node scripts/atif-import-pilot/build-atlas.mjs IMPORT_BUNDLE NEW_OUTPUT` after
-building EBO. It copies the admitted source into a new restricted destination,
-builds observations and an Atlas bundle, and verifies its retained evidence.
-Serve `NEW_OUTPUT/atlas` with `ebo atlas serve --bundle NEW_OUTPUT/atlas`.
-The viewer supports unavailable task identities; imported audit freshness and
-unknown failure totals remain unavailable in Swimlanes and Totals.
+An overlay can interpret extensions, qualify particular facts and record each
+adjustment with its reason and evidence pointers. Outside verified ranges, core
+content and counts remain available with conservative limitations. See
+[ATIF interpretation](../development/atif-producer-profiles.md) for the measured
+Pi and Codex gaps, and the [eight-harness coverage matrix](atif-harness-coverage.md)
+for converter availability and same-run evidence.
 
-Imported occurrence coverage stays unavailable for complete-attempt populations.
-Positive local occurrences remain available for cited evaluation; missing
-follow-ups do not produce automatic no-response ratings. Rating inputs mark
-source changes between calls as unknown and state their completeness limits.
-Document-local operation scopes keep repeated child identifiers distinct. The
-importer validates its generated mapping before publishing admission.
+## Admission and reopening
 
-Embedded-document usage is reconciled against each document’s own final metrics
-before summing admitted local totals. Judge preparation reserves the final-report
-tier for root-document reports; child traversal order does not replace the
-evaluated agent’s final answer.
+An import contains `trajectory.json`, `inspection.json`, `interpretation.json`,
+`mapping.json` and an `ebo.import-manifest/v2` manifest. The manifest binds raw
+source bytes, inspection, operator context and admission overlay IDs/digests.
+The interpretation receipt binds the core implementation, compatibility projector and overlays used at
+admission. Mapping is a derivation, not an editable source of truth.
 
-Atlas displays unavailable task, trial and terminal metadata explicitly in imported attempt audits. The retained metadata keeps its original null values.
+Reopening verifies source and receipt digests, then projects with the current
+reader. An interpretation revision reports the admission and current identities
+when code or overlays change. Existing v1 admissions remain readable; their
+recorded profile data is retained as admission history. Reinterpretation never
+rewrites an old manifest, packet, dataset or judgment. A changed derivation
+requires dependency reconciliation before reusing downstream analysis.
 
-## Additional producers in the v2 lane
+## Consumers and source context
 
-Run `ebo atif profiles --v2` to list Pi, Codex, Hermes and OpenClaw fingerprints.
-Supply an exact profile ID to `ebo atif import` or an explicit Harbor/leaderboard
-binding, then run `ebo v2 inspect IMPORT_BUNDLE NEW_ANALYSIS_DIRECTORY` for typed
-analysis and the local evidence viewer. `projectAtifV2()` provides the library
-projection over a structurally validated source; `readImportedBehaviorEvidenceV2()`
-reopens retained imports offline.
+Native and imported evidence use the same retained reader boundary for
+structural observations, cited judging and Atlas. Imported outcomes, capture
+quality and document measurements keep their distinct authority and scope.
+Choose `evidenceOrigins: "imported"` for imported aggregation or `"separate"` for
+separate owned and imported groups. The default selects owned captures.
+Complete-attempt comparisons require complete-attempt evidence; a document count
+does not supply it. [Aggregation](../evaluation/aggregation.md) defines this boundary.
 
-The import manifest's profile field describes v1 support. For the three
-additional producers, v1 retains the source and reports unsupported mapping;
-the v2 dataset carries its independent profile identity and digest. Their
-[profile support table](../development/atif-producer-profiles.md#additional-v2-interpretations)
-describes the exact converters, pending-call losses, untracked inference,
-partial-history rules and native-authority sources. Imported qualification and
-restricted sharing apply throughout.
+[Harbor imports](harbor-imports.md) bind trial directories to executions and
+assessments. [Leaderboard imports](leaderboard-imports.md) retain protected
+source facts, snapshot receipts and execution reuse. These source-context
+checks do not make a producer profile a prerequisite for reading ATIF.

@@ -1,3 +1,4 @@
+import { markRetainedVersion } from "./retained-version-policy.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -494,10 +495,7 @@ export function qualifyRetainedDeepSeekCapture(
   const children = new Map<string, string[]>();
   for (const observation of records) {
     const payload = record(observation.payload) ?? {};
-    if (observation.kind === "composition" && (!RETAINED_DEEPSEEK_SDK_VERSIONS.includes(String(record(payload.runtime)?.clientVersion))
-      || record(payload.runtime)?.clientVersion !== manifestVersion)) {
-      throw new Error("Retained DeepSeek capture is unqualified: native client version differs from the run manifest or is not a supported retained runtime.");
-    }
+    if (observation.kind === "composition") input = markRetainedVersion(input, manifestVersion, RETAINED_DEEPSEEK_SDK_VERSIONS, [record(payload.runtime)?.clientVersion]);
     if (observation.kind === "notification" && ["subagent.started", "subagent.finished"].includes(observation.method ?? "")
       && typeof payload.parentSessionId === "string" && typeof payload.childSessionId === "string") {
       children.set(payload.parentSessionId, [...(children.get(payload.parentSessionId) ?? []), payload.childSessionId]);

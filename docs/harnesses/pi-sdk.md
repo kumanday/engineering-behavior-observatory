@@ -80,3 +80,17 @@ EBO_LIVE_PI_SDK_SMOKE=1 node --test \
 ```
 
 Set `ZAI_API_KEY` in the environment. The smoke selects `glm-5.3-flash` and `https://api.z.ai/api/coding/paas/v4` only in its generated test input; neither is a product default.
+
+## Retained evidence and ATIF
+
+Retained evidence is read through this adapter's native format contract.
+Unfamiliar runtime or capture-adapter versions add a confidence limitation;
+version declarations and disagreements remain visible as cohort metadata.
+Malformed records and corrupted source bindings receive specific diagnostics.
+[Limitation definitions](../reference/atif-limitations.md) explain version confidence.
+
+Conforming ATIF uses EBO's generic core reader regardless of producer identity
+or version. The [coverage matrix](../reference/atif-harness-coverage.md) identifies
+this harness's upstream converter, source-surface differences, fixture provenance
+and measured equivalence. Imported document measures retain their own scope and
+do not acquire native capture qualification.
