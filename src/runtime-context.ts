@@ -12,7 +12,7 @@ import { runRuntimeCommand } from "./runtime-installation.js";
 
 export type RuntimeProbe = { componentId: string; package: string; expectedVersion: string; actualVersion: string; source: "package-metadata" | "executable" | "server-info" };
 export type StudyRuntimeContext = { studyRoot: string; launch: RuntimeLaunch; modules: Map<string, Record<string, any>>;
-  packages: Map<string, { root: string; metadata: Record<string, any> }>; options: StudyRuntimeOptions; probes: RuntimeProbe[] };
+  packages: Map<string, { root: string; metadata: Record<string, any> }>; options: StudyRuntimeOptions; probes: RuntimeProbe[]; executions?: Record<string, unknown>[] };
 const storage = new AsyncLocalStorage<StudyRuntimeContext>();
 export const currentStudyRuntime = (): StudyRuntimeContext | undefined => storage.getStore();
 export function studyRuntimeModule<T>(specifier: string, developmentModule: T): T {
@@ -98,11 +98,17 @@ export async function recordRuntimeProbe(componentId: string, actualVersion: str
   if (!context || !component) throw new RuntimePolicyError("RUNTIME_COMPONENT_NOT_FROZEN", componentId);
   context.probes.push({ componentId, package: component.name, expectedVersion: component.selection.release.version, actualVersion, source });
   const matches = actualVersion === component.selection.release.version;
-  await writeFile(join(context.studyRoot, context.launch.receiptLocator), canonicalizeMetadata({ ...context.launch, probes: context.probes, status: matches ? "probed" : "probe-failed" }), { mode: 0o600 });
+  await writeFile(join(context.studyRoot, context.launch.receiptLocator), canonicalizeMetadata({ ...context.launch, probes: context.probes, executions: context.executions ?? [], status: matches ? "probed" : "probe-failed" }), { mode: 0o600 });
   assertRuntimeProbe(componentId, component.selection.release.version, actualVersion);
 }
 
 export type StudyRuntimeBinding = { studyRoot: string; options?: StudyRuntimeOptions };
+export async function recordRuntimeExecution(execution: Record<string, unknown>): Promise<void> {
+  const context = currentStudyRuntime();
+  if (!context) throw new RuntimePolicyError("RUNTIME_STUDY_LOCK_REQUIRED", "Runtime execution needs a checked study lock.");
+  (context.executions ??= []).push(execution);
+  await writeFile(join(context.studyRoot, context.launch.receiptLocator), canonicalizeMetadata({...context.launch, probes: context.probes, executions: context.executions, status: "probed"}), {mode: 0o600});
+}
 export function requireStudyRuntime(role: string): StudyRuntimeContext {
   const context = currentStudyRuntime();
   if (!context || context.launch.role !== role) throw new RuntimePolicyError("RUNTIME_STUDY_LOCK_REQUIRED", `Execute ${role} inside its frozen study runtime. Prepare it with ebo runtime freeze.`);

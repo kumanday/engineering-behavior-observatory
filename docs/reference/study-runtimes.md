@@ -59,6 +59,14 @@ binary digest. Installation verifies that interpreter; each launch verifies the
 installed virtual environment and probes its installed package versions. A host
 interpreter cannot prepare a Python runtime labelled for a different platform.
 
+OpenHands capture starts an owned Docker container from the frozen image digest.
+EBO checks the running container's image identity and uses its published loopback
+port for REST and WebSocket requests. The launch receipt retains both expected
+and actual image identities. Run capture mounts the attempt workspace into that
+container. `baseUrl` is retained as a configuration compatibility field; the
+owned container supplies the execution endpoint. Remove `serverLaunch` executable
+settings when migrating a configuration to a study lock.
+
 ## Selection policy
 
 The default minimum release age is 24 hours. `policy.minReleaseAgeMs` changes it

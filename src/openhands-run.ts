@@ -1,5 +1,5 @@
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeVersion, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
-import { spawn } from "node:child_process";
+import { withLockedOpenHandsServer } from "./openhands-runtime.js";
 import { writeArtifactAtomically } from "./artifacts.js";
 import {
   captureOpenHandsAgentServerOwned,
@@ -39,9 +39,9 @@ export type CaptureOpenHandsAgentServerVerifier = (
   workspacePath: string,
 ) => VerifierResult | Promise<VerifierResult>;
 
-/** Starts the pinned Agent Server before the conversation when EBO owns its lifecycle. */
+/** Executable launches are read for configuration migration; execution uses the study image. */
 export type OpenHandsServerLaunch = {
-  /** Absolute path to the pinned Agent Server inside the attempt environment. */
+  /** Remove this field when migrating execution configuration to a study lock. */
   command: string;
   /** Defaults to a loopback host and the port taken from `baseUrl`. */
   args?: readonly string[];
@@ -103,43 +103,6 @@ export function withOpenHandsCredential(startConversation: Record<string, unknow
   if (llm === undefined) throw new Error("OpenHands startConversation.agent.llm is required to bind a credential.");
   if (llm.api_key === undefined) llm.api_key = value;
   return clone;
-}
-
-/** Start the pinned Agent Server when configured and wait until it reports the pinned version. */
-async function startOpenHandsServerIfConfigured(
-  configuration: OpenHandsAgentServerRunConfiguration,
-): Promise<(() => Promise<void>) | undefined> {
-  const launch = configuration.serverLaunch;
-  if (launch === undefined) return undefined;
-  if (typeof launch.command !== "string" || launch.command.trim() === "") throw new Error("OpenHands serverLaunch.command is required.");
-  const baseUrl = new URL(configuration.baseUrl);
-  const args = launch.args ?? ["--host", baseUrl.hostname, "--port", baseUrl.port === "" ? "80" : baseUrl.port];
-  const child = spawn(launch.command, [...args], { stdio: ["ignore", "ignore", "pipe"] });
-  let stderr = "";
-  child.stderr?.on("data", (chunk: Buffer) => { stderr = `${stderr}${chunk.toString()}`.slice(-4096); });
-  const readinessTimeoutMs = launch.readinessTimeoutMs ?? 120_000;
-  const deadline = Date.now() + readinessTimeoutMs;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`OpenHands server exited during startup (${child.exitCode}): ${stderr.slice(-500)}`);
-    try {
-      const response = await fetch(new URL("/server_info", baseUrl));
-      if (response.ok) {
-        const info = await response.json() as { version?: unknown };
-        if (typeof info.version === "string") {
-          return async () => {
-            if (child.exitCode !== null) return;
-            child.kill("SIGTERM");
-            const stopDeadline = Date.now() + 5_000;
-            while (Date.now() < stopDeadline && child.exitCode === null) await new Promise((resolve) => setTimeout(resolve, 100));
-            if (child.exitCode === null) child.kill("SIGKILL");
-          };
-        }
-      }
-    } catch { /* server not up yet */ }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  child.kill("SIGKILL");
-  throw new Error(`OpenHands server did not report a version within ${readinessTimeoutMs} ms: ${stderr.slice(-500)}`);
 }
 
 /** Execute and retain one caller-configured OpenHands Agent Server attempt. */
@@ -304,13 +267,15 @@ export async function captureOpenHandsAgentServerRunOwned(options: CaptureOpenHa
       if (workspace?.status !== "ready" || workspace.path === undefined) {
         throw new Error("OpenHands run requires a ready workspace path.");
       }
+      const workspacePath = workspace.path;
       const { serverWorkspacePath, serverLaunch, credentialEnv, ...configuration } = options.configuration;
       void serverLaunch; void credentialEnv;
-      const stopServer = await startOpenHandsServerIfConfigured(options.configuration);
+      if (serverLaunch !== undefined) throw new Error("OpenHands serverLaunch is replaced by the study's frozen image; remove the executable launch configuration.");
+      return withLockedOpenHandsServer({...configuration, workspacePath, ...(serverWorkspacePath ? {serverWorkspacePath} : {})}, async (server) => {
+      configuration.baseUrl = server.baseUrl;
       registerShutdown(async () => {
-        await stopServer?.();
-        if (progressiveSessionId === undefined) return;
-        await cleanupOpenHandsConversation(configuration, progressiveSessionId, options.shutdownGraceMs ?? 250);
+        try {if (progressiveSessionId !== undefined) await cleanupOpenHandsConversation(configuration, progressiveSessionId, options.shutdownGraceMs ?? 250);}
+        finally {await server.stop();}
       });
       try {
         capture = await captureOpenHandsAgentServerOwned({
@@ -328,12 +293,12 @@ export async function captureOpenHandsAgentServerRunOwned(options: CaptureOpenHa
           },
           startConversation: {
             ...startConversation,
-            workspace: { type: "local", working_dir: serverWorkspacePath ?? workspace.path },
+            workspace: { type: "local", working_dir: serverWorkspacePath ?? workspacePath },
           },
         });
       } finally {
         captureSettled = true;
-        await stopServer?.();
+
       }
       if (capture.captureError !== undefined) {
         return {
@@ -355,6 +320,7 @@ export async function captureOpenHandsAgentServerRunOwned(options: CaptureOpenHa
             }),
           }
         : { status: "failed", failureClass: "infrastructure", reason: `OpenHands conversation ended as ${String(status)}.`, evidence: capture };
+      });
     },
     ...(options.verifier === undefined ? {} : {
       verifier: async (context: VerifierExecutionContext) => {

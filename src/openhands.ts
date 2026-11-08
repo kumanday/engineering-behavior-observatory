@@ -1,4 +1,5 @@
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, recordRuntimeProbe, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
+import { withLockedOpenHandsServer } from "./openhands-runtime.js";
 import { retainedVersionProfile } from "./retained-version-policy.js";
 import type {
   AdapterCapabilityProfile,
@@ -152,6 +153,10 @@ export async function captureOpenHandsAgentServer(request: OpenHandsCaptureReque
 /** Internal conversation layer of an already checked launch. */
 export async function captureOpenHandsAgentServerOwned(request: OpenHandsCaptureRequest): Promise<OpenHandsCapture> {
   requireStudyRuntime("openhands-agent-server");
+  return withLockedOpenHandsServer(request, async (server) => captureOpenHandsConversation({...request, baseUrl: server.baseUrl}));
+}
+
+async function captureOpenHandsConversation(request: OpenHandsCaptureRequest): Promise<OpenHandsCapture> {
   if (request.runId.trim() === "" || request.attemptId.trim() === "") {
     throw new Error("OpenHands capture requires non-empty run and attempt identities.");
   }
@@ -200,7 +205,14 @@ export async function captureOpenHandsAgentServerOwned(request: OpenHandsCapture
 
   let serverInfo: Record<string, unknown> = {};
   try {
-    serverInfo = await requestJson(fetch, baseUrl, "/server_info", undefined, request.sessionApiKey, maxResponseBytes, request.signal, request.timeoutMs);
+    const deadline = Date.now() + (request.timeoutMs ?? 120_000);
+    for (;;) {
+      try {serverInfo = await requestJson(fetch, baseUrl, "/server_info", undefined, request.sessionApiKey, maxResponseBytes, request.signal, request.timeoutMs); break;}
+      catch (error) {
+        if (!(error instanceof TypeError) || (error.cause as {code?: string} | undefined)?.code !== "ECONNREFUSED" || Date.now() >= deadline || request.signal?.aborted) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
     append("server-info", serverInfo);
     if (typeof serverInfo.version !== "string") throw new Error("RUNTIME_PROBE_INVALID: OpenHands /server_info lacks a version.");
     await recordRuntimeProbe("openhands", serverInfo.version, "server-info");
