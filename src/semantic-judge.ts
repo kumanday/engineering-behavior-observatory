@@ -427,10 +427,10 @@ async function runOwnedSemanticJudge(options: RunAgentSdkSemanticJudgeOptions): 
 export async function runClaudeAgentSdkSemanticJudge(
   prompt: string,
   request: SemanticJudgeRequest,
-  queryFunction: typeof claudeQuery = claudeQuery,
+  queryFunction?: typeof claudeQuery,
   signal?: AbortSignal,
 ): Promise<SemanticJudgeBackendResult> {
-  return runInStudyRuntime("claude-agent-sdk", undefined, () => runClaudeAgentSdkSemanticJudgeOwned(prompt, request, queryFunction, signal));
+  return runInStudyRuntime("claude-agent-sdk", undefined, () => runClaudeAgentSdkSemanticJudgeOwned(prompt, request, queryFunction ?? studyRuntimeModule("@anthropic-ai/claude-agent-sdk", {query: claudeQuery}).query, signal));
 }
 
 async function runClaudeAgentSdkSemanticJudgeOwned(prompt: string, request: SemanticJudgeRequest, queryFunction: typeof claudeQuery, signal?: AbortSignal): Promise<SemanticJudgeBackendResult> {
