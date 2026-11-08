@@ -1,4 +1,4 @@
-import { studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeExecutable, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
 import * as developmentClient from "@deepseek-ai/dsh-sdk-client";
 import { markRetainedVersion } from "./retained-version-policy.js";
 import { readFileSync } from "node:fs";
@@ -123,6 +123,7 @@ export type DeepSeekNativeObservation = {
 };
 
 export type DeepSeekCaptureReport = {
+  runtime?: RuntimeExecutionSummary;
   status: "completed" | "failed" | "stopped" | "interrupted";
   composition: DeepSeekRuntimeComposition;
   capabilities: DeepSeekCapabilities;
@@ -138,6 +139,7 @@ export type DeepSeekCaptureReport = {
 };
 
 export type DeepSeekHarnessConfiguration = {
+  runtime?: StudyRuntimeBinding;
   composition: DeepSeekRuntimeComposition;
   input: string | ContentBlock[];
   sessionId: string;
@@ -275,6 +277,25 @@ export async function executeDeepSeekHarness(
   configuration: DeepSeekHarnessConfiguration,
   capture: DeepSeekNativeCapture,
 ): Promise<HarnessExecutionResult> {
+  return runInStudyRuntime("deepseek-harness", configuration.runtime, () => executeDeepSeekHarnessOwned(context, configuration, capture));
+}
+
+export function bindDeepSeekRuntime(configuration: DeepSeekHarnessConfiguration): DeepSeekHarnessConfiguration {
+  requireStudyRuntime("deepseek-harness");
+  const expected = [configuration.composition.launch.runtimeArtifact.locator, "--profile", configuration.composition.launch.profile, ...configuration.composition.patches.flatMap(({locator}) => ["--patch", locator])];
+  if (JSON.stringify(configuration.composition.launch.args) !== JSON.stringify(expected)) throw new Error("DeepSeek launch arguments do not match the retained runtime and patch artifacts.");
+  const locked = lockedRuntimeExecutable("deepseek-runtime"), composition = structuredClone(configuration.composition);
+  composition.runtime.clientVersion = studyRuntimeVersion("@deepseek-ai/dsh-sdk-client", DEEPSEEK_SDK_VERSION);
+  composition.runtime.protocolVersion = studyRuntimeVersion("@deepseek-ai/dsh-sdk-protocol", DEEPSEEK_SDK_VERSION);
+  composition.launch.runtimeArtifact = fileReference("/", locked.path);
+  composition.launch.command = process.execPath;
+  composition.launch.args = [locked.path, "--profile", composition.launch.profile, ...composition.patches.flatMap(({locator}) => ["--patch", locator])];
+  return {...configuration, composition};
+}
+
+/** Internal protocol layer of an already checked launch. */
+export async function executeDeepSeekHarnessOwned(context: HarnessExecutionContext, configuration: DeepSeekHarnessConfiguration, capture: DeepSeekNativeCapture): Promise<HarnessExecutionResult> {
+  configuration = bindDeepSeekRuntime(configuration);
   validateConfiguration(configuration, context);
   const composition = structuredClone(configuration.composition);
   const capabilities = deepSeekCapabilities(composition);
@@ -422,6 +443,7 @@ export async function executeDeepSeekHarness(
   }
 
   const report: DeepSeekCaptureReport = {
+    runtime: runtimeExecutionSummary(),
     status,
     composition,
     capabilities,

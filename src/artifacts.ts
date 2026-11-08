@@ -1706,8 +1706,8 @@ function runtimeBindingEvidenceErrors(artifact: string, manifest: Record<string,
     const lock = read(binding.lockArtifactId), launch = read(binding.launchArtifactId);
     const { digest, ...body } = lock;
     if (lock.schemaVersion !== "ebo.study-runtime-lock/v1" || digest !== binding.lockDigest || digest !== `sha256:${digestMetadata(body).value}`) throw new Error("Runtime lock digest differs from retained lock bytes.");
-    if (launch.schemaVersion !== "ebo.runtime-launch/v1" || launch.lockDigest !== binding.lockDigest || launch.role !== binding.role || launch.status !== "probed") throw new Error("Runtime launch and run identity differ.");
-    if (!Array.isArray(launch.probes) || !launch.probes.some((probe) => isRecord(probe) && typeof probe.actualVersion === "string" && typeof probe.expectedVersion === "string")) throw new Error("Runtime manifest lacks a retained actual version probe.");
+    if (launch.schemaVersion !== "ebo.runtime-launch/v1" || launch.lockDigest !== binding.lockDigest || launch.role !== binding.role) throw new Error("Runtime launch and run identity differ.");
+    if (!Array.isArray(launch.probes) || launch.probes.some((probe) => !isRecord(probe) || typeof probe.actualVersion !== "string" || typeof probe.expectedVersion !== "string")) throw new Error("Runtime manifest lacks a retained actual version probe.");
     return [];
   } catch (error) { return [{ artifact, schemaVersion: "run-manifest/v2", field: "/runtimeLock", message: error instanceof Error ? error.message : "Runtime evidence is invalid." }]; }
 }

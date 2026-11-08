@@ -1,9 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export const fakeSdkRuntimeOptions = (version: string, deprecatedDependency = false) => ({ now: () => "2026-11-07T12:00:00Z", query: async () => ({}), fetch: async (url: string) => {
+export const fakeSdkRuntimeOptions = (version: string | Record<string, string>, deprecatedDependency = false) => ({ now: () => "2026-11-07T12:00:00Z", query: async () => ({}), fetch: async (url: string) => {
   const name = decodeURIComponent(new URL(url).pathname.slice(1).split("/")[0]!);
-  const selectedVersion = name === "fixture-deprecated-dependency" ? "2.0.0" : name === "@factory/cli" ? "8.8.8" : version;
+  const selectedVersion = name === "fixture-deprecated-dependency" ? "2.0.0" : typeof version === "object" ? version[name]! : name === "@factory/cli" ? "8.8.8" : version;
   return new Response(JSON.stringify({ time: { [selectedVersion]: "2026-11-05T00:00:00Z" }, versions: { [selectedVersion]: { ...(name === "fixture-deprecated-dependency" ? { deprecated: "Use the platform API" } : deprecatedDependency ? { dependencies: { "fixture-deprecated-dependency": "2.0.0" } } : {}), dist: { tarball: `https://registry.npmjs.org/${encodeURIComponent(name)}.tgz`, integrity: "sha512-Zml4dHVyZQ==" } } } }));
 }, run: async (_cmd: string, args: readonly string[], cwd: string) => {
   const pkg = JSON.parse(await readFile(join(cwd, "package.json"), "utf8"));

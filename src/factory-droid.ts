@@ -1,5 +1,5 @@
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
-import { studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeExecutable, recordRuntimeProbe, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
 import * as developmentNodeSdk from "@factory/droid-sdk/node";
 import { markRetainedVersion } from "./retained-version-policy.js";
 import { FACTORY_BYOK_ENV_NAME, factoryCredentialEnvironment, factoryModelSelection, type FactoryModelRoute } from "./factory-model.js";
@@ -48,6 +48,7 @@ export type FactoryDroidConfiguration = {
   executableArgs?: readonly string[];
 };
 export type FactoryCaptureRequest = {
+  runtime?: StudyRuntimeBinding;
   runId: string; attemptId: string; workspacePath: string; prompt: string;
   configuration: FactoryDroidConfiguration; evidencePath: string; stderrPath?: string;
   signal?: AbortSignal; shutdownGraceMs?: number; maxLineBytes?: number;
@@ -63,6 +64,7 @@ export type FactoryRuntimeEvidence = {
   telemetry: { receipt: { status: "not-checked" }; contentCapture: "not-requested" };
 };
 export type FactoryCapture = QualifiedNativeCapture<ProtocolObservation> & {
+  runtime?: RuntimeExecutionSummary;
   sessionId?: string; turnId?: string; terminal?: Record<string, unknown>;
   terminalStatus?: "completed" | "interrupted" | "failed";
   process: ProtocolProcessResult; gaps: readonly FactoryCaptureGap[]; telemetry: FactoryRuntimeEvidence;
@@ -167,6 +169,20 @@ class RecordingFactoryTransport implements StringFramedDroidClientTransport {
 }
 
 export async function captureFactoryDroid(request: FactoryCaptureRequest): Promise<FactoryCapture> {
+  return runInStudyRuntime("factory-droid", request.runtime, async () => ({ ...await captureFactoryDroidOwned(request), runtime: runtimeExecutionSummary() }));
+}
+
+export async function bindFactoryRuntime(configuration: FactoryDroidConfiguration): Promise<FactoryDroidConfiguration> {
+  requireStudyRuntime("factory-droid");
+  const locked = lockedRuntimeExecutable("droid-cli");
+  const actual = await probeFactoryRuntime(locked.path, configuration.executableArgs);
+  await recordRuntimeProbe("droid-cli", actual.version, "executable");
+  return { ...configuration, executable: locked.path, version: locked.version, sdkVersion: studyRuntimeVersion("@factory/droid-sdk", FACTORY_SDK_VERSION) };
+}
+
+/** Internal protocol layer of an already checked launch. */
+export async function captureFactoryDroidOwned(request: FactoryCaptureRequest): Promise<FactoryCapture> {
+  request = { ...request, configuration: await bindFactoryRuntime(request.configuration) };
   validateFactoryConfiguration(request.configuration);
   for (const [label, value] of Object.entries({ runId: request.runId, attemptId: request.attemptId, prompt: request.prompt, workspacePath: request.workspacePath })) {
     if (typeof value !== "string" || value.trim() === "") throw new Error(`Factory ${label} is required.`);

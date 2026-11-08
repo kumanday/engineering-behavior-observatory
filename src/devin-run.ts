@@ -1,3 +1,4 @@
+import { currentStudyRuntime, requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeExecutable, recordRuntimeProbe, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -10,6 +11,8 @@ import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact, validateRu
 import { isSafeArtifactRelativePath, resolveBundleConfiguration, type ArtifactReference } from "./contracts.js";
 import {
   captureDevinCli,
+  captureDevinCliOwned,
+  bindDevinRuntime,
   DEVIN_ADAPTER_VERSION,
   DEVIN_CLI_VERSION,
   DEVIN_DEFAULT_SHUTDOWN_GRACE_MS,
@@ -123,6 +126,7 @@ export type CaptureDevinCliVerifier = (
 ) => VerifierResult | Promise<VerifierResult>;
 
 export type CaptureDevinCliRunOptions = {
+  runtime?: StudyRuntimeBinding;
   definition: RunBundleDefinition;
   startingWorkspacePath: string;
   workspace: WorkspaceCoordinator;
@@ -139,6 +143,7 @@ export type CaptureDevinCliRunOptions = {
 };
 
 export type CaptureDevinCliRunResult = {
+  runtime?: RuntimeExecutionSummary;
   attempt: RunAttemptResult;
   manifest: RunManifest;
   qualification: CaptureQualificationReport;
@@ -149,6 +154,13 @@ export type CaptureDevinCliRunResult = {
 
 /** Execute and retain one caller-configured Devin ACP attempt without scheduling or retrying it. */
 export async function captureDevinCliRun(options: CaptureDevinCliRunOptions): Promise<CaptureDevinCliRunResult> {
+  return runInStudyRuntime("devin-cli", options.runtime, () => captureDevinCliRunOwned(options));
+}
+
+/** Internal run layer of an already checked launch. */
+export async function captureDevinCliRunOwned(options: CaptureDevinCliRunOptions): Promise<CaptureDevinCliRunResult> {
+  requireStudyRuntime("devin-cli");
+  options = { ...options, configuration: await bindDevinRuntime(options.configuration) };
   if (options.definition.run.harness.id !== DEVIN_HARNESS) throw new Error(`Devin run harness must be ${DEVIN_HARNESS}.`);
   if (options.definition.run.model.id !== options.configuration.model) {
     throw new Error("The declared model must match the Devin CLI configuration.");
@@ -237,7 +249,7 @@ export async function captureDevinCliRun(options: CaptureDevinCliRunOptions): Pr
     options.definition.attempt.id,
     options.definition.attempt.retryOf,
   );
-  const performCapture = options.capture ?? captureDevinCli;
+  const performCapture = options.capture ?? captureDevinCliOwned;
   const attempt = await executeRunAttempt({
     run,
     assessmentMode: options.definition.run.assessmentMode,
@@ -333,12 +345,13 @@ export async function captureDevinCliRun(options: CaptureDevinCliRunOptions): Pr
   if (workspaceOutcome === undefined) delete terminal.workspaceArtifactId;
   const manifest = await assembler.finalize({ terminal, missingEvidence, qualification: qualificationOptions });
   const qualification = await qualifyRunBundle(assembler.bundleRoot, qualificationOptions);
-  if (capture === undefined || capture.sessionId === undefined) return { attempt, manifest, qualification, capture };
+  if (capture === undefined || capture.sessionId === undefined) return { runtime: runtimeExecutionSummary(), attempt, manifest, qualification, capture };
   const { dataset, coverage } = await describeAndValidateDevinDataset(capture);
-  return { attempt, manifest, qualification, capture, normalized: dataset, coverage };
+  return { runtime: runtimeExecutionSummary(), attempt, manifest, qualification, capture, normalized: dataset, coverage };
 }
 
 export type RunDevinQueueEntryOptions = {
+  runtime?: StudyRuntimeBinding;
   bundleRoot: string;
   queuePath: string;
   runId: string;
@@ -353,6 +366,7 @@ export type RunDevinQueueEntryOptions = {
 };
 
 export type DevinRunSummary = {
+  runtime?: RuntimeExecutionSummary;
   runId: string;
   attemptId: string;
   bundlePath: string;
@@ -369,6 +383,11 @@ export type DevinRunSummary = {
 
 /** Execute exactly one persisted frozen queue entry through the pinned Devin CLI adapter. */
 export async function runDevinQueueEntry(options: RunDevinQueueEntryOptions): Promise<DevinRunSummary> {
+  const binding = options.runtime ?? (currentStudyRuntime() ? undefined : { studyRoot: options.bundleRoot });
+  return runInStudyRuntime("devin-cli", binding, () => runDevinQueueEntryOwned(options));
+}
+
+async function runDevinQueueEntryOwned(options: RunDevinQueueEntryOptions): Promise<DevinRunSummary> {
   const bundleRoot = resolve(options.bundleRoot);
   const queue = readRunQueue(options.queuePath, undefined, { bundleRoot });
   const matches = queue.entries.filter((entry) => entry.runId === options.runId);
@@ -381,8 +400,9 @@ export async function runDevinQueueEntry(options: RunDevinQueueEntryOptions): Pr
   const toolPolicy = resolveDevinConfigurationRecord(bundleRoot, entry.configuration.nativeToolPolicy, "native-tool-policy");
   const captureProfile = resolveDevinConfigurationRecord(bundleRoot, queue.captureProfile, "capture-profile");
   if (entry.harness.id !== DEVIN_HARNESS) throw new Error(`Queue harness must be ${DEVIN_HARNESS}.`);
-  const runtime = await (options.probeRuntime ?? probeDevinRuntime)(harness.executable);
-  if (runtime.version !== harness.version) throw new Error(`Devin CLI ${harness.version} is required; received ${runtime.version}.`);
+  const locked = lockedRuntimeExecutable("devin");
+  const runtime = await (options.probeRuntime ?? probeDevinRuntime)(locked.path);
+  await recordRuntimeProbe("devin", runtime.version, "executable");
 
   const inspection = assertTaskPacketAdmitted(bundleRoot, entry.task.packetRef.locator);
   const packet = inspection.packet as TaskPacket;
@@ -416,7 +436,7 @@ export async function runDevinQueueEntry(options: RunDevinQueueEntryOptions): Pr
     const verifierReference = packet.assessmentMode === "verified" ? packet.restricted.verifier : undefined;
     const verifierFormat = verifierReference?.locator.toLowerCase().endsWith(".mjs") ? "module" : "commonjs";
     const definition = buildDefinition(queue.captureProfile, entry, packet, destination, attemptId, model, harness, verifierFormat);
-    const result = await captureDevinCliRun({
+    const result = await captureDevinCliRunOwned({
       definition,
       startingWorkspacePath,
       workspace: {
@@ -427,7 +447,7 @@ export async function runDevinQueueEntry(options: RunDevinQueueEntryOptions): Pr
         cleanup: () => cleanupWorkspace(workspace),
       },
       configuration: {
-        executable: runtime.path,
+        executable: locked.path,
         ...(options.executableArgs === undefined ? {} : { executableArgs: options.executableArgs }),
         version: harness.version,
         model: model.model,
@@ -468,6 +488,7 @@ export async function runDevinQueueEntry(options: RunDevinQueueEntryOptions): Pr
     const manifest = reopenManifest(destination);
     const stopReason = result.capture?.terminal?.stopReason;
     return {
+      runtime: runtimeExecutionSummary(),
       runId: entry.runId,
       attemptId,
       bundlePath: destination,
@@ -607,9 +628,9 @@ function withPinnedRuntime(definition: RunBundleDefinition): RunBundleDefinition
     ...structuredClone(definition),
     run: {
       ...structuredClone(definition.run),
-      harness: { ...structuredClone(definition.run.harness), id: DEVIN_HARNESS, version: DEVIN_CLI_VERSION },
+      harness: { ...structuredClone(definition.run.harness), id: DEVIN_HARNESS, version: lockedRuntimeExecutable("devin").version },
       runtime: definition.run.runtime.filter(({ name }) => !["devin-cli", "devin-adapter"].includes(name)).concat([
-        { source: "Cognition", name: "devin-cli", version: DEVIN_CLI_VERSION },
+        { source: "Cognition", name: "devin-cli", version: lockedRuntimeExecutable("devin").version },
         { source: "EBO", name: "devin-adapter", version: DEVIN_ADAPTER_VERSION },
       ]),
     },

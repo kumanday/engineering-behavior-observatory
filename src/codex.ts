@@ -1,3 +1,4 @@
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, probeLockedRuntimeExecutable, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { retainedVersionProfile } from "./retained-version-policy.js";
 import { createServer, type IncomingMessage, type Server } from "node:http";
@@ -143,6 +144,7 @@ export type CodexCaptureGap = {
 };
 
 export type CodexAppServerCaptureRequest = {
+  runtime?: StudyRuntimeBinding;
   runId: string;
   attemptId: string;
   workspacePath: string;
@@ -159,6 +161,7 @@ export type CodexAppServerCaptureRequest = {
 };
 
 export type CodexAppServerCapture = QualifiedNativeCapture<ProtocolObservation> & {
+  runtime?: RuntimeExecutionSummary;
   threadId?: string;
   turnId?: string;
   terminalStatus?: "completed" | "interrupted" | "failed";
@@ -236,6 +239,19 @@ export function createCodexHarnessAdapter(): HarnessAdapter<CodexAppServerCaptur
 
 /** Drive one owned Codex app-server thread and finish only on its matching turn/completed notification. */
 export async function captureCodexAppServer(request: CodexAppServerCaptureRequest): Promise<CodexAppServerCapture> {
+  return runInStudyRuntime("codex-app-server", request.runtime, async () => ({ ...await captureCodexAppServerOwned(request), runtime: runtimeExecutionSummary() }));
+}
+
+export async function bindCodexRuntime(configuration: CodexAppServerConfiguration): Promise<CodexAppServerConfiguration> {
+  requireStudyRuntime("codex-app-server");
+  const actual = await probeLockedRuntimeExecutable("codex", configuration.executableArgs);
+  return { ...configuration, executable: actual.path, version: actual.version };
+}
+
+/** Internal protocol layer of an already checked launch. */
+export async function captureCodexAppServerOwned(request: CodexAppServerCaptureRequest): Promise<CodexAppServerCapture> {
+  if (!isExactRuntimeVersion(request.configuration.version)) throw new Error("Codex capture requires an exact requested runtime version.");
+  request = { ...request, configuration: await bindCodexRuntime(request.configuration) };
   requireText(request.runId, "Codex run ID");
   requireText(request.attemptId, "Codex attempt ID");
   requireText(request.workspacePath, "Codex workspace path");

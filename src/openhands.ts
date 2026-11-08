@@ -1,3 +1,4 @@
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, recordRuntimeProbe, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { retainedVersionProfile } from "./retained-version-policy.js";
 import type {
   AdapterCapabilityProfile,
@@ -82,6 +83,7 @@ export type OpenHandsNativeRecord = {
 };
 
 export type OpenHandsCaptureRequest = {
+  runtime?: StudyRuntimeBinding;
   runId: string;
   attemptId: string;
   baseUrl: string;
@@ -101,6 +103,7 @@ export type OpenHandsCaptureRequest = {
 };
 
 export type OpenHandsCapture = QualifiedNativeCapture<OpenHandsNativeRecord> & {
+  runtime?: RuntimeExecutionSummary;
   conversationId?: string;
   serverInfo: Record<string, unknown>;
   finalConversation?: Record<string, unknown>;
@@ -143,6 +146,12 @@ export function createOpenHandsHarnessAdapter(): HarnessAdapter<OpenHandsCapture
 }
 
 export async function captureOpenHandsAgentServer(request: OpenHandsCaptureRequest): Promise<OpenHandsCapture> {
+  return runInStudyRuntime("openhands-agent-server", request.runtime, async () => ({ ...await captureOpenHandsAgentServerOwned(request), runtime: runtimeExecutionSummary() }));
+}
+
+/** Internal conversation layer of an already checked launch. */
+export async function captureOpenHandsAgentServerOwned(request: OpenHandsCaptureRequest): Promise<OpenHandsCapture> {
+  requireStudyRuntime("openhands-agent-server");
   if (request.runId.trim() === "" || request.attemptId.trim() === "") {
     throw new Error("OpenHands capture requires non-empty run and attempt identities.");
   }
@@ -193,9 +202,8 @@ export async function captureOpenHandsAgentServer(request: OpenHandsCaptureReque
   try {
     serverInfo = await requestJson(fetch, baseUrl, "/server_info", undefined, request.sessionApiKey, maxResponseBytes, request.signal, request.timeoutMs);
     append("server-info", serverInfo);
-    if (serverInfo.version !== OPENHANDS_AGENT_SERVER_VERSION) {
-      throw new Error(`OpenHands Agent Server ${OPENHANDS_AGENT_SERVER_VERSION} is required; received ${String(serverInfo.version)}.`);
-    }
+    if (typeof serverInfo.version !== "string") throw new Error("RUNTIME_PROBE_INVALID: OpenHands /server_info lacks a version.");
+    await recordRuntimeProbe("openhands", serverInfo.version, "server-info");
   } catch (error) {
     const captureError = errorMessage(error);
     append("capture-error", { error: captureError.slice(0, 512) });

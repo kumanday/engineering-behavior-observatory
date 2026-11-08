@@ -1,9 +1,9 @@
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeVersion, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { spawn } from "node:child_process";
 import { writeArtifactAtomically } from "./artifacts.js";
 import {
-  captureOpenHandsAgentServer,
+  captureOpenHandsAgentServerOwned,
   normalizeOpenHandsCapture,
-  OPENHANDS_AGENT_SERVER_VERSION,
   OPENHANDS_DEFAULT_MAX_RESPONSE_BYTES,
   OPENHANDS_MAX_RESPONSE_BYTES,
   type OpenHandsCapture,
@@ -61,6 +61,7 @@ export type OpenHandsAgentServerRunConfiguration = Omit<
 };
 
 export type CaptureOpenHandsAgentServerRunOptions = {
+  runtime?: StudyRuntimeBinding;
   definition: RunBundleDefinition;
   startingWorkspacePath: string;
   workspace: WorkspaceCoordinator;
@@ -76,6 +77,7 @@ export type CaptureOpenHandsAgentServerRunOptions = {
 };
 
 export type CaptureOpenHandsAgentServerRunResult = {
+  runtime?: RuntimeExecutionSummary;
   attempt: RunAttemptResult;
   manifest: RunManifest;
   qualification: CaptureQualificationReport;
@@ -123,7 +125,7 @@ async function startOpenHandsServerIfConfigured(
       const response = await fetch(new URL("/server_info", baseUrl));
       if (response.ok) {
         const info = await response.json() as { version?: unknown };
-        if (info.version === OPENHANDS_AGENT_SERVER_VERSION) {
+        if (typeof info.version === "string") {
           return async () => {
             if (child.exitCode !== null) return;
             child.kill("SIGTERM");
@@ -137,13 +139,19 @@ async function startOpenHandsServerIfConfigured(
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   child.kill("SIGKILL");
-  throw new Error(`OpenHands server did not report ${OPENHANDS_AGENT_SERVER_VERSION} within ${readinessTimeoutMs} ms: ${stderr.slice(-500)}`);
+  throw new Error(`OpenHands server did not report a version within ${readinessTimeoutMs} ms: ${stderr.slice(-500)}`);
 }
 
 /** Execute and retain one caller-configured OpenHands Agent Server attempt. */
 export async function captureOpenHandsAgentServerRun(
   options: CaptureOpenHandsAgentServerRunOptions,
 ): Promise<CaptureOpenHandsAgentServerRunResult> {
+  return runInStudyRuntime("openhands-agent-server", options.runtime, async () => ({ ...await captureOpenHandsAgentServerRunOwned(options), runtime: runtimeExecutionSummary() }));
+}
+
+/** Internal run layer of an already checked launch. */
+export async function captureOpenHandsAgentServerRunOwned(options: CaptureOpenHandsAgentServerRunOptions): Promise<CaptureOpenHandsAgentServerRunResult> {
+  requireStudyRuntime("openhands-agent-server");
   if (options.definition.run.harness.id !== "openhands-agent-server") {
     throw new Error(`OpenHands run harness must be openhands-agent-server; received ${options.definition.run.harness.id}.`);
   }
@@ -305,7 +313,7 @@ export async function captureOpenHandsAgentServerRun(
         await cleanupOpenHandsConversation(configuration, progressiveSessionId, options.shutdownGraceMs ?? 250);
       });
       try {
-        capture = await captureOpenHandsAgentServer({
+        capture = await captureOpenHandsAgentServerOwned({
           ...configuration,
           runId: definition.run.id,
           attemptId: definition.attempt.id,
@@ -537,12 +545,12 @@ function interruptedCapture(
 
 function withPinnedRuntime(definition: RunBundleDefinition): RunBundleDefinition {
   const runtime = definition.run.runtime.filter(({ name }) => name !== "openhands-agent-server");
-  runtime.push({ source: "OpenHands", name: "openhands-agent-server", version: OPENHANDS_AGENT_SERVER_VERSION });
+  runtime.push({ source: "OpenHands", name: "openhands-agent-server", version: lockedRuntimeVersion("openhands") });
   return {
     ...structuredClone(definition),
     run: {
       ...structuredClone(definition.run),
-      harness: { ...structuredClone(definition.run.harness), version: OPENHANDS_AGENT_SERVER_VERSION },
+      harness: { ...structuredClone(definition.run.harness), version: lockedRuntimeVersion("openhands") },
       runtime,
     },
   };

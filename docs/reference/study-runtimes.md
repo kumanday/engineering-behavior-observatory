@@ -47,7 +47,7 @@ for the study; `harnessPolicies` overrides it for an individual harness or
 supporting role. Selection uses registry publication timestamps and release
 ordering, rather than a mutable dist-tag.
 
-Stable releases are selected by default. A harness whose public packages use a
+Stable releases are selected by default. Default selection skips deprecated runtime releases. A harness whose public packages use a
 release-candidate channel needs an explicit opt-in:
 
 ```json
@@ -91,14 +91,23 @@ check retains its query receipt under `runtimes/resolution-failures/` or
 
 ## Library calls and retained bundles
 
-Library callers establish a study context with `withStudyRuntime({ studyRoot,
-role }, callback)`. SDK calls inside that callback load the selected study's
+Queue runners read the freeze from the study root. Direct capture callers pass
+`runtime: { studyRoot }`, or establish a context with
+`withStudyRuntime({ studyRoot, role }, callback)`. Each public capture launch
+refreshes withdrawal, integrity and security checks before it inspects capture
+inputs. Internal capture layers share that checked launch. SDK calls inside that callback load the selected study's
 modules. Concurrent studies retain separate module identities. An API contract
 failure names the missing export or method; an unfamiliar version number alone
 does not prevent loading a compatible SDK.
 
 Run bundles created in this context use `run-manifest/v2`. They retain the lock
 and launch receipt as internal diagnostics and bind them through `runtimeLock`.
-The launch receipt records actual package-version probes. A changed lock,
+The launch receipt records actual package-version, executable or server-info
+probes. A reported executable or server release that differs from its selected
+release blocks the launch and retains both values. DeepSeek and Devin also
+report service/protocol versions that are independent of the installed package
+release; those values stay in native evidence. A changed lock,
 missing receipt or inconsistent runtime binding fails bundle verification.
-Existing v1 bundles retain their original schema and bytes.
+Existing v1 bundles retain their original schema and bytes. Retained analysis
+uses the copies of the lock and launch receipt inside the bundle. It does not
+need an installed study runtime, a registry connection or an OSV query.

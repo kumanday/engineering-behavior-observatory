@@ -82,9 +82,10 @@ export function lockedRuntimeExecutable(componentId: string): { path: string; ve
 export async function recordRuntimeProbe(componentId: string, actualVersion: string, source: RuntimeProbe["source"]): Promise<void> {
   const context = currentStudyRuntime(), component = context?.launch.roots.find((root) => root.id === componentId);
   if (!context || !component) throw new RuntimePolicyError("RUNTIME_COMPONENT_NOT_FROZEN", componentId);
-  assertRuntimeProbe(componentId, component.selection.release.version, actualVersion);
   context.probes.push({ componentId, package: component.name, expectedVersion: component.selection.release.version, actualVersion, source });
-  await writeFile(join(context.studyRoot, context.launch.receiptLocator), canonicalizeMetadata({ ...context.launch, probes: context.probes, status: "probed" }), { mode: 0o600 });
+  const matches = actualVersion === component.selection.release.version;
+  await writeFile(join(context.studyRoot, context.launch.receiptLocator), canonicalizeMetadata({ ...context.launch, probes: context.probes, status: matches ? "probed" : "probe-failed" }), { mode: 0o600 });
+  assertRuntimeProbe(componentId, component.selection.release.version, actualVersion);
 }
 
 export type StudyRuntimeBinding = { studyRoot: string; options?: StudyRuntimeOptions };
@@ -129,4 +130,21 @@ async function resolveRuntimeImport(specifier: string, root: string): Promise<st
     if (url.protocol !== "file:") throw new Error("SDK entrypoint is not a local file.");
     return realpath(fileURLToPath(url));
   } catch (error) { throw new RuntimePolicyError("RUNTIME_SDK_CONTRACT_FAILED", `${specifier}: import resolution failed: ${error instanceof Error ? error.message.slice(0, 2000) : String(error)}`); }
+}
+
+/** Probe the immutable executable before starting an owned protocol turn. */
+export async function probeLockedRuntimeExecutable(componentId: string, prefix: readonly string[] = []): Promise<{path: string; version: string}> {
+  const locked = lockedRuntimeExecutable(componentId);
+  const { stdout } = await execFileAsync(locked.path, [...prefix, "--version"], { encoding: "utf8", timeout: 5_000, maxBuffer: 65_536,
+    env: { PATH: process.env.PATH, FACTORY_DROID_AUTO_UPDATE_ENABLED: "false" } });
+  const version = /(?:^|\s)v?(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?)(?:$|\s)/u.exec(stdout.trim())?.[1];
+  if (!version) throw new RuntimePolicyError("RUNTIME_PROBE_INVALID", `${componentId}: --version did not report a version.`);
+  await recordRuntimeProbe(componentId, version, "executable");
+  return { path: locked.path, version };
+}
+
+export function lockedRuntimeVersion(componentId: string): string {
+  const component = currentStudyRuntime()?.launch.roots.find((root) => root.id === componentId);
+  if (!component) throw new RuntimePolicyError("RUNTIME_COMPONENT_NOT_FROZEN", componentId);
+  return component.selection.release.version;
 }

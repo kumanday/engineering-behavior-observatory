@@ -1,3 +1,5 @@
+import { runtimeTest, prepareRuntimeCliFixture } from "./with-runtime-fixture.js";
+const test = runtimeTest("codex-app-server");
 import assert from "node:assert/strict";
 import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { createCodexHarborExecutor } from "../src/harbor/harnesses.js";
@@ -25,7 +27,6 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
-import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { gzipSync } from "node:zlib";
@@ -1040,9 +1041,10 @@ test("CLI signals interrupt and finalize the detached Codex child", async () => 
     const executable = join(root, "fake-codex.mjs");
     writeFileSync(executable, `#!/usr/bin/env node\nif (process.argv.includes("--version")) console.log("codex-cli ${CODEX_APP_SERVER_VERSION}");\nelse { process.argv.push("--mode=ignore-all-interrupts", "--codex-version=${CODEX_APP_SERVER_VERSION}"); await import(${JSON.stringify(pathToFileURL(fixture).href)}); }\n`, { mode: 0o700 });
     const queueFixture = createQueueFixture(root, executable);
+    const preload = await prepareRuntimeCliFixture(queueFixture.bundleRoot, "codex-app-server", executable);
     const outputRoot = join(root, "cli-runs");
     const child = spawn(process.execPath, [
-      resolve("dist/src/cli.js"),
+      "--import", preload, resolve("dist/src/cli.js"),
       "codex", "run",
       queueFixture.bundleRoot,
       queueFixture.queuePath,

@@ -1,3 +1,5 @@
+import { runtimeTest, prepareRuntimeCliFixture } from "./with-runtime-fixture.js";
+const test = runtimeTest("devin-cli");
 import assert from "node:assert/strict";
 import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { spawn } from "node:child_process";
@@ -5,7 +7,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import test from "node:test";
+
 import { pathToFileURL } from "node:url";
 import { gunzipSync, gzipSync } from "node:zlib";
 
@@ -387,12 +389,16 @@ test("captureDevinCli rejects a missing credential before allocating the OTLP re
     await assert.rejects(runFake(root, "success", ["logs"], undefined, "allow-once", "swe-2-high", "accept-edits", "EBO_DEVIN_UNSET_CREDENTIAL"), /EBO_DEVIN_UNSET_CREDENTIAL is not set/u);
     const script = `
       import { captureDevinCli } from ${JSON.stringify(pathToFileURL(resolve("dist/src/devin.js")).href)};
+      import { createConformanceRuntimeFixture } from ${JSON.stringify(pathToFileURL(resolve("dist/test/with-runtime-fixture.js")).href)};
+      import {rm} from "node:fs/promises";
+      const runtime = await createConformanceRuntimeFixture("devin-cli");
       try {
-        await captureDevinCli({ runId: "r", attemptId: "a", workspacePath: ${JSON.stringify(root)}, prompt: "x", evidencePath: ${JSON.stringify(join(root, "s.jsonl"))},
+        await captureDevinCli({ runtime, runId: "r", attemptId: "a", workspacePath: ${JSON.stringify(root)}, prompt: "x", evidencePath: ${JSON.stringify(join(root, "s.jsonl"))},
           configuration: { executable: process.execPath, executableArgs: [${JSON.stringify(fixture)}, "--mode=success"], version: ${JSON.stringify(DEVIN_CLI_VERSION)},
             model: "swe-2-high", mode: "accept-edits", permissionDecision: "allow-once",
             credentialEnv: "EBO_DEVIN_UNSET_CREDENTIAL", telemetry: { signals: ["logs", "metrics"] } } });
       } catch (error) { console.log(error.message); }
+      finally { await rm(runtime.studyRoot, {recursive: true, force: true}); }
     `;
     const child = spawn(process.execPath, ["--input-type=module", "-e", script], { env: { ...process.env, EBO_DEVIN_UNSET_CREDENTIAL: undefined }, stdio: ["ignore", "pipe", "inherit"] });
     let output = "";
@@ -635,7 +641,7 @@ test("runDevinQueueEntry executes a frozen queue entry and produces a normalized
       workspaceRoot: join(root, "workspaces"),
       probeRuntime: async () => ({ path: process.execPath, version: "3000.12.0" }),
       executableArgs: [fixture, "--mode=success"],
-    }), /3000\.11\.3 is required/u);
+    }), /RUNTIME_PROBE_MISMATCH.*expected 3000\.11\.3; actual 3000\.12\.0/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -754,9 +760,10 @@ test("CLI signals cancel and finalize the detached Devin child", async () => {
     const executable = join(root, "fake-devin.mjs");
     writeFileSync(executable, `#!/usr/bin/env node\nif (process.argv.includes("--version")) console.log("devin ${DEVIN_CLI_VERSION} (fixture)");\nelse { process.argv.push("--mode=hang"); await import(${JSON.stringify(pathToFileURL(fixture).href)}); }\n`, { mode: 0o700 });
     const queueFixture = createQueueFixture(root, executable);
+    const preload = await prepareRuntimeCliFixture(queueFixture.bundleRoot, "devin-cli", executable);
     const outputRoot = join(root, "cli-runs");
     const child = spawn(process.execPath, [
-      resolve("dist/src/cli.js"),
+      "--import", preload, resolve("dist/src/cli.js"),
       "devin", "run",
       queueFixture.bundleRoot,
       queueFixture.queuePath,

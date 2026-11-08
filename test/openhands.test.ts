@@ -3,7 +3,8 @@ import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("openhands-agent-server");
 import { fileURLToPath } from "node:url";
 import { openHandsCapabilityProfile } from "../src/openhands.js";
 import { createOpenHandsHarborExecutor } from "../src/harbor/harnesses.js";
@@ -487,7 +488,6 @@ test("aborts an in-flight conversation capture and retains the partial evidence"
     }
     throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
   };
-  setTimeout(() => controller.abort(), 1);
 
   const result = await captureOpenHandsAgentServer({
     runId: "run-1",
@@ -498,7 +498,7 @@ test("aborts an in-flight conversation capture and retains the partial evidence"
     fetch,
     webSocket: (url) => {
       const socket = new FakeWebSocket(url);
-      queueMicrotask(() => socket.open());
+      queueMicrotask(() => { socket.open(); controller.abort(); });
       return socket;
     },
     signal: controller.signal,

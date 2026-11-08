@@ -282,10 +282,14 @@ export class RunBundleAssembler {
     const context = currentStudyRuntime();
     if (context) {
       const primary = context.launch.roots[0]!;
-      const actual = context.packages.get(primary.name)?.metadata.version ?? primary.selection.release.version;
+      const actual = context.probes.findLast((probe) => probe.componentId === primary.id)?.actualVersion ?? "not-probed";
       this.run.harness.version = actual;
       this.run.runtime = this.run.runtime.map((component) => component.name === context.launch.role ? { ...component, version: actual } : component);
-      this.run.runtime = this.run.runtime.filter((component) => !context.launch.roots.some((root) => root.name === component.name)).concat(context.launch.roots.map((root) => ({ source: root.source, name: root.name, version: context.packages.get(root.name)?.metadata.version ?? root.selection.release.version })));
+      if (!this.run.runtime.some((component) => component.name === context.launch.role)) this.run.runtime.push({ source: "EBO", name: context.launch.role, version: actual });
+      this.run.runtime = this.run.runtime.map((component) => {
+        const root = context.launch.roots.find((root) => root.name === component.name);
+        return root ? { ...component, version: context.probes.findLast((probe) => probe.componentId === root.id)?.actualVersion ?? "not-probed" } : component;
+      }).concat(context.launch.roots.filter((root) => !this.run.runtime.some((component) => component.name === root.name)).map((root) => ({ source: root.source, name: root.name, version: context.probes.findLast((probe) => probe.componentId === root.id)?.actualVersion ?? "not-probed" })));
       this.runtimeLock = { lockDigest: context.launch.lockDigest, role: context.launch.role, lockArtifactId: "runtime-lock", launchArtifactId: "runtime-launch" };
       for (const [id, sourcePath] of [["runtime-lock", "runtimes/lock.json"], ["runtime-launch", context.launch.receiptLocator]]) {
         const relativePath = `runtime/${id}.json`;
@@ -444,6 +448,20 @@ export class RunBundleAssembler {
   }): Promise<RunManifest> {
     this.assertOpen();
     const terminal = structuredClone(input.terminal);
+    const context = currentStudyRuntime();
+    if (this.runtimeLock && context && context.launch.lockDigest === this.runtimeLock.lockDigest && context.launch.role === this.runtimeLock.role) {
+      const actual = context.probes.findLast((probe) => probe.componentId === context.launch.roots[0]!.id)?.actualVersion ?? "not-probed";
+      this.run.harness.version = actual;
+      this.run.runtime = this.run.runtime.map((component) => {
+        const root = context.launch.roots.find((root) => root.name === component.name);
+        const version = component.name === context.launch.role ? actual : root ? context.probes.findLast((probe) => probe.componentId === root.id)?.actualVersion ?? "not-probed" : undefined;
+        return version ? { ...component, version } : component;
+      });
+      const descriptor = this.evidence.find((descriptor) => descriptor.id === this.runtimeLock!.launchArtifactId)!;
+      await writeArtifactAtomically(this.bundleRoot, descriptor.relativePath, await readFile(join(context.studyRoot, context.launch.receiptLocator)), undefined, { overwrite: true });
+      const inspected = await inspectRetainedArtifact(this.bundleRoot, descriptor.relativePath);
+      descriptor.digest = digestString(inspected.digest.value); descriptor.sizeBytes = inspected.sizeBytes;
+    }
     const missingEvidence = input.missingEvidence ?? [];
     await this.checkpoint(this.evidence, this.run, terminal, missingEvidence, input.qualification);
     if (input.qualification !== undefined) {
