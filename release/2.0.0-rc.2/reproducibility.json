@@ -677,7 +677,7 @@
     "test/consumers-v2.test.ts": "48e5a572d8dd5cf67f2860941c6190d625d0896f0c187ce43873181b469135d9",
     "test/contracts.test.ts": "e8d42823e14210d4ee670851f498cb1dbcb7f75e7a4ec2dad0bf369e3f78e2c6",
     "test/corpus.test.ts": "9e4f7c4bc5ee3df64010d4a9cf5cbf23f0e1d79b141dc975161c257f5a1fca4a",
-    "test/cursor-sdk.test.ts": "4541ae7d65456dad80d07a2ba0a84444412d714fa8d00436eac9d5379776004a",
+    "test/cursor-sdk.test.ts": "1925e76b1ebe4686bf8fd8af225efcd53f0457f78d1c6b3609e6329b47893667",
     "test/decision-models.test.ts": "847c414bc659bfec47e0ac14e15fe83e96e4809b284bf64c09a4d5e4154c2f2d",
     "test/deepseek-adapter.test.ts": "b23a2bf8eaa4d68505530cf356ecc1a421963fa1b3ad0e9dfb09cef90a3830e6",
     "test/devin.test.ts": "103b97b0c00bcbf67ef14028a53b64dab0a6de9451c46eb3e973d43af899d247",

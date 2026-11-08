@@ -548,7 +548,7 @@ test("foreign, oversized, malformed, incomplete, or model-mismatched native stor
 test("CLI exposes Cursor run usage and never accepts an incomplete invocation", async () => {
   const output: string[] = [];
   assert.equal(await main(["cursor", "run", "bundle", "queue", "run"], (message) => output.push(message)), 1);
-  assert.equal(output.join(""), "Usage: ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n");
+  assert.equal(output.join(""), "Usage: ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n");
 });
 
 type Fixture = {
