@@ -1,9 +1,13 @@
+import {cp} from "node:fs/promises";
+import {readStudyRuntimeLock} from "../src/study-runtimes.js";
+import {bindStudyRuntimeQueue} from "../src/study-runtime-bindings.js";
+import {liveRuntimeTest} from "./with-runtime-fixture.js";
 import assert from "node:assert/strict";
 import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import test from "node:test";
+const test = liveRuntimeTest("harbor");
 import { createHarborAdapter, prepareHarborAdmission, preAdmissionDigestOf, admitHarborTask, freezeHarborTask,
   compileHarborRunQueue, runHarborBackedQueueEntry, digestBytes, createRetainedBehaviorEvidence,
   createPortableRunBundleExport, readPortableRunBundleExport, FACTORY_CONTRACT_DIGEST } from "../src/index.js";
@@ -39,6 +43,8 @@ name = "proof"
   put(join(task, "steps/proof/instruction.md"), "Create /workspace/capture-proof.txt containing exactly EBO_FACTORY_OK using a native tool, then reply DONE.");
   put(join(task, "steps/proof/tests/Dockerfile"), "FROM node:24.19.0-bookworm-slim\nCOPY . /tests\n");
   put(join(task, "steps/proof/tests/test.sh"), "#!/bin/sh\nset -eu\ntest \"$(cat /workspace/capture-proof.txt)\" = EBO_FACTORY_OK\nprintf 1 > /logs/verifier/reward.txt\n");
+  await cp(join(process.env.EBO_LIVE_RUNTIME_STUDY!, "runtimes"), join(study, "runtimes"), {recursive: true, force: false, errorOnExist: true});
+  const lock = await readStudyRuntimeLock(study);
   const adapter = await createHarborAdapter(), proposal = await prepareHarborAdmission(study, task, { adapter, assessmentMode: "verified" });
   const id = proposal.record.taskSourceId;
   put(join(study, "governance/reviews/harbor", `${id}.json`), JSON.stringify({ schemaVersion: "ebo.harbor-review/v1", taskSourceId: id,
@@ -46,7 +52,7 @@ name = "proof"
   await admitHarborTask(study, id, { adapter }); await freezeHarborTask(study, id, { adapter });
   const archive = { locator: "config/worker.tgz", digest: digestBytes(readFileSync(process.env.EBO_HARBOR_RUNTIME!)) };
   mkdirSync(join(study, "config"), { recursive: true }); copyFileSync(process.env.EBO_HARBOR_RUNTIME!, join(study, archive.locator));
-  const workerRef = ref("worker", { schemaVersion: "ebo.harbor-worker-runtime/v1", archive, node: "node", entrypoint: "dist/src/harbor/worker.js", environmentKeys: [credential] });
+  const workerRef = ref("worker", { schemaVersion: "ebo.harbor-worker-runtime/v2", studyLockDigest: lock.digest, archive, node: "node", entrypoint: "dist/src/harbor/worker.js", environmentKeys: [credential] });
   const build = JSON.parse(readFileSync(join(dirname(process.env.EBO_HARBOR_RUNTIME!), "image-build.json"), "utf8"));
   const binding = { image: process.env.EBO_SMOL_IMAGE!, recipeDigest: build.recipeDigest, baseImageDigest: build.baseImageDigest };
   const environmentRef = ref("environments", { schemaVersion: "ebo.smol-environments/v1", platform: "linux/arm64", runtimeArchiveDigest: archive.digest.value,
@@ -58,14 +64,14 @@ name = "proof"
   const queue = await compileHarborRunQueue({ schemaVersion: "ebo.experiment/v2", id: "factory-live-smol",
     taskSet: { task: { kind: "harbor-task", taskSourceId: id } }, modelSet: { model: { configurationRef: ref("model", model) } },
     harnessSet: { "factory-droid": { configurationRef: ref("harness", { schemaVersion, kind: "harness", adapter: "factory-droid",
-      executable: "/opt/ebo/factory-cli/node_modules/.bin/droid", version: "0.238.0", sdkVersion: "0.9.1", contractDigest: FACTORY_CONTRACT_DIGEST }),
+      executable: "/opt/ebo/factory-cli/node_modules/.bin/droid", version: lock.groups.flatMap(g => g.roots).find(r => r.id === "droid-cli")!.selection.release.version, sdkVersion: lock.groups.flatMap(g => g.roots).find(r => r.id === "droid-sdk")!.selection.release.version, contractDigest: FACTORY_CONTRACT_DIGEST }),
       nativeLimitsRef: ref("limits", { schemaVersion, kind: "native-limits", shutdownGraceMs: 2000 }),
       nativeToolPolicyRef: ref("tools", { schemaVersion, kind: "native-tool-policy", autonomyLevel: "off", permissionDecision: "proceed_once" }) } },
     captureProfile: ref("capture", { schemaVersion, kind: "capture-profile" }), trialCount: 1,
     coordinatorBudget: { maxWallClockMs: 180_000 }, ordering: { strategy: "sequential", seed: "factory-live" },
     execution: { environmentProfile: "smol", contextPolicy: "fresh", workerRef, environmentRef },
   }, { studyRoot: study, adapter });
-  const queuePath = join(root, "queue.json"); put(queuePath, JSON.stringify(queue));
+  const queuePath = join(root, "queue.json"); put(queuePath, JSON.stringify(await bindStudyRuntimeQueue(study, queue)));
   const owner = spawn(process.execPath, [resolve("dist/src/cli.js"), "harbor", "environment", "serve", study, queuePath], { stdio: ["ignore", "pipe", "pipe"] });
   const exited = new Promise<number | null>(done => owner.once("close", done));
   // Diagnostics remain in the restricted evidence directory, never printed with credentials.

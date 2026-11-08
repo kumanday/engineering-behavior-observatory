@@ -277,7 +277,7 @@ function projectManifest(root: string, manifestPath: string): CorpusIndexEntry {
     return entry;
   }
   const schemaVersion = isRecord(document) ? document.schemaVersion : undefined;
-  entry.manifestKind = schemaVersion === "run-manifest/v1" ? "run"
+  entry.manifestKind = ["run-manifest/v1", "run-manifest/v2"].includes(String(schemaVersion)) ? "run"
     : schemaVersion === "export-manifest/v1" ? "export" : isAtifImportSchema(schemaVersion) ? "import" : "unknown";
   entry.issues.push(...validateArtifact(manifestPath, document).map(({ field, message }) => ({ field, message })));
   if (!isRecord(document)) return entry;

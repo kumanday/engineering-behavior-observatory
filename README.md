@@ -122,7 +122,7 @@ evidence, and comparison caveats. Use new output paths when repeating it.
 ### Capture your own task
 
 For new isolated studies, use the [Harbor task workflow](docs/guides/harbor-tasks.md),
-available in EBO 1.x. Tasks run in local Smol VMs using a pinned guest runtime;
+Tasks run in local Smol VMs using the study’s frozen guest runtimes;
 task preparation and private repository setup stay local. Install the separate
 host virtualization prerequisites described in the guide before running a task.
 Harbor owns the task environment and steps; EBO captures the selected native
@@ -130,7 +130,7 @@ harness inside that environment. Existing packet-based studies remain supported
 and keep the workflow below.
 
 Prepare an admitted, frozen task packet and a queue with your harness
-configuration. Then run one selected entry:
+configuration. [Freeze the study’s runtime releases](docs/reference/study-runtimes.md) with the default 24-hour release age gate, inspect its security and deprecation warnings, and bind the queue. All arms and reruns reuse that lock. Then run one selected entry:
 
 ```sh
 ebo agent-sdk run study/bundle study/queue.json <run-id> study/runs

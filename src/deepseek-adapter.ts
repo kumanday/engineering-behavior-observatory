@@ -1,9 +1,11 @@
+import {coordinatorRuntimeEnvironment} from "./runtime-environment.js";
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeExecutable, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
+import * as developmentClient from "@deepseek-ai/dsh-sdk-client";
 import { markRetainedVersion } from "./retained-version-policy.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
-  HarnessClient,
   type HarnessClientOptions,
   type HarnessNotification,
   type NotificationSubscription,
@@ -122,6 +124,7 @@ export type DeepSeekNativeObservation = {
 };
 
 export type DeepSeekCaptureReport = {
+  runtime?: RuntimeExecutionSummary;
   status: "completed" | "failed" | "stopped" | "interrupted";
   composition: DeepSeekRuntimeComposition;
   capabilities: DeepSeekCapabilities;
@@ -137,6 +140,7 @@ export type DeepSeekCaptureReport = {
 };
 
 export type DeepSeekHarnessConfiguration = {
+  runtime?: StudyRuntimeBinding;
   composition: DeepSeekRuntimeComposition;
   input: string | ContentBlock[];
   sessionId: string;
@@ -213,9 +217,9 @@ export function createDeepSeekRuntimeComposition(input: DeepSeekRuntimeCompositi
     workspaceCwd,
     runtime: {
       clientPackage: "@deepseek-ai/dsh-sdk-client",
-      clientVersion: DEEPSEEK_SDK_VERSION,
+      clientVersion: studyRuntimeVersion("@deepseek-ai/dsh-sdk-client", DEEPSEEK_SDK_VERSION),
       protocolPackage: "@deepseek-ai/dsh-sdk-protocol",
-      protocolVersion: DEEPSEEK_SDK_VERSION,
+      protocolVersion: studyRuntimeVersion("@deepseek-ai/dsh-sdk-protocol", DEEPSEEK_SDK_VERSION),
     },
     route: {
       provider: required(input.provider, "DeepSeek provider"),
@@ -274,10 +278,29 @@ export async function executeDeepSeekHarness(
   configuration: DeepSeekHarnessConfiguration,
   capture: DeepSeekNativeCapture,
 ): Promise<HarnessExecutionResult> {
+  return runInStudyRuntime("deepseek-harness", configuration.runtime, () => executeDeepSeekHarnessOwned(context, configuration, capture));
+}
+
+export function bindDeepSeekRuntime(configuration: DeepSeekHarnessConfiguration): DeepSeekHarnessConfiguration {
+  requireStudyRuntime("deepseek-harness");
+  const expected = [configuration.composition.launch.runtimeArtifact.locator, "--profile", configuration.composition.launch.profile, ...configuration.composition.patches.flatMap(({locator}) => ["--patch", locator])];
+  if (JSON.stringify(configuration.composition.launch.args) !== JSON.stringify(expected)) throw new Error("DeepSeek launch arguments do not match the retained runtime and patch artifacts.");
+  const locked = lockedRuntimeExecutable("deepseek-runtime"), composition = structuredClone(configuration.composition);
+  composition.runtime.clientVersion = studyRuntimeVersion("@deepseek-ai/dsh-sdk-client", DEEPSEEK_SDK_VERSION);
+  composition.runtime.protocolVersion = studyRuntimeVersion("@deepseek-ai/dsh-sdk-protocol", DEEPSEEK_SDK_VERSION);
+  composition.launch.runtimeArtifact = fileReference("/", locked.path);
+  composition.launch.command = process.execPath;
+  composition.launch.args = [locked.path, "--profile", composition.launch.profile, ...composition.patches.flatMap(({locator}) => ["--patch", locator])];
+  return {...configuration, composition};
+}
+
+/** Internal protocol layer of an already checked launch. */
+export async function executeDeepSeekHarnessOwned(context: HarnessExecutionContext, configuration: DeepSeekHarnessConfiguration, capture: DeepSeekNativeCapture): Promise<HarnessExecutionResult> {
+  configuration = bindDeepSeekRuntime(configuration);
   validateConfiguration(configuration, context);
   const composition = structuredClone(configuration.composition);
   const capabilities = deepSeekCapabilities(composition);
-  const client = new HarnessClient(clientOptions(configuration));
+  const client = new (studyRuntimeModule("@deepseek-ai/dsh-sdk-client", developmentClient).HarnessClient)(clientOptions(configuration));
   const subscription = client.subscribeSessionTree(configuration.sessionId);
   const sensitiveValues = composition.environment.secretKeys.flatMap((key) => configuration.env[key] ?? []);
   let status: DeepSeekCaptureReport["status"] = "failed";
@@ -421,6 +444,7 @@ export async function executeDeepSeekHarness(
   }
 
   const report: DeepSeekCaptureReport = {
+    runtime: runtimeExecutionSummary(),
     status,
     composition,
     capabilities,
@@ -672,7 +696,7 @@ function clientOptions(configuration: DeepSeekHarnessConfiguration): HarnessClie
     processCwd: composition.launch.processCwd,
     ...(composition.launch.dshHome === undefined ? {} : { dshHome: composition.launch.dshHome }),
     env: {
-      ...structuredClone(configuration.env),
+      ...coordinatorRuntimeEnvironment(structuredClone(configuration.env)),
       ...(composition.launch.dshHome === undefined ? {} : { DSH_HOME: composition.launch.dshHome }),
     },
     ...(configuration.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: configuration.requestTimeoutMs }),
@@ -685,9 +709,9 @@ function clientOptions(configuration: DeepSeekHarnessConfiguration): HarnessClie
 function validateConfiguration(configuration: DeepSeekHarnessConfiguration, context: HarnessExecutionContext): void {
   assertArtifact("DeepSeek runtime composition", configuration.composition);
   if (configuration.composition.launch.command !== process.execPath
-      || configuration.composition.runtime.clientVersion !== DEEPSEEK_SDK_VERSION
-      || configuration.composition.runtime.protocolVersion !== DEEPSEEK_SDK_VERSION) {
-    throw new Error("DeepSeek runtime composition does not match the pinned public client runtime.");
+      || configuration.composition.runtime.clientVersion !== studyRuntimeVersion("@deepseek-ai/dsh-sdk-client", DEEPSEEK_SDK_VERSION)
+      || configuration.composition.runtime.protocolVersion !== studyRuntimeVersion("@deepseek-ai/dsh-sdk-protocol", DEEPSEEK_SDK_VERSION)) {
+    throw new Error("DeepSeek runtime composition differs from the loaded client/protocol packages.");
   }
   const expectedArgs = [
     configuration.composition.launch.runtimeArtifact.locator,

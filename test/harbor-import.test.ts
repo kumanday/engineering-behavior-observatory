@@ -1,3 +1,5 @@
+import {runtimeTest} from "./with-runtime-fixture.js";
+const judgeTest = runtimeTest("claude-agent-sdk");
 import { runAgentSdkSemanticJudge, type SemanticJudgeRequest } from "../src/semantic-judge.js";
 import { createRetainedStructuralObservationSet } from "../src/structural-observations.js";
 import { probeClaudeAgentSdkCapabilities } from "../src/agent-sdk.js";
@@ -351,7 +353,7 @@ test("lineage traversal shares one source byte budget instead of multiplying lim
 });
 
 
-test("Harbor-only executed model aliases reach retained semantic blinding", { skip: !python }, async () => {
+judgeTest("Harbor-only executed model aliases reach retained semantic blinding", { skip: !python }, async () => {
   const temp = temporary();
   try {
     const source = fixture(temp.root), alias = "provider/actual-model";

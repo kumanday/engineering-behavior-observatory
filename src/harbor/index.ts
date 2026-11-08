@@ -1,12 +1,11 @@
 /**
  * Harbor integration for the Engineering Behavior Observatory. Harbor
- * (pinned Python package) owns task semantics — task definition, content
+ * (official Python package) owns task semantics — task definition, content
  * identity, Docker environments, and verification — while EBO retains
  * orchestration, capture, and governance on top of the native harness
  * adapters. See docs/development/harbor-adr.md for the decision record.
  */
 export {
-  HARBOR_PACKAGE_PIN,
   HarborAdapterError,
   createHarborAdapter,
   type HarborAdapter,
@@ -78,6 +77,7 @@ export {
 export {
   createClaudeAgentSdkHarborExecutor,
   createCodexHarborExecutor,
+  createDevinHarborExecutor,
   createCursorHarborExecutor,
   createDeepSeekHarborExecutor,
   createOpenHandsHarborExecutor,

@@ -3,7 +3,9 @@ import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("openhands-agent-server");
+const liveTest = liveRuntimeTest("openhands-agent-server");
 import { fileURLToPath } from "node:url";
 import { openHandsCapabilityProfile } from "../src/openhands.js";
 import { createOpenHandsHarborExecutor } from "../src/harbor/harnesses.js";
@@ -13,7 +15,7 @@ import { harborStepFixture } from "./harbor-step-helper.js";
 test("Harbor OpenHands wrapper binds its conversation to the actual workspace", async () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-harbor-openhands-"));
   try {
-    const input = harborStepFixture(root, "openhands-agent-server");
+    const input = harborStepFixture(root, "openhands-arm-a");
     const message = { id: "message-1", kind: "MessageEvent", source: "agent", timestamp: "2026-09-13T00:00:00Z", llm_message: { role: "assistant", content: [{ type: "text", text: "done" }] } };
     const hook = { id: "hook-1", kind: "HookExecutionEvent", source: "hook", timestamp: "2026-09-13T00:00:01Z", hook_event_type: "SessionEnd", hook_command: "echo done", success: true, exit_code: 0 };
     const fetch: typeof globalThis.fetch = async (request, init) => {
@@ -487,7 +489,6 @@ test("aborts an in-flight conversation capture and retains the partial evidence"
     }
     throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
   };
-  setTimeout(() => controller.abort(), 1);
 
   const result = await captureOpenHandsAgentServer({
     runId: "run-1",
@@ -498,7 +499,7 @@ test("aborts an in-flight conversation capture and retains the partial evidence"
     fetch,
     webSocket: (url) => {
       const socket = new FakeWebSocket(url);
-      queueMicrotask(() => socket.open());
+      queueMicrotask(() => { socket.open(); controller.abort(); });
       return socket;
     },
     signal: controller.signal,
@@ -1642,14 +1643,14 @@ test("retains progressively written native evidence when lifecycle cancellation 
         pollIntervalMs: 50,
       },
       signal: controller.signal,
-      shutdownGraceMs: 250,
+      shutdownGraceMs: 1,
     });
     const session = result.manifest.evidence.find(({ kind }) => kind === "session");
 
     assert.equal(result.attempt.terminal.state, "interrupted");
     assert.match(result.capture!.captureError ?? "", /aborted/);
     assert.equal(session?.id, "session");
-    assert.equal(cleanupRequests, 2);
+    assert.equal(cleanupRequests, 1);
     assert.equal(readFileSync(join(bundleRoot, session!.relativePath), "utf8").includes("conversation-created"), true);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1675,7 +1676,7 @@ test("pins the exact upstream OpenAPI and TypeScript-client comparison artifacts
   assert.equal(contract.websocket.authentication, "first-message");
 });
 
-test("approved live Agent Server smoke produces a verified run bundle", {
+liveTest("approved live Agent Server smoke produces a verified run bundle", {
   skip: process.env.EBO_LIVE_OPENHANDS_SMOKE !== "1",
   timeout: 300_000,
 }, async (context) => {

@@ -5,6 +5,7 @@ For downloads and published artifacts, see
 
 | Version | Changes and verification | Support boundary |
 | :--- | :--- | :--- |
+| [2.0.0-rc.2](2.0.0-rc.2/README.md) | Unpublished candidate: generic ATIF, version-agnostic retained reading and study-frozen runtimes | [Candidate qualification](2.0.0-rc.2/QUALIFICATION.md) |
 | [2.0.0-rc.1](2.0.0-rc.1/README.md) | Unpublished candidate: retained ATIF sources, typed v2 analysis and migration accounting | [Candidate qualification](2.0.0-rc.1/QUALIFICATION.md) |
 | [1.4.0](1.4.0/README.md) | Live campaign monitor and retained Pi provider-error session qualification | [Runtime qualification](1.3.0/runtime-qualification.md) |
 | [1.3.0](1.3.0/README.md) | Factory Droid eighth harness, managed/BYOK routing, harness pin updates and Smol 1.26.1 / Harbor 0.24.0 | [Runtime qualification](1.3.0/runtime-qualification.md) |

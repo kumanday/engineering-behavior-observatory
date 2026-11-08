@@ -4,7 +4,8 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readd
 import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("cursor-sdk");
 import { Cursor } from "@cursor/sdk";
 
 import type {
@@ -46,11 +47,29 @@ const MODEL: ModelSelection = { id: "cursor-test-model", params: [{ id: "thinkin
 const AGENT_ID = "cursor-agent-fixture";
 const NATIVE_RUN_ID = "cursor-run-fixture";
 
+test("an alias arm executes a bound queue through an explicit matching runtime", async () => {
+  const fixture = createCursorFixture("cursor-arm-a");
+  try {
+    const {currentStudyRuntime} = await import("../src/runtime-context.js");
+    const {bindStudyRuntimeQueue, queueRunId} = await import("../src/study-runtime-bindings.js");
+    const {readRunQueue} = await import("../src/scheduler.js");
+    const context = currentStudyRuntime()!;
+    const bound = await bindStudyRuntimeQueue(context.studyRoot, readRunQueue(fixture.queuePath, undefined, {bundleRoot: fixture.bundleRoot}), {configurationRoot: fixture.bundleRoot});
+    writeFileSync(fixture.queuePath, JSON.stringify(bound));
+    const summary = await runCursorSdkQueueEntry({...fixture, runtime: {studyRoot: context.studyRoot, options: context.options}, apiKey: "fixture", modelLister: fakeModelLister, agentFactory: fakeAgentFactory()});
+    assert.equal(summary.classification, "completed");
+    assert.equal(summary.runId, queueRunId(bound.queue, fixture.runId));
+    const manifest = readManifest(summary.bundlePath);
+    assert.equal(manifest.runtimeLock!.studyFreezeDigest, bound.studyFreeze.digest);
+    await createRetainedBehaviorEvidence(summary.bundlePath);
+  } finally {rmSync(fixture.parent, {recursive: true, force: true});}
+});
+
 test("Harbor Cursor wrapper retains native retries, usage, session and workspace evidence", async () => {
   const fixture = createCursorFixture();
   try {
     const queue = JSON.parse(readFileSync(fixture.queuePath, "utf8"));
-    const input = harborStepFixture(fixture.parent, "cursor-sdk");
+    const input = harborStepFixture(fixture.parent, "cursor-arm-a");
     const result = await createCursorHarborExecutor({ studyRoot: fixture.bundleRoot,
       configuration: { ...queue.entries[0].configuration, captureProfile: queue.captureProfile },
       apiKey: "fixture-only", agentFactory: fakeAgentFactory() })(input);
@@ -88,7 +107,7 @@ test("runs one frozen Cursor SDK entry through native store, export, observation
 
     const manifest = readManifest(summary.bundlePath);
     assert.equal(manifest.run.model.provider, "cursor");
-    assert.deepEqual(manifest.run.runtime, [
+    assert.deepEqual(manifest.run.runtime.filter(({ source }) => source === "cursor"), [
       { source: "cursor", name: "cursor-sdk", version: "1.0.37" },
       { source: "cursor", name: "local-agent-runtime", version: "not-exposed" },
     ]);
@@ -529,7 +548,7 @@ test("foreign, oversized, malformed, incomplete, or model-mismatched native stor
 test("CLI exposes Cursor run usage and never accepts an incomplete invocation", async () => {
   const output: string[] = [];
   assert.equal(await main(["cursor", "run", "bundle", "queue", "run"], (message) => output.push(message)), 1);
-  assert.equal(output.join(""), "Usage: ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n");
+  assert.equal(output.join(""), "Usage: ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n");
 });
 
 type Fixture = {
@@ -541,7 +560,7 @@ type Fixture = {
   workspaceRoot: string;
 };
 
-function createCursorFixture(): Fixture {
+function createCursorFixture(arm = "cursor-sdk"): Fixture {
   const parent = mkdtempSync(join(tmpdir(), "ebo-cursor-sdk-test-"));
   const bundleRoot = join(parent, "bundle");
   mkdirSync(bundleRoot, { recursive: true });
@@ -604,6 +623,11 @@ function createCursorFixture(): Fixture {
   writeConfig(experiment.harnessSet["cursor-sdk"]!.nativeLimitsRef, records.limits, bundleRoot);
   writeConfig(experiment.harnessSet["cursor-sdk"]!.nativeToolPolicyRef, records.tools, bundleRoot);
   writeConfig(experiment.captureProfile, records.capture, bundleRoot);
+  if (arm !== "cursor-sdk") {
+    experiment.harnessSet[arm] = experiment.harnessSet["cursor-sdk"]!;
+    delete experiment.harnessSet["cursor-sdk"];
+    experiment.ordering.declaredOrder!.harnessIds = [arm];
+  }
   const queue = compileRunQueue(experiment, { bundleRoot });
   const queuePath = join(parent, "queue.json");
   writeRunQueue(queuePath, queue);

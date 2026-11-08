@@ -9,7 +9,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
-import test from "node:test";
+import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("factory-droid");
+const liveTest = liveRuntimeTest("factory-droid");
 import { captureFactoryDroid, FACTORY_CLI_VERSION, FACTORY_SDK_VERSION, qualifyFactoryCapture,
   describeAndValidateFactoryDataset, type FactoryDroidConfiguration, type FactoryCapture } from "../src/factory-droid.js";
 import { FACTORY_CONTRACT_DIGEST, captureFactoryDroidRun, runFactoryQueueEntry } from "../src/factory-run.js";
@@ -45,6 +47,20 @@ async function runFake(root: string, mode = "success", overrides: Partial<Factor
 }
 const retainedOptions = (capture: FactoryCapture, expectsCompletion = true) => ({ sessionId: capture.sessionId, expectsCompletion,
   cliVersion: FACTORY_CLI_VERSION, sdkVersion: FACTORY_SDK_VERSION });
+
+test("Factory records the loaded study SDK protocol declaration in both native configuration and telemetry", async () => {
+  const {withStudyRuntime} = await import("../src/runtime-context.js");
+  const {createConformanceRuntimeFixture} = await import("./with-runtime-fixture.js");
+  const binding = await createConformanceRuntimeFixture("factory-droid", false, undefined, 'export const FACTORY_PROTOCOL_VERSION = "fixture-future-protocol";');
+  const root = await temporaryRoot();
+  try {
+    const capture = await withStudyRuntime({...binding, role: "factory-droid"}, async () => runFake(root));
+    assert.equal(capture.telemetry.runtime.protocolVersion, "fixture-future-protocol");
+    const text = await readFile(join(root, "session.jsonl"), "utf8");
+    const configuration = text.trim().split("\n").map(line => JSON.parse(line)).find(row => row.kind === "capability" && row.capability === "runtime-composition");
+    assert.equal(configuration.evidence.protocolVersion, "fixture-future-protocol");
+  } finally {await rm(binding.studyRoot, {recursive: true, force: true}); await rm(root, {recursive: true, force: true});}
+});
 
 test("Factory real SDK records native frames before filtering and completes only the owned session/turn", async () => {
   const root = await temporaryRoot();
@@ -496,7 +512,7 @@ test("pinned native Factory BYOK uses Chat Completions through EBO without Facto
 // Opt-in live check: credentials are supplied through the process environment.
 // EBO_LIVE_FACTORY_EXECUTABLE must be the absolute pinned binary path.
 // EBO_LIVE_FACTORY_MODEL and EBO_LIVE_FACTORY_EFFORT select the authorized condition.
-test("live Factory CLI tool capture and retained readback", { skip: process.env.EBO_LIVE_FACTORY_CAPTURE_SMOKE !== "1", timeout: 180_000 }, async t => {
+liveTest("live Factory CLI tool capture and retained readback", { skip: process.env.EBO_LIVE_FACTORY_CAPTURE_SMOKE !== "1", timeout: 180_000 }, async t => {
   const byok = process.env.EBO_LIVE_FACTORY_ROUTE === "byok";
   const credentialEnv = byok ? "FIREWORKS_API_KEY" : "FACTORY_API_KEY";
   assert.ok(process.env[credentialEnv]);

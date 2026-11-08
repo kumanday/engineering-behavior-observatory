@@ -1,3 +1,5 @@
+import { bindActiveQueueEntry, queueEntryMatches, assertActiveRuntimeQueue, currentStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, studyRuntimeModule, type StudyRuntimeBinding, type RuntimeExecutionSummary } from "./runtime-context.js";
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { randomUUID } from "node:crypto";
 import { lstatSync } from "node:fs";
 import { cp, mkdtemp, rm } from "node:fs/promises";
@@ -10,7 +12,7 @@ import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact, validateRu
 import { isSafeArtifactRelativePath, resolveBundleConfiguration, type ArtifactReference } from "./contracts.js";
 import {
   assertCursorWorkspaceIsolation,
-  captureCursorSdkRun,
+  captureCursorSdkRunOwned,
   CURSOR_SDK_HARNESS,
   CURSOR_SDK_VERSION,
   type CursorSdkAgentFactory,
@@ -37,7 +39,7 @@ export type CursorSdkHarnessConfiguration = {
   schemaVersion: typeof CURSOR_SDK_CONFIG_SCHEMA_VERSION;
   kind: "harness";
   adapter: typeof CURSOR_SDK_HARNESS;
-  sdkVersion: typeof CURSOR_SDK_VERSION;
+  sdkVersion: string;
 };
 
 export type CursorSdkNativeLimitsConfiguration = {
@@ -76,6 +78,7 @@ export type CursorSdkConfigurationKind = CursorSdkConfigurationRecord["kind"];
 export type CursorSdkModelLister = (options: { apiKey: string; signal?: AbortSignal }) => Promise<SDKModel[]>;
 
 export type RunCursorSdkQueueEntryOptions = {
+  runtime?: StudyRuntimeBinding;
   bundleRoot: string;
   queuePath: string;
   runId: string;
@@ -89,6 +92,7 @@ export type RunCursorSdkQueueEntryOptions = {
 };
 
 export type CursorSdkRunSummary = {
+  runtime?: RuntimeExecutionSummary;
   runId: string;
   attemptId: string;
   bundlePath: string;
@@ -105,13 +109,18 @@ const ATTEMPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 /** Execute exactly one digest-pinned queue entry through the local Cursor SDK. */
 export async function runCursorSdkQueueEntry(options: RunCursorSdkQueueEntryOptions): Promise<CursorSdkRunSummary> {
+  const binding = options.runtime ?? (currentStudyRuntime() ? undefined : { studyRoot: options.bundleRoot });
+  return runInStudyRuntime("cursor-sdk", binding, () => runCursorSdkQueueEntryOwned(options));
+}
+
+async function runCursorSdkQueueEntryOwned(options: RunCursorSdkQueueEntryOptions): Promise<CursorSdkRunSummary> {
   const bundleRoot = resolve(options.bundleRoot);
   const queue = readRunQueue(options.queuePath, undefined, { bundleRoot });
-  const matches = queue.entries.filter((candidate) => candidate.runId === options.runId);
+  assertActiveRuntimeQueue(queue);
+  const matches = queue.entries.filter((entry) => queueEntryMatches(queue, entry, options.runId)).map((entry) => bindActiveQueueEntry(queue, entry));
   if (matches.length === 0) throw new Error(`Run "${options.runId}" is not in the queue.`);
   if (matches.length > 1) throw new Error(`Run "${options.runId}" matches more than one queue entry.`);
   const entry = matches[0]!;
-  if (entry.harness.id !== CURSOR_SDK_HARNESS) throw new Error(`Queue entry harness must be ${CURSOR_SDK_HARNESS}.`);
 
   const model = resolveCursorSdkConfigurationRecord(bundleRoot, entry.configuration.model, "model");
   resolveCursorSdkConfigurationRecord(bundleRoot, entry.configuration.harness, "harness");
@@ -123,7 +132,7 @@ export async function runCursorSdkQueueEntry(options: RunCursorSdkQueueEntryOpti
     throw new Error("An approved Cursor credential is required through the runtime secret path.");
   }
   if (options.signal?.aborted) throw new Error("Cursor model catalog lookup was interrupted.");
-  const catalogPromise = (options.modelLister ?? ((input) => Cursor.models.list({ apiKey: input.apiKey })))(
+  const catalogPromise = (options.modelLister ?? ((input) => studyRuntimeModule("@cursor/sdk", { Cursor }).Cursor.models.list({ apiKey: input.apiKey })))(
     { apiKey: auth, ...(options.signal === undefined ? {} : { signal: options.signal }) },
   );
   const availableModels = await abortablePreflight(catalogPromise, options.signal, "Cursor model catalog lookup");
@@ -181,7 +190,7 @@ export async function runCursorSdkQueueEntry(options: RunCursorSdkQueueEntryOpti
     baselineRoot = await mkdtemp(join(tmpdir(), "ebo-cursor-sdk-baseline-"));
     const startingWorkspacePath = join(baselineRoot, "workspace");
     await cp(workspace.path, startingWorkspacePath, { recursive: true, preserveTimestamps: true, force: false });
-    const result = await captureCursorSdkRun({
+    const result = await captureCursorSdkRunOwned({
       definition,
       startingWorkspacePath,
       workspace: {
@@ -219,6 +228,7 @@ export async function runCursorSdkQueueEntry(options: RunCursorSdkQueueEntryOpti
     });
     const manifest = reopenFinalManifest(attemptBundleRoot);
     return {
+      runtime: runtimeExecutionSummary(),
       runId: entry.runId,
       attemptId,
       bundlePath: attemptBundleRoot,
@@ -290,8 +300,8 @@ function validateConfigurationRecord(record: Record<string, unknown>, kind: Curs
     }
     case "harness":
       assertRecordKeys(record, ["adapter", "sdkVersion"], ["adapter", "sdkVersion"], reference);
-      if (record.adapter !== CURSOR_SDK_HARNESS || record.sdkVersion !== CURSOR_SDK_VERSION) {
-        throw configurationError(reference, `must pin ${CURSOR_SDK_HARNESS} ${CURSOR_SDK_VERSION}`);
+      if (record.adapter !== CURSOR_SDK_HARNESS || !isExactRuntimeVersion(record.sdkVersion)) {
+        throw configurationError(reference, `must declare ${CURSOR_SDK_HARNESS} and an exact SDK version`);
       }
       return;
     case "native-limits":

@@ -1,4 +1,4 @@
-"""Regenerate authored producer fixtures with pinned independent converters. No agents run."""
+"""Regenerate authored producer fixtures with independent converters. No agents run."""
 import argparse
 import hashlib
 import json
@@ -14,16 +14,11 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("root", type=pathlib.Path)
 parser.add_argument("--check", action="store_true")
 args = parser.parse_args()
-if version("harbor") != "0.24.0":
-    raise SystemExit("Requires harbor==0.24.0")
-expected = {codex: "1fbd52746468b9734cc3af963c9398a21f6fda6f7173b84fa0ac3ae0fe623c66",
-            hermes: "561549f4c3449e3c4a7cbc3e6929c8b1b02b754567a551feec02df6b7196087e",
-            trajectories: "c64c9a8e47c731d4f18337d3e05469044c470d73a57e8e10333c1c8bf004f894"}
-for module, digest in expected.items():
-    if hashlib.sha256(pathlib.Path(module.__file__).read_bytes()).hexdigest() != digest:
-        raise SystemExit(f"Converter source drift: {module.__name__}")
+print(json.dumps({"harborVersion": version("harbor")}), flush=True)
+modules = [codex, hermes, trajectories]
+actual = {module.__name__: hashlib.sha256(pathlib.Path(module.__file__).read_bytes()).hexdigest() for module in modules}
 manifest = {"schemaVersion": "ebo.atif-producer-fixtures/v1", "harborVersion": version("harbor"),
-            "converterDigests": {m.__name__: d for m, d in expected.items()}, "fixtures": []}
+            "converterDigests": actual, "fixtures": []}
 for source in sorted(args.root.glob("*.native.*")):
     name, extension = source.name.split(".native.")
     family = name.split("-", 1)[0]
@@ -58,8 +53,8 @@ for source in sorted(args.root.glob("*.native.*")):
 target = args.root / "manifest.json"
 data = json.dumps(manifest, indent=2) + "\n"
 if args.check:
-    if target.read_text() != data:
-        raise SystemExit("Fixture manifest drift")
+    if json.loads(target.read_text())["fixtures"] != manifest["fixtures"]:
+        raise SystemExit("Fixture digest drift")
 else:
     target.write_text(data)
 print(f"PASS: {len(manifest['fixtures'])} independent deterministic producer conversions")

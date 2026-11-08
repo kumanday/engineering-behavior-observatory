@@ -1,3 +1,5 @@
+import { bindActiveQueueEntry, queueEntryMatches, assertActiveRuntimeQueue, currentStudyRuntime, requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
+import * as developmentSdk from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { renameSync } from "node:fs";
 import { cp, lstat, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
@@ -5,13 +7,6 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
-  createAgentSession,
-  createBashToolDefinition,
-  DefaultResourceLoader,
-  ModelRuntime,
-  SessionManager,
-  SettingsManager,
-  VERSION as PI_SDK_VERSION,
   type AgentSessionEvent,
   type ExtensionAPI,
   type InlineExtension,
@@ -70,7 +65,7 @@ export const PI_ADAPTER_VERSION = "1.0.0";
 export const RETAINED_PI_ADAPTER_VERSIONS: readonly string[] = ["1.0.0"];
 export const PI_NORMALIZATION_ADAPTER_VERSION = "1.0.0";
 export const PINNED_PI_SDK_VERSION = "1.1.0";
-/** Pi SDK versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
+/** Pi SDK versions with checked conformance fixtures; other retained releases carry confidence limitations. */
 export const RETAINED_PI_SDK_VERSIONS: readonly string[] = [PINNED_PI_SDK_VERSION, "0.87.1", "0.85.1"];
 
 const ATTEMPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -104,7 +99,7 @@ export type PiHarnessConfiguration = {
   schemaVersion: typeof PI_CONFIG_SCHEMA_VERSION;
   kind: "harness";
   adapter: typeof PI_HARNESS;
-  version: typeof PINNED_PI_SDK_VERSION;
+  version: string;
   extensions?: ArtifactReference[];
   skills?: ArtifactReference[];
   prompts?: ArtifactReference[];
@@ -267,6 +262,7 @@ export type PiSessionFactoryInput = {
 export type PiSessionFactory = (input: PiSessionFactoryInput) => Promise<PiSession>;
 
 export type CapturePiSdkRunOptions = {
+  runtime?: StudyRuntimeBinding;
   definition: RunBundleDefinition;
   configurationRoot: string;
   startingWorkspacePath: string;
@@ -287,6 +283,7 @@ export type CapturePiSdkRunOptions = {
 };
 
 export type CapturePiSdkRunResult = {
+  runtime?: RuntimeExecutionSummary;
   attempt: RunAttemptResult;
   manifest: RunManifest;
   qualification: CaptureQualificationReport;
@@ -294,7 +291,12 @@ export type CapturePiSdkRunResult = {
 
 /** Execute one direct Pi TypeScript SDK session and retain native history, transient events, and passive observations. */
 export async function capturePiSdkRun(options: CapturePiSdkRunOptions): Promise<CapturePiSdkRunResult> {
-  if (PI_SDK_VERSION !== PINNED_PI_SDK_VERSION) throw new Error(`Pi SDK ${PINNED_PI_SDK_VERSION} is required; installed ${PI_SDK_VERSION}.`);
+  return runInStudyRuntime("pi-sdk", options.runtime, () => capturePiSdkRunOwned(options));
+}
+
+/** Internal capture layer of an already checked launch. */
+export async function capturePiSdkRunOwned(options: CapturePiSdkRunOptions): Promise<CapturePiSdkRunResult> {
+  requireStudyRuntime("pi-sdk");
   if (options.definition.run.harness.id !== PI_HARNESS) throw new Error(`Pi run harness must be ${PI_HARNESS}.`);
   if (options.definition.run.model.id !== options.model.model) throw new Error("Declared model does not match Pi configuration.");
   if (options.toolPolicy.environmentAllowlist.includes(options.model.apiKeyEnv)) {
@@ -616,12 +618,12 @@ export async function capturePiSdkRun(options: CapturePiSdkRunOptions): Promise<
   }
   const manifest = await assembler.finalize({ terminal, missingEvidence, qualification: qualificationOptions });
   const qualification = await qualifyRunBundle(assembler.bundleRoot, qualificationOptions);
-  return { attempt, manifest, qualification };
+  return { attempt, manifest, qualification, runtime: runtimeExecutionSummary() };
 }
 
 async function createProductionPiSession(input: PiSessionFactoryInput): Promise<PiSession> {
   input.signal.throwIfAborted();
-  const modelRuntime = await ModelRuntime.create({
+  const modelRuntime = await piSdk().ModelRuntime.create({
     authPath: join(input.sessionDirectory, "auth.json"),
     modelsPath: null,
     refreshOnCreate: false,
@@ -651,7 +653,7 @@ async function createProductionPiSession(input: PiSessionFactoryInput): Promise<
   const model = modelRuntime.getModel(input.model.provider, input.model.model);
   if (model === undefined) throw new Error(`Pi model ${input.model.provider}/${input.model.model} is unavailable after explicit registration.`);
 
-  const settingsManager = SettingsManager.inMemory({
+  const settingsManager = piSdk().SettingsManager.inMemory({
     enableInstallTelemetry: false,
     retry: {
       enabled: (input.limits.maxRetries ?? 0) > 0,
@@ -664,7 +666,7 @@ async function createProductionPiSession(input: PiSessionFactoryInput): Promise<
     },
   }, { projectTrusted: false });
   const resources = resolvePiResources(input.bundleRoot, input.harness);
-  const resourceLoader = new DefaultResourceLoader({
+  const resourceLoader = new (piSdk().DefaultResourceLoader)({
     cwd: input.workspacePath,
     agentDir: input.sessionDirectory,
     settingsManager,
@@ -705,10 +707,10 @@ async function createProductionPiSession(input: PiSessionFactoryInput): Promise<
     throw new Error("Pi did not load the digest-pinned context files.");
   }
 
-  const sessionManager = SessionManager.create(input.workspacePath, input.sessionDirectory);
+  const sessionManager = piSdk().SessionManager.create(input.workspacePath, input.sessionDirectory);
   const allowedEnvironment = new Set(input.toolPolicy.environmentAllowlist);
   const extensionToolNames = resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()]);
-  const bashTool = createBashToolDefinition(input.workspacePath, {
+  const bashTool = piSdk().createBashToolDefinition(input.workspacePath, {
     exposeSessionEnvironment: false,
     spawnHook: ({ command, cwd, env }) => ({
       command,
@@ -716,7 +718,7 @@ async function createProductionPiSession(input: PiSessionFactoryInput): Promise<
       env: filterPiToolEnvironment(env, allowedEnvironment, input.model.apiKeyEnv),
     }),
   });
-  const { session, extensionsResult } = await createAgentSession({
+  const { session, extensionsResult } = await piSdk().createAgentSession({
     cwd: input.workspacePath,
     agentDir: input.sessionDirectory,
     modelRuntime,
@@ -1151,6 +1153,7 @@ function piUnmappedReason(record: PiNativeRecord): string {
 }
 
 export type RunPiQueueEntryOptions = {
+  runtime?: StudyRuntimeBinding;
   bundleRoot: string;
   queuePath: string;
   runId: string;
@@ -1162,6 +1165,7 @@ export type RunPiQueueEntryOptions = {
 };
 
 export type PiRunSummary = {
+  runtime?: RuntimeExecutionSummary;
   runId: string;
   attemptId: string;
   bundlePath: string;
@@ -1175,12 +1179,17 @@ export type PiRunSummary = {
 
 /** Execute exactly one frozen queue entry through the pinned direct Pi SDK integration. */
 export async function runPiQueueEntry(options: RunPiQueueEntryOptions): Promise<PiRunSummary> {
+  const binding = options.runtime ?? (currentStudyRuntime() ? undefined : { studyRoot: options.bundleRoot });
+  return runInStudyRuntime("pi-sdk", binding, () => runPiQueueEntryOwned(options));
+}
+
+async function runPiQueueEntryOwned(options: RunPiQueueEntryOptions): Promise<PiRunSummary> {
   const bundleRoot = resolve(options.bundleRoot);
   const queue = readRunQueue(options.queuePath, undefined, { bundleRoot });
-  const matches = queue.entries.filter((entry) => entry.runId === options.runId);
+  assertActiveRuntimeQueue(queue);
+  const matches = queue.entries.filter((entry) => queueEntryMatches(queue, entry, options.runId)).map((entry) => bindActiveQueueEntry(queue, entry));
   if (matches.length !== 1) throw new Error(matches.length === 0 ? `Run "${options.runId}" is not in the queue.` : `Run "${options.runId}" matches more than one queue entry.`);
   const entry = matches[0]!;
-  if (entry.harness.id !== PI_HARNESS) throw new Error(`Queue harness must be ${PI_HARNESS}.`);
   const model = resolvePiConfigurationRecord(bundleRoot, entry.configuration.model, "model");
   const harness = resolvePiConfigurationRecord(bundleRoot, entry.configuration.harness, "harness");
   const limits = resolvePiConfigurationRecord(bundleRoot, entry.configuration.nativeLimits, "native-limits");
@@ -1220,7 +1229,7 @@ export async function runPiQueueEntry(options: RunPiQueueEntryOptions): Promise<
     const verifierReference = packet.assessmentMode === "verified" ? packet.restricted.verifier : undefined;
     const verifierFormat = verifierReference?.locator.toLowerCase().endsWith(".mjs") ? "module" : "commonjs";
     const definition = buildPiDefinition(queue.captureProfile, entry, packet, destination, attemptId, model, harness, verifierFormat);
-    const result = await capturePiSdkRun({
+    const result = await capturePiSdkRunOwned({
       definition,
       configurationRoot: bundleRoot,
       startingWorkspacePath,
@@ -1261,6 +1270,7 @@ export async function runPiQueueEntry(options: RunPiQueueEntryOptions): Promise<
     });
     const manifest = reopenManifest(destination);
     return {
+      runtime: runtimeExecutionSummary(),
       runId: entry.runId,
       attemptId,
       bundlePath: destination,
@@ -1327,7 +1337,7 @@ function validatePiConfiguration(record: Record<string, unknown>, kind: PiConfig
     for (const [name, value] of Object.entries(record.cost)) if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw piConfigError(reference, `cost.${name} must be nonnegative`);
   } else if (kind === "harness") {
     keys(record, ["schemaVersion", "kind", "adapter", "version", "extensions", "skills", "prompts", "contextFiles", "systemPrompt"], ["adapter", "version"], reference);
-    if (record.adapter !== PI_HARNESS || record.version !== PINNED_PI_SDK_VERSION) throw piConfigError(reference, "adapter or version is not pinned");
+    if (record.adapter !== PI_HARNESS || typeof record.version !== "string" || !record.version) throw piConfigError(reference, "adapter and nonempty exact version are required");
     for (const field of ["extensions", "skills", "prompts", "contextFiles"] as const) if (record[field] !== undefined) assertReferences(record[field], field, reference);
     if (record.systemPrompt !== undefined) assertReference(record.systemPrompt, "systemPrompt", reference);
   } else if (kind === "native-limits") {
@@ -1370,8 +1380,8 @@ function buildPiDefinition(
       model: { provider: model.provider, id: model.model, configurationDigest: `sha256:${entry.configuration.model.digest.value}` },
       harness: { id: PI_HARNESS, version: harness.version, configurationDigest: `sha256:${entry.configuration.harness.digest.value}` },
       runtime: [
-        { source: "earendil-works", name: "pi-coding-agent", version: PINNED_PI_SDK_VERSION },
-        { source: "EBO", name: PI_HARNESS, version: PINNED_PI_SDK_VERSION },
+        { source: "earendil-works", name: "pi-coding-agent", version: piSdkVersion() },
+        { source: "EBO", name: PI_HARNESS, version: piSdkVersion() },
         { source: "EBO", name: "pi-sdk-adapter", version: PI_ADAPTER_VERSION },
       ],
       ...(packet.assessmentMode === "verified" ? { verifier: { locator: packet.restricted.verifier.locator, digest: `sha256:${packet.restricted.verifier.digest.value}`, format: verifierFormat } } : {}),
@@ -1391,10 +1401,10 @@ function withPinnedRuntime(definition: RunBundleDefinition): RunBundleDefinition
     ...structuredClone(definition),
     run: {
       ...structuredClone(definition.run),
-      harness: { ...structuredClone(definition.run.harness), id: PI_HARNESS, version: PINNED_PI_SDK_VERSION },
+      harness: { ...structuredClone(definition.run.harness), id: PI_HARNESS, version: piSdkVersion() },
       runtime: definition.run.runtime.filter(({ name }) => !["pi-coding-agent", PI_HARNESS, "pi-sdk-adapter"].includes(name)).concat([
-        { source: "earendil-works", name: "pi-coding-agent", version: PINNED_PI_SDK_VERSION },
-        { source: "EBO", name: PI_HARNESS, version: PINNED_PI_SDK_VERSION },
+        { source: "earendil-works", name: "pi-coding-agent", version: piSdkVersion() },
+        { source: "EBO", name: PI_HARNESS, version: piSdkVersion() },
         { source: "EBO", name: "pi-sdk-adapter", version: PI_ADAPTER_VERSION },
       ]),
     },
@@ -1403,7 +1413,7 @@ function withPinnedRuntime(definition: RunBundleDefinition): RunBundleDefinition
 
 function piEvidence(sessionId: string | undefined, session: PiSession | undefined): Record<string, unknown> {
   return {
-    sdkVersion: PINNED_PI_SDK_VERSION,
+    sdkVersion: piSdkVersion(),
     adapterVersion: PI_ADAPTER_VERSION,
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(session === undefined ? {} : { activeTools: session.getActiveToolNames() }),
@@ -1413,7 +1423,7 @@ function piEvidence(sessionId: string | undefined, session: PiSession | undefine
 function piComposition(options: CapturePiSdkRunOptions, activeTools: string[]): Record<string, unknown> {
   return {
     schemaVersion: "ebo.pi-composition/v1",
-    sdk: { package: "@earendil-works/pi-coding-agent", version: PINNED_PI_SDK_VERSION },
+    sdk: { package: "@earendil-works/pi-coding-agent", version: piSdkVersion() },
     adapter: { id: `${PI_HARNESS}/v1`, version: PI_ADAPTER_VERSION },
     configurationDigest: options.definition.configuration.digest,
     model: {
@@ -1616,3 +1626,6 @@ async function nonempty(path: string): Promise<boolean> {
 async function exists(path: string): Promise<boolean> {
   try { await lstat(path); return true; } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
 }
+
+const piSdk = (): typeof developmentSdk => studyRuntimeModule("@earendil-works/pi-coding-agent", developmentSdk);
+const piSdkVersion = (): string => studyRuntimeVersion("@earendil-works/pi-coding-agent", developmentSdk.VERSION);

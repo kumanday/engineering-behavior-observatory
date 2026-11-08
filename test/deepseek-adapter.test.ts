@@ -1,10 +1,12 @@
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("deepseek-harness");
 import assert from "node:assert/strict";
 import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
-import test from "node:test";
+
 import { fileURLToPath } from "node:url";
 import { createDeepSeekHarborExecutor } from "../src/harbor/harnesses.js";
 import { harborStepFixture } from "./harbor-step-helper.js";

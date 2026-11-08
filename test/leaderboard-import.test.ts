@@ -1,3 +1,5 @@
+import {runtimeTest} from "./with-runtime-fixture.js";
+const judgeTest = runtimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -163,7 +165,7 @@ test('metadata key ordering preserves reusable semantic receipts while retaining
  }finally{f.cleanup();}
 });
 
-test('protected canonical and route aliases reach blinded judges and revise only the derived capture context',{skip:!python},async()=>{
+judgeTest('protected canonical and route aliases reach blinded judges and revise only the derived capture context',{skip:!python},async()=>{
  const f=fixture();try{
   const model='zai-org/GLM-5.3-Flash',route=model+':synthetic-provider';
   const result=JSON.parse(readFileSync(join(f.trial,'result.json'),'utf8'));result.config.agent.model_name='openai/'+model;result.agent_info.model_info.name='openai/'+model;write(join(f.trial,'result.json'),result);write(join(f.trial,'config.json'),result.config);

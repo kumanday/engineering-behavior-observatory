@@ -7,9 +7,7 @@ retained timing/resource evidence, and uniform events are a digest-checked
 projection after capture. Inference and the Devin agent loop run in Cognition's
 cloud; the CLI executes tool calls locally in the attempt workspace.
 
-The supported runtime is `devin 3000.11.3`. EBO rejects a different executable
-version (`devin --version`), starts a new child for each attempt, and never
-reuses an interactive or desktop session.
+Freeze the `devin-cli` role using the [study runtime workflow](../reference/study-runtimes.md). EBO resolves the vendor’s exact platform archive, verifies its checksum and offered provenance, and checks `devin --version` against the lock. Each attempt owns a fresh child. The 3000.11.3 fixtures establish the development conformance baseline.
 
 Each child receives a temporary isolated `HOME` and `XDG_{CONFIG,DATA,CACHE,STATE}_HOME`
 so the user's `~/.config/devin`, `~/.local/share/devin/cli/sessions.db`, and

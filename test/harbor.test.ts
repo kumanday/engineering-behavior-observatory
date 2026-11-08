@@ -1,3 +1,6 @@
+import {freezeStudyRuntimes} from "../src/study-runtimes.js";
+import {withStudyRuntime} from "../src/runtime-context.js";
+import {fakePythonRuntimeOptions} from "./runtime-python-fixture.js";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -484,7 +487,11 @@ test("the trial runner refuses the host-only preparation profile", async () => {
  const queue = await compileHarborRunQueue(experimentFor(root, taskSourceId, { environmentProfile: "local-fs-test", contextPolicy: "fresh" }) as never, { studyRoot: root, adapter });
  const queuePath = join(root, "queue.json");
  writeFileSync(queuePath, JSON.stringify(queue));
- await assert.rejects(runHarborBackedQueueEntry({ studyRoot: root, queuePath, runId: queue.entries[0]!.runId, outputRoot: join(root,"out"), adapter }), /requires an explicitly compiled smol/);
+ const options = fakePythonRuntimeOptions();
+ await freezeStudyRuntimes(root, {studyId: "harbor-preparation-boundary", roles: ["harbor", "smol"]}, options);
+ await withStudyRuntime({studyRoot: root, role: "harbor", options}, async () => {
+  await assert.rejects(runHarborBackedQueueEntry({ studyRoot: root, queuePath, runId: queue.entries[0]!.runId, outputRoot: join(root,"out"), adapter }), /requires an explicitly compiled smol/);
+ });
 });
 
 /* ------------------------------------ step bundle definition ------------------------------------ */
@@ -646,7 +653,7 @@ function tarGzipFixture(): Buffer {
 
 /* ------------------------------------ real adapter (gated) ------------------------------------ */
 
-test("the pinned Harbor adapter reports its version and docker availability honestly", async (t) => {
+test("the installed Harbor adapter reports its version and docker availability honestly", async (t) => {
   let adapter: HarborAdapter;
   try {
     adapter = await createHarborAdapter();
@@ -655,7 +662,7 @@ test("the pinned Harbor adapter reports its version and docker availability hone
     return;
   }
   const version = await adapter.version();
-  assert.equal(version.harborVersion, "0.24.0");
+  assert.ok(version.harborVersion.length > 0);
   const preflight = await adapter.dockerPreflight();
   // Either outcome is honest; both must be explicit.
   assert.equal(typeof preflight.available, "boolean");
@@ -719,4 +726,35 @@ test("prior-trajectory probes preserve official invalid-task classification for 
     }
     assert.equal(inspected, 3);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Harbor reading accepts an unfamiliar package version and records the version actually used", async () => {
+  const adapter = await createHarborAdapter(async () => ({code: 0, stderr: "", stdout: JSON.stringify({ok: true, protocol: 1, harborVersion: "99.9.9", defaultTaskSchemaVersion: "1.4", pythonVersion: "3-fixture"})}));
+  assert.equal((await adapter.version()).harborVersion, "99.9.9");
+  const root = tempRoot("actual-version");
+  try {
+    const observed = fakeAdapter(); observed.version = adapter.version;
+    const inspection = await inspectHarborTask(writePrototypeTask(root), {adapter: observed});
+    assert.equal(inspection.classification, "valid");
+    assert.equal(inspection.harborPackageVersion, "99.9.9");
+  } finally {rmSync(root, {recursive: true, force: true});}
+});
+
+
+test("runtime-bound Harbor queues use the versioned reader with frozen source identities", async () => {
+ const {bindStudyRuntimeQueue, queueRunId} = await import("../src/study-runtime-bindings.js");
+ const {readHarborRunQueue, readRunQueueVersioned} = await import("../src/harbor/queue.js");
+ const {fakeSdkRuntimeOptions} = await import("./runtime-fixture-helper.js");
+ const {root, taskSourceId, adapter} = await frozenStudyWithTask();
+ const python = fakePythonRuntimeOptions(), sdk = fakeSdkRuntimeOptions("9.9.9");
+ const options = {...python, fetch: (url: string, init?: RequestInit) => url.startsWith("https://registry.npmjs.org/") ? sdk.fetch(url) : python.fetch!(url, init),
+  run: (command: string, args: readonly string[], cwd: string) => args[0] === "ci" || args.includes("--package-lock-only") ? sdk.run(command, args, cwd) : python.run!(command, args, cwd)};
+ const queue = await compileHarborRunQueue(experimentFor(root, taskSourceId, {environmentProfile: "local-fs-test", contextPolicy: "fresh"}) as never, {studyRoot: root, adapter});
+ await freezeStudyRuntimes(root, {studyId: "harbor-bound", roles: ["claude-agent-sdk", "harbor", "smol"]}, options);
+ const bound = await bindStudyRuntimeQueue(root, queue), path = join(root, "bound.json");
+ writeFileSync(path, JSON.stringify(bound));
+ const reopened = await readHarborRunQueue(path, {studyRoot: root, adapter});
+ assert.deepEqual(reopened, queue);
+ assert.notEqual(queueRunId(reopened, queue.entries[0]!.runId), queue.entries[0]!.runId);
+ assert.deepEqual(await readRunQueueVersioned(path, {studyRoot: root, adapter}), queue);
 });

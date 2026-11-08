@@ -21,9 +21,10 @@ package = Path.cwd() / 'fixture-smol'
 package.mkdir()
 library = package / 'libkrun.dylib'
 library.write_bytes(b'fixture library, never loaded')
+frozen_versions = {name: e.importlib.metadata.version(name) for name in ('smolmachines', 'harbor')}
 manifest = {'libkrunSha256': hashlib.sha256(library.read_bytes()).hexdigest()}
 def rejects(message):
-    try: e.runtime_provenance(manifest)
+    try: e.runtime_provenance(manifest, frozen_versions)
     except ValueError as exc: assert message in str(exc), str(exc)
     else: raise AssertionError('Expected runtime rejection: ' + message)
 
@@ -31,10 +32,12 @@ with patch.object(smol, '__file__', str(package / '__init__.py')), \
      patch.dict(os.environ, {'SMOLVM_LIB_DIR': str(package)}), \
      patch.object(e.platform, 'system', return_value='Darwin'), \
      patch.object(e.platform, 'machine', return_value='arm64'):
-    assert e.runtime_provenance(manifest)['libkrunSha256'] == manifest['libkrunSha256']
+    assert e.runtime_provenance(manifest, frozen_versions)['libkrunSha256'] == manifest['libkrunSha256']
     with patch.dict(os.environ):
         del os.environ['SMOLVM_LIB_DIR']
-        assert e.runtime_provenance(manifest)['libkrunSha256'] == manifest['libkrunSha256']
+        assert e.runtime_provenance(manifest, frozen_versions)['libkrunSha256'] == manifest['libkrunSha256']
+    with patch.object(e.importlib.metadata, 'version', return_value='99.9.9'):
+        rejects('RUNTIME_PROBE_MISMATCH')
     with patch.object(e.platform, 'system', return_value='Linux'):
         rejects('only on Apple Silicon macOS')
     with patch.object(e.platform, 'machine', return_value='x86_64'):
@@ -245,7 +248,7 @@ async def check():
     except ValueError as exc: assert 'never broadened' in str(exc)
     else: raise AssertionError('Unsupported policy must fail')
 asyncio.run(check())
-print(f'Harbor {e.HARBOR_VERSION} model/Smol {e.SMOL_VERSION} boundary: passed')
+print('Harbor ' + e.importlib.metadata.version('harbor') + ' model/Smol ' + e.importlib.metadata.version('smolmachines') + ' boundary: passed')
 `], { cwd: root, encoding: "utf8", timeout: 30_000 });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /boundary: passed/);

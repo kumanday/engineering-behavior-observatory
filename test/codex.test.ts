@@ -1,3 +1,6 @@
+import { liveRuntimeTest, runtimeTest, prepareRuntimeCliFixture, withRuntimeFixture } from "./with-runtime-fixture.js";
+const test = runtimeTest("codex-app-server");
+const liveTest = liveRuntimeTest("codex-app-server");
 import assert from "node:assert/strict";
 import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { createCodexHarborExecutor } from "../src/harbor/harnesses.js";
@@ -25,7 +28,6 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
-import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { gzipSync } from "node:zlib";
@@ -147,10 +149,10 @@ test("retained 0.150.1 evidence keeps its original normalized dataset", async ()
   assert.deepEqual(await readFile(join(root, "manifest.json")), before);
 });
 
-test("new capture rejects the older runtime declaration before launching", async () => {
+test("new capture rejects an invalid exact version declaration before launching", async () => {
   await assert.rejects(captureCodexAppServer({ runId: "fixture", attemptId: "fixture", workspacePath: tmpdir(), evidencePath: tmpdir(), prompt: "fixture",
     configuration: { ...fakeConfiguration("success"), version: "unsupported" as typeof CODEX_APP_SERVER_VERSION },
-  }), new RegExp(`requires pinned runtime ${CODEX_APP_SERVER_VERSION.replaceAll(".", "\\.")}`, "u"));
+  }), /requires an exact requested runtime version/u);
 });
 
 for (const mode of ["sandbox-implicit-cwd", "sandbox-cwd-mismatch"]) {
@@ -187,7 +189,7 @@ test("retained Codex runtime versions preserve their adapter identities", async 
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("approved existing-auth native capture smoke", { skip: process.env.EBO_LIVE_CODEX_CAPTURE_SMOKE !== "1" }, async (context) => {
+liveTest("approved existing-auth native capture smoke", { skip: process.env.EBO_LIVE_CODEX_CAPTURE_SMOKE !== "1" }, async (context) => {
   const model = process.env.EBO_LIVE_CODEX_CAPTURE_MODEL;
   assert.ok(model, "Supply an existing authenticated model route.");
   const root = await temporaryRoot();
@@ -849,10 +851,10 @@ test("retained auth failure without an owned turn supports observations and abst
       limits: { maxEvidenceItems: 20, maxRecordChars: 4096, maxInputChars: 40000, maxOutputChars: 16000, maxCitations: 2, maxWallClockMs: 1000, maxTurns: 1 },
       blinding: { evaluatedModelIdentity: "redact" } };
     const outputRoot = join(root, "judgment");
-    const judgment = await runRetainedSemanticJudge({ bundleRoot: definition.bundleRoot, observations, request, outputRoot,
+    const judgment = await withRuntimeFixture("codex-judge", () => runRetainedSemanticJudge({ bundleRoot: definition.bundleRoot, observations, request, outputRoot,
       backend: { id: "codex-app-server", version: CODEX_APP_SERVER_VERSION, run: async () => ({ status: "completed", raw: { synthetic: true }, response: { judgment: {
         disposition: "abstained", assessment: null, confidence: null, reason: "No completed turn.", missingEvidenceCapability: null,
-        rationale: "Synthetic fixture.", alternativeExplanation: "No behavioral claim.", claims: [], citations: [] } } }) } });
+        rationale: "Synthetic fixture.", alternativeExplanation: "No behavioral claim.", claims: [], citations: [] } } }) } }));
     assert.equal(judgment.status, "proposed");
     assert.equal(await main(["assertions", "validate", definition.bundleRoot, join(outputRoot, "assertion.json")], () => undefined), 0);
     assert.deepEqual(await readFile(join(definition.bundleRoot, "manifest.json")), before);
@@ -1040,9 +1042,10 @@ test("CLI signals interrupt and finalize the detached Codex child", async () => 
     const executable = join(root, "fake-codex.mjs");
     writeFileSync(executable, `#!/usr/bin/env node\nif (process.argv.includes("--version")) console.log("codex-cli ${CODEX_APP_SERVER_VERSION}");\nelse { process.argv.push("--mode=ignore-all-interrupts", "--codex-version=${CODEX_APP_SERVER_VERSION}"); await import(${JSON.stringify(pathToFileURL(fixture).href)}); }\n`, { mode: 0o700 });
     const queueFixture = createQueueFixture(root, executable);
+    const preload = await prepareRuntimeCliFixture(queueFixture.bundleRoot, "codex-app-server", executable);
     const outputRoot = join(root, "cli-runs");
     const child = spawn(process.execPath, [
-      resolve("dist/src/cli.js"),
+      "--import", preload, resolve("dist/src/cli.js"),
       "codex", "run",
       queueFixture.bundleRoot,
       queueFixture.queuePath,

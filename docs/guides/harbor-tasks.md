@@ -5,32 +5,38 @@ environment, effective instructions, step setup, verification and cleanup.
 EBO adds admission, frozen experiment conditions and native harness capture.
 Existing task-packet/v1 studies and their commands remain readable and unchanged.
 
-## Install the control runtime
+## Prepare the study runtime
 
-The Harbor commands ship in EBO 1.x through the npm package. EBO runs on Node
-24.19.0. npm does not install the host virtualization stack. Install the
-separate control runtime with Python 3.14:
+EBO runs on Node 24.19.0. Harbor and Smol run in a jointly resolved Python
+virtual environment selected by the [study runtime lock](../reference/study-runtimes.md).
+The host needs a compatible Python interpreter, `uv`, and `pypi-attestations`
+available to that bootstrap interpreter for verifying offered wheel attestations.
+Set `EBO_RUNTIME_PYTHON` to its absolute path.
 
-```sh
-python3 -m venv .harbor-venv
-.harbor-venv/bin/pip install 'harbor[smol]==0.24.0' smolmachines==1.26.1
-.harbor-venv/bin/pip check
-export EBO_HARBOR_PYTHON="$PWD/.harbor-venv/bin/python"
-unset SMOLVM_LIB_DIR
-ebo harbor doctor
+For a Pi study, save this request as `runtime-request.json`:
+
+```json
+{
+  "studyId": "harbor-example",
+  "roles": ["harbor", "smol", "pi-sdk"],
+  "roleTargets": {"pi-sdk": {"platform": "linux", "architecture": "arm64"}}
+}
 ```
 
-Harbor supplies the provider adapter through its `smol` extra. The Smol wheel
-pins the bundled VM runtime. Rebuild worker archives and freeze a fresh
-environment manifest when upgrading: image/runtime bindings and the bundled
-`libkrunSha256` identify the selected execution condition.
+```sh
+ebo runtime freeze study runtime-request.json
+ebo runtime inspect study
+ebo runtime check study harbor
+unset SMOLVM_LIB_DIR
+```
 
-Keep the virtual environment in a durable location,
-not under `/tmp`. Temporary-directory cleanup can remove a venv's `pyvenv.cfg`
-without removing its packages, after which the interpreter silently stops
-resolving the environment and every Harbor command fails with a misleading
-"No Python interpreter with harbor==0.24.0 was found". Point
-`EBO_HARBOR_PYTHON` at a path that survives reboots and long unattended runs.
+Use the inspection output's Python installation key to point read-only task
+commands at `study/runtimes/cache/<installationKey>/venv/bin/python` through
+`EBO_HARBOR_PYTHON`. Execution selects the interpreter from the study lock.
+Keep the study directory in a durable location. Rebuild worker archives and
+freeze a new environment manifest when changing the runtime lock: the worker
+archive, image bindings and bundled `libkrunSha256` identify that execution
+condition.
 
 A frozen task whose snapshot fails content verification reports
 `Harbor task status: changed`. Confirm `EBO_HARBOR_PYTHON`
@@ -109,12 +115,17 @@ boundary; it is not independent grading.
 ```sh
 npm run build
 node scripts/build-harbor-runtime.mjs study/config/runtime \
+  --study study \
+  --node-image <Node-24.19.0-Linux-arm64-image@sha256:platform-digest> \
   --base <public-runtime-base@sha256:platform-digest> \
   --image <registry/ebo-runtime:tag>
 ```
 
-The builder installs Linux dependencies, Git and CA certificates in Node 24.19.0/bookworm and produces
-`worker.tgz` and a local execution image with the pack at `/opt/ebo`. It records
+The builder installs EBO's coordinating dependencies from its npm lock with
+install scripts disabled, then copies the study's exact runtime caches and lock
+into `worker.tgz`. The supplied immutable Node image must report Node 24.19.0.
+The task image must already provide Git, CA certificates and compatible system
+libraries. The local execution image contains the pack at `/opt/ebo`. It records
 the build recipe, original startup settings and archive digest in `image-build.json`.
 Publishing is a separate, explicit `docker push <registry/ebo-runtime:tag>`
 operation. Use the resulting **linux/arm64 manifest digest**, not an index digest
@@ -130,7 +141,8 @@ Save a runtime profile in the study and reference it by its SHA-256 digest:
 
 ```json
 {
-  "schemaVersion": "ebo.harbor-worker-runtime/v1",
+  "schemaVersion": "ebo.harbor-worker-runtime/v2",
+  "studyLockDigest": "sha256:<study lock digest>",
   "archive": {"locator": "config/runtime/worker.tgz", "digest": {"algorithm": "sha256", "value": "<archive digest>"}},
   "node": "node",
   "entrypoint": "dist/src/harbor/worker.js",
@@ -149,17 +161,18 @@ configuration files at `/tmp/ebo-worker/config/<locator>`.
 | Claude Agent SDK | SDK archive and authorized route | Direct SDK query, hooks and session capture |
 | Pi | SDK archive and selected provider key | Fresh Pi session, native tools and persistence |
 | Cursor | SDK archive, `CURSOR_API_KEY`, required local system tools | Direct SDK, HTTP/1.1 and native recovery |
-| Factory Droid | SDK archive built with `--factory`, pinned Linux Droid CLI and selected Factory key | Official SDK with native recording; fresh owned session per step |
-| Codex | Pinned Linux app-server executable declared in harness config | Owned stdio child; no host daemon |
+| Factory Droid | Frozen Linux CLI/SDK graph and selected Factory key | Official SDK with native recording; fresh owned session per step |
+| Codex | Frozen Linux app-server runtime | Owned stdio child; no host daemon |
 | DeepSeek Harness | Named Linux runtime/plugin composition and its installed runtime | Official TypeScript JSON-RPC client |
-| OpenHands | Pinned Agent Server started inside the task container | Loopback REST/WebSocket, same working directory |
+| OpenHands | Docker available inside the guest; frozen Agent Server image | Owned image, loopback REST/WebSocket and mounted task workspace |
+| Devin CLI | Frozen Linux vendor binary and Cognition credential | Owned ACP child and retained session |
 
-The generic archive includes EBO's npm dependencies, not external Codex,
-DeepSeek or OpenHands executables. Install those in the reusable runtime image or
-through frozen local setup. For OpenHands, an image entrypoint can start the
-server before executing Harbor's command; do not point it at a host server.
-Native configuration and version checks still apply. Runtime availability is
-separate from capture support; deterministic coverage is not provider entitlement.
+The archive contains EBO's coordinating dependencies and the study's exact
+runtime installations. The guest checks its lock digest against the host's
+selection before capture. Native CLI paths come from the selected cache. Each
+worker refreshes registry withdrawal metadata and OSV before launching the
+harness; the Smol profile provides public egress for these checks. Runtime
+availability and provider entitlement are separate prerequisites.
 
 ## Compile and run
 
@@ -271,11 +284,12 @@ Reference the environment manifest by digest in the execution policy:
 
 ```sh
 ebo harbor compile study experiment.json queue.json
+ebo runtime bind-queue study queue.json queue-with-runtime.json
 # Terminal A: keep this foreground owner alive until all attempts finish.
-ebo harbor environment serve study queue.json
+ebo harbor environment serve study queue-with-runtime.json
 # Terminal B: use the run IDs printed by compile (trialCount: 2 for two entries).
-ebo harbor run study queue.json <first-run-id> runs
-ebo harbor run study queue.json <second-run-id> runs
+ebo harbor run study queue-with-runtime.json <first-run-id-from-bind> runs
+ebo harbor run study queue-with-runtime.json <second-run-id-from-bind> runs
 # Then Ctrl-C in terminal A to drain borrowers and delete the owned parents.
 ```
 
@@ -368,7 +382,7 @@ Factory uses the same capture core for managed and BYOK models. Freeze the
 include its credential variable in the worker's `environmentKeys`:
 `FACTORY_API_KEY` for managed inference, or `FIREWORKS_API_KEY` for the Fireworks
 BYOK template. Credentials are injected after branching and excluded from frozen
-model records. Build the guest runtime with `--factory`.
+model records. Include `factory-droid` in the runtime request with a Linux ARM64 target before building the guest pack.
 
 Run the [Factory live checks](../harnesses/factory-droid.md#verification-and-live-qualification)
 for each selected provider/image combination. The synthetic Pi Smol conformance

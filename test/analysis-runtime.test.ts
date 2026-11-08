@@ -1,8 +1,9 @@
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
 import {cpSync,mkdtempSync,readFileSync,rmSync,writeFileSync,unlinkSync,symlinkSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
-import test from "node:test";
 import {listAnalysisRuntimes,loadAnalysisRuntime,validateRuntimeSnapshot} from "../src/analysis-runtime.js";
 import {createRetainedBehaviorEvidence} from "../src/retained-evidence.js";
 import {digestMetadata} from "../src/artifacts.js";
@@ -40,6 +41,12 @@ test('the original main runtime preserves occurrence rules 1.1 alongside correct
    for(const message of messages)yield{...message,session_id:'s',parent_tool_use_id:null} as unknown as import('@anthropic-ai/claude-agent-sdk').SDKMessage;
   }});
   await captureClaudeAgentSdkRun({definition:{bundleRoot:bundle,bundleId:'legacy-fixture',run:{id:'r',trial:{index:1},assessmentMode:'observational',task:{id:'synthetic'},fixture:{id:'fixture',digest:taggedHash('fixture')},model:{provider:'synthetic',id:'synthetic-model'},harness:{id:'agent-sdk',version:sdk.sdkVersion},runtime:[{source:'anthropic',name:'agent-sdk',version:sdk.sdkVersion}]},attempt:{id:'a',number:1},configuration:{digest:taggedHash('configuration'),budgetDigest:taggedHash('budget'),toolPolicyDigest:taggedHash('tools')}},startingWorkspacePath:workspace,workspace:{setup:async()=>({status:'ready',path:workspace,artifactId:'workspace',retained:true})},configuration:{prompt:'Synthetic fixture',model:'synthetic-model',tools:['Bash'],permissionMode:'dontAsk'},expectedHooks:['SessionStart'],query});
+  // Author the original v1 interchange shape from this synthetic native run.
+  // The shipped readers consume their original contract; their bytes stay frozen.
+  const manifestPath=join(bundle,'manifest.json'),legacyManifest=JSON.parse(readFileSync(manifestPath,'utf8'));
+  legacyManifest.schemaVersion='run-manifest/v1';delete legacyManifest.runtimeLock;
+  legacyManifest.evidence=legacyManifest.evidence.filter((entry:{source:string})=>entry.source!=='ebo-runtime');
+  writeFileSync(manifestPath,JSON.stringify(legacyManifest));rmSync(join(bundle,'runtime'),{recursive:true,force:true});
   const legacy=await loadAnalysisRuntime('ebo-v1.4.0-86a6010'),corrected=await loadAnalysisRuntime('ebo-v1.4-atif-20261107'),old=await legacy.createRetainedStructuralObservationSet(bundle),current=await corrected.createRetainedStructuralObservationSet(bundle);
   assert.equal(old.normalization.datasetDigest,current.normalization.datasetDigest);assert.ok(old.occurrences!.length>0);assert.ok(old.occurrences!.every(({rule})=>rule.version==='1.1.0'));assert.ok(current.occurrences!.every(({rule})=>rule.version==='1.2.0'));assert.notEqual(hash(old),hash(current));
  }finally{rmSync(root,{recursive:true,force:true});}

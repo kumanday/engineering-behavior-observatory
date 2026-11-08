@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { openSync, writeSync, closeSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { digestMetadata, digestBytes, assertNoDuplicateJsonKeys, writeMetadataAtomically, writeArtifactAtomically } from "../artifacts.js";
 import { resolveBundleConfiguration, isSafeArtifactRelativePath, type ArtifactReference } from "../contracts.js";
@@ -13,9 +13,13 @@ import type { RunQueueV2 } from "./queue.js";
 import type { HarborRunSummary, HarborStepExecution } from "./runner.js";
 import { HARBOR_TRIAL_SCRIPT } from "./trial-script.js";
 import { smolCondition } from "./smol.js";
+import { currentStudyRuntime, lockedRuntimePython, requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary } from "../runtime-context.js";
+import { readStudyRuntimeLock } from "../study-runtimes.js";
+import { frozenPythonEnvironment } from "../runtime-bootstrap.js";
 
 export type HarborWorkerRuntime = {
-  schemaVersion: "ebo.harbor-worker-runtime/v1";
+  schemaVersion: "ebo.harbor-worker-runtime/v1" | "ebo.harbor-worker-runtime/v2";
+  studyLockDigest?: string;
   archive: ArtifactReference;
   node: string;
   entrypoint: string;
@@ -26,7 +30,7 @@ export function resolveHarborWorkerRuntime(root: string, reference: ArtifactRefe
   const text = resolveBundleConfiguration(root, reference).toString("utf8");
   assertNoDuplicateJsonKeys(text);
   const value = JSON.parse(text) as HarborWorkerRuntime;
-  if (value.schemaVersion !== "ebo.harbor-worker-runtime/v1" || !isSafeArtifactRelativePath(value.node)
+  if (!["ebo.harbor-worker-runtime/v1", "ebo.harbor-worker-runtime/v2"].includes(value.schemaVersion) || value.schemaVersion === "ebo.harbor-worker-runtime/v2" && !/^sha256:[a-f0-9]{64}$/u.test(value.studyLockDigest ?? "") || !isSafeArtifactRelativePath(value.node)
     || !isSafeArtifactRelativePath(value.entrypoint) || !Array.isArray(value.environmentKeys)
     || value.environmentKeys.some(k => !/^[A-Z][A-Z0-9_]*$/.test(k))
     || value.environmentKeys.some(k => ["NODE_OPTIONS", "PYTHONPATH", "LD_PRELOAD", "DOCKER_HOST"].includes(k))) {
@@ -36,14 +40,26 @@ export function resolveHarborWorkerRuntime(root: string, reference: ArtifactRefe
 }
 
 /** Official Trial + custom-agent extension, not a second EBO step scheduler. */
-export async function runOfficialHarborTrial(input: {
+export type OfficialHarborTrialInput = {
   studyRoot: string; prepared: PreparedHarborExecution; queue: RunQueueV2;
   entry: RunQueueV2["entries"][number]; attemptId: string; adapter: HarborAdapter; signal?: AbortSignal;
-}): Promise<HarborRunSummary> {
+  invoke?: typeof invokeTrial;
+};
+export async function runOfficialHarborTrial(input: OfficialHarborTrialInput): Promise<HarborRunSummary> {
+  const current = currentStudyRuntime();
+  const binding = input.studyRoot && (!current || resolve(current.studyRoot) !== resolve(input.studyRoot)) ? {studyRoot: input.studyRoot} : undefined;
+  return runInStudyRuntime("harbor", binding, async () => ({...await runOfficialHarborTrialOwned(input), runtime: runtimeExecutionSummary()}));
+}
+async function runOfficialHarborTrialOwned(input: OfficialHarborTrialInput): Promise<HarborRunSummary> {
+  const host = requireStudyRuntime("harbor");
+  if (!host.launch.roots.some((root) => root.id === "smol")) throw new Error("RUNTIME_ROLE_NOT_FROZEN: Harbor Smol trials require harbor and smol in the same frozen Python group.");
   const { prepared, entry, queue, attemptId } = input;
   const condition = smolCondition(input.studyRoot, queue);
   if (!queue.execution.workerRef) throw new Error("Smol Harbor runs require an execution.workerRef for the pinned Linux capture runtime.");
   const runtime = resolveHarborWorkerRuntime(input.studyRoot, queue.execution.workerRef);
+  const runtimeLock = await readStudyRuntimeLock(input.studyRoot);
+  assertWorkerStudyRuntime(runtime, runtimeLock.digest);
+  if (runtimeLock.digest !== host.launch.lockDigest) throw new Error("RUNTIME_LOCK_INTEGRITY: Harbor host context differs from the selected study lock.");
   const archive = resolveBundleConfiguration(input.studyRoot, runtime.archive, 2 * 1024 * 1024 * 1024);
   const root = prepared.evidence.attemptRoot;
   await mkdir(prepared.evidence.harborDir, { recursive: true, mode: 0o700 });
@@ -63,17 +79,16 @@ export async function runOfficialHarborTrial(input: {
   const script = join(prepared.evidence.harborDir, "ebo_harbor_" + createHash("sha256").update(HARBOR_TRIAL_SCRIPT).digest("hex").slice(0,16) + ".py");
   await writeFile(script, HARBOR_TRIAL_SCRIPT, { flag: "wx", mode: 0o600 });
   const request = {
-    ...condition, smolEvents: join(root, "harbor", "smol-events.jsonl"),
+    ...condition, frozenPythonVersions: Object.fromEntries(host.probes.filter((probe) => probe.source === "package-metadata").map((probe) => [probe.package, probe.actualVersion])), smolEvents: join(root, "harbor", "smol-events.jsonl"),
     taskPath: prepared.task.snapshotDirectory, attemptId, trialsDir: join(root, "harbor", "trials"),
     model: entry.modelId, verified: prepared.verifier.requested, budgetMs: prepared.budget.coordinatorWallClockMs,
     build: "ebo-harbor-smol-v1", nativeRoot,
     runtime: { ...runtime, archiveDigest: digestBytes(archive).value }, configurationFiles,
-    workerInput: { prepared, configuration, configurationRoot: "/tmp/ebo-worker/config" },
+    workerInput: { prepared, configuration, configurationRoot: "/tmp/ebo-worker/config", runtimeLock: {studyRoot: "/opt/ebo/study", digest: runtimeLock.digest}, ...(host.studyFreeze && host.sourceRunId ? {queueBinding: {studyFreeze: host.studyFreeze, sourceRunId: host.sourceRunId}} : {}) },
   };
   const requestPath = join(prepared.evidence.harborDir, "request.json");
   await writeFile(requestPath, JSON.stringify(request), { flag: "wx", mode: 0o600 });
-  const prerequisites = await input.adapter.describePrerequisites();
-  const execution = await invokeTrial(prerequisites.python, script, requestPath, input.signal, prepared.budget.coordinatorWallClockMs);
+  const execution = await (input.invoke ?? invokeTrial)(lockedRuntimePython(), script, requestPath, input.signal, prepared.budget.coordinatorWallClockMs);
   let result: { exception_info?: unknown; agent_result?: unknown; step_results?: Array<{ step_name: string; exception_info?: unknown; verifier_result?: unknown }>; verifier_result?: { rewards?: Record<string, number> } } = {};
   let resultValid = false;
   try {
@@ -116,7 +131,7 @@ export async function runOfficialHarborTrial(input: {
       trialResult: result, trialLock, assessmentMode: prepared.task.assessmentMode,
       queueCondition: { modelId: entry.modelId, harnessId: entry.harnessId, taskId: entry.taskId, trialIndex: entry.trialIndex },
       execution: { code: execution.code, interrupted: execution.interrupted },
-      smol: smolEvidence,
+      smol: smolEvidence, hostRuntime: runtimeExecutionSummary(),
     }); } catch (error) { qualification = "unqualified"; steps.at(-1)!.joinError = String(error); }
   }
   const nativeFailure = steps.map(s => s.native as HarborStepExecution | null).find(s => s && s.terminal.state !== "completed");
@@ -157,6 +172,11 @@ export async function runOfficialHarborTrial(input: {
   }
 }
 
+export function assertWorkerStudyRuntime(runtime: HarborWorkerRuntime, digest: string): void {
+  if (!runtime.studyLockDigest) throw new Error("RUNTIME_WORKER_MIGRATION_REQUIRED: prepare a v2 worker pack containing the frozen study runtimes.");
+  if (runtime.studyLockDigest !== digest) throw new Error("RUNTIME_LOCK_INTEGRITY: worker archive was prepared for a different study lock.");
+}
+
 async function attachHarborEvidence(bundle: string, content: unknown): Promise<void> {
   const path = join(bundle, "manifest.json");
   const manifest = JSON.parse(await readFile(path, "utf8")) as RunManifest;
@@ -172,7 +192,7 @@ export async function invokeTrial(python: string, script: string, request: strin
   return new Promise((done) => {
     const out = openSync(join(dirname(script), "result.json"), "wx", 0o600);
     const err = openSync(join(dirname(script), "stderr.log"), "wx", 0o600);
-    const child = spawn(python, [script, request], { stdio: ["ignore", "pipe", "pipe"], cwd: dirname(script), detached: process.platform !== "win32" });
+    const child = spawn(python, [script, request], { stdio: ["ignore", "pipe", "pipe"], cwd: dirname(script), env: frozenPythonEnvironment(), detached: process.platform !== "win32" });
     let stdout = "", stderr = "", interrupted = false;
     let force: ReturnType<typeof setTimeout> | undefined;
     const killGroup = () => {

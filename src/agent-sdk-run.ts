@@ -1,8 +1,9 @@
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import type { HookEvent } from "@anthropic-ai/claude-agent-sdk";
 import { stat } from "node:fs/promises";
 
 import {
-  executeClaudeAgentSdk,
+  executeClaudeAgentSdkOwned,
   openClaudeAgentSdkHookCapture,
   openClaudeAgentSdkStreamCapture,
   probeClaudeAgentSdkCapabilities,
@@ -38,6 +39,7 @@ export type CaptureClaudeAgentSdkVerifier = (
 ) => VerifierResult | Promise<VerifierResult>;
 
 export type CaptureClaudeAgentSdkRunOptions = {
+  runtime?: StudyRuntimeBinding;
   definition: RunBundleDefinition;
   startingWorkspacePath: string;
   workspace: WorkspaceCoordinator;
@@ -56,6 +58,7 @@ export type CaptureClaudeAgentSdkRunOptions = {
 };
 
 export type CaptureClaudeAgentSdkRunResult = {
+  runtime?: RuntimeExecutionSummary;
   attempt: RunAttemptResult;
   manifest: RunManifest;
   qualification: CaptureQualificationReport;
@@ -66,6 +69,12 @@ export type CaptureClaudeAgentSdkRunResult = {
 export async function captureClaudeAgentSdkRun(
   options: CaptureClaudeAgentSdkRunOptions,
 ): Promise<CaptureClaudeAgentSdkRunResult> {
+  return runInStudyRuntime("claude-agent-sdk", options.runtime, () => captureClaudeAgentSdkRunOwned(options));
+}
+
+/** Internal layer of an already checked owned launch. */
+export async function captureClaudeAgentSdkRunOwned(options: CaptureClaudeAgentSdkRunOptions): Promise<CaptureClaudeAgentSdkRunResult> {
+  requireStudyRuntime("claude-agent-sdk");
   if (options.definition.run.model.id !== options.configuration.model) {
     throw new Error("The declared model must match the Agent SDK model configuration.");
   }
@@ -185,7 +194,7 @@ export async function captureClaudeAgentSdkRun(
       assessmentMode: definition.run.assessmentMode,
       attempt: attemptIdentity,
       workspace: coordinatedWorkspace,
-      harness: (context) => executeClaudeAgentSdk(context, options.configuration, streamCapture, options.query),
+      harness: (context) => executeClaudeAgentSdkOwned(context, options.configuration, streamCapture, options.query),
       ...(options.verifier === undefined ? {} : {
         verifier: async (context) => {
           await captureWorkspace(context);
@@ -283,7 +292,7 @@ export async function captureClaudeAgentSdkRun(
     qualification: qualificationOptions,
   });
   const qualification = await qualifyRunBundle(assembler.bundleRoot, qualificationOptions);
-  return { attempt, manifest, qualification, stream };
+  return { attempt, manifest, qualification, stream, runtime: runtimeExecutionSummary() };
 }
 
 async function isNonemptyFile(path: string): Promise<boolean> {

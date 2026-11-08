@@ -1,3 +1,5 @@
+import { bindActiveQueueEntry, queueEntryMatches, assertActiveRuntimeQueue, currentStudyRuntime, requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeExecutable, recordRuntimeProbe, studyRuntimeVersion, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { validateFactoryModelRoute, type FactoryModelRoute } from "./factory-model.js";
 import { randomUUID } from "node:crypto";
 import { cp, lstat, mkdtemp, rm, stat } from "node:fs/promises";
@@ -8,6 +10,8 @@ import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact, validateRu
 import { isSafeArtifactRelativePath, resolveBundleConfiguration, type ArtifactReference } from "./contracts.js";
 import {
   captureFactoryDroid,
+  captureFactoryDroidOwned,
+  bindFactoryRuntime,
   FACTORY_ADAPTER_VERSION,
   FACTORY_CLI_VERSION,
   FACTORY_SDK_VERSION,
@@ -78,8 +82,8 @@ export type FactoryHarnessConfiguration = {
   kind: "harness";
   adapter: typeof FACTORY_HARNESS;
   executable: string;
-  version: typeof FACTORY_CLI_VERSION;
-  sdkVersion: typeof FACTORY_SDK_VERSION;
+  version: string;
+  sdkVersion: string;
   contractDigest: `sha256:${string}`;
 };
 
@@ -118,6 +122,7 @@ export type CaptureFactoryDroidVerifier = (
 ) => VerifierResult | Promise<VerifierResult>;
 
 export type CaptureFactoryDroidRunOptions = {
+  runtime?: StudyRuntimeBinding;
   definition: RunBundleDefinition;
   startingWorkspacePath: string;
   workspace: WorkspaceCoordinator;
@@ -134,6 +139,7 @@ export type CaptureFactoryDroidRunOptions = {
 };
 
 export type CaptureFactoryDroidRunResult = {
+  runtime?: RuntimeExecutionSummary;
   attempt: RunAttemptResult;
   manifest: RunManifest;
   qualification: CaptureQualificationReport;
@@ -144,8 +150,14 @@ export type CaptureFactoryDroidRunResult = {
 
 /** Execute and retain one caller-configured Factory native attempt without scheduling or retrying it. */
 export async function captureFactoryDroidRun(options: CaptureFactoryDroidRunOptions): Promise<CaptureFactoryDroidRunResult> {
+  return runInStudyRuntime("factory-droid", options.runtime, () => captureFactoryDroidRunOwned(options));
+}
+
+/** Internal run layer of an already checked launch. */
+export async function captureFactoryDroidRunOwned(options: CaptureFactoryDroidRunOptions): Promise<CaptureFactoryDroidRunResult> {
+  requireStudyRuntime("factory-droid");
+  options = { ...options, configuration: await bindFactoryRuntime(options.configuration) };
   if (options.definition.run.harness.id !== FACTORY_HARNESS) throw new Error(`Factory run harness must be ${FACTORY_HARNESS}.`);
-  if (options.definition.run.harness.version !== options.configuration.version) throw new Error("The declared harness version must match the Factory CLI configuration.");
   if (options.definition.run.model.id !== options.configuration.model) {
     throw new Error("The declared model must match the Factory CLI configuration.");
   }
@@ -253,7 +265,7 @@ export async function captureFactoryDroidRun(options: CaptureFactoryDroidRunOpti
     options.definition.attempt.id,
     options.definition.attempt.retryOf,
   );
-  const performCapture = options.capture ?? captureFactoryDroid;
+  const performCapture = options.capture ?? captureFactoryDroidOwned;
   const attempt = await executeRunAttempt({
     run,
     assessmentMode: options.definition.run.assessmentMode,
@@ -345,12 +357,13 @@ export async function captureFactoryDroidRun(options: CaptureFactoryDroidRunOpti
   if (workspaceOutcome === undefined) delete terminal.workspaceArtifactId;
   const manifest = await assembler.finalize({ terminal, missingEvidence, qualification: qualificationOptions });
   const qualification = await qualifyRunBundle(assembler.bundleRoot, qualificationOptions);
-  if (capture === undefined || capture.sessionId === undefined) return { attempt, manifest, qualification, capture };
+  if (capture === undefined || capture.sessionId === undefined) return { runtime: runtimeExecutionSummary(), attempt, manifest, qualification, capture };
   const { dataset, coverage } = await describeAndValidateFactoryDataset(capture);
-  return { attempt, manifest, qualification, capture, normalized: dataset, coverage };
+  return { runtime: runtimeExecutionSummary(), attempt, manifest, qualification, capture, normalized: dataset, coverage };
 }
 
 export type RunFactoryQueueEntryOptions = {
+  runtime?: StudyRuntimeBinding;
   bundleRoot: string;
   queuePath: string;
   runId: string;
@@ -365,6 +378,7 @@ export type RunFactoryQueueEntryOptions = {
 };
 
 export type FactoryRunSummary = {
+  runtime?: RuntimeExecutionSummary;
   runId: string;
   attemptId: string;
   bundlePath: string;
@@ -381,9 +395,15 @@ export type FactoryRunSummary = {
 
 /** Execute exactly one persisted frozen queue entry through the pinned Factory CLI adapter. */
 export async function runFactoryQueueEntry(options: RunFactoryQueueEntryOptions): Promise<FactoryRunSummary> {
+  const binding = options.runtime ?? (currentStudyRuntime() ? undefined : { studyRoot: options.bundleRoot });
+  return runInStudyRuntime("factory-droid", binding, () => runFactoryQueueEntryOwned(options));
+}
+
+async function runFactoryQueueEntryOwned(options: RunFactoryQueueEntryOptions): Promise<FactoryRunSummary> {
   const bundleRoot = resolve(options.bundleRoot);
   const queue = readRunQueue(options.queuePath, undefined, { bundleRoot });
-  const matches = queue.entries.filter((entry) => entry.runId === options.runId);
+  assertActiveRuntimeQueue(queue);
+  const matches = queue.entries.filter((entry) => queueEntryMatches(queue, entry, options.runId)).map((entry) => bindActiveQueueEntry(queue, entry));
   if (matches.length !== 1) throw new Error(matches.length === 0
     ? `Run "${options.runId}" is not in the queue.` : `Run "${options.runId}" matches more than one queue entry.`);
   const entry = matches[0]!;
@@ -392,9 +412,9 @@ export async function runFactoryQueueEntry(options: RunFactoryQueueEntryOptions)
   const limits = resolveFactoryConfigurationRecord(bundleRoot, entry.configuration.nativeLimits, "native-limits");
   const toolPolicy = resolveFactoryConfigurationRecord(bundleRoot, entry.configuration.nativeToolPolicy, "native-tool-policy");
   const captureProfile = resolveFactoryConfigurationRecord(bundleRoot, queue.captureProfile, "capture-profile");
-  if (entry.harness.id !== FACTORY_HARNESS) throw new Error(`Queue harness must be ${FACTORY_HARNESS}.`);
-  const runtime = await (options.probeRuntime ?? probeFactoryRuntime)(harness.executable);
-  if (runtime.version !== harness.version) throw new Error(`Factory CLI ${harness.version} is required; received ${runtime.version}.`);
+  const locked = lockedRuntimeExecutable("droid-cli");
+  const runtime = await (options.probeRuntime ?? probeFactoryRuntime)(locked.path);
+  await recordRuntimeProbe("droid-cli", runtime.version, "executable");
 
   const inspection = assertTaskPacketAdmitted(bundleRoot, entry.task.packetRef.locator);
   const packet = inspection.packet as TaskPacket;
@@ -428,7 +448,7 @@ export async function runFactoryQueueEntry(options: RunFactoryQueueEntryOptions)
     const verifierReference = packet.assessmentMode === "verified" ? packet.restricted.verifier : undefined;
     const verifierFormat = verifierReference?.locator.toLowerCase().endsWith(".mjs") ? "module" : "commonjs";
     const definition = buildDefinition(queue.captureProfile, entry, packet, destination, attemptId, model, harness, verifierFormat);
-    const result = await captureFactoryDroidRun({
+    const result = await captureFactoryDroidRunOwned({
       definition,
       startingWorkspacePath,
       workspace: {
@@ -439,7 +459,7 @@ export async function runFactoryQueueEntry(options: RunFactoryQueueEntryOptions)
         cleanup: () => cleanupWorkspace(workspace),
       },
       configuration: {
-        executable: runtime.path,
+        executable: locked.path,
         ...(options.executableArgs === undefined ? {} : { executableArgs: options.executableArgs }),
         version: harness.version,
         model: model.model,
@@ -481,6 +501,7 @@ export async function runFactoryQueueEntry(options: RunFactoryQueueEntryOptions)
     const manifest = reopenManifest(destination);
     const stopReason = result.capture?.terminal?.reason;
     return {
+      runtime: runtimeExecutionSummary(),
       runId: entry.runId,
       attemptId,
       bundlePath: destination,
@@ -534,7 +555,7 @@ function validateConfiguration(record: Record<string, unknown>, kind: FactoryCon
     if (record.credentialEnv !== undefined && (typeof record.credentialEnv !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(record.credentialEnv))) throw configError(reference, "credentialEnv must be an environment variable name");
   } else if (kind === "harness") {
     keys(record, ["schemaVersion", "kind", "adapter", "executable", "version", "sdkVersion", "contractDigest"], ["adapter", "executable", "version", "sdkVersion", "contractDigest"], reference);
-    if (record.adapter !== FACTORY_HARNESS || record.version !== FACTORY_CLI_VERSION || record.sdkVersion !== FACTORY_SDK_VERSION) throw configError(reference, "adapter or version is not pinned");
+    if (record.adapter !== FACTORY_HARNESS || !isExactRuntimeVersion(record.version) || !isExactRuntimeVersion(record.sdkVersion)) throw configError(reference, "adapter and exact runtime versions are required");
     requiredText(record.executable, "executable", reference);
     if (!isAbsolute(record.executable as string)) throw configError(reference, "executable must be absolute");
     if (record.contractDigest !== FACTORY_CONTRACT_DIGEST) throw configError(reference, `contractDigest must be ${FACTORY_CONTRACT_DIGEST}`);
@@ -606,10 +627,10 @@ function withPinnedRuntime(definition: RunBundleDefinition): RunBundleDefinition
     ...structuredClone(definition),
     run: {
       ...structuredClone(definition.run),
-      harness: { ...structuredClone(definition.run.harness), id: FACTORY_HARNESS, version: FACTORY_CLI_VERSION },
+      harness: { ...structuredClone(definition.run.harness), id: FACTORY_HARNESS, version: lockedRuntimeExecutable("droid-cli").version },
       runtime: definition.run.runtime.filter(({ name }) => !["factory-droid", "@factory/droid-sdk", "factory-adapter"].includes(name)).concat([
-        { source: "Factory", name: "factory-droid", version: FACTORY_CLI_VERSION },
-        { source: "Factory", name: "@factory/droid-sdk", version: FACTORY_SDK_VERSION },
+        { source: "Factory", name: "factory-droid", version: lockedRuntimeExecutable("droid-cli").version },
+        { source: "Factory", name: "@factory/droid-sdk", version: studyRuntimeVersion("@factory/droid-sdk", FACTORY_SDK_VERSION) },
         { source: "EBO", name: "factory-adapter", version: FACTORY_ADAPTER_VERSION },
       ]),
     },

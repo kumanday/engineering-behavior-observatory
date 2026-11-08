@@ -1,9 +1,9 @@
-import { spawn } from "node:child_process";
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeVersion, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
+import { withLockedOpenHandsServer } from "./openhands-runtime.js";
 import { writeArtifactAtomically } from "./artifacts.js";
 import {
-  captureOpenHandsAgentServer,
+  captureOpenHandsAgentServerOwned,
   normalizeOpenHandsCapture,
-  OPENHANDS_AGENT_SERVER_VERSION,
   OPENHANDS_DEFAULT_MAX_RESPONSE_BYTES,
   OPENHANDS_MAX_RESPONSE_BYTES,
   type OpenHandsCapture,
@@ -39,9 +39,9 @@ export type CaptureOpenHandsAgentServerVerifier = (
   workspacePath: string,
 ) => VerifierResult | Promise<VerifierResult>;
 
-/** Starts the pinned Agent Server before the conversation when EBO owns its lifecycle. */
+/** Executable launches are read for configuration migration; execution uses the study image. */
 export type OpenHandsServerLaunch = {
-  /** Absolute path to the pinned Agent Server inside the attempt environment. */
+  /** Remove this field when migrating execution configuration to a study lock. */
   command: string;
   /** Defaults to a loopback host and the port taken from `baseUrl`. */
   args?: readonly string[];
@@ -61,6 +61,7 @@ export type OpenHandsAgentServerRunConfiguration = Omit<
 };
 
 export type CaptureOpenHandsAgentServerRunOptions = {
+  runtime?: StudyRuntimeBinding;
   definition: RunBundleDefinition;
   startingWorkspacePath: string;
   workspace: WorkspaceCoordinator;
@@ -76,6 +77,7 @@ export type CaptureOpenHandsAgentServerRunOptions = {
 };
 
 export type CaptureOpenHandsAgentServerRunResult = {
+  runtime?: RuntimeExecutionSummary;
   attempt: RunAttemptResult;
   manifest: RunManifest;
   qualification: CaptureQualificationReport;
@@ -103,47 +105,16 @@ export function withOpenHandsCredential(startConversation: Record<string, unknow
   return clone;
 }
 
-/** Start the pinned Agent Server when configured and wait until it reports the pinned version. */
-async function startOpenHandsServerIfConfigured(
-  configuration: OpenHandsAgentServerRunConfiguration,
-): Promise<(() => Promise<void>) | undefined> {
-  const launch = configuration.serverLaunch;
-  if (launch === undefined) return undefined;
-  if (typeof launch.command !== "string" || launch.command.trim() === "") throw new Error("OpenHands serverLaunch.command is required.");
-  const baseUrl = new URL(configuration.baseUrl);
-  const args = launch.args ?? ["--host", baseUrl.hostname, "--port", baseUrl.port === "" ? "80" : baseUrl.port];
-  const child = spawn(launch.command, [...args], { stdio: ["ignore", "ignore", "pipe"] });
-  let stderr = "";
-  child.stderr?.on("data", (chunk: Buffer) => { stderr = `${stderr}${chunk.toString()}`.slice(-4096); });
-  const readinessTimeoutMs = launch.readinessTimeoutMs ?? 120_000;
-  const deadline = Date.now() + readinessTimeoutMs;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`OpenHands server exited during startup (${child.exitCode}): ${stderr.slice(-500)}`);
-    try {
-      const response = await fetch(new URL("/server_info", baseUrl));
-      if (response.ok) {
-        const info = await response.json() as { version?: unknown };
-        if (info.version === OPENHANDS_AGENT_SERVER_VERSION) {
-          return async () => {
-            if (child.exitCode !== null) return;
-            child.kill("SIGTERM");
-            const stopDeadline = Date.now() + 5_000;
-            while (Date.now() < stopDeadline && child.exitCode === null) await new Promise((resolve) => setTimeout(resolve, 100));
-            if (child.exitCode === null) child.kill("SIGKILL");
-          };
-        }
-      }
-    } catch { /* server not up yet */ }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  child.kill("SIGKILL");
-  throw new Error(`OpenHands server did not report ${OPENHANDS_AGENT_SERVER_VERSION} within ${readinessTimeoutMs} ms: ${stderr.slice(-500)}`);
-}
-
 /** Execute and retain one caller-configured OpenHands Agent Server attempt. */
 export async function captureOpenHandsAgentServerRun(
   options: CaptureOpenHandsAgentServerRunOptions,
 ): Promise<CaptureOpenHandsAgentServerRunResult> {
+  return runInStudyRuntime("openhands-agent-server", options.runtime, async () => ({ ...await captureOpenHandsAgentServerRunOwned(options), runtime: runtimeExecutionSummary() }));
+}
+
+/** Internal run layer of an already checked launch. */
+export async function captureOpenHandsAgentServerRunOwned(options: CaptureOpenHandsAgentServerRunOptions): Promise<CaptureOpenHandsAgentServerRunResult> {
+  requireStudyRuntime("openhands-agent-server");
   if (options.definition.run.harness.id !== "openhands-agent-server") {
     throw new Error(`OpenHands run harness must be openhands-agent-server; received ${options.definition.run.harness.id}.`);
   }
@@ -170,6 +141,7 @@ export async function captureOpenHandsAgentServerRun(
   let verifierResult: VerifierResult | undefined;
   let capture: OpenHandsCapture | undefined;
   let nativeEvidenceWritten = false;
+  let nativeEvidenceWrite: Promise<void> | undefined;
   let captureSettled = false;
   let progressiveSessionId: string | undefined;
   let progressiveWriteError: string | undefined;
@@ -219,43 +191,46 @@ export async function captureOpenHandsAgentServerRun(
 
   const writeNativeEvidence = async (): Promise<void> => {
     if (nativeEvidenceWritten) return;
-    await sessionWriter.flush();
-    if (progressiveWriteError !== undefined) throw new Error(progressiveWriteError);
-    if (!captureSettled || sessionWriter.count === 0) return;
-    await sessionWriter.close();
-    await assembler.registerArtifact({
-      id: "session",
-      source: "openhands-agent-server",
-      kind: "session",
-      mediaType: "application/x-ndjson",
-      sharingClass: "restricted",
-      relativePath: "session.jsonl",
-      ...(progressiveSessionId === undefined ? {} : {
-        nativeReference: { type: "session", id: progressiveSessionId },
-      }),
-    });
-    if (capture === undefined) {
-      nativeEvidenceWritten = true;
-      return;
-    }
-    const hooks = capture.records.filter(({ record }) => record.payload.kind === "HookExecutionEvent");
-    if (hooks.length > 0) {
-      const hookBytes = Buffer.from(`${hooks.map(({ record }) => JSON.stringify({
-        session_id: capture!.conversationId,
-        hook_event_name: record.payload.hook_event_type,
-        native_record: record,
-      })).join("\n")}\n`);
-      await writeArtifactAtomically(assembler.bundleRoot, "hooks.jsonl", hookBytes, undefined, { overwrite: false });
+    if (!captureSettled) {await sessionWriter.flush(); return;}
+    return nativeEvidenceWrite ??= (async () => {
+      await sessionWriter.flush();
+      if (progressiveWriteError !== undefined) throw new Error(progressiveWriteError);
+      if (!captureSettled || sessionWriter.count === 0) return;
+      await sessionWriter.close();
       await assembler.registerArtifact({
-        id: "hooks",
+        id: "session",
         source: "openhands-agent-server",
-        kind: "hook",
+        kind: "session",
         mediaType: "application/x-ndjson",
         sharingClass: "restricted",
-        relativePath: "hooks.jsonl",
+        relativePath: "session.jsonl",
+        ...(progressiveSessionId === undefined ? {} : {
+          nativeReference: { type: "session", id: progressiveSessionId },
+        }),
       });
-    }
-    nativeEvidenceWritten = true;
+      if (capture === undefined) {
+        nativeEvidenceWritten = true;
+        return;
+      }
+      const hooks = capture.records.filter(({ record }) => record.payload.kind === "HookExecutionEvent");
+      if (hooks.length > 0) {
+        const hookBytes = Buffer.from(`${hooks.map(({ record }) => JSON.stringify({
+          session_id: capture!.conversationId,
+          hook_event_name: record.payload.hook_event_type,
+          native_record: record,
+        })).join("\n")}\n`);
+        await writeArtifactAtomically(assembler.bundleRoot, "hooks.jsonl", hookBytes, undefined, { overwrite: false });
+        await assembler.registerArtifact({
+          id: "hooks",
+          source: "openhands-agent-server",
+          kind: "hook",
+          mediaType: "application/x-ndjson",
+          sharingClass: "restricted",
+          relativePath: "hooks.jsonl",
+        });
+      }
+      nativeEvidenceWritten = true;
+    })();
   };
 
   const coordinatedWorkspace: WorkspaceCoordinator = {
@@ -296,16 +271,18 @@ export async function captureOpenHandsAgentServerRun(
       if (workspace?.status !== "ready" || workspace.path === undefined) {
         throw new Error("OpenHands run requires a ready workspace path.");
       }
+      const workspacePath = workspace.path;
       const { serverWorkspacePath, serverLaunch, credentialEnv, ...configuration } = options.configuration;
       void serverLaunch; void credentialEnv;
-      const stopServer = await startOpenHandsServerIfConfigured(options.configuration);
+      if (serverLaunch !== undefined) throw new Error("OpenHands serverLaunch is replaced by the study's frozen image; remove the executable launch configuration.");
+      return withLockedOpenHandsServer({...configuration, workspacePath, ...(serverWorkspacePath ? {serverWorkspacePath} : {})}, async (server) => {
+      configuration.baseUrl = server.baseUrl;
       registerShutdown(async () => {
-        await stopServer?.();
-        if (progressiveSessionId === undefined) return;
-        await cleanupOpenHandsConversation(configuration, progressiveSessionId, options.shutdownGraceMs ?? 250);
+        try {if (!server.isStopped() && progressiveSessionId !== undefined) await cleanupOpenHandsConversation(configuration, progressiveSessionId, options.shutdownGraceMs ?? 250);}
+        finally {await server.stop();}
       });
       try {
-        capture = await captureOpenHandsAgentServer({
+        capture = await captureOpenHandsAgentServerOwned({
           ...configuration,
           runId: definition.run.id,
           attemptId: definition.attempt.id,
@@ -320,12 +297,12 @@ export async function captureOpenHandsAgentServerRun(
           },
           startConversation: {
             ...startConversation,
-            workspace: { type: "local", working_dir: serverWorkspacePath ?? workspace.path },
+            workspace: { type: "local", working_dir: serverWorkspacePath ?? workspacePath },
           },
         });
       } finally {
         captureSettled = true;
-        await stopServer?.();
+
       }
       if (capture.captureError !== undefined) {
         return {
@@ -347,6 +324,7 @@ export async function captureOpenHandsAgentServerRun(
             }),
           }
         : { status: "failed", failureClass: "infrastructure", reason: `OpenHands conversation ended as ${String(status)}.`, evidence: capture };
+      });
     },
     ...(options.verifier === undefined ? {} : {
       verifier: async (context: VerifierExecutionContext) => {
@@ -537,12 +515,12 @@ function interruptedCapture(
 
 function withPinnedRuntime(definition: RunBundleDefinition): RunBundleDefinition {
   const runtime = definition.run.runtime.filter(({ name }) => name !== "openhands-agent-server");
-  runtime.push({ source: "OpenHands", name: "openhands-agent-server", version: OPENHANDS_AGENT_SERVER_VERSION });
+  runtime.push({ source: "OpenHands", name: "openhands-agent-server", version: lockedRuntimeVersion("openhands") });
   return {
     ...structuredClone(definition),
     run: {
       ...structuredClone(definition.run),
-      harness: { ...structuredClone(definition.run.harness), version: OPENHANDS_AGENT_SERVER_VERSION },
+      harness: { ...structuredClone(definition.run.harness), version: lockedRuntimeVersion("openhands") },
       runtime,
     },
   };

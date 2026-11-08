@@ -1,4 +1,4 @@
-/** Pinned provider glue only. Harbor owns steps/verifiers; Smol owns VM operations. */
+/** Provider glue only. Harbor owns steps/verifiers; Smol owns VM operations. */
 export const SMOL_SCRIPT = String.raw`
 import fcntl
 import importlib.metadata
@@ -12,8 +12,6 @@ from harbor.models.task.verifier_mode import resolve_effective_verifier_env_conf
 from harbor.publisher.packager import Packager
 from harbor.environments.factory import EnvironmentFactory
 
-SMOL_VERSION = '1.26.1'
-HARBOR_VERSION = '0.24.0'
 
 def json_write(path, value):
     path = Path(path)
@@ -52,10 +50,10 @@ async def boot_identity(machine):
     if result.exit_code or not value: raise ValueError('Cannot read parent boot identity')
     return value
 
-def runtime_provenance(manifest):
+def runtime_provenance(manifest, frozen_versions):
     versions = {name: importlib.metadata.version(name) for name in ('smolmachines', 'harbor')}
-    if versions != {'smolmachines': SMOL_VERSION, 'harbor': HARBOR_VERSION}:
-        raise ValueError('Requires smolmachines==1.26.1 and harbor==0.24.0: ' + str(versions))
+    if versions != frozen_versions:
+        raise ValueError('RUNTIME_PROBE_MISMATCH: frozen=' + str(frozen_versions) + '; actual=' + str(versions))
     if platform.system() != 'Darwin' or platform.machine() != 'arm64':
         raise ValueError('This Smol runtime is qualified only on Apple Silicon macOS')
     import smol
@@ -269,7 +267,7 @@ async def serve_parents(request):
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     manifest = request['environmentManifest']
     validate_environment_manifest(manifest)
-    provenance = runtime_provenance(manifest)
+    provenance = runtime_provenance(manifest, request['frozenPythonVersions'])
     with (root / 'owner.lock').open('a+') as owner:
         os.chmod(root / 'owner.lock', 0o600)
         fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)

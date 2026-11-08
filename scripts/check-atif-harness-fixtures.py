@@ -22,8 +22,7 @@ from harbor.models.agent.context import AgentContext
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("root", type=pathlib.Path)
 args = parser.parse_args()
-if version("harbor") != "0.25.0":
-    raise SystemExit("Fixture reproduction requires the recorded Harbor 0.25.0 release")
+print(json.dumps({"harborVersion": version("harbor")}), flush=True)
 logging.disable(logging.CRITICAL)
 classes = {"claude-agent-sdk": ClaudeCode, "codex-app-server": Codex,
            "cursor-sdk": CursorCli, "devin-cli": Devin,

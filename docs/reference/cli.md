@@ -213,3 +213,17 @@ local Atlas page. `prepare-judge` also writes a digest-bound judge input.
 Both commands use registered source readers and dispatch no inference. See
 [typed v2 analysis](../development/typed-v2-consumers.md) for request contracts,
 coverage and compatibility semantics.
+
+
+## Study runtimes
+
+`ebo runtime list` lists execution roles and their software components.
+`ebo runtime freeze <study-root> <request.json>` resolves and installs a study
+composition. `ebo runtime inspect <study-root>` reads the retained selection.
+`ebo runtime check <study-root> <role>` verifies installation, withdrawal status,
+security results and the selected SDK API without an agent turn.
+`ebo runtime bind-queue <study-root> <queue.json> <output.json>` binds a queue
+to the freeze. Add `--configuration-root <bundle-root>` when its source references
+live elsewhere. Native run commands and operational judge commands accept
+`--runtime-study <study-root>` to select that freeze.
+See [Study runtime locks](study-runtimes.md) for request fields and receipts.

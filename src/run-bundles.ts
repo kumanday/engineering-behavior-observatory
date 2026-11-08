@@ -1,7 +1,9 @@
+import { currentStudyRuntime } from "./runtime-context.js";
+import { studyRunId } from "./runtime-run-id.js";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { cp, lstat, mkdir, mkdtemp, readdir, readlink, realpath, rm, rmdir, symlink, utimes, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, rmdir, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -74,8 +76,12 @@ export type RunBundleEvidenceDescriptor = {
   sanitizedFrom?: { artifactId: string; digest: DigestString };
 };
 
+export type RunRuntimeBinding = { lockDigest: DigestString; role: string; lockArtifactId: string; launchArtifactId: string;
+  studyFreezeArtifactId?: string; studyFreezeDigest?: DigestString; sourceRunId?: string };
+
 export type RunManifest = {
-  schemaVersion: "run-manifest/v1";
+  schemaVersion: "run-manifest/v1" | "run-manifest/v2";
+  runtimeLock?: RunRuntimeBinding;
   bundleId: string;
   run: RunBundleRun;
   attempt: AttemptIdentity;
@@ -102,7 +108,7 @@ export type RunBundleDefinition = {
 export type RegisterRunBundleArtifact = {
   id: string;
   source: string;
-  kind: EvidenceKind;
+  kind: EvidenceKind | "diagnostic";
   mediaType: string;
   sharingClass: Exclude<SharingClass, "partner" | "public">;
   relativePath: string;
@@ -229,7 +235,8 @@ const PROVISIONAL_TERMINAL: TerminalRecord = {
   failureClass: "infrastructure",
   stopReason: "none",
 };
-const AUTHORITIES: Record<EvidenceKind, EvidenceAuthority> = {
+const AUTHORITIES: Record<EvidenceKind | "diagnostic", EvidenceAuthority> = {
+  diagnostic: "outcome",
   session: "semantic",
   hook: "semantic",
   telemetry: "timing-resource",
@@ -252,8 +259,11 @@ export class RunBundleAssembler {
   private readonly configuration: RunBundleConfiguration;
   private evidence: RunBundleEvidenceDescriptor[] = [];
   private manifest?: RunManifest;
+  private runtimeLock?: RunRuntimeBinding;
   private revision = 0;
   private finalized = false;
+  private finalizing = false;
+  private mutationTail: Promise<void> = Promise.resolve();
   private captureMissing: CaptureMissingEvidence[] = [];
 
   public constructor(definition: RunBundleDefinition) {
@@ -273,7 +283,34 @@ export class RunBundleAssembler {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    await this.checkpoint([], this.run, PROVISIONAL_TERMINAL);
+    const context = currentStudyRuntime();
+    if (context) {
+      const primary = context.launch.roots[0]!;
+      const actual = context.probes.findLast((probe) => probe.componentId === primary.id)?.actualVersion ?? "not-probed";
+      this.run.harness.version = actual;
+      this.run.runtime = this.run.runtime.map((component) => component.name === context.launch.role ? { ...component, version: actual } : component);
+      if (!this.run.runtime.some((component) => component.name === context.launch.role)) this.run.runtime.push({ source: "EBO", name: context.launch.role, version: actual });
+      this.run.runtime = this.run.runtime.map((component) => {
+        const root = context.launch.roots.find((root) => root.name === component.name);
+        return root ? { ...component, version: context.probes.findLast((probe) => probe.componentId === root.id)?.actualVersion ?? "not-probed" } : component;
+      }).concat(context.launch.roots.filter((root) => !this.run.runtime.some((component) => component.name === root.name)).map((root) => ({ source: root.source, name: root.name, version: context.probes.findLast((probe) => probe.componentId === root.id)?.actualVersion ?? "not-probed" })));
+      this.runtimeLock = { lockDigest: context.launch.lockDigest, role: context.launch.role, lockArtifactId: "runtime-lock", launchArtifactId: "runtime-launch" };
+      if (context.studyFreeze && context.sourceRunId) {
+        if (studyRunId(context.studyFreeze.digest, context.sourceRunId) !== this.run.id) throw new Error("RUNTIME_QUEUE_RUN_MISMATCH: captured run differs from its frozen queue assignment.");
+        Object.assign(this.runtimeLock, {studyFreezeArtifactId: "study-freeze", studyFreezeDigest: context.studyFreeze.digest, sourceRunId: context.sourceRunId});
+        const relativePath = "runtime/study-freeze.json";
+        await writeArtifactAtomically(this.bundleRoot, relativePath, Buffer.from(JSON.stringify(context.studyFreeze)), undefined, {overwrite: false});
+        const inspected = await inspectRetainedArtifact(this.bundleRoot, relativePath);
+        this.evidence.push({id: "study-freeze", source: "ebo-runtime", kind: "diagnostic", authority: "outcome", mediaType: "application/json", sharingClass: "internal", relativePath, digest: digestString(inspected.digest.value), sizeBytes: inspected.sizeBytes});
+      }
+      for (const [id, sourcePath] of [["runtime-lock", "runtimes/lock.json"], ["runtime-launch", context.launch.receiptLocator]]) {
+        const relativePath = `runtime/${id}.json`;
+        await writeArtifactAtomically(this.bundleRoot, relativePath, await readFile(join(context.studyRoot, sourcePath!)), undefined, { overwrite: false });
+        const inspected = await inspectRetainedArtifact(this.bundleRoot, relativePath);
+        this.evidence.push({ id: id!, source: "ebo-runtime", kind: "diagnostic", authority: "outcome", mediaType: "application/json", sharingClass: "internal", relativePath, digest: digestString(inspected.digest.value), sizeBytes: inspected.sizeBytes });
+      }
+    }
+    await this.checkpoint(this.evidence, this.run, PROVISIONAL_TERMINAL);
   }
 
   public currentManifest(): RunManifest {
@@ -283,6 +320,10 @@ export class RunBundleAssembler {
 
   public async registerArtifact(input: RegisterRunBundleArtifact): Promise<RunBundleEvidenceDescriptor> {
     this.assertOpen();
+    return this.enqueueMutation(() => this.registerArtifactOwned(input));
+  }
+
+  private async registerArtifactOwned(input: RegisterRunBundleArtifact): Promise<RunBundleEvidenceDescriptor> {
     if (!isSafeArtifactRelativePath(input.relativePath) || input.relativePath.toLowerCase() === "manifest.json") {
       throw new Error(`Artifact path "${input.relativePath}" is unsafe or reserved.`);
     }
@@ -312,8 +353,10 @@ export class RunBundleAssembler {
     document: unknown,
   ): Promise<RunBundleEvidenceDescriptor> {
     this.assertOpen();
-    await writeMetadataAtomically(this.bundleRoot, input.relativePath, document, undefined, { overwrite: false });
-    return this.registerArtifact(input);
+    return this.enqueueMutation(async () => {
+      await writeMetadataAtomically(this.bundleRoot, input.relativePath, document, undefined, { overwrite: false });
+      return this.registerArtifactOwned(input);
+    });
   }
 
   public async writeAgentSdkTelemetry(input: {
@@ -382,21 +425,24 @@ export class RunBundleAssembler {
       const relativePath = format === "patch"
         ? options.relativePath ?? "workspace.patch"
         : options.snapshotRelativePath ?? "workspace.tar.gz";
-      if (patch !== undefined) {
-        await writeArtifactAtomically(this.bundleRoot, relativePath, patch, undefined, { overwrite: false });
-      } else {
-        await workspaceSnapshot(capturedPath, treeDigest, async (snapshotPath) => {
-          await writeArtifactAtomically(this.bundleRoot, relativePath, createReadStream(snapshotPath), undefined, { overwrite: false });
+      this.assertOpen();
+      const descriptor = await this.enqueueMutation(async () => {
+        if (patch !== undefined) {
+          await writeArtifactAtomically(this.bundleRoot, relativePath, patch, undefined, { overwrite: false });
+        } else {
+          await workspaceSnapshot(capturedPath, treeDigest, async (snapshotPath) => {
+            await writeArtifactAtomically(this.bundleRoot, relativePath, createReadStream(snapshotPath), undefined, { overwrite: false });
+          });
+        }
+        return this.registerArtifactOwned({
+          id: options.id ?? "workspace",
+          source: options.source ?? `workspace-${format}`,
+          kind: "workspace",
+          mediaType: format === "patch" ? "text/x-diff" : "application/gzip",
+          sharingClass: "restricted",
+          relativePath,
+          fingerprint,
         });
-      }
-      const descriptor = await this.registerArtifact({
-        id: options.id ?? "workspace",
-        source: options.source ?? `workspace-${format}`,
-        kind: "workspace",
-        mediaType: format === "patch" ? "text/x-diff" : "application/gzip",
-        sharingClass: "restricted",
-        relativePath,
-        fingerprint,
       });
       const outcome: CapturedWorkspaceOutcome = { descriptor, fingerprint, treeDigest, format };
       await whileProjected?.(capturedPath, outcome);
@@ -422,7 +468,27 @@ export class RunBundleAssembler {
     qualification?: CaptureQualificationOptions;
   }): Promise<RunManifest> {
     this.assertOpen();
+    this.finalizing = true;
+    try {return await this.enqueueMutation(() => this.finalizeOwned(input));}
+    catch (error) {this.finalizing = false; throw error;}
+  }
+
+  private async finalizeOwned(input: Parameters<RunBundleAssembler["finalize"]>[0]): Promise<RunManifest> {
     const terminal = structuredClone(input.terminal);
+    const context = currentStudyRuntime();
+    if (this.runtimeLock && context && context.launch.lockDigest === this.runtimeLock.lockDigest && context.launch.role === this.runtimeLock.role) {
+      const actual = context.probes.findLast((probe) => probe.componentId === context.launch.roots[0]!.id)?.actualVersion ?? "not-probed";
+      this.run.harness.version = actual;
+      this.run.runtime = this.run.runtime.map((component) => {
+        const root = context.launch.roots.find((root) => root.name === component.name);
+        const version = component.name === context.launch.role ? actual : root ? context.probes.findLast((probe) => probe.componentId === root.id)?.actualVersion ?? "not-probed" : undefined;
+        return version ? { ...component, version } : component;
+      });
+      const descriptor = this.evidence.find((descriptor) => descriptor.id === this.runtimeLock!.launchArtifactId)!;
+      await writeArtifactAtomically(this.bundleRoot, descriptor.relativePath, await readFile(join(context.studyRoot, context.launch.receiptLocator)), undefined, { overwrite: true });
+      const inspected = await inspectRetainedArtifact(this.bundleRoot, descriptor.relativePath);
+      descriptor.digest = digestString(inspected.digest.value); descriptor.sizeBytes = inspected.sizeBytes;
+    }
     const missingEvidence = input.missingEvidence ?? [];
     await this.checkpoint(this.evidence, this.run, terminal, missingEvidence, input.qualification);
     if (input.qualification !== undefined) {
@@ -436,6 +502,14 @@ export class RunBundleAssembler {
   private assertOpen(): void {
     if (this.manifest === undefined) throw new Error("Run-bundle assembler is not initialized.");
     if (this.finalized) throw new Error("Run bundle is already finalized.");
+    if (this.finalizing) throw new Error("Run bundle is being finalized.");
+  }
+
+  /** Compute candidates and publish their files as one ordered mutation. */
+  private enqueueMutation<T>(action: () => Promise<T>): Promise<T> {
+    const operation = this.mutationTail.then(action);
+    this.mutationTail = operation.then(() => undefined, () => undefined);
+    return operation;
   }
 
   private async checkpoint(
@@ -465,7 +539,8 @@ export class RunBundleAssembler {
       relativePath: reportPath,
     };
     const manifest: RunManifest = {
-      schemaVersion: "run-manifest/v1",
+      schemaVersion: this.runtimeLock ? "run-manifest/v2" : "run-manifest/v1",
+      ...(this.runtimeLock ? { runtimeLock: structuredClone(this.runtimeLock) } : {}),
       bundleId: this.bundleId,
       run: structuredClone(run),
       attempt: structuredClone(this.attempt),

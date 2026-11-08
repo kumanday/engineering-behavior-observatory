@@ -13,8 +13,8 @@ if (!manifestPath || !outputPath) throw new Error("Usage: node scripts/check-pi-
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const source = readFileSync(manifestPath);
 const manifest = JSON.parse(source);
-if (manifest.harborVersion !== "0.24.0") throw new Error("Fixture converter version is unsupported");
-const report = { schemaVersion: "ebo.pi-fixture-comparison/v1", sourceManifestSha256: hash(source),
+
+const report = { schemaVersion: "ebo.pi-fixture-comparison/v1", sourceManifestSha256: hash(source), harborVersion: manifest.harborVersion,
   sourceAuditorSha256: hash(readFileSync(new URL("./atif-fixture-summary.mjs", import.meta.url))),
   gateSha256: hash(readFileSync(new URL("../dist/test/atif-fixture-gate.js", import.meta.url))),
   status: "incomplete", fixtures: [] };

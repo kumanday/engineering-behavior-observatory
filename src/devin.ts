@@ -1,3 +1,5 @@
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, probeLockedRuntimeExecutable, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { markRetainedVersion, retainedVersionProfile } from "./retained-version-policy.js";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -53,7 +55,7 @@ export type DevinTelemetrySignal = "logs" | "metrics";
 
 export type DevinCliConfiguration = {
   executable: string;
-  version: typeof DEVIN_CLI_VERSION;
+  version: string;
   /** Native model slug as listed by the ACP `model` config option, e.g. `swe-2-high`. */
   model: string;
   mode: DevinSessionMode;
@@ -134,6 +136,7 @@ export type DevinTelemetryEvidence = {
 export type DevinCaptureGap = { kind: string; detail: string };
 
 export type DevinCliCaptureRequest = {
+  runtime?: StudyRuntimeBinding;
   runId: string;
   attemptId: string;
   workspacePath: string;
@@ -150,6 +153,7 @@ export type DevinCliCaptureRequest = {
 };
 
 export type DevinCliCapture = QualifiedNativeCapture<ProtocolObservation> & {
+  runtime?: RuntimeExecutionSummary;
   sessionId?: string;
   promptRequestId?: number;
   terminalStatus?: "completed" | "interrupted" | "failed";
@@ -215,15 +219,26 @@ export function createDevinHarnessAdapter(): HarnessAdapter<DevinCliCaptureReque
  * the native attempt; process exit alone never does.
  */
 export async function captureDevinCli(request: DevinCliCaptureRequest): Promise<DevinCliCapture> {
+  return runInStudyRuntime("devin-cli", request.runtime, async () => ({ ...await captureDevinCliOwned(request), runtime: runtimeExecutionSummary() }));
+}
+
+export async function bindDevinRuntime(configuration: DevinCliConfiguration): Promise<DevinCliConfiguration> {
+  requireStudyRuntime("devin-cli");
+  const actual = await probeLockedRuntimeExecutable("devin", configuration.executableArgs);
+  return { ...configuration, executable: actual.path, version: actual.version };
+}
+
+/** Internal protocol layer of an already checked launch. */
+export async function captureDevinCliOwned(request: DevinCliCaptureRequest): Promise<DevinCliCapture> {
+  if (!isExactRuntimeVersion(request.configuration.version)) throw new Error("Devin capture requires an exact requested runtime version.");
+  request = { ...request, configuration: await bindDevinRuntime(request.configuration) };
   requireText(request.runId, "Run ID");
   requireText(request.attemptId, "Attempt ID");
   requireText(request.workspacePath, "Workspace path");
   requireText(request.prompt, "Prompt");
   requireText(request.configuration.executable, "Devin executable");
   requireText(request.configuration.model, "Devin model");
-  if (request.configuration.version !== DEVIN_CLI_VERSION) {
-    throw new Error(`Devin CLI ${DEVIN_CLI_VERSION} is required; configuration declares ${String(request.configuration.version)}.`);
-  }
+  if (!isExactRuntimeVersion(request.configuration.version)) throw new Error("Devin capture requires an exact requested runtime version.");
   if (!["accept-edits", "smart", "bypass", "plan", "ask"].includes(request.configuration.mode)) throw new Error("Devin session mode is invalid.");
   if (!["allow-once", "reject-once"].includes(request.configuration.permissionDecision)) throw new Error("Devin permission decision is invalid.");
   const shutdownGraceMs = request.shutdownGraceMs ?? DEVIN_DEFAULT_SHUTDOWN_GRACE_MS;

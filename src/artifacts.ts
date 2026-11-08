@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { studyRunId } from "./runtime-run-id.js";
 import {
   closeSync,
   constants,
@@ -179,7 +180,7 @@ export function validateArtifact(artifact: string, document: unknown): ArtifactV
     ? []
     : (validate.errors ?? []).map((error) => validationError(artifact, schemaVersion, error));
 
-  if (schemaVersion === "run-manifest/v1" && isRecord(document) && Array.isArray(document.evidence)) {
+  if (["run-manifest/v1", "run-manifest/v2"].includes(schemaVersion) && isRecord(document) && Array.isArray(document.evidence)) {
     errors.push(...runManifestIntegrityErrors(artifact, schemaVersion, document));
   }
   if (schemaVersion === "verifier-result/v1" && isRecord(document) && Array.isArray(document.assertions)) {
@@ -218,8 +219,9 @@ export function validateRunManifestEvidence(
   manifest: unknown,
   bundleRoot: string,
 ): ArtifactValidationError[] {
-  if (!isRecord(manifest) || manifest.schemaVersion !== "run-manifest/v1" || !Array.isArray(manifest.evidence)) return [];
+  if (!isRecord(manifest) || !["run-manifest/v1", "run-manifest/v2"].includes(String(manifest.schemaVersion)) || !Array.isArray(manifest.evidence)) return [];
   const errors: ArtifactValidationError[] = [];
+  if (manifest.schemaVersion === "run-manifest/v2") errors.push(...runtimeBindingEvidenceErrors(artifact, manifest, bundleRoot));
   const expectedBundleId = typeof manifest.bundleId === "string" ? manifest.bundleId : undefined;
   const expectedVerifier = isRecord(manifest.run) && isRecord(manifest.run.verifier)
     ? manifest.run.verifier
@@ -738,7 +740,7 @@ export function validateExportManifest(
 ): ArtifactValidationError[] {
   if (!isRecord(exportManifest) || exportManifest.schemaVersion !== "export-manifest/v1"
       || !["ready", "exported"].includes(String(exportManifest.status))) return [];
-  if (!isRecord(containingManifest) || containingManifest.schemaVersion !== "run-manifest/v1" || !Array.isArray(containingManifest.evidence)) {
+  if (!isRecord(containingManifest) || !["run-manifest/v1", "run-manifest/v2"].includes(String(containingManifest.schemaVersion)) || !Array.isArray(containingManifest.evidence)) {
     return [{ artifact, schemaVersion: "export-manifest/v1", field: "/bundleId", message: "Ready exports require their containing run manifest." }];
   }
   if (exportManifest.bundleId !== containingManifest.bundleId) {
@@ -1169,6 +1171,7 @@ function loadValidators(): Map<string, ValidateFunction> {
   missingEvidence.eboUniqueItems = missingEvidence.uniqueItems;
   delete missingEvidence.uniqueItems;
   ajv.addSchema(runBundleSchema);
+  ajv.addSchema(readSchema("run-bundles/v2.json"));
   ajv.addSchema(readSchema("uniform-events/v1.json"));
   ajv.addSchema(readSchema("normalization-integrity.v1.json"));
   ajv.addSchema(readSchema("normalization.v2.json"));
@@ -1185,6 +1188,9 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("atif-producer-profile.v1.json"));
   ajv.addSchema(readSchema("behavior-assertions.v1.json"));
   ajv.addSchema(readSchema("semantic-judge.v1.json"));
+  ajv.addSchema(readSchema("semantic-judge-runtime.v1.json"));
+  ajv.addSchema(readSchema("study-runtimes.v1.json"));
+  ajv.addSchema(readSchema("study-runtime-bindings.v1.json"));
   ajv.addSchema(readSchema("migration.v1.json"));
   ajv.addSchema(readSchema("human-calibration.v1.json"));
   ajv.addSchema(readSchema("aggregation.v1.json"));
@@ -1229,8 +1235,11 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.task-packet/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet.v1.schema.json")],
     ["ebo.task-packet-freeze/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet-freeze.v1.schema.json")],
     ["ebo.experiment/v1", requiredValidator(ajv, "https://ebo.dev/schemas/experiment.v1.schema.json")],
+    ["ebo.study-freeze/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/freeze")],
+    ["ebo.run-queue/v3", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/queue")],
     ["ebo.run-queue/v1", requiredValidator(ajv, "https://ebo.dev/schemas/run-queue.v1.schema.json")],
     ["run-manifest/v1", requiredValidator(ajv, runBundleSchemaId)],
+    ["run-manifest/v2", requiredValidator(ajv, "urn:ebo:schema:run-bundle:v2")],
     ["verifier-result/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/verifierResult`)],
     ["capture-report/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/captureReport`)],
     ["export-manifest/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/exportManifest`)],
@@ -1257,6 +1266,9 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.atlas-bundle/v1", requiredValidator(ajv, "urn:ebo:schema:atlas-bundle:v1#/$defs/bundle")],
     ["ebo.semantic-judge-request/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/request")],
     ["ebo.semantic-judge-input/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/input")],
+    ["ebo.study-runtime-lock/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/lock")],
+    ["ebo.runtime-launch/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/launch")],
+    ["ebo.semantic-judgment/v3", requiredValidator(ajv, "urn:ebo:schema:semantic-judge-runtime:v1#/$defs/judgment")],
     ["ebo.semantic-judgment/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/judgment")],
     ["ebo.semantic-judge-answer/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeAnswer")],
     ["ebo.semantic-judgment/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgment")],
@@ -1687,4 +1699,28 @@ function isContained(root: string, path: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function runtimeBindingEvidenceErrors(artifact: string, manifest: Record<string, unknown>, bundleRoot: string): ArtifactValidationError[] {
+  try {
+    if (!isRecord(manifest.runtimeLock) || !Array.isArray(manifest.evidence) || !isRecord(manifest.run) || !isRecord(manifest.run.harness)) throw new Error("Runtime binding is malformed.");
+    const binding = manifest.runtimeLock;
+    const read = (id: unknown): Record<string, unknown> => {
+      const descriptor = (manifest.evidence as unknown[]).find((entry) => isRecord(entry) && entry.id === id);
+      if (!isRecord(descriptor) || descriptor.kind !== "diagnostic" || descriptor.source !== "ebo-runtime" || descriptor.sharingClass !== "internal" || typeof descriptor.relativePath !== "string" || typeof descriptor.digest !== "string") throw new Error("Runtime binding must reference an internal retained runtime diagnostic.");
+      const value: unknown = JSON.parse(resolveBundleArtifact(bundleRoot, { locator: descriptor.relativePath, digest: runDigest(descriptor.digest) }).toString("utf8"));
+      if (!isRecord(value)) throw new Error("Runtime diagnostic must be an object.");
+      return value;
+    };
+    const lock = read(binding.lockArtifactId), launch = read(binding.launchArtifactId);
+    const { digest, ...body } = lock;
+    if (lock.schemaVersion !== "ebo.study-runtime-lock/v1" || digest !== binding.lockDigest || digest !== `sha256:${digestMetadata(body).value}`) throw new Error("Runtime lock digest differs from retained lock bytes.");
+    if (launch.schemaVersion !== "ebo.runtime-launch/v1" || launch.lockDigest !== binding.lockDigest || launch.role !== binding.role) throw new Error("Runtime launch and run identity differ.");
+    if (!Array.isArray(launch.probes) || launch.probes.some((probe) => !isRecord(probe) || typeof probe.actualVersion !== "string" || typeof probe.expectedVersion !== "string")) throw new Error("Runtime manifest lacks a retained actual version probe.");
+    if (binding.studyFreezeArtifactId !== undefined) {
+      const freeze = read(binding.studyFreezeArtifactId), {digest: freezeDigest, ...freezeBody} = freeze;
+      if (validateArtifact("study freeze", freeze).length || freezeDigest !== binding.studyFreezeDigest || freezeDigest !== `sha256:${digestMetadata(freezeBody).value}` || freeze.runtimeLockDigest !== binding.lockDigest || typeof binding.sourceRunId !== "string" || manifest.run.id !== studyRunId(String(freezeDigest), binding.sourceRunId)) throw new Error("Captured run identity differs from the retained study freeze.");
+    }
+    return [];
+  } catch (error) { return [{ artifact, schemaVersion: "run-manifest/v2", field: "/runtimeLock", message: error instanceof Error ? error.message : "Runtime evidence is invalid." }]; }
 }

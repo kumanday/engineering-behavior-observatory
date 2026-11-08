@@ -70,6 +70,7 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
     || [CLAUDE_AGENT_SDK_HARNESS, "agent-sdk"].includes(harness) && [CLAUDE_AGENT_SDK_HARNESS, "agent-sdk"].includes(name)).map(({ version }) => version);
   const confidence = markRetainedVersion(evidence.capture, manifest.run.harness.version, verified[harness] ?? [], componentVersions);
   if (confidence.sourceLimitations?.length) profile = { ...profile, limitations: [...new Set([...(profile.limitations ?? []), ...confidence.sourceLimitations])] };
+  if (retainedRuntimeProbeConflict(bundleRoot, manifest)) profile = {...profile, limitations: [...new Set([...(profile.limitations ?? []), "HARNESS_VERSION_UNVERIFIED", "HARNESS_VERSION_CONFLICT"])]};
   if (profile === evidence.dataset.capabilityProfile) return evidence;
   const dataset = { ...evidence.dataset, capabilityProfile: profile };
   return { ...evidence, dataset, coverage: await validateNormalizedDataset(dataset, evidence.resolver) };
@@ -321,4 +322,20 @@ function assertNativeEnvelope(harness: string, value: unknown, line: number): vo
     || typeof record.observedAt !== "string" || record.observedAt.trim() === ""
     || !optionalText(["method", "sessionId", "sourceIdentity"]) || record.stream !== undefined && record.stream !== "stderr"
     || ["request", "response", "notification"].includes(String(record.kind)) && typeof record.method !== "string") fail();
+}
+
+/** Retained observations qualify confidence; version disagreement never rejects reading. */
+function retainedRuntimeProbeConflict(bundleRoot: string, manifest: RunManifest): boolean {
+  if (!manifest.runtimeLock) return false;
+  const descriptor = manifest.evidence.find((descriptor) => descriptor.id === manifest.runtimeLock!.launchArtifactId);
+  if (!descriptor) return false; // Structural validation reports a missing diagnostic.
+  const launch = JSON.parse(readBoundedFile(join(bundleRoot, descriptor.relativePath), "Retained runtime launch").toString("utf8")) as {
+    role: string; roots?: {id: string}[]; probes?: {componentId: string; package: string; expectedVersion: string; actualVersion: string}[]};
+  const primary = launch.roots?.[0]?.id;
+  return (launch.probes ?? []).some((probe) => {
+    const declarations = manifest.run.runtime.filter((component) => component.name === probe.package || component.name === probe.componentId
+      || probe.componentId === primary && component.name === launch.role).map((component) => component.version);
+    if (probe.componentId === primary) declarations.push(manifest.run.harness.version);
+    return probe.expectedVersion !== probe.actualVersion || declarations.some((version) => version !== probe.actualVersion);
+  });
 }

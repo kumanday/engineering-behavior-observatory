@@ -1,32 +1,12 @@
 # OpenHands Agent Server adapter
 
-The OpenHands adapter executes one EBO attempt through a pinned Agent Server
-REST/WebSocket boundary. It preserves the source records before projecting any
-uniform events. It does not import the OpenHands Python SDK or embed the agent
-loop.
+The OpenHands adapter executes one EBO attempt through an owned Agent Server container and its REST/WebSocket boundary. It preserves source records before projecting uniform events.
 
-## Pinned boundary
+## Freeze the server
 
-The runtime pin is Agent Server `1.54.0`. The matching release OpenAPI digest,
-server commit, image, WebSocket route, and
-authentication mode are recorded in the
-[contract manifest](../../contracts/openhands-agent-server-v1.54.0.json).
+Freeze the `openhands-agent-server` role using the [study runtime workflow](../reference/study-runtimes.md). EBO resolves the age-eligible stable image for the selected platform and installs its immutable digest. Capture starts a container from that image, checks its actual image identity and `/server_info.version`, and uses its loopback port. The attempt workspace is mounted with its owner’s UID and GID so the container can write retained outcomes on Linux.
 
-The pinned OpenAPI retains EBO's conversation paths and event-search parameters.
-Retained 1.44.1 and 1.46.0 captures keep their original runtime and adapter
-identities. Their contract snapshots and fixtures remain available.
-
-For a native macOS ARM64 installation, download the release's
-`agent-server-1.54.0-macos-arm64` and verify it against `SHA256SUMS` (also pinned
-in the contract manifest). Mark the binary executable and launch it with:
-
-```sh
-agent-server-1.54.0-macos-arm64 --host 127.0.0.1 --port 18080
-curl --fail http://127.0.0.1:18080/server_info
-```
-
-The identity response must report `1.54.0`. Server readiness does not establish
-a working model route; the opt-in conversation smoke below verifies that separately.
+The 1.54.0 [contract manifest](../../contracts/openhands-agent-server-v1.54.0.json) records the development conformance baseline: OpenAPI digest, server commit, image and authentication mode. Retained captures preserve their own observed runtime and adapter identities.
 
 `@openhands/typescript-client` `1.54.0` targets Agent Server `1.54.0` and supports
 first-message WebSocket authentication. EBO uses Node's native `fetch` and

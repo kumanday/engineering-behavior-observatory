@@ -1,3 +1,6 @@
+import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("claude-agent-sdk");
+const liveTest = liveRuntimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
 import { createClaudeAgentSdkHarborExecutor } from "../src/harbor/harnesses.js";
 import { harborStepFixture } from "./harbor-step-helper.js";
@@ -22,7 +25,6 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { RunBundleAssembler } from "../src/run-bundles.js";
@@ -571,7 +573,7 @@ test("agent-sdk run and export create report usage for incomplete arguments", as
   assert.match(output.join(""), /Usage: ebo export create/);
 });
 
-test("approved live Agent SDK operational runner proves a tool-using trajectory", {
+liveTest("approved live Agent SDK operational runner proves a tool-using trajectory", {
   skip: process.env.EBO_LIVE_AGENT_SDK_RUNNER !== "1",
   timeout: 600_000,
 }, async () => {
@@ -928,3 +930,24 @@ function readVerifierResult(bundleRoot: string, manifest: RunManifest): Verifier
   assert.ok(descriptor, "a verifier result must be retained");
   return JSON.parse(readFileSync(join(bundleRoot, descriptor.relativePath), "utf8")) as VerifierResult;
 }
+
+test("a runtime-bound queue gives the captured run a frozen identity and retains its study freeze", async () => {
+  const {currentStudyRuntime} = await import("../src/runtime-context.js");
+  const {bindStudyRuntimeQueue} = await import("../src/study-runtime-bindings.js");
+  const {readRunQueue} = await import("../src/scheduler.js");
+  const fixture = createRunnerFixture(), query = fakeQuery({resultContent: "done\n"});
+  try {
+    const context = currentStudyRuntime()!, source = readRunQueue(fixture.queuePath, undefined, {bundleRoot: fixture.bundleRoot});
+    const bound = await bindStudyRuntimeQueue(context.studyRoot, source, {configurationRoot: fixture.bundleRoot});
+    writeFileSync(fixture.queuePath, JSON.stringify(bound));
+    const summary = await runAgentSdkQueueEntry({...fixture, query: query.query, checkTelemetryReceipt: receivedReceipt});
+    assert.notEqual(summary.runId, fixture.runId);
+    const manifest = readManifest(summary.bundlePath);
+    assert.equal(Reflect.get(manifest.runtimeLock!, "studyFreezeDigest"), bound.studyFreeze.digest);
+    assert.equal(Reflect.get(manifest.runtimeLock!, "sourceRunId"), fixture.runId);
+    const descriptor = manifest.evidence.find((entry) => entry.id === Reflect.get(manifest.runtimeLock!, "studyFreezeArtifactId"));
+    assert.ok(descriptor);
+    assert.deepEqual(JSON.parse(readFileSync(join(summary.bundlePath, descriptor.relativePath), "utf8")), bound.studyFreeze);
+    await createRetainedBehaviorEvidence(summary.bundlePath);
+  } finally {rmSync(fixture.parent, {recursive: true, force: true});}
+});

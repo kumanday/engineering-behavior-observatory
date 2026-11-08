@@ -38,3 +38,8 @@ jobs:
           EBO_HARBOR_PYTHON: '${{ github.workspace }}/.harbor-venv/bin/python'
       # Live Smol conformance needs the qualified Apple Silicon host and Smol's
       # bundled libkrun. This job tests contracts, not virtualization availability.
+      - name: Frozen runtime and supply-chain contracts
+        run: node --test --test-concurrency=4 dist/test/runtime-*.test.js dist/test/study-runtime-*.test.js dist/test/sdk-runtime-loading.test.js
+        env:
+          EBO_HARBOR_PYTHON: '${{ github.workspace }}/.harbor-venv/bin/python'
+          PYTHONDONTWRITEBYTECODE: '1'

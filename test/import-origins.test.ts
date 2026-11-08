@@ -1,3 +1,5 @@
+import {runtimeTest} from "./with-runtime-fixture.js";
+const judgeTest = runtimeTest("claude-agent-sdk");
 import { normalizePiAtif } from "../src/atif-pi.js";
 import { inspectAtifBytes } from "../src/atif-reader.js";
 import { deriveUnits } from "../src/atlas-units.js";
@@ -158,7 +160,7 @@ test("an unknown producer and owned capture build a mixed Atlas cohort with exac
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("semantic judging uses every retained model/route alias and never requires a run manifest for imports", { skip: !python }, async () => {
+judgeTest("semantic judging uses every retained model/route alias and never requires a run manifest for imports", { skip: !python }, async () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-import-blinding-"));
   try {
     const source = JSON.parse(readFileSync("test/fixtures/atif/pi/parallel-failure-cache-write.atif.json", "utf8"));

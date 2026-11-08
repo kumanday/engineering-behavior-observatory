@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import type { StudyRuntimeBinding } from "./runtime-context.js";
+import { runRuntimeCommandLine } from "./runtime-cli.js";
 import { runAnalysisV2Command } from "./analysis-v2-cli.js";
 
 import { importLeaderboardCohort, readLeaderboardCohort, type LeaderboardCohortRequest } from "./leaderboard-import.js";
@@ -83,6 +85,7 @@ import {
 } from "./scheduler.js";
 
 const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <command> ...
+       ebo runtime <list|freeze|inspect|check|bind-queue> ...
        ebo matrix compile <experiment.json> <bundle-root> <queue.json> [--freeze-locator <task-id>=<path>]
        ebo queue inspect <queue.json>
        ebo queue validate <queue.json> [experiment.json] [--bundle-root <bundle-root>]
@@ -95,12 +98,12 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo atif import-leaderboard <cohort-request.json> <store> [--python <executable>]
        ebo atif read-leaderboard <store> <cohort-digest>
        ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--profile <overlay-context-id>] [--python <executable>]
-       ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
-       ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
-       ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
-       ebo devin run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
-       ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
-       ebo pi run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
+       ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
+       ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
+       ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
+       ebo devin run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
+       ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
+       ebo pi run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo export create <run-bundle-root> <policy.json> <export-root>
        ebo corpus build <corpus-root> <index.jsonl>
        ebo corpus query <index.jsonl> [--kind|--run|--attempt|--task|--model|--harness|--assessment-mode|--terminal|--failure-class|--verifier-status|--capture|--export-status|--sharing-class <value>]
@@ -142,8 +145,15 @@ export function main(
   write: (message: string) => void = (message) => {
     process.stdout.write(message);
   },
-  dependencies: { semanticJudgeBackend?: SemanticJudgeBackend } = {},
+  dependencies: { semanticJudgeBackend?: SemanticJudgeBackend; runtime?: StudyRuntimeBinding } = {},
 ): number | Promise<number> {
+  const runtimeFlag = args.indexOf("--runtime-study");
+  if (runtimeFlag !== -1) {
+    const studyRoot = args[runtimeFlag + 1];
+    if (!studyRoot || studyRoot.startsWith("--") || args.lastIndexOf("--runtime-study") !== runtimeFlag) { write("--runtime-study requires one study root.\n"); return 1; }
+    dependencies = {...dependencies, runtime: {studyRoot: resolve(studyRoot)}};
+    args = [...args.slice(0, runtimeFlag), ...args.slice(runtimeFlag + 2)];
+  }
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
     write(usage);
     return 0;
@@ -156,6 +166,8 @@ export function main(
   if (args[0] === "harbor") {
     return runHarborCommand(args.slice(1), write);
   }
+
+  if (args[0] === "runtime") return runRuntimeCommandLine(args.slice(1), write);
 
   if (args[0] === "v2") return runAnalysisV2Command(args.slice(1), write);
 
@@ -185,24 +197,24 @@ export function main(
   }
 
   if (args[0] === "agent-sdk" && args[1] === "run") {
-    return runAgentSdkCommand(args.slice(2), write);
+    return runAgentSdkCommand(args.slice(2), write, dependencies.runtime);
   }
 
   if (args[0] === "codex" && args[1] === "run") {
-    return runCodexCommand(args.slice(2), write);
+    return runCodexCommand(args.slice(2), write, dependencies.runtime);
   }
 
   if (args[0] === "cursor" && args[1] === "run") {
-    return runCursorSdkCommand(args.slice(2), write);
+    return runCursorSdkCommand(args.slice(2), write, dependencies.runtime);
   }
 
-  if (args[0] === "factory" && args[1] === "run") return runFactoryCommand(args.slice(2), write);
+  if (args[0] === "factory" && args[1] === "run") return runFactoryCommand(args.slice(2), write, dependencies.runtime);
   if (args[0] === "devin" && args[1] === "run") {
-    return runDevinCommand(args.slice(2), write);
+    return runDevinCommand(args.slice(2), write, dependencies.runtime);
   }
 
   if (args[0] === "pi" && args[1] === "run") {
-    return runPiCommand(args.slice(2), write);
+    return runPiCommand(args.slice(2), write, dependencies.runtime);
   }
 
   if (args[0] === "export" && args[1] === "create") {
@@ -319,7 +331,7 @@ export function main(
   }
 
   if (args[0] === "occurrences" && args[1] === "rate") {
-    return runOccurrenceRatingCommand(args.slice(2), write);
+    return runOccurrenceRatingCommand(args.slice(2), write, dependencies.runtime);
   }
 
   if (args[0] === "claims" && args[1] === "check") {
@@ -433,6 +445,7 @@ export function main(
     process.on("SIGTERM", abort);
     try {
       return runAgentSdkSemanticJudge({
+        runtime: dependencies.runtime,
         bundleRoot,
         observations: readJson(observationsPath) as StructuralObservationSet,
         request: readJson(requestPath) as SemanticJudgeRequest,
@@ -482,7 +495,7 @@ export function main(
       }
       const validation = validateArtifact(artifact, document);
       return document !== undefined && typeof document === "object" && document !== null
-        && (document as { schemaVersion?: unknown }).schemaVersion === "run-manifest/v1"
+        && ["run-manifest/v1", "run-manifest/v2"].includes(String((document as { schemaVersion?: unknown }).schemaVersion))
         ? [...validation, ...validateRunManifestEvidence(artifact, document, dirname(artifact))]
         : validation;
     });
@@ -491,7 +504,7 @@ export function main(
           || (document as { schemaVersion?: unknown }).schemaVersion !== "export-manifest/v1") continue;
       const bundleId = (document as { bundleId?: unknown }).bundleId;
       const containingEntry = artifacts.find(({ document: candidate }) => candidate !== undefined && typeof candidate === "object" && candidate !== null
-        && (candidate as { schemaVersion?: unknown }).schemaVersion === "run-manifest/v1"
+        && ["run-manifest/v1", "run-manifest/v2"].includes(String((candidate as { schemaVersion?: unknown }).schemaVersion))
         && (candidate as { bundleId?: unknown }).bundleId === bundleId);
       errors.push(...validateExportManifest(
         artifact,
@@ -903,7 +916,7 @@ async function runClaimCheckCommand(args: string[], write: (message: string) => 
   }
 }
 
-async function runOccurrenceRatingCommand(args: string[], write: (message: string) => void): Promise<number> {
+async function runOccurrenceRatingCommand(args: string[], write: (message: string) => void, runtime?: StudyRuntimeBinding): Promise<number> {
   const usage = "Usage: ebo occurrences rate <run-bundle-root> <observations.json> <output.json> --provider <typesafe|fireworks> [--model <id>] [--choice-confidence <0-1>] [--noul-margin <0-0.5>] [--fallback-model <codex-model> [--fallback-effort <effort>]]\n";
   const [bundleRoot, observationsPath, outputPath, ...flags] = args;
   const options: Record<string, string> = {};
@@ -937,9 +950,13 @@ async function runOccurrenceRatingCommand(args: string[], write: (message: strin
     const ratings = await rateRetainedOccurrences(bundleRoot, observations,
       { provider: provider as DecisionProviderId, ...(options["--model"] === undefined ? {} : { model: options["--model"] }) },
       { policy,
-        ...(options["--fallback-model"] === undefined ? {} : { fallback: { model: options["--fallback-model"], effort: (options["--fallback-effort"] ?? "medium") as CodexReasoningEffort } }),
+        ...(options["--fallback-model"] === undefined ? {} : { fallback: { runtime, model: options["--fallback-model"], effort: (options["--fallback-effort"] ?? "medium") as CodexReasoningEffort } }),
         onDecision: (record, occurrenceId) => appendFileSync(partialPath, `${JSON.stringify({ occurrenceId, record })}\n`, { mode: 0o600 }),
-        onFallback: (record) => appendFileSync(partialPath, `${JSON.stringify({ fallback: record })}\n`, { mode: 0o600 }) });
+        onFallback: (record) => {
+          appendFileSync(partialPath, `${JSON.stringify({ fallback: record })}\n`, { mode: 0o600 });
+          const warnings = record.raw && typeof record.raw === "object" ? (record.raw as {runtime?: {warnings?: unknown}}).runtime?.warnings : undefined;
+          if (Array.isArray(warnings)) for (const warning of warnings) if (typeof warning === "string") write(`Warning: ${warning}\n`);
+        } });
     await writeObservationReport(outputPath, ratings, bundleRoot);
     rmSync(partialPath, { force: true });
     const { coverage } = ratings;
@@ -994,8 +1011,9 @@ function observationFileName(runId: string, attemptId: string): string {
 async function runAgentSdkCommand(
   args: string[],
   write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
 ): Promise<number> {
-  const agentSdkRunUsage = "Usage: ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n";
+  const agentSdkRunUsage = "Usage: ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
   const positional: string[] = [];
   let workspaceRoot: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -1016,6 +1034,7 @@ async function runAgentSdkCommand(
   }
   try {
     const summary = await runAgentSdkQueueEntry({
+      runtime,
       bundleRoot,
       queuePath,
       runId,
@@ -1033,8 +1052,9 @@ async function runAgentSdkCommand(
 async function runCodexCommand(
   args: string[],
   write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
 ): Promise<number> {
-  const commandUsage = "Usage: ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n";
+  const commandUsage = "Usage: ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
   const positional: string[] = [];
   let workspaceRoot: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -1059,6 +1079,7 @@ async function runCodexCommand(
   process.on("SIGTERM", abort);
   try {
     const summary = await runCodexQueueEntry({
+      runtime,
       bundleRoot,
       queuePath,
       runId,
@@ -1080,8 +1101,9 @@ async function runCodexCommand(
 async function runFactoryCommand(
   args: string[],
   write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
 ): Promise<number> {
-  const commandUsage = "Usage: ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n";
+  const commandUsage = "Usage: ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
   const positional: string[] = [];
   let workspaceRoot: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -1106,6 +1128,7 @@ async function runFactoryCommand(
   process.on("SIGTERM", abort);
   try {
     const summary = await runFactoryQueueEntry({
+      runtime,
       bundleRoot,
       queuePath,
       runId,
@@ -1127,8 +1150,9 @@ async function runFactoryCommand(
 async function runDevinCommand(
   args: string[],
   write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
 ): Promise<number> {
-  const commandUsage = "Usage: ebo devin run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n";
+  const commandUsage = "Usage: ebo devin run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
   const positional: string[] = [];
   let workspaceRoot: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -1153,6 +1177,7 @@ async function runDevinCommand(
   process.on("SIGTERM", abort);
   try {
     const summary = await runDevinQueueEntry({
+      runtime,
       bundleRoot,
       queuePath,
       runId,
@@ -1174,8 +1199,9 @@ async function runDevinCommand(
 async function runCursorSdkCommand(
   args: string[],
   write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
 ): Promise<number> {
-  const commandUsage = "Usage: ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n";
+  const commandUsage = "Usage: ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
   const positional: string[] = [];
   let workspaceRoot: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -1200,6 +1226,7 @@ async function runCursorSdkCommand(
   process.on("SIGTERM", abort);
   try {
     const summary = await runCursorSdkQueueEntry({
+      runtime,
       bundleRoot,
       queuePath,
       runId,
@@ -1221,8 +1248,9 @@ async function runCursorSdkCommand(
 async function runPiCommand(
   args: string[],
   write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
 ): Promise<number> {
-  const commandUsage = "Usage: ebo pi run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n";
+  const commandUsage = "Usage: ebo pi run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
   const positional: string[] = [];
   let workspaceRoot: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -1247,6 +1275,7 @@ async function runPiCommand(
   process.on("SIGTERM", abort);
   try {
     const summary = await runPiQueueEntry({
+      runtime,
       bundleRoot,
       queuePath,
       runId,

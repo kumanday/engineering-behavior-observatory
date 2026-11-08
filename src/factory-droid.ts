@@ -1,3 +1,7 @@
+import {coordinatorRuntimeEnvironment} from "./runtime-environment.js";
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeExecutable, recordRuntimeProbe, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
+import * as developmentNodeSdk from "@factory/droid-sdk/node";
 import { markRetainedVersion } from "./retained-version-policy.js";
 import { FACTORY_BYOK_ENV_NAME, factoryCredentialEnvironment, factoryModelSelection, type FactoryModelRoute } from "./factory-model.js";
 import { execFile } from "node:child_process";
@@ -6,7 +10,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
-import { createSession, AutonomyLevel, DroidInteractionMode, ReasoningEffort, ToolConfirmationOutcome,
+import { type AutonomyLevel, type ReasoningEffort, type ToolConfirmationOutcome,
   type DroidSession, type StringFramedDroidClientTransport } from "@factory/droid-sdk/node";
 import { FACTORY_PROTOCOL_VERSION, SessionNotificationSchema, RequestPermissionRequestSchema,
   InitializeSessionRequestSchema, InitializeSessionResponseSchema, AddUserMessageRequestSchema, AddUserMessageResponseSchema } from "@factory/droid-sdk";
@@ -33,8 +37,8 @@ export type FactoryReasoningEffort = "none" | "dynamic" | "off" | "minimal" | "l
 
 export type FactoryDroidConfiguration = {
   executable: string;
-  version: typeof FACTORY_CLI_VERSION;
-  sdkVersion: typeof FACTORY_SDK_VERSION;
+  version: string;
+  sdkVersion: string;
   model: string;
   reasoningEffort: FactoryReasoningEffort;
   autonomyLevel: FactoryAutonomyLevel;
@@ -45,6 +49,7 @@ export type FactoryDroidConfiguration = {
   executableArgs?: readonly string[];
 };
 export type FactoryCaptureRequest = {
+  runtime?: StudyRuntimeBinding;
   runId: string; attemptId: string; workspacePath: string; prompt: string;
   configuration: FactoryDroidConfiguration; evidencePath: string; stderrPath?: string;
   signal?: AbortSignal; shutdownGraceMs?: number; maxLineBytes?: number;
@@ -60,6 +65,7 @@ export type FactoryRuntimeEvidence = {
   telemetry: { receipt: { status: "not-checked" }; contentCapture: "not-requested" };
 };
 export type FactoryCapture = QualifiedNativeCapture<ProtocolObservation> & {
+  runtime?: RuntimeExecutionSummary;
   sessionId?: string; turnId?: string; terminal?: Record<string, unknown>;
   terminalStatus?: "completed" | "interrupted" | "failed";
   process: ProtocolProcessResult; gaps: readonly FactoryCaptureGap[]; telemetry: FactoryRuntimeEvidence;
@@ -72,7 +78,7 @@ export async function probeFactoryRuntime(executable: string, args: readonly str
   const path = await realpath(executable);
   const { stdout } = await promisify(execFile)(path, [...args, "--version"], {
     encoding: "utf8", timeout: 5_000, maxBuffer: 64 * 1024,
-    env: { PATH: process.env.PATH, FACTORY_DROID_AUTO_UPDATE_ENABLED: "false" },
+    env: coordinatorRuntimeEnvironment({ PATH: process.env.PATH, FACTORY_DROID_AUTO_UPDATE_ENABLED: "false" }),
   });
   return { path, version: stdout.trim().replace(/^(?:droid|factory(?:[- ]cli)?)\s+/iu, "") };
 }
@@ -164,6 +170,20 @@ class RecordingFactoryTransport implements StringFramedDroidClientTransport {
 }
 
 export async function captureFactoryDroid(request: FactoryCaptureRequest): Promise<FactoryCapture> {
+  return runInStudyRuntime("factory-droid", request.runtime, async () => ({ ...await captureFactoryDroidOwned(request), runtime: runtimeExecutionSummary() }));
+}
+
+export async function bindFactoryRuntime(configuration: FactoryDroidConfiguration): Promise<FactoryDroidConfiguration> {
+  requireStudyRuntime("factory-droid");
+  const locked = lockedRuntimeExecutable("droid-cli");
+  const actual = await probeFactoryRuntime(locked.path, configuration.executableArgs);
+  await recordRuntimeProbe("droid-cli", actual.version, "executable");
+  return { ...configuration, executable: locked.path, version: locked.version, sdkVersion: studyRuntimeVersion("@factory/droid-sdk", FACTORY_SDK_VERSION) };
+}
+
+/** Internal protocol layer of an already checked launch. */
+export async function captureFactoryDroidOwned(request: FactoryCaptureRequest): Promise<FactoryCapture> {
+  request = { ...request, configuration: await bindFactoryRuntime(request.configuration) };
   validateFactoryConfiguration(request.configuration);
   for (const [label, value] of Object.entries({ runId: request.runId, attemptId: request.attemptId, prompt: request.prompt, workspacePath: request.workspacePath })) {
     if (typeof value !== "string" || value.trim() === "") throw new Error(`Factory ${label} is required.`);
@@ -171,7 +191,8 @@ export async function captureFactoryDroid(request: FactoryCaptureRequest): Promi
   const grace = request.shutdownGraceMs ?? FACTORY_DEFAULT_SHUTDOWN_GRACE_MS;
   if (!Number.isSafeInteger(grace) || grace < 1 || grace > 60_000) throw new Error("Factory shutdown grace must be 1–60000 ms.");
   const runtime = await probeFactoryRuntime(request.configuration.executable, request.configuration.executableArgs);
-  if (runtime.version !== FACTORY_CLI_VERSION) throw new Error(`Factory CLI ${FACTORY_CLI_VERSION} is required; received ${runtime.version}.`);
+  if (runtime.version !== request.configuration.version) throw new Error(`Factory CLI probe differs from the requested runtime: expected ${request.configuration.version}; actual ${runtime.version}.`);
+  if (request.configuration.sdkVersion !== studyRuntimeVersion("@factory/droid-sdk", FACTORY_SDK_VERSION)) throw new Error("Factory SDK probe differs from the requested runtime.");
   const binaryDigest = `sha256:${digestBytes(await readFile(runtime.path)).value}`;
   const selection = factoryModelSelection(request.configuration.model, request.configuration.route);
   const credentialEnv = request.configuration.credentialEnv ?? factoryCredentialEnvironment(selection.route);
@@ -179,7 +200,7 @@ export async function captureFactoryDroid(request: FactoryCaptureRequest): Promi
   if (!credential?.trim()) throw new Error(`${credentialEnv} is required for Factory Droid.`);
   const home = await mkdtemp(join(tmpdir(), "ebo-factory-home-"));
   const environment: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: join(home, ".config"),
+    PATH: coordinatorRuntimeEnvironment(process.env).PATH, HOME: home, XDG_CONFIG_HOME: join(home, ".config"),
     TMPDIR: join(home, "tmp"), FACTORY_DROID_AUTO_UPDATE_ENABLED: "false",
     TERM: "dumb", NO_COLOR: "1", OTEL_LOG_MESSAGE_CONTENT: "false", OTEL_TELEMETRY_GRANULARITY: "aggregate",
   };
@@ -224,15 +245,15 @@ export async function captureFactoryDroid(request: FactoryCaptureRequest): Promi
     transport = new RecordingFactoryTransport({ ...request, configuration: { ...request.configuration, executable: runtime.path } }, environment,
       selection.route.kind === "byok" ? join(home, ".factory", "settings.json") : undefined);
     await transport.child.evidence.recordCapability({ source: FACTORY_HARNESS, name: "runtime-composition", status: "available", details: {
-      version: runtime.version, sdkVersion: FACTORY_SDK_VERSION, adapterVersion: FACTORY_ADAPTER_VERSION, binaryDigest, protocolVersion: FACTORY_PROTOCOL_VERSION, modelSelection: selection,
+      version: runtime.version, sdkVersion: studyRuntimeVersion("@factory/droid-sdk", FACTORY_SDK_VERSION), adapterVersion: FACTORY_ADAPTER_VERSION, binaryDigest, protocolVersion: studyRuntimeModule("@factory/droid-sdk", {FACTORY_PROTOCOL_VERSION}).FACTORY_PROTOCOL_VERSION, modelSelection: selection,
       ...(selection.route.kind === "byok" ? { customModelSource: "attempt-settings-override" } : {}),
     } });
-    const created = createSession({ transport, cwd: request.workspacePath,
+    const created = studyRuntimeModule("@factory/droid-sdk/node", developmentNodeSdk).createSession({ transport, cwd: request.workspacePath,
       modelId: selection.nativeModelId, reasoningEffort: request.configuration.reasoningEffort as ReasoningEffort,
-      autonomyLevel: request.configuration.autonomyLevel as AutonomyLevel, interactionMode: DroidInteractionMode.Auto,
+      autonomyLevel: request.configuration.autonomyLevel as AutonomyLevel, interactionMode: studyRuntimeModule("@factory/droid-sdk/node", developmentNodeSdk).DroidInteractionMode.Auto,
       permissionHandler: (event) => {
         const selected = request.configuration.permissionDecision;
-        if (!event.options.some((option) => option.value === selected)) return ToolConfirmationOutcome.Cancel;
+        if (!event.options.some((option) => option.value === selected)) return studyRuntimeModule("@factory/droid-sdk/node", developmentNodeSdk).ToolConfirmationOutcome.Cancel;
         return selected as ToolConfirmationOutcome.ProceedOnce | ToolConfirmationOutcome.Cancel;
       },
       askUserHandler: () => ({ cancelled: true, answers: [] }),
@@ -245,7 +266,7 @@ export async function captureFactoryDroid(request: FactoryCaptureRequest): Promi
     if (session.id !== transport.sessionId) throw new Error("Factory SDK session differs from native initialization.");
     settings = structuredClone(session.settings);
     if (session.settings.modelId !== selection.nativeModelId || session.settings.reasoningEffort !== request.configuration.reasoningEffort
-      || session.settings.autonomyLevel !== request.configuration.autonomyLevel || session.settings.interactionMode !== DroidInteractionMode.Auto) {
+      || session.settings.autonomyLevel !== request.configuration.autonomyLevel || session.settings.interactionMode !== studyRuntimeModule("@factory/droid-sdk/node", developmentNodeSdk).DroidInteractionMode.Auto) {
       throw new Error("Factory effective settings differ from the frozen model/tool configuration.");
     }
     streamPromise = (async () => {
@@ -277,7 +298,7 @@ export async function captureFactoryDroid(request: FactoryCaptureRequest): Promi
   const base = { runId: request.runId, attemptId: request.attemptId, qualification: "qualified-with-gaps" as const,
     records: records.map((record) => ({ reference: { artifactId: "session", recordLocator: `line:${record.sequence}` }, record })) };
   let native: QualifiedFactory = base;
-  try { native = qualifyFactoryCapture(base, { sessionId: transport.sessionId, expectsCompletion: false, cliVersion: runtime.version, sdkVersion: FACTORY_SDK_VERSION }); }
+  try { native = qualifyFactoryCapture(base, { sessionId: transport.sessionId, expectsCompletion: false, cliVersion: runtime.version, sdkVersion: studyRuntimeVersion("@factory/droid-sdk", FACTORY_SDK_VERSION) }); }
   catch (error) { gaps.push({ kind: "native-qualification", detail: redactError(error, credential) }); }
   if (native.terminal === undefined) gaps.push({ kind: "native-terminal", detail: "No unambiguous owned agent_turn_completed was retained." });
   const terminalStatus = gaps.length > 0 ? request.signal?.aborted ? "interrupted" : "failed"
@@ -285,7 +306,7 @@ export async function captureFactoryDroid(request: FactoryCaptureRequest): Promi
       : ["cancelled", "permission_rejected"].includes(String(native.terminal?.reason)) ? "interrupted" : "failed";
   const telemetry: FactoryRuntimeEvidence = {
     schemaVersion: "ebo.factory-runtime/v1",
-    runtime: { executable: runtime.path, version: runtime.version, sdkVersion: FACTORY_SDK_VERSION, adapterVersion: FACTORY_ADAPTER_VERSION, binaryDigest, protocolVersion: FACTORY_PROTOCOL_VERSION },
+    runtime: { executable: runtime.path, version: runtime.version, sdkVersion: studyRuntimeVersion("@factory/droid-sdk", FACTORY_SDK_VERSION), adapterVersion: FACTORY_ADAPTER_VERSION, binaryDigest, protocolVersion: studyRuntimeModule("@factory/droid-sdk", {FACTORY_PROTOCOL_VERSION}).FACTORY_PROTOCOL_VERSION },
     effectiveConfiguration: { model: request.configuration.model, modelSelection: selection, credentialEnv,
       ...(selection.route.kind === "byok" ? { customModelSource: "attempt-settings-override" as const } : {}), reasoningEffort: request.configuration.reasoningEffort,
       autonomyLevel: request.configuration.autonomyLevel, permissionDecision: request.configuration.permissionDecision,
@@ -298,7 +319,7 @@ export async function captureFactoryDroid(request: FactoryCaptureRequest): Promi
 }
 
 export function validateFactoryConfiguration(config: FactoryDroidConfiguration): void {
-  if (config.version !== FACTORY_CLI_VERSION || config.sdkVersion !== FACTORY_SDK_VERSION) throw new Error("Factory SDK and CLI must both match the pinned versions.");
+  if (!isExactRuntimeVersion(config.version) || !isExactRuntimeVersion(config.sdkVersion)) throw new Error("Factory SDK and CLI require exact release versions.");
   if (!isAbsolute(config.executable) || !text(config.model)) throw new Error("Factory requires an absolute executable and a model.");
   if (!["off", "low", "medium", "high"].includes(config.autonomyLevel)
     || !["none", "dynamic", "off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(config.reasoningEffort)
