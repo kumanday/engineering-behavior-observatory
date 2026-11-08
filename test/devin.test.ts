@@ -1031,3 +1031,18 @@ test("approved existing-auth live Devin ACP capture smoke", { skip: process.env.
       receipt: capture.telemetry.telemetry.receipt, gaps: capture.gaps }));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("Devin Harbor worker dispatch captures the maintained ACP harness using the study runtime", async () => {
+  const {harborStepFixture} = await import("./harbor-step-helper.js");
+  const {runHarborWorker} = await import("../src/harbor/worker.js");
+  const root = await mkdtemp(join(tmpdir(), "ebo-devin-harbor-"));
+  try {
+    const q = createQueueFixture(root, process.execPath);
+    const queue = JSON.parse(await readFile(q.queuePath, "utf8"));
+    const input = harborStepFixture(root, "devin-cli");
+    const result = await runHarborWorker({prepared: input.prepared, configuration: {...queue.entries[0].configuration, captureProfile: queue.captureProfile}, configurationRoot: q.bundleRoot,
+      instruction: input.step.effectiveInstruction, stepIndex: 1, workspacePath: input.workspacePath, outputRoot: join(root, "worker"), maxWallClockMs: 10000});
+    assert.equal(result.terminal.state, "completed", JSON.stringify(result));
+    await createRetainedBehaviorEvidence(join(root, "worker/bundle"));
+  } finally {await rm(root, {recursive: true, force: true});}
+});

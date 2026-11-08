@@ -1,3 +1,5 @@
+import { currentStudyRuntime, runInStudyRuntime } from "../runtime-context.js";
+import { readStudyRuntimeLock } from "../study-runtimes.js";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -5,7 +7,7 @@ import { digestBytes, assertNoDuplicateJsonKeys } from "../artifacts.js";
 import { resolveBundleConfiguration, type ArtifactReference } from "../contracts.js";
 import {
   createClaudeAgentSdkHarborExecutor, createCodexHarborExecutor, createCursorHarborExecutor,
-  createFactoryHarborExecutor, createPiHarborExecutor, createDeepSeekHarborExecutor, createOpenHandsHarborExecutor,
+  createFactoryHarborExecutor, createPiHarborExecutor, createDeepSeekHarborExecutor, createOpenHandsHarborExecutor, createDevinHarborExecutor,
   type HarborHarnessConfigurationReferences,
 } from "./harnesses.js";
 import type { DeepSeekRuntimeComposition } from "../deepseek-adapter.js";
@@ -14,6 +16,7 @@ import type { PreparedHarborExecution } from "./execution.js";
 import type { HarborHarnessStepExecutor, HarborStepExecution } from "./runner.js";
 
 export type HarborWorkerInput = {
+  runtimeLock?: {studyRoot: string; digest: string};
   prepared: PreparedHarborExecution; configuration: HarborHarnessConfigurationReferences;
   configurationRoot: string; instruction: string; stepIndex: number; workspacePath: string;
   outputRoot: string; maxWallClockMs: number;
@@ -50,6 +53,7 @@ export function createNativeHarborExecutor(input: HarborWorkerInput): HarborHarn
   switch (input.prepared.run.harnessId) {
     case "claude-agent-sdk": return createClaudeAgentSdkHarborExecutor(options);
     case "codex-app-server": return createCodexHarborExecutor(options);
+    case "devin-cli": return createDevinHarborExecutor(options);
     case "cursor-sdk": {
       const apiKey = process.env.CURSOR_API_KEY;
       if (!apiKey) throw new Error("CURSOR_API_KEY is required by the selected Cursor condition.");
@@ -78,6 +82,15 @@ export function createNativeHarborExecutor(input: HarborWorkerInput): HarborHarn
 
 /** Executes native capture in the actual Harbor working directory. No task packet translation. */
 export async function runHarborWorker(input: HarborWorkerInput, executor?: HarborHarnessStepExecutor): Promise<HarborStepExecution> {
+  const role = input.prepared?.run.harnessId ?? currentStudyRuntime()?.launch.role ?? "unselected";
+  const current = currentStudyRuntime();
+  const binding = input.runtimeLock ? {studyRoot: input.runtimeLock.studyRoot, ...(current?.studyRoot === input.runtimeLock.studyRoot ? {options: current.options} : {})} : undefined;
+  return runInStudyRuntime(role, binding, async () => {
+    if (input.runtimeLock && (await readStudyRuntimeLock(input.runtimeLock.studyRoot)).digest !== input.runtimeLock.digest) throw new Error("RUNTIME_LOCK_INTEGRITY: guest study lock differs from the host's frozen lock.");
+    return runHarborWorkerOwned(input, executor);
+  });
+}
+async function runHarborWorkerOwned(input: HarborWorkerInput, executor?: HarborHarnessStepExecutor): Promise<HarborStepExecution> {
   const outputRoot = resolve(input.outputRoot), workspace = resolve(input.workspacePath);
   const relation = relative(workspace, outputRoot);
   if ((relation !== ".." && !relation.startsWith("../")) || workspace === "/") throw new Error("Worker evidence must be outside the candidate workspace.");

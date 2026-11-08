@@ -13,6 +13,9 @@ import type { RunQueueV2 } from "./queue.js";
 import type { HarborRunSummary, HarborStepExecution } from "./runner.js";
 import { HARBOR_TRIAL_SCRIPT } from "./trial-script.js";
 import { smolCondition } from "./smol.js";
+import { lockedRuntimePython, requireStudyRuntime, runtimeExecutionSummary } from "../runtime-context.js";
+import { readStudyRuntimeLock } from "../study-runtimes.js";
+import { frozenPythonEnvironment } from "../runtime-bootstrap.js";
 
 export type HarborWorkerRuntime = {
   schemaVersion: "ebo.harbor-worker-runtime/v1";
@@ -39,11 +42,15 @@ export function resolveHarborWorkerRuntime(root: string, reference: ArtifactRefe
 export async function runOfficialHarborTrial(input: {
   studyRoot: string; prepared: PreparedHarborExecution; queue: RunQueueV2;
   entry: RunQueueV2["entries"][number]; attemptId: string; adapter: HarborAdapter; signal?: AbortSignal;
+  invoke?: typeof invokeTrial;
 }): Promise<HarborRunSummary> {
+  const host = requireStudyRuntime("harbor");
+  if (!host.launch.roots.some((root) => root.id === "smol")) throw new Error("RUNTIME_ROLE_NOT_FROZEN: Harbor Smol trials require harbor and smol in the same frozen Python group.");
   const { prepared, entry, queue, attemptId } = input;
   const condition = smolCondition(input.studyRoot, queue);
   if (!queue.execution.workerRef) throw new Error("Smol Harbor runs require an execution.workerRef for the pinned Linux capture runtime.");
   const runtime = resolveHarborWorkerRuntime(input.studyRoot, queue.execution.workerRef);
+  const runtimeLock = await readStudyRuntimeLock(input.studyRoot);
   const archive = resolveBundleConfiguration(input.studyRoot, runtime.archive, 2 * 1024 * 1024 * 1024);
   const root = prepared.evidence.attemptRoot;
   await mkdir(prepared.evidence.harborDir, { recursive: true, mode: 0o700 });
@@ -63,17 +70,16 @@ export async function runOfficialHarborTrial(input: {
   const script = join(prepared.evidence.harborDir, "ebo_harbor_" + createHash("sha256").update(HARBOR_TRIAL_SCRIPT).digest("hex").slice(0,16) + ".py");
   await writeFile(script, HARBOR_TRIAL_SCRIPT, { flag: "wx", mode: 0o600 });
   const request = {
-    ...condition, smolEvents: join(root, "harbor", "smol-events.jsonl"),
+    ...condition, frozenPythonVersions: Object.fromEntries(host.probes.filter((probe) => probe.source === "package-metadata").map((probe) => [probe.package, probe.actualVersion])), smolEvents: join(root, "harbor", "smol-events.jsonl"),
     taskPath: prepared.task.snapshotDirectory, attemptId, trialsDir: join(root, "harbor", "trials"),
     model: entry.modelId, verified: prepared.verifier.requested, budgetMs: prepared.budget.coordinatorWallClockMs,
     build: "ebo-harbor-smol-v1", nativeRoot,
     runtime: { ...runtime, archiveDigest: digestBytes(archive).value }, configurationFiles,
-    workerInput: { prepared, configuration, configurationRoot: "/tmp/ebo-worker/config" },
+    workerInput: { prepared, configuration, configurationRoot: "/tmp/ebo-worker/config", runtimeLock: {studyRoot: "/opt/ebo/study", digest: runtimeLock.digest} },
   };
   const requestPath = join(prepared.evidence.harborDir, "request.json");
   await writeFile(requestPath, JSON.stringify(request), { flag: "wx", mode: 0o600 });
-  const prerequisites = await input.adapter.describePrerequisites();
-  const execution = await invokeTrial(prerequisites.python, script, requestPath, input.signal, prepared.budget.coordinatorWallClockMs);
+  const execution = await (input.invoke ?? invokeTrial)(lockedRuntimePython(), script, requestPath, input.signal, prepared.budget.coordinatorWallClockMs);
   let result: { exception_info?: unknown; agent_result?: unknown; step_results?: Array<{ step_name: string; exception_info?: unknown; verifier_result?: unknown }>; verifier_result?: { rewards?: Record<string, number> } } = {};
   let resultValid = false;
   try {
@@ -116,7 +122,7 @@ export async function runOfficialHarborTrial(input: {
       trialResult: result, trialLock, assessmentMode: prepared.task.assessmentMode,
       queueCondition: { modelId: entry.modelId, harnessId: entry.harnessId, taskId: entry.taskId, trialIndex: entry.trialIndex },
       execution: { code: execution.code, interrupted: execution.interrupted },
-      smol: smolEvidence,
+      smol: smolEvidence, hostRuntime: runtimeExecutionSummary(),
     }); } catch (error) { qualification = "unqualified"; steps.at(-1)!.joinError = String(error); }
   }
   const nativeFailure = steps.map(s => s.native as HarborStepExecution | null).find(s => s && s.terminal.state !== "completed");
@@ -172,7 +178,7 @@ export async function invokeTrial(python: string, script: string, request: strin
   return new Promise((done) => {
     const out = openSync(join(dirname(script), "result.json"), "wx", 0o600);
     const err = openSync(join(dirname(script), "stderr.log"), "wx", 0o600);
-    const child = spawn(python, [script, request], { stdio: ["ignore", "pipe", "pipe"], cwd: dirname(script), detached: process.platform !== "win32" });
+    const child = spawn(python, [script, request], { stdio: ["ignore", "pipe", "pipe"], cwd: dirname(script), env: frozenPythonEnvironment(), detached: process.platform !== "win32" });
     let stdout = "", stderr = "", interrupted = false;
     let force: ReturnType<typeof setTimeout> | undefined;
     const killGroup = () => {

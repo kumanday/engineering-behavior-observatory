@@ -139,6 +139,14 @@ Existing v1 bundles retain their original schema and bytes. Retained analysis
 uses the copies of the lock and launch receipt inside the bundle. It does not
 need an installed study runtime, a registry connection or an OSV query.
 
+Harbor with Smol requires both `harbor` and `smol` roles in one freeze. EBO
+resolves them together in an isolated Python environment. Preparation and trials
+probe the installed versions and compare them with the lock. Python imports do
+not write bytecode into the frozen cache. The trial passes the same lock digest
+to its guest worker, which performs its own withdrawal and OSV checks before
+native capture. The supported Smol environment policy uses public egress for
+these checks. Each native executor records actual runtime probes in its bundle.
+
 ## Judge execution
 
 Freeze `codex-judge` for the Codex backend or `claude-agent-sdk` for the Claude

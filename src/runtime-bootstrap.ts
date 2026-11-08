@@ -4,9 +4,16 @@ import { RuntimePolicyError } from "./runtime-resolution.js";
 
 export type PythonBootstrap = { schemaVersion: "ebo.python-bootstrap/v1"; executable: string; version: string;
   abi: string; platform: string; architecture: string; binaryIntegrity: string };
+
+/** Keep operational imports from modifying the frozen installation or using ambient module paths. */
+export function frozenPythonEnvironment(): NodeJS.ProcessEnv {
+  const env = {...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONNOUSERSITE: "1"};
+  for (const key of ["PYTHONPATH", "PYTHONHOME", "__PYVENV_LAUNCHER__"]) delete (env as NodeJS.ProcessEnv)[key];
+  return env;
+}
 const identityScript = String.raw`import hashlib,json,os,platform,sys,sysconfig,base64
-executable=os.path.realpath(sys.executable)
-with open(executable,'rb') as source: digest=hashlib.file_digest(source,'sha256').digest()
+executable=os.path.abspath(sys.executable)
+with open(executable,'rb') as source: digest=hashlib.sha256(source.read()).digest()
 machine=platform.machine().lower()
 print(json.dumps(dict(schemaVersion='ebo.python-bootstrap/v1',executable=executable,version=platform.python_version(),abi=sysconfig.get_config_var('SOABI') or sys.implementation.cache_tag,platform=sys.platform,architecture={'x86_64':'x64','aarch64':'arm64'}.get(machine,machine),binaryIntegrity='sha256-'+base64.b64encode(digest).decode())))
 `;

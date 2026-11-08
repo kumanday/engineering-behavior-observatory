@@ -77,6 +77,7 @@ export {
 export {
   createClaudeAgentSdkHarborExecutor,
   createCodexHarborExecutor,
+  createDevinHarborExecutor,
   createCursorHarborExecutor,
   createDeepSeekHarborExecutor,
   createOpenHandsHarborExecutor,

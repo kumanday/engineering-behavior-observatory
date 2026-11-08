@@ -1,4 +1,5 @@
 import { currentStudyRuntime, lockedRuntimePython, recordRuntimeProbe } from "../runtime-context.js";
+import { frozenPythonEnvironment } from "../runtime-bootstrap.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, closeSync, mkdtempSync, openSync, statSync, unlinkSync, writeSync } from "node:fs";
@@ -112,7 +113,7 @@ async function defaultPython(arguments_: readonly string[]): Promise<AdapterRunR
   const [command, ...rest] = arguments_;
   if (command === undefined) throw new HarborAdapterError("adapter-protocol", "Python interpreter could not be resolved.");
   return new Promise<AdapterRunResult>((resolvePromise, rejectPromise) => {
-    const child = spawn(command, rest, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, rest, { stdio: ["ignore", "pipe", "pipe"], env: frozenPythonEnvironment() });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => {

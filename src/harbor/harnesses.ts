@@ -1,4 +1,6 @@
+import { lockedRuntimeExecutable, recordRuntimeProbe, studyRuntimeVersion } from "../runtime-context.js";
 import { captureFactoryDroidRun, resolveFactoryConfigurationRecord } from "../factory-run.js";
+import { captureDevinCliRun, resolveDevinConfigurationRecord } from "../devin-run.js";
 import { probeFactoryRuntime, type FactoryDroidConfiguration } from "../factory-droid.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -34,6 +36,30 @@ export type HarborHarnessConfigurationReferences = {
   nativeToolPolicy: ArtifactReference;
   captureProfile: ArtifactReference;
 };
+
+export function createDevinHarborExecutor(options: {studyRoot: string; configuration: HarborHarnessConfigurationReferences}): HarborHarnessStepExecutor {
+  return async (input) => {
+    const model = resolveDevinConfigurationRecord(options.studyRoot, options.configuration.model, "model");
+    const harness = resolveDevinConfigurationRecord(options.studyRoot, options.configuration.harness, "harness");
+    const limits = resolveDevinConfigurationRecord(options.studyRoot, options.configuration.nativeLimits, "native-limits");
+    const tools = resolveDevinConfigurationRecord(options.studyRoot, options.configuration.nativeToolPolicy, "native-tool-policy");
+    const capture = resolveDevinConfigurationRecord(options.studyRoot, options.configuration.captureProfile, "capture-profile");
+    const locked = lockedRuntimeExecutable("devin");
+    const definition = harborStepBundleDefinition(input.prepared, input.step, input.stepBundleRoot, {
+      harnessId: "devin-cli", harnessVersion: locked.version, modelId: model.model, provider: model.provider,
+      configurationDigests: Object.fromEntries(Object.entries(options.configuration).map(([key, ref]) => [key, ref.digest.value])) as Record<keyof HarborHarnessConfigurationReferences, string>,
+    });
+    const result = await captureDevinCliRun({definition, startingWorkspacePath: input.startingWorkspacePath,
+      workspace: harborWorkspaceCoordinator(input.workspacePath), prompt: input.step.effectiveInstruction,
+      configuration: {executable: locked.path, version: locked.version, model: model.model, mode: tools.mode, permissionDecision: tools.permissionDecision,
+        ...(model.credentialEnv ? {credentialEnv: model.credentialEnv} : {}), ...(harness.arguments ? {acpArgs: harness.arguments} : {}),
+        ...(capture.telemetrySignals ? {telemetry: {signals: capture.telemetrySignals}} : {})},
+      ...workspaceCaptureOptions(capture.workspaceOutcome), maxWallClockMs: input.maxWallClockMs,
+      ...(input.signal ? {signal: input.signal} : {}), ...(limits.shutdownGraceMs ? {shutdownGraceMs: limits.shutdownGraceMs} : {}),
+    });
+    return stepExecutionFromCapture(input, {qualification: result.qualification, attempt: result.attempt, manifest: result.manifest as unknown as StepManifestView});
+  };
+}
 
 type StepManifestView = {
   terminal?: { state?: TerminalState; failureClass?: string; stopReason?: string };
@@ -217,13 +243,11 @@ export function createFactoryHarborExecutor(options: FactoryHarborExecutorOption
     const toolPolicy = resolveFactoryConfigurationRecord(options.studyRoot, options.configuration.nativeToolPolicy, "native-tool-policy");
     const captureProfile = resolveFactoryConfigurationRecord(options.studyRoot, options.configuration.captureProfile, "capture-profile");
     if (input.prepared.run.harnessId !== "factory-droid") throw new Error("Factory Harbor executor requires the factory-droid harness.");
-    const runtime = await (options.probeRuntime ?? probeFactoryRuntime)(harness.executable);
-    if (runtime.version !== harness.version) {
-      throw new Error(`Factory ${harness.version} is required; received ${runtime.version}.`);
-    }
+    const runtime = await (options.probeRuntime ?? probeFactoryRuntime)(lockedRuntimeExecutable("droid-cli").path);
+    await recordRuntimeProbe("droid-cli", runtime.version, "executable");
     const definition = harborStepBundleDefinition(input.prepared, input.step, input.stepBundleRoot, {
       harnessId: "factory-droid",
-      harnessVersion: harness.version,
+      harnessVersion: runtime.version.replace(/^codex-cli /u, ""),
       modelId: model.model,
       provider: model.provider,
       configurationDigests: {
@@ -284,13 +308,11 @@ export function createCodexHarborExecutor(options: CodexHarborExecutorOptions): 
     const toolPolicy = resolveCodexConfigurationRecord(options.studyRoot, options.configuration.nativeToolPolicy, "native-tool-policy");
     const captureProfile = resolveCodexConfigurationRecord(options.studyRoot, options.configuration.captureProfile, "capture-profile");
     if (input.prepared.run.harnessId !== "codex-app-server") throw new Error("Codex Harbor executor requires the codex-app-server harness.");
-    const runtime = await (options.probeRuntime ?? probeCodexRuntime)(harness.executable);
-    if (runtime.version !== `codex-cli ${harness.version}`) {
-      throw new Error(`Codex ${harness.version} is required; received ${runtime.version}.`);
-    }
+    const runtime = await (options.probeRuntime ?? probeCodexRuntime)(lockedRuntimeExecutable("codex").path);
+    await recordRuntimeProbe("codex", runtime.version.replace(/^codex-cli /u, ""), "executable");
     const definition = harborStepBundleDefinition(input.prepared, input.step, input.stepBundleRoot, {
       harnessId: "codex-app-server",
-      harnessVersion: harness.version,
+      harnessVersion: runtime.version.replace(/^codex-cli /u, ""),
       modelId: model.model,
       provider: model.provider,
       configurationDigests: {
@@ -356,10 +378,10 @@ export function createCursorHarborExecutor(options: CursorHarborExecutorOptions)
     await assertCursorWorkspaceIsolation(input.workspacePath);
     const definition = harborStepBundleDefinition(input.prepared, input.step, input.stepBundleRoot, {
       harnessId: input.prepared.run.harnessId,
-      harnessVersion: "1.0.37",
+      harnessVersion: studyRuntimeVersion("@cursor/sdk", "unrecorded"),
       modelId: model.model.id,
       provider: "cursor",
-      runtime: [{ source: "cursor", name: "cursor-sdk", version: "1.0.37" }, { source: "cursor", name: "local-agent-runtime", version: "not-exposed" }],
+      runtime: [{ source: "cursor", name: "cursor-sdk", version: studyRuntimeVersion("@cursor/sdk", "unrecorded") }, { source: "cursor", name: "local-agent-runtime", version: "not-exposed" }],
       configurationDigests: {
         model: options.configuration.model.digest.value,
         harness: options.configuration.harness.digest.value,

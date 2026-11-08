@@ -104,7 +104,7 @@ async def create_trial(request, prepare=False, request_path=None):
         'environment': {'import_path': module + ':OwnedSmolEnvironment', 'delete': True,
             'kwargs': {'ebo_owner': request['ownerRoot'], 'ebo_queue': request['queueDigest'],
                 'ebo_prepare': prepare, 'ebo_events': request.get('smolEvents'),
-                'ebo_runtime': {'smol': SMOL_VERSION, 'harbor': HARBOR_VERSION,
+                'ebo_runtime': {'smol': importlib.metadata.version('smolmachines'), 'harbor': importlib.metadata.version('harbor'),
                     'build': request['build'], 'libkrun': request['environmentManifest']['libkrunSha256'],
                     'taskSourceId': request['taskSourceId'],
                     'pack': request['environmentManifest']['runtimeArchiveDigest'],
@@ -119,7 +119,7 @@ async def main(request_path):
         await serve_parents(request)
         return {'state': 'stopped'}
     validate_environment_manifest(request['environmentManifest'])
-    provenance = runtime_provenance(request['environmentManifest'])
+    provenance = runtime_provenance(request['environmentManifest'], request['frozenPythonVersions'])
     root = Path(request['ownerRoot'])
     # Acquire before rechecking the owner. Shutdown excludes new borrowers.
     with (root / 'borrowers.lock').open('a+') as lease:

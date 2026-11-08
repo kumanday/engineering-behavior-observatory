@@ -1,3 +1,4 @@
+import { runInStudyRuntime } from "../runtime-context.js";
 import { randomUUID } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
@@ -58,6 +59,9 @@ export type RunHarborQueueEntryOptions = {
 };
 
 export async function runHarborBackedQueueEntry(options: RunHarborQueueEntryOptions): Promise<HarborRunSummary> {
+  return runInStudyRuntime("harbor", options.studyRoot ? {studyRoot: options.studyRoot} : undefined, () => runHarborBackedQueueEntryOwned(options));
+}
+async function runHarborBackedQueueEntryOwned(options: RunHarborQueueEntryOptions): Promise<HarborRunSummary> {
   const queue = await readHarborRunQueue(options.queuePath, options.adapter === undefined
     ? { studyRoot: options.studyRoot }
     : { studyRoot: options.studyRoot, adapter: options.adapter });
