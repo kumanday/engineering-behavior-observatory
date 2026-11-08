@@ -32,7 +32,7 @@ test("owned capture qualification checks linked tools, recovery, lifecycle and o
       const result = await captureClaudeAgentSdkRun({definition: {...fixture, bundleRoot}, runtime, startingWorkspacePath: workspace,
         workspace: {setup: async () => ({status: "ready", path: workspace, artifactId: "workspace", retained: true}), cleanup: async () => {}},
         configuration: {prompt: "Authored verification test only", model: fixture.run.model.id, tools: ["Bash"], permissionMode: "dontAsk"},
-        expectedHooks: ["SessionStart"], signal: controller.signal,
+        expectedHooks: ["SessionStart"], signal: controller.signal, shutdownGraceMs: 5000,
         query: input => ({close() {}, async *[Symbol.asyncIterator]() {
           await input.options?.hooks?.SessionStart?.[0]?.hooks[0]?.({hook_event_name: "SessionStart", session_id: "s", transcript_path: "/fixture/session.jsonl", cwd: workspace, source: "startup"} as any, undefined, {signal: new AbortController().signal});
           for (const message of messages) {yield {...message, session_id: "s", parent_tool_use_id: null} as any; if (kind === "interruption") {controller.abort(); return;}}

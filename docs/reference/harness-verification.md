@@ -51,6 +51,11 @@ expectations alongside the exact checks above. The tool reports only the
 capabilities its retained evidence establishes. Imported and authored ATIF are
 not owned qualification captures.
 
+Budget `shutdownGraceMs` for native drain and workspace retention during the
+interruption case. A cleanup timeout leaves interruption and teardown unverified.
+The authored conformance test uses 5 seconds so workspace packaging can finish
+under concurrent filesystem load.
+
 ## Prepare evidence without model inference
 
 First freeze a separate qualification study with the exact runtimes to check,
