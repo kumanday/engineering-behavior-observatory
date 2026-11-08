@@ -4,6 +4,30 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runRuntimeCommand } from "../src/runtime-installation.js";
 import { resolveNpmRuntimePlan } from "../src/runtime-npm.js";
+import {selectRuntimeRelease} from "../src/runtime-resolution.js";
+
+test("npm aliases keep their real package and OSV identity while stable native build variants retain exact integrity", async () => {
+  const name = "@example/runtime", variant = "9.9.9-darwin-arm64", requested: string[] = [];
+  const releases = ["9.9.9", variant].map(version => ({version, source: "npm" as const, publishedAt: "2026-11-05T00:00:00Z", locator: `https://registry.npmjs.org/runtime-${version}.tgz`, integrity: "sha512-Zml4dHVyZQ=="}));
+  const result = await resolveNpmRuntimePlan([{id: "runtime", name, source: "npm", ecosystem: "npm", selection: selectRuntimeRelease(releases, {now: "2026-11-07T12:00:00Z"})}], {
+    platform: "darwin-arm64", abi: "node-24", run: async (_cmd, _args, cwd) => {
+      await writeFile(join(cwd, "package-lock.json"), JSON.stringify({lockfileVersion: 3, packages: {"": {dependencies: {[name]: "9.9.9"}},
+        [`node_modules/${name}`]: {version: "9.9.9", resolved: releases[0]!.locator, integrity: releases[0]!.integrity},
+        "node_modules/@example/runtime-darwin-arm64": {name, version: variant, os: ["darwin"], cpu: ["arm64"], optional: true, resolved: releases[1]!.locator, integrity: releases[1]!.integrity}}}));
+      return {code: 0, stdout: "", stderr: ""};
+    }, fetch: async url => {
+      requested.push(decodeURIComponent(url));
+      assert.equal(decodeURIComponent(new URL(url).pathname).slice(1), name);
+      return Response.json({time: Object.fromEntries(releases.map(release => [release.version, release.publishedAt])), versions: Object.fromEntries(releases.map(release => [release.version, {dist: {tarball: release.locator, integrity: release.integrity}}]))});
+    },
+  });
+  assert.equal(requested.length, 1);
+  assert.ok(result.components.every(component => component.name === name && component.ecosystem === "npm"));
+  const binary = result.components.find(component => component.version === variant)!;
+  assert.equal(binary.location, "node_modules/@example/runtime-darwin-arm64");
+  assert.equal(binary.selection.release.integrity, releases[1]!.integrity);
+  assert.equal(result.components.find(component => component.version === "9.9.9")!.selection.policy.allowPrerelease, false);
+});
 
 test("freezes transitive package integrity and checks the age and security identity of the entire closure", async () => {
   const seen: string[][] = [];

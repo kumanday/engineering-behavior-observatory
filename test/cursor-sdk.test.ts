@@ -69,7 +69,7 @@ test("Harbor Cursor wrapper retains native retries, usage, session and workspace
   const fixture = createCursorFixture();
   try {
     const queue = JSON.parse(readFileSync(fixture.queuePath, "utf8"));
-    const input = harborStepFixture(fixture.parent, "cursor-sdk");
+    const input = harborStepFixture(fixture.parent, "cursor-arm-a");
     const result = await createCursorHarborExecutor({ studyRoot: fixture.bundleRoot,
       configuration: { ...queue.entries[0].configuration, captureProfile: queue.captureProfile },
       apiKey: "fixture-only", agentFactory: fakeAgentFactory() })(input);

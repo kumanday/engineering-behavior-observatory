@@ -48,6 +48,20 @@ async function runFake(root: string, mode = "success", overrides: Partial<Factor
 const retainedOptions = (capture: FactoryCapture, expectsCompletion = true) => ({ sessionId: capture.sessionId, expectsCompletion,
   cliVersion: FACTORY_CLI_VERSION, sdkVersion: FACTORY_SDK_VERSION });
 
+test("Factory records the loaded study SDK protocol declaration in both native configuration and telemetry", async () => {
+  const {withStudyRuntime} = await import("../src/runtime-context.js");
+  const {createConformanceRuntimeFixture} = await import("./with-runtime-fixture.js");
+  const binding = await createConformanceRuntimeFixture("factory-droid", false, undefined, 'export const FACTORY_PROTOCOL_VERSION = "fixture-future-protocol";');
+  const root = await temporaryRoot();
+  try {
+    const capture = await withStudyRuntime({...binding, role: "factory-droid"}, async () => runFake(root));
+    assert.equal(capture.telemetry.runtime.protocolVersion, "fixture-future-protocol");
+    const text = await readFile(join(root, "session.jsonl"), "utf8");
+    const configuration = text.trim().split("\n").map(line => JSON.parse(line)).find(row => row.kind === "capability" && row.capability === "runtime-composition");
+    assert.equal(configuration.evidence.protocolVersion, "fixture-future-protocol");
+  } finally {await rm(binding.studyRoot, {recursive: true, force: true}); await rm(root, {recursive: true, force: true});}
+});
+
 test("Factory real SDK records native frames before filtering and completes only the owned session/turn", async () => {
   const root = await temporaryRoot();
   try {

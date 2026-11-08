@@ -122,6 +122,11 @@ the package name, version and reason. These appear in preparation, inspection,
 checks and run output and remain in retained receipts. Yanked,
 unpublished and malicious releases block execution.
 
+Native npm build variants retain their upstream package name and full artifact
+version. Their OS/CPU constraints and stable parent release identify the build;
+the parent runtime's stable-release policy determines selection. Security queries
+use the actual package identity, and the lock separately records its install alias.
+
 ## Installation and security receipts
 
 The study stores its lock at `runtimes/lock.json` and installations under

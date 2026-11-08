@@ -1,3 +1,5 @@
+import {runtimeTest} from "./with-runtime-fixture.js";
+const judgeTest = runtimeTest("claude-agent-sdk");
 import { occurrenceRequest, occurrenceState } from "../src/occurrence-ratings.js";
 import { prepareJudgeRequest } from "../src/judge-prepare.js";
 import { runAgentSdkSemanticJudge, type SemanticJudgeRequest } from "../src/semantic-judge.js";
@@ -142,7 +144,7 @@ test("the Pi projection satisfies the adapter event contract under a synthetic t
   assert.equal(evidence.capture.qualification, "imported");
 });
 
-test("semantic judging uses every retained model/route alias and never requires a run manifest for imports", { skip: !python }, async () => {
+judgeTest("semantic judging uses every retained model/route alias and never requires a run manifest for imports", { skip: !python }, async () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-import-blinding-"));
   try {
     const source = JSON.parse(readFileSync("test/fixtures/atif/pi/parallel-failure-cache-write.atif.json", "utf8"));

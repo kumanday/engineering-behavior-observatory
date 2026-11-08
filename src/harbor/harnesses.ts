@@ -375,7 +375,7 @@ export function createCursorHarborExecutor(options: CursorHarborExecutorOptions)
     const captureProfile = resolveCursorSdkConfigurationRecord(options.studyRoot, options.configuration.captureProfile, "capture-profile");
     await assertCursorWorkspaceIsolation(input.workspacePath);
     const definition = harborStepBundleDefinition(input.prepared, input.step, input.stepBundleRoot, {
-      harnessId: input.prepared.run.harnessId,
+      harnessId: "cursor-sdk",
       harnessVersion: studyRuntimeVersion("@cursor/sdk", "unrecorded"),
       modelId: model.model.id,
       provider: "cursor",

@@ -15,7 +15,7 @@ import { harborStepFixture } from "./harbor-step-helper.js";
 test("Harbor OpenHands wrapper binds its conversation to the actual workspace", async () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-harbor-openhands-"));
   try {
-    const input = harborStepFixture(root, "openhands-agent-server");
+    const input = harborStepFixture(root, "openhands-arm-a");
     const message = { id: "message-1", kind: "MessageEvent", source: "agent", timestamp: "2026-09-13T00:00:00Z", llm_message: { role: "assistant", content: [{ type: "text", text: "done" }] } };
     const hook = { id: "hook-1", kind: "HookExecutionEvent", source: "hook", timestamp: "2026-09-13T00:00:01Z", hook_event_type: "SessionEnd", hook_command: "echo done", success: true, exit_code: 0 };
     const fetch: typeof globalThis.fetch = async (request, init) => {

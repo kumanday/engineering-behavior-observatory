@@ -245,7 +245,7 @@ export async function captureFactoryDroidOwned(request: FactoryCaptureRequest): 
     transport = new RecordingFactoryTransport({ ...request, configuration: { ...request.configuration, executable: runtime.path } }, environment,
       selection.route.kind === "byok" ? join(home, ".factory", "settings.json") : undefined);
     await transport.child.evidence.recordCapability({ source: FACTORY_HARNESS, name: "runtime-composition", status: "available", details: {
-      version: runtime.version, sdkVersion: studyRuntimeVersion("@factory/droid-sdk", FACTORY_SDK_VERSION), adapterVersion: FACTORY_ADAPTER_VERSION, binaryDigest, protocolVersion: FACTORY_PROTOCOL_VERSION, modelSelection: selection,
+      version: runtime.version, sdkVersion: studyRuntimeVersion("@factory/droid-sdk", FACTORY_SDK_VERSION), adapterVersion: FACTORY_ADAPTER_VERSION, binaryDigest, protocolVersion: studyRuntimeModule("@factory/droid-sdk", {FACTORY_PROTOCOL_VERSION}).FACTORY_PROTOCOL_VERSION, modelSelection: selection,
       ...(selection.route.kind === "byok" ? { customModelSource: "attempt-settings-override" } : {}),
     } });
     const created = studyRuntimeModule("@factory/droid-sdk/node", developmentNodeSdk).createSession({ transport, cwd: request.workspacePath,
@@ -306,7 +306,7 @@ export async function captureFactoryDroidOwned(request: FactoryCaptureRequest): 
       : ["cancelled", "permission_rejected"].includes(String(native.terminal?.reason)) ? "interrupted" : "failed";
   const telemetry: FactoryRuntimeEvidence = {
     schemaVersion: "ebo.factory-runtime/v1",
-    runtime: { executable: runtime.path, version: runtime.version, sdkVersion: studyRuntimeVersion("@factory/droid-sdk", FACTORY_SDK_VERSION), adapterVersion: FACTORY_ADAPTER_VERSION, binaryDigest, protocolVersion: FACTORY_PROTOCOL_VERSION },
+    runtime: { executable: runtime.path, version: runtime.version, sdkVersion: studyRuntimeVersion("@factory/droid-sdk", FACTORY_SDK_VERSION), adapterVersion: FACTORY_ADAPTER_VERSION, binaryDigest, protocolVersion: studyRuntimeModule("@factory/droid-sdk", {FACTORY_PROTOCOL_VERSION}).FACTORY_PROTOCOL_VERSION },
     effectiveConfiguration: { model: request.configuration.model, modelSelection: selection, credentialEnv,
       ...(selection.route.kind === "byok" ? { customModelSource: "attempt-settings-override" as const } : {}), reasoningEffort: request.configuration.reasoningEffort,
       autonomyLevel: request.configuration.autonomyLevel, permissionDecision: request.configuration.permissionDecision,

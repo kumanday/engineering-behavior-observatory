@@ -10,7 +10,7 @@ import { currentStudyRuntime, withStudyRuntime } from "../src/runtime-context.js
 import { fakeSdkRuntimeOptions } from "./runtime-fixture-helper.js";
 
 const fixtures = new Map<string, Promise<{ studyRoot: string; options: StudyRuntimeOptions }>>();
-export async function createConformanceRuntimeFixture(role: string, deprecatedDependency = false, cliFallback?: string): Promise<{ studyRoot: string; options: StudyRuntimeOptions }> {
+export async function createConformanceRuntimeFixture(role: string, deprecatedDependency = false, cliFallback?: string, moduleSourceSuffix = ""): Promise<{ studyRoot: string; options: StudyRuntimeOptions }> {
   if (role === "openhands-agent-server") {
     const studyRoot = await mkdtemp(join(tmpdir(), "ebo-openhands-runtime-")), options = fakeOciRuntimeOptions();
     await freezeStudyRuntimes(studyRoot, {studyId: "conformance-openhands", roles: [role]}, options);
@@ -38,7 +38,7 @@ export async function createConformanceRuntimeFixture(role: string, deprecatedDe
       await writeFile(join(root, "package.json"), JSON.stringify({ name, version: metadata.version, claudeCodeVersion: metadata.claudeCodeVersion, type: "module", exports: { ".": "./index.js", ...(role === "factory-droid" ? { "./node": "./node.js" } : {}) } }));
       // The authored registry payload delegates to the installed conformance SDK.
       // The production installer is replaced only at its external command boundary.
-      await writeFile(join(root, "index.js"), `export * from ${JSON.stringify(pathToFileURL(entry).href)};\n`);
+      await writeFile(join(root, "index.js"), `export * from ${JSON.stringify(pathToFileURL(entry).href)};\n${moduleSourceSuffix}\n`);
       if (role === "deepseek-harness") {
         const protocol = join(cwd, "node_modules", "@deepseek-ai/dsh-sdk-protocol");
         await writeFile(join(protocol, "index.js"), `export * from ${JSON.stringify(import.meta.resolve("@deepseek-ai/dsh-sdk-protocol"))};\n`);

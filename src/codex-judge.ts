@@ -1,4 +1,5 @@
 import { runtimeExecutionSummary, requireStudyRuntime, runInStudyRuntime, lockedRuntimeExecutable, recordRuntimeProbe, type StudyRuntimeBinding } from "./runtime-context.js";
+import {coordinatorRuntimeEnvironment} from "./runtime-environment.js";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -67,6 +68,7 @@ export async function runOwnedCodexStructuredTurn(prompt: string, request: Codex
   mkdirSync(cwd, { mode: 0o700 });
   const env: NodeJS.ProcessEnv = { HOME: isolatedRoot, CODEX_HOME: isolatedRoot };
   for (const key of CODEX_JUDGE_INHERITED_KEYS) if (process.env[key] !== undefined) env[key] = process.env[key];
+  env.PATH = coordinatorRuntimeEnvironment(env).PATH;
   let child: ProtocolProcess | undefined;
   let timedOut = false;
   let interrupted = signal?.aborted ?? false;

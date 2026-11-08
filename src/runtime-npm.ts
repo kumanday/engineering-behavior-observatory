@@ -43,13 +43,18 @@ export async function resolveNpmRuntimePlan(roots: readonly SelectedRuntimeCompo
     const components: LockedRuntimeDependency[] = [], metadata = new Map<string, Awaited<ReturnType<typeof fetchRuntimeReleases>>>();
     for (const [location, entry] of Object.entries(packageLock.packages)) {
       if (!location) continue;
-      const name = location.split("node_modules/").at(-1)!;
       if (!entry || typeof entry.version !== "string" || entry.link || !location.startsWith("node_modules/") || location.includes("..")) throw new RuntimePolicyError("RUNTIME_DEPENDENCY_LOCK_INVALID", `Non-registry package ${location}.`);
+      // npm aliases retain the install key in location and the registry identity in name.
+      const name = typeof entry.name === "string" ? entry.name : location.split("node_modules/").at(-1)!;
       if (!metadata.has(name)) metadata.set(name, await fetchRuntimeReleases({ source: "npm", name }, options));
       const owner = roots.find((root) => location === `node_modules/${root.name}`);
+      if (owner && owner.name !== name) throw new RuntimePolicyError("RUNTIME_ROOT_VERSION_MISMATCH", `npm changed selected package identity ${owner.name}.`);
+      const variant = !owner && Array.isArray(entry.os) && entry.os.length > 0 && Array.isArray(entry.cpu) && entry.cpu.length > 0
+        ? roots.find(root => root.name === name && entry.version.startsWith(`${root.selection.release.version}-`)) : undefined;
       const policy = owner?.selection ?? roots[0]!.selection;
       const selection = selectRuntimeRelease(metadata.get(name)!, { now: policy.selectedAt, minReleaseAgeMs: owner ? policy.policy.minReleaseAgeMs : Math.max(...roots.map((root) => root.selection.policy.minReleaseAgeMs)),
-        allowPrerelease: owner?.selection.policy.allowPrerelease ?? roots.some((root) => root.selection.policy.allowPrerelease), override: entry.version });
+        allowPrerelease: owner?.selection.policy.allowPrerelease ?? (Boolean(variant) || roots.some((root) => root.selection.policy.allowPrerelease)), override: entry.version });
+      if (variant) selection.release.metadata = {...selection.release.metadata, nativeBuildVariantOf: {name: variant.name, version: variant.selection.release.version}};
       if (selection.release.integrity !== entry.integrity || selection.release.locator !== entry.resolved) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", `npm lock and registry disagree for ${name}@${entry.version}.`);
       if (!owner && selection.release.deprecated) selection.warnings = [`RUNTIME_DEPENDENCY_DEPRECATED: ${name}@${entry.version}: ${selection.release.deprecated}`];
       if (owner && owner.selection.release.version !== entry.version) throw new RuntimePolicyError("RUNTIME_ROOT_VERSION_MISMATCH", `npm changed selected ${name}.`);

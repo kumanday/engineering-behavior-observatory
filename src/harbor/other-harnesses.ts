@@ -7,9 +7,9 @@ import { harborStepBundleDefinition, type HarborHarnessConfigurationReferences }
 import type { HarborHarnessStepExecutor, HarborStepExecutorInput } from "./runner.js";
 
 type Common = { configuration: HarborHarnessConfigurationReferences; workspaceOutcome?: { excludeDirectoryNames?: string[]; respectGitignore?: boolean; omitEmptyDirectories?: boolean } };
-function definition(input: HarborStepExecutorInput, options: Common, version: string, model: string, provider: string) {
+function definition(input: HarborStepExecutorInput, options: Common, harnessId: "openhands-agent-server" | "deepseek-harness", version: string, model: string, provider: string) {
   return harborStepBundleDefinition(input.prepared, input.step, input.stepBundleRoot, {
-    harnessId: input.prepared.run.harnessId, harnessVersion: version, modelId: model, provider,
+    harnessId, harnessVersion: version, modelId: model, provider,
     configurationDigests: Object.fromEntries(Object.entries(options.configuration).map(([k,v]) => [k,v.digest.value])) as Record<keyof HarborHarnessConfigurationReferences, string>,
   });
 }
@@ -20,7 +20,7 @@ export type OpenHandsHarborExecutorOptions = Common & { native: OpenHandsAgentSe
 export function createOpenHandsHarborExecutor(options: OpenHandsHarborExecutorOptions): HarborHarnessStepExecutor {
   return async input => {
     const result = await captureOpenHandsAgentServerRun({
-      definition: definition(input, options, options.version, options.native.model, options.provider),
+      definition: definition(input, options, "openhands-agent-server", options.version, options.native.model, options.provider),
       startingWorkspacePath: input.startingWorkspacePath, workspace: workspace(input),
       configuration: { ...options.native, serverWorkspacePath: input.workspacePath,
         startConversation: { ...options.native.startConversation, workspace: { type: "local", working_dir: input.workspacePath } },
@@ -39,7 +39,7 @@ export type DeepSeekHarborExecutorOptions = Common & { native: Omit<DeepSeekHarn
 export function createDeepSeekHarborExecutor(options: DeepSeekHarborExecutorOptions): HarborHarnessStepExecutor {
   return async input => {
     const composition = { ...options.native.composition, workspaceCwd: input.workspacePath };
-    const def = definition(input, options, composition.runtime.clientVersion, composition.route.model, composition.route.provider);
+    const def = definition(input, options, "deepseek-harness", composition.runtime.clientVersion, composition.route.model, composition.route.provider);
     const assembler = await createRunBundleAssembler(def);
     const capture = new DeepSeekNativeCapture(join(input.stepBundleRoot, "deepseek/session.jsonl"));
     let report: DeepSeekCaptureReport | undefined;
