@@ -58,6 +58,9 @@ requirements. The freeze records the probed Python version, ABI, platform and
 binary digest. Installation verifies that interpreter; each launch verifies the
 installed virtual environment and probes its installed package versions. A host
 interpreter cannot prepare a Python runtime labelled for a different platform.
+The bootstrap interpreter needs `pip` and `pypi-attestations`. Its TLS trust store
+must validate PyPI and Sigstore; `SSL_CERT_FILE` selects an operator-provided CA
+bundle for installation commands. Signature and certificate checks remain enabled.
 
 OpenHands capture starts an owned Docker container from the frozen image digest.
 EBO checks the running container's image identity and uses its published loopback

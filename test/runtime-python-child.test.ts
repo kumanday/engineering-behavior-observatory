@@ -29,3 +29,14 @@ test("a Python bootstrap preserves the selected virtual environment executable",
     assert.equal(identity.executable, join(await realpath(join(root, "venv", "bin")), "python"));
   } finally {await rm(root, {recursive: true, force: true});}
 });
+
+test("runtime commands honor an operator-selected CA bundle without disabling TLS verification", async () => {
+  const {runRuntimeCommand} = await import("../src/runtime-installation.js");
+  const root = await mkdtemp(join(tmpdir(), "ebo-runtime-ca-")), before = process.env.SSL_CERT_FILE;
+  try {
+    const bundle = join(root, "operator-ca.pem"); await writeFile(bundle, "authored CA path fixture");
+    process.env.SSL_CERT_FILE = bundle;
+    const result = await runRuntimeCommand(process.execPath, ["--eval", "process.stdout.write(process.env.SSL_CERT_FILE ?? '')"], root);
+    assert.equal(result.code, 0); assert.equal(result.stdout, bundle);
+  } finally {if (before === undefined) delete process.env.SSL_CERT_FILE; else process.env.SSL_CERT_FILE = before; await rm(root, {recursive: true, force: true});}
+});

@@ -24,7 +24,8 @@ export const runtimePlanKey = (plan: RuntimeInstallPlan): string => digestMetada
 const execFileAsync = promisify(execFile);
 export const runRuntimeCommand: RuntimeCommandRunner = async (command, args, cwd) => {
   const env: NodeJS.ProcessEnv = { PATH: `${dirname(process.execPath)}:/usr/local/bin:/usr/bin:/bin`, HOME: cwd, TMPDIR: cwd,
-    LANG: "C.UTF-8", npm_config_ignore_scripts: "true", npm_config_update_notifier: "false", PIP_DISABLE_PIP_VERSION_CHECK: "1", PYTHONNOUSERSITE: "1", PYTHONDONTWRITEBYTECODE: "1", PIP_CONFIG_FILE: "/dev/null" };
+    LANG: "C.UTF-8", npm_config_ignore_scripts: "true", npm_config_update_notifier: "false", PIP_DISABLE_PIP_VERSION_CHECK: "1", PYTHONNOUSERSITE: "1", PYTHONDONTWRITEBYTECODE: "1", PIP_CONFIG_FILE: "/dev/null",
+    ...(process.env.SSL_CERT_FILE ? {SSL_CERT_FILE: process.env.SSL_CERT_FILE} : {}) };
   try { const result = await execFileAsync(command, [...args], { cwd, env, encoding: "utf8", timeout: 300_000, maxBuffer: 32 * 1024 * 1024 }); return { ...result, code: 0 }; }
   catch (error) { const result = error as { stdout?: string; stderr?: string; code?: unknown }; return { stdout: result.stdout ?? "", stderr: result.stderr ?? "", code: typeof result.code === "number" ? result.code : -1 }; }
 };
