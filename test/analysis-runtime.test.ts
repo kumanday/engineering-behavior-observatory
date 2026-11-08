@@ -58,7 +58,8 @@ test("fresh installs retain exact external dependency versions for fixed readers
   for (const runtime of listAnalysisRuntimes()) {
     const snapshot = JSON.parse(readFileSync(new URL(`../../compatibility/${runtime.id}/runtime-manifest.json`, import.meta.url), "utf8"));
     for (const [name, version] of Object.entries(snapshot.dependencies)) {
-      assert.equal(packageJson.dependencies[name], version, `${runtime.id}: fresh installation must retain ${name}`);
+      const alias = "@ebo-compat/" + name.replace(/^@/u, "").replace("/", "-");
+      assert.equal(packageJson.dependencies[alias], `npm:${name}@${version}`, `${runtime.id}: fresh installation must isolate ${name}`);
     }
   }
 });

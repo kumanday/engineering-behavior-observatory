@@ -38,12 +38,14 @@ function ociRegistryClient(request: RuntimeRegistryRequest, options: RuntimeRegi
 
 export async function fetchOciReleases(request: RuntimeRegistryRequest, options: RuntimeRegistryOptions): Promise<RuntimeRelease[]> {
   const {base, get} = ociRegistryClient(request, options);
-  const tags: string[] = []; let next: string | undefined = `${base}/tags/list`; const seen = new Set<string>();
+  const tags: string[] = []; let next: string | undefined = `${base}/tags/list?n=1000`; const seen = new Set<string>();
   while (next) {
-    if (seen.has(next) || seen.size > 100 || !next.startsWith(`${base}/tags/list`)) throw new RuntimePolicyError("RUNTIME_METADATA_INVALID", "Invalid OCI tag pagination.");
+    const parsed = new URL(next), expected = new URL(`${base}/tags/list`);
+    if (seen.has(next) || seen.size >= 1024 || parsed.origin !== expected.origin || parsed.pathname !== expected.pathname) throw new RuntimePolicyError("RUNTIME_METADATA_INVALID", "Invalid OCI tag pagination.");
     seen.add(next); const page = await get(next);
     if (!Array.isArray(page.json.tags)) throw new RuntimePolicyError("RUNTIME_METADATA_INVALID", "OCI tags must be an array.");
-    tags.push(...page.json.tags.filter((tag: unknown): tag is string => typeof tag === "string"));
+    if (page.json.tags.length > 1000) throw new RuntimePolicyError("RUNTIME_METADATA_TOO_LARGE", "OCI tag page exceeds the requested limit.");
+    tags.push(...page.json.tags.filter((tag: unknown): tag is string => typeof tag === "string" && /^(?:rel-|v)?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(tag)));
     const link = /<([^>]+)>;\s*rel="?next"?/u.exec(page.response.headers.get("link") ?? "")?.[1];
     next = link ? new URL(link, next).href : undefined;
   }

@@ -26,7 +26,7 @@ test("resolves OCI stable flavors using image creation time and platform digests
   const hash = (text: string) => `sha256:${createHash("sha256").update(text).digest("hex")}`;
   const manifest = JSON.stringify({ schemaVersion: 2, config: { digest: hash(config) }, layers: [{ digest: `sha256:${"b".repeat(64)}`, size: 42 }] });
   const releases = await fetchRuntimeReleases({ source: "oci", name: "ghcr.io/openhands/agent-server", platform: "linux", architecture: "arm64", flavor: "python" }, { fetch: async (url) => {
-    if (url.endsWith("/tags/list")) return json({ tags: ["latest", "rel-1.54.0-python"] });
+    if (url.includes("/tags/list?")) return json({ tags: ["latest", "rel-1.54.0-python"] });
     if (url.includes("/manifests/")) return new Response(manifest);
     if (url.endsWith(`/blobs/${hash(config)}`)) return new Response(config);
     throw new Error(`Unexpected URL ${url}`);
@@ -36,4 +36,27 @@ test("resolves OCI stable flavors using image creation time and platform digests
   assert.equal(releases[0]!.publishedAt, "2026-11-05T00:00:00Z");
   assert.equal(releases[0]!.flavor, "python");
   assert.match(releases[0]!.locator, /@sha256:/);
+});
+
+
+test("OCI tag pages request an explicit large page and reject foreign pagination", async () => {
+  const seen: string[] = [];
+  const request = {source: "oci" as const, name: "ghcr.io/openhands/agent-server", flavor: "python"};
+  await fetchRuntimeReleases(request, {fetch: async (url) => {
+    seen.push(url);
+    return new Response(JSON.stringify({tags: []}), {headers: seen.length === 1 ? {link: '</v2/openhands/agent-server/tags/list?n=1000&last=a>; rel="next"'} : {}});
+  }});
+  assert.equal(seen[0], "https://ghcr.io/v2/openhands/agent-server/tags/list?n=1000");
+  assert.equal(seen.length, 2);
+  await assert.rejects(fetchRuntimeReleases(request, {fetch: async () => new Response(JSON.stringify({tags: []}), {headers: {link: '<https://other.example/tags/list>; rel="next"'}})}), /Invalid OCI tag pagination/u);
+});
+
+
+test("OCI catalogs with hundreds of commit-tag pages still discover release tags", async () => {
+  let pages = 0;
+  const releases = await fetchRuntimeReleases({source: "oci", name: "ghcr.io/example/server", flavor: "python"}, {fetch: async () => {
+    pages++;
+    return new Response(JSON.stringify({tags: Array.from({length: 1000}, (_, i) => `commit${pages}-${i}`)}), {headers: pages < 342 ? {link: `</v2/example/server/tags/list?n=1000&last=page${pages}>; rel="next"`} : {}});
+  }});
+  assert.equal(pages, 342); assert.deepEqual(releases, []);
 });

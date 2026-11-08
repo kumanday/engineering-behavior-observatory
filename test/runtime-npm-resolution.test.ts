@@ -48,6 +48,7 @@ test("freezes transitive package integrity and checks the age and security ident
   assert.equal(result.components.length, 2);
   assert.ok(result.components.some((c) => c.name === "dependency" && c.version === "2.0.0"));
   assert.ok(seen[0]!.includes("--ignore-scripts"));
+  assert.ok(seen[0]!.includes("--allow-remote"));
   assert.ok(seen[0]!.some((arg) => arg.startsWith("--before=")));
   assert.equal(result.plan.packageLock.lockfileVersion, 3);
   assert.match(result.components.find((c) => c.name === "dependency")!.selection.warnings.join(), /RUNTIME_DEPENDENCY_DEPRECATED.*dependency@2.0.0/);

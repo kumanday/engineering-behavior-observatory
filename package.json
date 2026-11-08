@@ -97,7 +97,17 @@
     "ajv-formats": "3.0.1",
     "apache-arrow": "21.2.0",
     "proper-lockfile": "4.1.2",
-    "semver": "7.8.5"
+    "semver": "7.8.6",
+    "@ebo-compat/anthropic-ai-claude-agent-sdk": "npm:@anthropic-ai/claude-agent-sdk@0.3.296",
+    "@ebo-compat/cursor-sdk": "npm:@cursor/sdk@1.0.37",
+    "@ebo-compat/deepseek-ai-dsh-sdk-client": "npm:@deepseek-ai/dsh-sdk-client@0.2.0-rc.2",
+    "@ebo-compat/duckdb-node-api": "npm:@duckdb/node-api@1.5.4-r.1",
+    "@ebo-compat/earendil-works-pi-coding-agent": "npm:@earendil-works/pi-coding-agent@1.1.0",
+    "@ebo-compat/factory-droid-sdk": "npm:@factory/droid-sdk@0.9.1",
+    "@ebo-compat/ajv": "npm:ajv@8.20.0",
+    "@ebo-compat/ajv-formats": "npm:ajv-formats@3.0.1",
+    "@ebo-compat/apache-arrow": "npm:apache-arrow@21.2.0",
+    "@ebo-compat/proper-lockfile": "npm:proper-lockfile@4.1.2"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

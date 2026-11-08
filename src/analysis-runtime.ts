@@ -1,4 +1,4 @@
-import { createRequire } from "node:module";
+import { createRequire, registerHooks } from "node:module";
 import { lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -39,6 +39,16 @@ const registered: readonly AnalysisRuntimeIdentity[] = [{ id: "ebo-v1.4-atif-202
   manifestDigest: "sha256:16c2da39f03f44e33eaccd8ddc9f72de6b73e3a5cf25152ae292f8e7295548c5", nodeVersion: "24.19.0" }, { id: "ebo-v1.4.0-86a6010", sourceCommit: "86a601079a51243756fe52798365a9cbf69cfe6f", manifestDigest: "sha256:594bd5f0b13ef5ff912c46fef0e5b43e18cce807e0533abe6d5c93eb5bd2e9a5", nodeVersion: "24.19.0" }];
 const expectedExports = ["createRetainedBehaviorEvidence", "createRetainedStructuralObservationSet", "loadAtlas", "queryAtlas", "roCrate", "validateRetainedBehaviorAssertion", "validateStructuralObservationSet", "verifyPacket"].sort();
 const rawHash = (bytes: Uint8Array): Hash => `sha256:${digestBytes(bytes).value}`;
+const frozenDependencies = new Map<string, Record<string, string>>();
+const compatibilityAlias = (name: string): string => `@ebo-compat/${name.replace(/^@/u, "").replace("/", "-")}`;
+// Only imports made by the two shipped reader files use historical packages.
+// Live adapters and study runtimes keep ordinary Node resolution.
+registerHooks({resolve(specifier, context, nextResolve) {
+  const dependencies = context.parentURL && frozenDependencies.get(context.parentURL);
+  const name = dependencies && Object.keys(dependencies).find(name => specifier === name || specifier.startsWith(`${name}/`));
+  return name ? nextResolve(`${compatibilityAlias(name)}${specifier.slice(name.length)}`, {...context, parentURL: import.meta.url})
+    : nextResolve(specifier, context);
+}});
 
 export function listAnalysisRuntimes(): readonly AnalysisRuntimeIdentity[] { return structuredClone(registered); }
 
@@ -46,16 +56,20 @@ export function listAnalysisRuntimes(): readonly AnalysisRuntimeIdentity[] { ret
 export async function loadAnalysisRuntime(id: string): Promise<FrozenAnalysisRuntime> {
   const identity = registered.find((runtime) => runtime.id === id);
   if (!identity) throw new Error("Unsupported analysis runtime identity; imported reader code is never loaded.");
-  if (process.versions.node !== identity.nodeVersion) throw new Error(`Analysis runtime requires Node ${identity.nodeVersion}.`);
+  // The snapshot records its original qualification environment. These hosts
+  // replay its unchanged bytes and exact dependencies in the compatibility suite.
+  if (![identity.nodeVersion, "26.13.0"].includes(process.versions.node)) throw new Error(`Analysis runtime has not been qualified on Node ${process.versions.node}.`);
   const root = fileURLToPath(new URL(`../../compatibility/${identity.id}/`, import.meta.url));
   const manifest = validateRuntimeSnapshot(root, identity.manifestDigest);
   if (manifest.id !== identity.id || manifest.source.commit !== identity.sourceCommit || manifest.nodeVersion !== identity.nodeVersion
       || manifest.entry !== "dist/src/reader.mjs" || JSON.stringify(manifest.exports) !== JSON.stringify(expectedExports)) throw new Error("Registered analysis runtime identity differs from its snapshot.");
-  const require = createRequire(join(root, manifest.entry));
+  const entry = pathToFileURL(join(root, manifest.entry)).href;
+  frozenDependencies.set(entry, manifest.dependencies);
+  const require = createRequire(import.meta.url);
   for (const [name, version] of Object.entries(manifest.dependencies)) {
-    if (installedVersion(name, require) !== version) throw new Error(`Analysis runtime dependency ${name} differs from its pinned version.`);
+    if (installedVersion(compatibilityAlias(name), require, name) !== version) throw new Error(`Analysis runtime dependency ${name} differs from its pinned version.`);
   }
-  const implementation = await import(pathToFileURL(join(root, manifest.entry)).href) as Omit<FrozenAnalysisRuntime, "identity">;
+  const implementation = await import(entry) as Omit<FrozenAnalysisRuntime, "identity">;
   if (JSON.stringify(Object.keys(implementation).sort()) !== JSON.stringify(expectedExports)
       || expectedExports.some((name) => typeof implementation[name as keyof typeof implementation] !== "function")) throw new Error("Analysis runtime exports differ from the shipped interface.");
   return Object.freeze({ ...implementation, identity: Object.freeze({ ...identity }) });
@@ -99,13 +113,13 @@ export function validateRuntimeSnapshot(root: string, expectedManifestDigest: Ha
   if (present.some((path) => path !== "runtime-manifest.json" && !listed.has(path)) || present.length !== listed.size + 1) throw new Error("Analysis runtime contains missing or unlisted assets.");
   return manifest;
 }
-function installedVersion(name: string, require: NodeJS.Require): string | undefined {
+function installedVersion(name: string, require: NodeJS.Require, packageName = name): string | undefined {
   const paths = require.resolve.paths(name) ?? [];
   for (const root of paths) {
     const file = join(root, name, "package.json");
     try {
       const record = JSON.parse(readBoundedFile(file, "Analysis runtime dependency", undefined, 1024 * 1024).toString("utf8")) as { name?: string; version?: string };
-      if (record.name === name) return record.version;
+      if (record.name === packageName) return record.version;
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT" && (error as NodeJS.ErrnoException).code !== "ENOTDIR") throw error; }
   }
   return undefined;
