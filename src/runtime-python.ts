@@ -49,7 +49,7 @@ export async function resolvePythonRuntimePlan(roots: readonly SelectedRuntimeCo
         if (!repository) {
           const detail = await runtimeJson(`https://pypi.org/pypi/${encodeURIComponent(name)}/${encodeURIComponent(version)}/json`, options);
           const source = Object.entries(detail.info?.project_urls ?? {})
-            .filter(([label]) => /^(?:source(?:[ _-]?(?:code|repository))?|repository|code|home[ _-]?page)$/iu.test(label))
+            .filter(([label]) => /^(?:source(?:[ _-]?(?:code|repository))?|repository|code|github|home[ _-]?page)$/iu.test(label))
             .sort(([a], [b]) => Number(/^home/iu.test(a)) - Number(/^home/iu.test(b)))
             .map(([, value]) => value)
             .find((value) => typeof value === "string" && /^https:\/\/github.com\/(?!sponsors\/|orgs\/)[^/?#]+\/[^/?#]+\/?$/u.test(value));

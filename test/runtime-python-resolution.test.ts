@@ -44,7 +44,7 @@ test("PyPI attestation identity follows source metadata rather than a GitHub fun
   options.fetch = async (request) => {
     if (!request.includes("/attrs/")) return originalFetch(request);
     if (request.includes("/simple/")) return Response.json({files: [{filename, provenance: "https://pypi.org/integrity/attrs/provenance"}]});
-    if (request.includes(`/${version}/json`)) return Response.json({info: {project_urls: {Funding: "https://github.com/sponsors/hynek", Source: "https://github.com/python-attrs/attrs"}}});
+    if (request.includes(`/${version}/json`)) return Response.json({info: {project_urls: {Funding: "https://github.com/sponsors/hynek", GitHub: "https://github.com/python-attrs/attrs"}}});
     return Response.json({releases: {[version]: [{filename, url, digests: {sha256: sha}, upload_time_iso_8601: "2026-11-05T00:00:00Z", yanked: false}]}});
   };
   const result = await resolvePythonRuntimePlan(roots, options);
