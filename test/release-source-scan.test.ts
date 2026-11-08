@@ -46,3 +46,19 @@ test("release home-path scan distinguishes logical root suffixes from filesystem
   const credential = logical + ' const headers = {Authorization: "Bearer syntheticcredentialvalue"};';
   assert.equal(containsPortableSecretPattern(maskSourceLogicalRoots(credential, "fixture.ts", ts), "text/plain"), true);
 });
+
+test("release source scan accepts reference-only environment writes while retaining literal secret checks", async () => {
+  const { maskSourceIdentifierAssignments } = await import(pathToFileURL(resolve("scripts/release-source-scan.mjs")).href);
+  const scan = (source: string) => containsPortableSecretPattern(maskSourceIdentifierAssignments(source, "fixture.ts", ts), "text/plain");
+  assert.equal(scan('await writeFile(envFile, `SESSION_API_KEY=${request.sessionApiKey}\\n`);'), false);
+  for (const source of [
+    'await writeFile(envFile, `SESSION_API_KEY=syntheticcredentialvalue${key}\\n`);',
+    'await writeFile(envFile, `SESSION_API_KEY=${"syntheticcredentialvalue"}\\n`);',
+    'await writeFile(envFile, `SESSION_API_KEY=${key}syntheticcredentialvalue\\n`);',
+    'await writeFile(envFile, `SESSION_API_KEY=${({value:"sk-proj-syntheticcredentialvalue"}).value}\\n`);',
+    'await writeFile(envFile, `SESSION_API_KEY=${["sk-proj-syntheticcredentialvalue"][0]}\\n`);',
+  ]) assert.equal(scan(source), true, source);
+  assert.equal(scan(readFileSync("src/openhands-runtime.ts", "utf8")), false);
+  assert.equal(scan(readFileSync("dist/src/openhands-runtime.js", "utf8")), false);
+  assert.equal(containsPortableSecretPattern("SESSION_API_KEY=syntheticcredentialvalue\n", "text/plain"), true);
+});

@@ -8,6 +8,11 @@ export function maskSourceIdentifierAssignments(source, path, ts) {
         : ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? node.right
           : undefined;
     if (value !== undefined && isSourceReference(value, ts)) ranges.push([value.getStart(file), value.end]);
+    // A single-reference environment assignment contains no credential literal,
+    // including when passed directly to writeFile rather than assigned first.
+    if (ts.isTemplateExpression(node) && /^[A-Z_][A-Z0-9_]*=$/u.test(node.head.text)
+        && node.templateSpans.length === 1 && ["", "\n", "\r\n"].includes(node.templateSpans[0].literal.text)
+        && isSourceReference(node.templateSpans[0].expression, ts)) ranges.push([node.getStart(file), node.end]);
     ts.forEachChild(node, visit);
   };
   visit(file);

@@ -28,13 +28,13 @@ export async function renderCoverageMatrix(): Promise<string> {
 
 EBO maintains the eight native harnesses in this table. Every conforming ATIF document uses the same core reader, including documents from other producers. An upstream converter is a separate tool that writes ATIF; its availability does not determine whether EBO can read a document.
 
-The native adapter column identifies EBO’s v2 adapter. The core result is measured on the checked-in public fixture with overlays disabled. Public fixtures use fictional content. Private retained conversions and capture-derived selections have source paths and digests in the pilot receipts; their digests bind the checked-in coverage record.
+The native adapter column identifies EBO’s v2 adapter. The core result is measured on the checked-in public fixture with overlays disabled. Public fixtures use fictional content and are available in the source repository. Private retained conversions and capture-derived selections have source paths and digests in the pilot receipts; their digests bind the checked-in coverage record.
 
 The inspected Harbor release is [${coverage.upstream.version}](${coverage.upstream.source}), wheel SHA-256 \`${coverage.upstream.wheelSha256}\`. Its installed-agent sources contain the six converter modules listed below. No Factory Droid or DeepSeek Harness converter was found in that release.
 
 | Harness and native v2 adapter | Upstream ATIF producer | Fixture and core result | Overlay and measured limits | Same-run evidence |
 | --- | --- | --- | --- | --- |
-${rows.map(({ profile, row, calls, results }) => `| [${row.name}](../harnesses/${row.guide}) · \`${profile.id}\` | ${row.upstream ?? "No upstream converter found."} ${row.surface} | [${row.fixture}](../../test/fixtures/atif/harnesses/${row.fixture}): ${calls} ${calls === 1 ? "call" : "calls"}, ${results} linked ${results === 1 ? "result" : "results"}; messages readable. ${row.fixtureKind} | ${row.overlay} | ${row.equivalence} |`).join("\n")}
+${rows.map(({ profile, row, calls, results }) => `| [${row.name}](../harnesses/${row.guide}) · \`${profile.id}\` | ${row.upstream ?? "No upstream converter found."} ${row.surface} | [${row.fixture}](https://github.com/kumanday/engineering-behavior-observatory/blob/develop/test/fixtures/atif/harnesses/${row.fixture}): ${calls} ${calls === 1 ? "call" : "calls"}, ${results} linked ${results === 1 ? "result" : "results"}; messages readable. ${row.fixtureKind} | ${row.overlay} | ${row.equivalence} |`).join("\n")}
 
 All imported measurements describe recorded documents. They do not establish complete attempts, successful execution, native request coverage or equivalent harness behavior. Optional overlays interpret verified producer extensions and record their reasons; core counts and retained source content remain available outside an overlay’s verified version range.
 
