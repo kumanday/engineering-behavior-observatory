@@ -153,7 +153,7 @@ test("additional producer admission reopens offline with v1 retention and v2 typ
         assert.equal(await main(["atif", "import", file, cliBundle, "--run", "r", "--attempt", "a", "--profile", profile.id, "--python", process.env.EBO_ATIF_TEST_PYTHON!], (value) => { output += value; }), 0, output);
         assert.equal(await main(["v2", "inspect", cliBundle, join(root, "cli-view")], (value) => { output += value; }), 0, output);
       }
-      assert.equal(imported.manifest.qualification, "imported"); assert.equal(imported.manifest.profile.status, "unsupported");
+      assert.equal(imported.manifest.qualification, "imported"); assert.equal(imported.manifest.schemaVersion, "ebo.import-manifest/v2");
       const old = await readImportedBehaviorEvidence(bundle); assert.equal(old.dataset.events.length, 0);
       const v2 = await readImportedBehaviorEvidenceV2(bundle); assert.equal(v2.dataset.sources[0]!.executedHarness.id, profile.family);
       assert.ok(v2.modelAliases?.includes("synthetic-model")); assert.equal(v2.capture.qualification, "imported");

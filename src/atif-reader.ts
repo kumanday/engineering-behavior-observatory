@@ -3,8 +3,9 @@ import { lstatSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { assertNoDuplicateJsonKeys, digestBytes, digestMetadata } from "./artifacts.js";
 import { readBoundedFile } from "./scheduler.js";
+import { validateAtifStructure } from "./atif-validation.js";
 
-export const ATIF_READER_VERSION = "1.0.0";
+export const ATIF_READER_VERSION = "2.0.0";
 export const ATIF_HARBOR_VERSION = "0.24.0";
 export const ATIF_LIMITS = Object.freeze({ documentBytes: 64 * 1024 * 1024, stepBytes: 4 * 1024 * 1024,
   attachmentBytes: 16 * 1024 * 1024, attachmentTotalBytes: 64 * 1024 * 1024, depth: 64,
@@ -19,6 +20,12 @@ export const ATIF_VERSION_FEATURES = Object.freeze({
   "ATIF-v1.8": { completionTokenIds: true, promptTokenIds: true, toolDefinitions: true, toolCallExtra: true, multimodal: true, copiedContext: true, declaredInference: true, embeddedTrajectories: true, audio: true },
 });
 export type AtifVersion = keyof typeof ATIF_VERSION_FEATURES;
+export function atifFeaturesForVersion(version: unknown): typeof ATIF_VERSION_FEATURES[AtifVersion] | undefined {
+  if (typeof version !== "string") return undefined;
+  if (Object.hasOwn(ATIF_VERSION_FEATURES, version)) return ATIF_VERSION_FEATURES[version as AtifVersion];
+  const minor = /^ATIF-v1\.(\d+)$/u.exec(version);
+  return minor ? ATIF_VERSION_FEATURES[Number(minor[1]) > 8 ? "ATIF-v1.8" : "ATIF-v1.2"] : undefined;
+}
 export type AtifObject = Record<string, unknown>;
 export type AtifDigest = `sha256:${string}`;
 export type AtifDiagnostic = { code: string; pointer: string };
@@ -26,7 +33,7 @@ export type AtifPointerRecord = { pointer: string; digest: AtifDigest; sourceDig
   kind: "trajectory" | "step" | "call" | "result"; copied: boolean; gap: boolean };
 export type AtifReference = { pointer: string; target: string; kind: "media" | "continuation" | "subagent-file" | "embedded" | "session-only"; status: "retained" | "unavailable";
   reason?: string; digest?: AtifDigest; bytes?: number };
-export type AtifStructuralResult = { status: "valid" | "invalid" | "unavailable"; validator: "harbor";
+export type AtifStructuralResult = { status: "valid" | "invalid" | "unavailable"; validator: "ebo" | "harbor";
   version: string; modelDigest?: AtifDigest; validationPolicyDigest?: AtifDigest; nativeModelStatus?: "valid" | "invalid";
   compatibilityDiagnostics?: AtifDiagnostic[]; compatibilityDiagnosticCount?: number; compatibilityDiagnosticsTruncated?: boolean;
   diagnostics: AtifDiagnostic[] };
@@ -34,7 +41,7 @@ export type AtifInspection = {
   schemaVersion: "ebo.atif-inspection/v1"; readerVersion: string;
   source: { bytes?: number; digest?: AtifDigest }; sourceVersion?: string;
   versionPolicy: { status: "supported" | "unsupported" | "inconsistent" | "unavailable"; diagnostics: AtifDiagnostic[] };
-  structural: AtifStructuralResult; records: AtifPointerRecord[]; references: AtifReference[];
+  structural: AtifStructuralResult; harborCrossCheck?: AtifStructuralResult; records: AtifPointerRecord[]; references: AtifReference[];
   fieldCoverage: Record<string, number>; limitations: string[];
 };
 export type AtifReadResult = { inspection: AtifInspection; document?: AtifObject };
@@ -74,8 +81,17 @@ export function inspectAtifBytes(bytes: Uint8Array): AtifReadResult {
   const violation = (code: string, pointer: string) => policyDiagnostics.push({ code, pointer });
   const visit = (trajectory: AtifObject, pointer: string, inheritedCopied: boolean, inheritedGap: boolean) => {
     const version = typeof trajectory.schema_version === "string" ? trajectory.schema_version : "";
-    const features = Object.hasOwn(ATIF_VERSION_FEATURES, version) ? ATIF_VERSION_FEATURES[version as AtifVersion] : undefined;
-    if (features === undefined) { unsupported = true; violation("UNSUPPORTED_ATIF_VERSION", `${pointer}/schema_version`); }
+    const minor = /^ATIF-v1\.(\d+)$/u.exec(version);
+    const verified = Object.hasOwn(ATIF_VERSION_FEATURES, version);
+    const features = atifFeaturesForVersion(version);
+    if (!verified && minor) inspection.limitations.push("ATIF_MINOR_VERSION_UNVERIFIED");
+    if (features === undefined) {
+      if (pointer === "#") unsupported = true;
+      violation("ATIF_MAJOR_VERSION_UNSUPPORTED", `${pointer}/schema_version`);
+      // A child with an unsupported major remains retained without interpreting it as v1.
+      record(trajectory, pointer, "trajectory", inheritedCopied, inheritedGap);
+      return;
+    }
     if (features !== undefined && !features.embeddedTrajectories) {
       for (const key of ["trajectory_id", "subagent_trajectories"]) if (key in trajectory) violation(`VERSION_FIELD:${key}`, `${pointer}/${key}`);
       if (typeof trajectory.session_id !== "string") violation("VERSION_REQUIRES_SESSION_ID", `${pointer}/session_id`);
@@ -87,7 +103,7 @@ export function inspectAtifBytes(bytes: Uint8Array): AtifReadResult {
       const stepPointer = `${pointer}/steps/${index}`;
       if (Buffer.byteLength(JSON.stringify(value)) > ATIF_LIMITS.stepBytes) throw new AtifLimitError("STEP_BYTE_LIMIT");
       const copied = inheritedCopied || value.is_copied_context === true;
-      const gap = inheritedGap || object(value.extra).added_by === "hlb";
+      const gap = inheritedGap;
       if (features !== undefined) {
         if (!features.copiedContext && "is_copied_context" in value) violation("VERSION_FIELD:is_copied_context", `${stepPointer}/is_copied_context`);
         if (!features.declaredInference && "llm_call_count" in value) violation("VERSION_FIELD:llm_call_count", `${stepPointer}/llm_call_count`);
@@ -123,12 +139,17 @@ export function inspectAtifBytes(bytes: Uint8Array): AtifReadResult {
   // Reference walking is recursive over a trajectory, so visit children only once for the reference inventory.
   inspection.references = [...new Map(inspection.references.map((reference) => [reference.pointer, reference])).values()];
   if (inspection.references.some(({ status }) => status === "unavailable")) inspection.limitations.push("EXTERNAL_REFERENCE_UNAVAILABLE");
-  inspection.versionPolicy = { status: unsupported ? "unsupported" : policyDiagnostics.length ? "inconsistent" : "supported",
+  inspection.limitations = [...new Set(inspection.limitations)];
+  inspection.versionPolicy = { status: unsupported ? "unsupported" : policyDiagnostics.some(({ code }) => code !== "ATIF_MAJOR_VERSION_UNSUPPORTED") ? "inconsistent" : "supported",
     diagnostics: [...new Map(policyDiagnostics.map((diagnostic) => [`${diagnostic.code}\0${diagnostic.pointer}`, diagnostic])).values()] };
+  if (inspection.versionPolicy.status === "inconsistent") inspection.limitations.push("ATIF_VERSION_FIELD_UNVERIFIED");
+  const diagnostics = validateAtifStructure(document);
+  inspection.structural = { status: diagnostics.length ? "invalid" : "valid", validator: "ebo", version: ATIF_READER_VERSION,
+    modelDigest: hashValue(validateAtifStructure.toString()), validationPolicyDigest: hashValue(ATIF_VERSION_FEATURES), diagnostics };
   return { inspection, document };
 }
 
-/** Reads a bounded local file and validates it using the pinned independent Harbor model. No fetches occur. */
+/** EBO validation owns admission. A caller may additionally request an installed Harbor cross-check. */
 export async function readAtifFile(path: string, options: AtifReadOptions = {}): Promise<AtifReadResult> {
   let bytes: Buffer;
   try { bytes = readBoundedFile(path, "ATIF document", undefined, ATIF_LIMITS.documentBytes); }
@@ -141,7 +162,7 @@ export async function readAtifFile(path: string, options: AtifReadOptions = {}):
   }
   const result = inspectAtifBytes(bytes);
   if (result.document === undefined) return result;
-  result.inspection.structural = await validateWithHarbor(bytes, options.pythonExecutable ?? "python3");
+  if (options.pythonExecutable !== undefined) result.inspection.harborCrossCheck = await validateWithHarbor(bytes, options.pythonExecutable);
   let totalBytes = 0;
   const admitted = new Set(options.retainedFiles ?? []);
   const retainedTargets = new Map<string, Pick<AtifReference, "status" | "reason" | "digest" | "bytes">>();
@@ -200,7 +221,7 @@ const hashBytes = (bytes: Uint8Array): AtifDigest => `sha256:${digestBytes(bytes
 const hashValue = (value: unknown): AtifDigest => `sha256:${digestMetadata(value).value}`;
 class AtifLimitError extends Error { constructor(public readonly code: string) { super(code); } }
 function unavailableValidator(code: string): AtifStructuralResult {
-  return { status: "unavailable", validator: "harbor", version: ATIF_HARBOR_VERSION, diagnostics: [{ code, pointer: "#" }] };
+  return { status: "unavailable", validator: "harbor", version: "unknown", diagnostics: [{ code, pointer: "#" }] };
 }
 function rejected(inspection: AtifInspection, code: string): AtifReadResult {
   inspection.versionPolicy = { status: "unavailable", diagnostics: [{ code, pointer: "#" }] };
@@ -292,8 +313,7 @@ function resolveRelativeRegularFile(root: string, path: string): string {
 // Static validation code only. Input bytes are data on stdin, never Python source or paths to import.
 const HARBOR_VALIDATOR = `import sys,json,hashlib,pathlib
 from importlib.metadata import version
-if version('harbor') != '${ATIF_HARBOR_VERSION}':
- print(json.dumps({'status':'unavailable','code':'HARBOR_VERSION_MISMATCH'}));sys.exit(0)
+harbor_version=version('harbor')
 import harbor.models.trajectories as package
 from harbor.models.trajectories import Trajectory
 root=pathlib.Path(package.__file__).parent
@@ -322,7 +342,7 @@ def legacy_view(trajectory,pointer='#'):
       compatibility.append(diagnostic('PRE_V1_7_SESSION_REFERENCE_VALIDATION_VIEW',pointer+'/steps/'+str(si)+'/observation/results/'+str(ri)+'/subagent_trajectory_ref/'+str(fi)))
  for ci,child in enumerate(collection(trajectory.get('subagent_trajectories'))): legacy_view(child,pointer+'/subagent_trajectories/'+str(ci))
 if native_status=='invalid': legacy_view(document)
-base={'modelDigest':model_digest,'nativeModelStatus':native_status,'compatibilityDiagnostics':compatibility[:32],
+base={'version':harbor_version,'modelDigest':model_digest,'nativeModelStatus':native_status,'compatibilityDiagnostics':compatibility[:32],
  'compatibilityDiagnosticCount':len(compatibility),'compatibilityDiagnosticsTruncated':len(compatibility)>32}
 try:
  Trajectory.model_validate(document)
@@ -353,7 +373,7 @@ async function validateWithHarbor(bytes: Uint8Array, python: string): Promise<At
         if (response.status === "unavailable") { finish(unavailableValidator("HARBOR_VERSION_MISMATCH")); return; }
         if (!["valid", "invalid"].includes(String(response.status)) || typeof response.modelDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(response.modelDigest)
           || !Array.isArray(response.diagnostics)) throw new Error("Invalid validator receipt");
-        finish({ status: response.status as "valid" | "invalid", validator: "harbor", version: ATIF_HARBOR_VERSION,
+        finish({ status: response.status as "valid" | "invalid", validator: "harbor", version: typeof response.version === "string" ? response.version : "unknown",
           modelDigest: response.modelDigest as AtifDigest, validationPolicyDigest: hashBytes(Buffer.from(HARBOR_VALIDATOR)),
           nativeModelStatus: response.nativeModelStatus as "valid" | "invalid",
           compatibilityDiagnostics: response.compatibilityDiagnostics as AtifDiagnostic[],

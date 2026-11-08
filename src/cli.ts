@@ -575,7 +575,7 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
   if (args[0] === "import") {
     const [_, sourcePath, destination, ...flags] = args;
     const values = new Map<string, string>();
-    if (!sourcePath || !destination || flags.length % 2) { write("Usage: ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> --profile <registered-id> [--python <executable>]\n"); return 1; }
+    if (!sourcePath || !destination || flags.length % 2) { write("Usage: ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--profile <overlay-context-id>] [--python <executable>]\n"); return 1; }
     for (let index = 0; index < flags.length; index += 2) {
       const flag = flags[index]!, value = flags[index + 1]!;
       if (!["--run", "--attempt", "--profile", "--python"].includes(flag) || values.has(flag) || value.startsWith("--")) {
@@ -584,10 +584,10 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
       values.set(flag, value);
     }
     const profile = listAtifProfilesV2().find(({ id }) => id === values.get("--profile"));
-    if (!profile || !values.has("--run") || !values.has("--attempt")) { write("ATIF import requires --run, --attempt and an explicit registered --profile (see ebo atif profiles).\n"); return 1; }
+    if (!values.has("--run") || !values.has("--attempt")) { write("ATIF import requires --run and --attempt. Producer metadata is read from the document.\n"); return 1; }
     try {
       const result = await importAtifFile({ sourcePath, destination, runId: values.get("--run")!, attemptId: values.get("--attempt")!,
-        producer: profile.producer, pythonExecutable: values.get("--python") });
+        producer: profile?.producer, pythonExecutable: values.get("--python") });
       write(`${JSON.stringify({ destination, reused: result.reused, qualification: result.manifest.qualification, mapping: result.evidence.mapping }, null, 2)}\n`);
       return 0;
     } catch (error) { write(`ATIF import failed: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }

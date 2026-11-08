@@ -1,5 +1,5 @@
 import type { OutcomeEvidenceInput } from "./outcome-evidence.js";
-import { readImportedBehaviorEvidence } from "./atif-import.js";
+import { isAtifImportSchema, readImportedBehaviorEvidence } from "./atif-import.js";
 import { digestMetadata } from "./artifacts.js";
 import { factoryModelSelection } from "./factory-model.js";
 import { FACTORY_HARNESS, RETAINED_FACTORY_ADAPTER_VERSIONS, RETAINED_FACTORY_SDK_VERSIONS, qualifyFactoryCapture, describeAndValidateFactoryDataset } from "./factory-droid.js";
@@ -33,6 +33,7 @@ export type RetainedBehaviorEvidence = {
   capture: RetainedNormalizationInput<unknown>;
   /** Known source model and route aliases, used together for evaluator blinding. */
   modelAliases?: readonly string[];
+  interpretationRevision?: { changed: boolean; admitted: unknown; current: unknown };
   /** Verified bundle metadata for outcome import; never replaces native session records. */
   outcomeCapture: OutcomeEvidenceInput;
   dataset: NormalizedDataset;
@@ -42,7 +43,7 @@ export type RetainedBehaviorEvidence = {
 
 export async function createRetainedBehaviorEvidence(bundleRoot: string): Promise<RetainedBehaviorEvidence> {
   const manifest = JSON.parse(readBoundedFile(join(bundleRoot, "manifest.json"), "Run manifest").toString("utf8")) as RunManifest;
-  if ((manifest as unknown as { schemaVersion: string }).schemaVersion === "ebo.import-manifest/v1") return readImportedBehaviorEvidence(bundleRoot);
+  if (isAtifImportSchema((manifest as unknown as { schemaVersion: string }).schemaVersion)) return readImportedBehaviorEvidence(bundleRoot);
   const harness = manifest.run.harness.id;
   if (harness === CURSOR_SDK_HARNESS) return createCursorSdkBehaviorEvidence(bundleRoot);
   const isAgentSdk = [CLAUDE_AGENT_SDK_HARNESS, "agent-sdk"].includes(harness)

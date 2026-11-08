@@ -1,5 +1,4 @@
-import { readAtifImportAdmission } from "./atif-import.js";
-import { selectAtifProducerProfile } from "./atif-profiles.js";
+import { isAtifImportSchema, readAtifImportAdmission } from "./atif-import.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -278,7 +277,7 @@ function projectManifest(root: string, manifestPath: string): CorpusIndexEntry {
   }
   const schemaVersion = isRecord(document) ? document.schemaVersion : undefined;
   entry.manifestKind = schemaVersion === "run-manifest/v1" ? "run"
-    : schemaVersion === "export-manifest/v1" ? "export" : schemaVersion === "ebo.import-manifest/v1" ? "import" : "unknown";
+    : schemaVersion === "export-manifest/v1" ? "export" : isAtifImportSchema(schemaVersion) ? "import" : "unknown";
   entry.issues.push(...validateArtifact(manifestPath, document).map(({ field, message }) => ({ field, message })));
   if (!isRecord(document)) return entry;
   if (typeof document.bundleId === "string") entry.bundleId = document.bundleId;
@@ -287,15 +286,13 @@ function projectManifest(root: string, manifestPath: string): CorpusIndexEntry {
   if (entry.manifestKind === "import" && entry.issues.length === 0) {
     try {
       const { manifest, read } = readAtifImportAdmission(manifestRoot);
-      const profile = selectAtifProducerProfile(manifest.producer);
       entry.runId = manifest.identity.runId; entry.attemptId = manifest.identity.attemptId;
       const sourceAgent = isRecord(read.document?.agent) ? read.document.agent : undefined;
       if (typeof sourceAgent?.model_name === "string" && sourceAgent.model_name.trim() && sourceAgent.model_name.length <= 1024) entry.modelId = sourceAgent.model_name;
-      entry.harnessId = profile.status === "supported" ? profile.profile.harness : "atif.unregistered";
+      entry.harnessId = typeof sourceAgent?.name === "string" ? sourceAgent.name : "unknown";
       entry.harnessVersion = manifest.producer.agent.version ?? "unavailable";
       entry.captureQualification = "imported"; entry.sharingClass = "restricted";
       entry.evidenceOrigin = "imported"; entry.sourceFormat = manifest.producer.formatVersion;
-      if (profile.status === "supported") entry.producerProfileDigest = profile.profileDigest;
       entry.captureArtifactIds = [manifest.source.artifactId];
     } catch (error) { entry.issues.push({ field: "/source", message: errorMessage(error) }); }
   }
