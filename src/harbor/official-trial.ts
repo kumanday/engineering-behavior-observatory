@@ -13,7 +13,7 @@ import type { RunQueueV2 } from "./queue.js";
 import type { HarborRunSummary, HarborStepExecution } from "./runner.js";
 import { HARBOR_TRIAL_SCRIPT } from "./trial-script.js";
 import { smolCondition } from "./smol.js";
-import { lockedRuntimePython, requireStudyRuntime, runtimeExecutionSummary } from "../runtime-context.js";
+import { currentStudyRuntime, lockedRuntimePython, requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary } from "../runtime-context.js";
 import { readStudyRuntimeLock } from "../study-runtimes.js";
 import { frozenPythonEnvironment } from "../runtime-bootstrap.js";
 
@@ -40,11 +40,17 @@ export function resolveHarborWorkerRuntime(root: string, reference: ArtifactRefe
 }
 
 /** Official Trial + custom-agent extension, not a second EBO step scheduler. */
-export async function runOfficialHarborTrial(input: {
+export type OfficialHarborTrialInput = {
   studyRoot: string; prepared: PreparedHarborExecution; queue: RunQueueV2;
   entry: RunQueueV2["entries"][number]; attemptId: string; adapter: HarborAdapter; signal?: AbortSignal;
   invoke?: typeof invokeTrial;
-}): Promise<HarborRunSummary> {
+};
+export async function runOfficialHarborTrial(input: OfficialHarborTrialInput): Promise<HarborRunSummary> {
+  const current = currentStudyRuntime();
+  const binding = input.studyRoot ? {studyRoot: input.studyRoot, ...(current?.studyRoot === input.studyRoot ? {options: current.options} : {})} : undefined;
+  return runInStudyRuntime("harbor", binding, async () => ({...await runOfficialHarborTrialOwned(input), runtime: runtimeExecutionSummary()}));
+}
+async function runOfficialHarborTrialOwned(input: OfficialHarborTrialInput): Promise<HarborRunSummary> {
   const host = requireStudyRuntime("harbor");
   if (!host.launch.roots.some((root) => root.id === "smol")) throw new Error("RUNTIME_ROLE_NOT_FROZEN: Harbor Smol trials require harbor and smol in the same frozen Python group.");
   const { prepared, entry, queue, attemptId } = input;

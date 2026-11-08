@@ -33,6 +33,7 @@ export type HarborStepExecutorInput = {
 export type HarborHarnessStepExecutor = (input: HarborStepExecutorInput) => Promise<HarborStepExecution>;
 
 export type HarborRunSummary = {
+  runtime?: import("../runtime-context.js").RuntimeExecutionSummary;
   runId: string;
   attemptId: string;
   bundlePath: string;

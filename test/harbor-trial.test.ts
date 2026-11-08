@@ -108,3 +108,12 @@ test("Harbor wrapper preserves native terminal and classification through its er
     assert.equal((await stat(join(input.attempt, "steps/1/bundle/manifest.json"))).mode & 0o777, 0o600);
   });
 });
+
+test("each public Harbor trial refreshes OSV even inside an existing checked context", async () => {
+  const input = await trialFixture(); input.entry.configuration.model = {...input.entry.configuration.model, locator: "missing.json"};
+  const adapter = {describePrerequisites: async () => {throw new Error("must not launch");}} as unknown as HarborAdapter;
+  await withStudyRuntime({studyRoot: input.root, role: "harbor", options: input.options}, async () => {
+    input.options.query = async () => ({vulns: [{id: "MAL-2026-new-harbor-fixture"}]});
+    await assert.rejects(runOfficialHarborTrial({...input, adapter}), /RUNTIME_MALICIOUS/);
+  });
+});
