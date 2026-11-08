@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {mkdtemp, readFile, readdir, rm} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {freezeStudyRuntimes} from "../src/study-runtimes.js";
@@ -48,5 +48,40 @@ test("OpenHands uses the verified loopback endpoint and retries an unready owned
     assert.equal(capture.serverInfo.version, "1.54.0");
     assert.equal(identityReads, 2); assert.equal(stopped, true);
     assert.equal(image, lock.groups[0]!.roots[0]!.selection.release.locator);
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
+
+test("OpenHands failure shutdown preserves workspace evidence after the owned container has stopped", async () => {
+  const {captureOpenHandsAgentServerRun} = await import("../src/openhands-run.js");
+  const root = await mkdtemp(join(tmpdir(), "ebo-openhands-failure-")), options = fakeOciRuntimeOptions(), original = options.run!;
+  let running = false, cleanupRan = false;
+  options.run = async (command, args, cwd) => {
+    if (args[0] === "run") running = true;
+    if (args[0] === "rm") running = false;
+    return original(command, args, cwd);
+  };
+  try {
+    await freezeStudyRuntimes(root, {studyId: "image-failure", roles: ["openhands-agent-server"]}, options);
+    const start = join(root, "start"), workspace = join(root, "workspace");
+    await mkdir(start); await mkdir(workspace); await writeFile(join(start, "f"), "before"); await writeFile(join(workspace, "f"), "after");
+    const definition = JSON.parse(await readFile("test/fixtures/run-bundles/complete/manifest.json", "utf8"));
+    definition.bundleRoot = join(root, "bundle"); definition.run.harness.id = "openhands-agent-server";
+    definition.run.assessmentMode = "observational"; definition.run.runtime = []; delete definition.run.verifier; delete definition.run.native;
+    const result = await captureOpenHandsAgentServerRun({runtime: {studyRoot: root, options}, definition, startingWorkspacePath: start,
+      workspace: {setup: async () => ({status: "ready", path: workspace, artifactId: "workspace", retained: true}), cleanup: async () => {cleanupRan = true;}},
+      configuration: {model: definition.run.model.id, baseUrl: "http://unused.example", startConversation: {agent: {llm: {model: definition.run.model.id}}}, message: {},
+        webSocket: () => {throw new Error("inert WebSocket startup failure");}, fetch: async (input, init) => {
+          assert.equal(running, true, "No requests may target an already removed server");
+          const url = String(input);
+          if (url.endsWith("/server_info")) return Response.json({version: "1.54.0"});
+          if (url.endsWith("/api/conversations")) return Response.json({id: "conversation"});
+          if (url.includes("/events/search")) return Response.json({items: [], next_page_id: null});
+          if (init?.method === "DELETE") return Response.json({success: true});
+          throw new Error("Unexpected inert HTTP route");
+        }}});
+    assert.equal(result.attempt.record.harnessTerminationConfirmed, true);
+    assert.equal(cleanupRan, true);
+    assert.ok(result.manifest.evidence.some((entry) => entry.kind === "workspace"));
   } finally {await rm(root, {recursive: true, force: true});}
 });

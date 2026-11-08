@@ -1649,7 +1649,7 @@ test("retains progressively written native evidence when lifecycle cancellation 
     assert.equal(result.attempt.terminal.state, "interrupted");
     assert.match(result.capture!.captureError ?? "", /aborted/);
     assert.equal(session?.id, "session");
-    assert.equal(cleanupRequests, 2);
+    assert.equal(cleanupRequests, 1);
     assert.equal(readFileSync(join(bundleRoot, session!.relativePath), "utf8").includes("conversation-created"), true);
   } finally {
     rmSync(root, { recursive: true, force: true });

@@ -274,7 +274,7 @@ export async function captureOpenHandsAgentServerRunOwned(options: CaptureOpenHa
       return withLockedOpenHandsServer({...configuration, workspacePath, ...(serverWorkspacePath ? {serverWorkspacePath} : {})}, async (server) => {
       configuration.baseUrl = server.baseUrl;
       registerShutdown(async () => {
-        try {if (progressiveSessionId !== undefined) await cleanupOpenHandsConversation(configuration, progressiveSessionId, options.shutdownGraceMs ?? 250);}
+        try {if (!server.isStopped() && progressiveSessionId !== undefined) await cleanupOpenHandsConversation(configuration, progressiveSessionId, options.shutdownGraceMs ?? 250);}
         finally {await server.stop();}
       });
       try {

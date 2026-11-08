@@ -7,7 +7,7 @@ import { runRuntimeCommand } from "./runtime-installation.js";
 import { RuntimePolicyError } from "./runtime-resolution.js";
 import { readStudyRuntimeLock } from "./study-runtimes.js";
 
-type Server = {baseUrl: string; stop: () => Promise<void>};
+type Server = {baseUrl: string; stop: () => Promise<void>; isStopped: () => boolean};
 const servers = new AsyncLocalStorage<Server>();
 
 /** Bind the protocol endpoint to a container launched from the study's immutable image. */
@@ -41,8 +41,8 @@ export async function withLockedOpenHandsServer<T>(request: {sessionApiKey?: str
     containerId = (await command(args)).trim();
   } finally {await rm(temporary, {recursive: true, force: true});}
   if (!/^[a-f0-9]{12,64}$/u.test(containerId)) throw new RuntimePolicyError("RUNTIME_PROBE_INVALID", "Docker did not return a container ID.");
-  let stopped = false;
-  const stop = async (): Promise<void> => { if (!stopped) {stopped = true; await command(["rm", "--force", containerId]);} };
+  let stopped = false, stopPromise: Promise<void> | undefined;
+  const stop = (): Promise<void> => stopPromise ??= command(["rm", "--force", containerId]).then(() => {stopped = true;});
   try {
     let actual: any; try {actual = JSON.parse(await command(["container", "inspect", containerId]))[0];} catch (error) {if (error instanceof RuntimePolicyError) throw error; throw new RuntimePolicyError("RUNTIME_PROBE_INVALID", "Docker container inspect returned malformed JSON.");}
     const binding = {componentId: "openhands", kind: "docker-container", containerId, expectedImage: plan.image, expectedConfigDigest: plan.configDigest,
@@ -51,7 +51,7 @@ export async function withLockedOpenHandsServer<T>(request: {sessionApiKey?: str
     if (actual?.Image !== plan.configDigest || actual?.Config?.Image !== plan.image) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", "The actual OpenHands container differs from the study's frozen image.");
     const ports = actual.NetworkSettings?.Ports?.["8000/tcp"];
     if (actual.State?.Running !== true || !Array.isArray(ports) || ports.length !== 1 || ports[0]?.HostIp !== "127.0.0.1" || !/^\d+$/u.test(ports[0]?.HostPort ?? "")) throw new RuntimePolicyError("RUNTIME_CONTAINER_BINDING_INVALID", "OpenHands requires a running container with one loopback server port.");
-    const server = {baseUrl: `http://127.0.0.1:${ports[0].HostPort}`, stop};
+    const server = {baseUrl: `http://127.0.0.1:${ports[0].HostPort}`, stop, isStopped: () => stopped};
     await recordRuntimeExecution({...binding, baseUrl: server.baseUrl});
     return await servers.run(server, async () => callback(server));
   } finally {await stop();}
