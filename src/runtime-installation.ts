@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import lockfile from "proper-lockfile";
 import { canonicalizeMetadata, digestMetadata } from "./artifacts.js";
 import { RuntimePolicyError } from "./runtime-resolution.js";
+import { assertPythonIdentity, probePythonBootstrap } from "./runtime-bootstrap.js";
 
 export type RuntimeCommandResult = { stdout: string; stderr: string; code: number | null };
 export type RuntimeCommandRunner = (command: string, args: readonly string[], cwd: string) => Promise<RuntimeCommandResult>;
@@ -68,6 +69,7 @@ export async function verifyInstalledRuntime(root: string, plan: RuntimeInstallP
     let actual: any; try {actual = JSON.parse(result.stdout);} catch {throw new RuntimePolicyError("RUNTIME_PROBE_INVALID", "Docker image inspect returned malformed JSON.");}
     if (actual[0]?.Id !== plan.configDigest) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", "Docker's actual image config differs from the frozen manifest.");
   }
+  if (plan.kind === "python") assertPythonIdentity(await probePythonBootstrap(join(root, "venv", "bin", "python"), options.run ?? runRuntimeCommand, root), plan.bootstrap, true);
   return receipt;
 }
 export async function installRuntime(plan: RuntimeInstallPlan, options: { cacheRoot: string; run?: RuntimeCommandRunner; fetch?: RuntimeFetch }): Promise<InstalledRuntime> {

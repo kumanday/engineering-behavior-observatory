@@ -72,7 +72,7 @@ export async function freezeStudyRuntimes(studyRoot: string, request: StudyRunti
       let plan: RuntimeInstallPlan, components: LockedRuntimeDependency[];
       const platform = `${composition.target.platform}-${composition.target.architecture}`;
       if (roots.every((root) => root.source === "npm")) ({ plan, components } = await resolveNpmRuntimePlan(roots, { ...options, platform, abi: `node-${process.versions.node}-modules-${process.versions.modules}` }));
-      else if (roots.every((root) => root.source === "pypi")) ({ plan, components } = await resolvePythonRuntimePlan(roots, { ...options, python: options.python ?? "python3", platform, abi: options.pythonAbi ?? "python-bootstrap" }));
+      else if (roots.every((root) => root.source === "pypi")) ({ plan, components } = await resolvePythonRuntimePlan(roots, { ...options, python: options.python ?? process.env.EBO_RUNTIME_PYTHON ?? "python3", platform, ...(options.pythonAbi ? {abi: options.pythonAbi} : {}) }));
       else {
         if (roots.length !== 1) throw new RuntimePolicyError("RUNTIME_RECIPE_INVALID", "Artifact runtimes require one root.");
         const root = roots[0]!, release = root.selection.release;

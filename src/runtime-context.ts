@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { canonicalizeMetadata } from "./artifacts.js";
 import { RuntimePolicyError } from "./runtime-resolution.js";
 import { prepareRuntimeLaunch, type RuntimeLaunch, type StudyRuntimeOptions } from "./study-runtimes.js";
+import { runRuntimeCommand } from "./runtime-installation.js";
 
 export type RuntimeProbe = { componentId: string; package: string; expectedVersion: string; actualVersion: string; source: "package-metadata" | "executable" | "server-info" };
 export type StudyRuntimeContext = { studyRoot: string; launch: RuntimeLaunch; modules: Map<string, Record<string, any>>;
@@ -49,6 +50,18 @@ export async function withStudyRuntime<T>(binding: { studyRoot: string; role: st
   const context: StudyRuntimeContext = { studyRoot: binding.studyRoot, launch, modules: new Map(), packages: new Map(), options: binding.options ?? {}, probes: [] };
   try {
     if (launch.roots.some((root) => root.source === "npm") && launch.platform !== `${process.platform}-${process.arch}`) throw new RuntimePolicyError("RUNTIME_PLATFORM_MISMATCH", `This ${process.platform}-${process.arch} process cannot load the frozen ${launch.platform} runtime; execute it in its target environment.`);
+    const pythonRoots = launch.roots.filter((component) => component.source === "pypi");
+    if (pythonRoots.length) {
+      const result = await (context.options.run ?? runRuntimeCommand)(join(launch.runtimeRoot, "venv", "bin", "python"), ["-I", "-B", "-c", "import importlib.metadata,json,sys; print(json.dumps({name:importlib.metadata.version(name) for name in sys.argv[2:]}))", "ebo-package-versions", ...pythonRoots.map((root) => root.name)], launch.runtimeRoot);
+      if (result.code !== 0) throw new RuntimePolicyError("RUNTIME_PROBE_INVALID", `Python package probe failed: ${result.stderr.slice(0, 2000)}`);
+      let versions: Record<string, unknown>; try { versions = JSON.parse(result.stdout); } catch { throw new RuntimePolicyError("RUNTIME_PROBE_INVALID", "Python package probe returned malformed JSON."); }
+      for (const component of pythonRoots) {
+        const actualVersion = versions[component.name];
+        if (typeof actualVersion !== "string" || !actualVersion) throw new RuntimePolicyError("RUNTIME_PROBE_INVALID", `No installed version for ${component.name}.`);
+        context.probes.push({componentId: component.id, package: component.name, expectedVersion: component.selection.release.version, actualVersion, source: "package-metadata"});
+        assertRuntimeProbe(component.id, component.selection.release.version, actualVersion);
+      }
+    }
     for (const component of launch.roots.filter((component) => component.source === "npm")) {
       const root = join(launch.runtimeRoot, "node_modules", component.name), metadata = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
       assertRuntimeProbe(component.id, component.selection.release.version, metadata.version);

@@ -4,13 +4,14 @@ import { basename, join } from "node:path";
 import { RuntimePolicyError } from "./runtime-resolution.js";
 import type { RuntimeFetch } from "./runtime-registry.js";
 import type { RuntimeCommandRunner, RuntimeInstallReceipt } from "./runtime-installation.js";
+import { assertPythonIdentity, probePythonBootstrap, type PythonBootstrap } from "./runtime-bootstrap.js";
 
 export type RuntimeArtifact = { locator: string; integrity: string; filename: string;
   attestation?: { provenanceUrl: string; repository: string } };
 type Base = { platform: string; abi: string };
 export type ArtifactInstallPlan = Base & (
   { kind: "binary"; recipe: "ebo-binary/v1"; artifact: RuntimeArtifact; archive: "tar.gz" | "raw" } |
-  { kind: "python"; recipe: "ebo-python/v1"; artifacts: RuntimeArtifact[]; python: string; requirements: string[] } |
+  { kind: "python"; recipe: "ebo-python/v1"; artifacts: RuntimeArtifact[]; python: string; bootstrap: PythonBootstrap; requirements: string[] } |
   { kind: "oci"; recipe: "ebo-oci/v1"; image: string; configDigest: string; layerDigests: string[] });
 
 export async function downloadRuntimeArtifact(artifact: RuntimeArtifact, destination: string, fetcher: RuntimeFetch = fetch): Promise<void> {
@@ -62,6 +63,7 @@ export async function installArtifactRuntime(plan: ArtifactInstallPlan, staging:
     } else await chmod(archive, 0o700);
     return [{ kind: "vendor-checksum", result: { integrity: plan.artifact.integrity } }];
   }
+  assertPythonIdentity(await probePythonBootstrap(plan.python, run, staging), plan.bootstrap);
   const wheels = join(staging, "wheels"); await mkdir(wheels);
   for (const artifact of plan.artifacts) {
     if (!artifact.filename.endsWith(".whl")) throw new RuntimePolicyError("RUNTIME_PYTHON_SOURCE_BUILD_DISABLED", "Frozen Python runtimes install wheels only; source build scripts are disabled.");

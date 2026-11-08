@@ -6,9 +6,10 @@ import { runRuntimeCommand, type RuntimeCommandRunner } from "./runtime-installa
 import { fetchRuntimeReleases, runtimeJson, type RuntimeRegistryOptions } from "./runtime-registry.js";
 import { RuntimePolicyError, selectRuntimeRelease } from "./runtime-resolution.js";
 import type { SelectedRuntimeComponent, LockedRuntimeDependency } from "./runtime-npm.js";
+import { assertPythonTarget, probePythonBootstrap } from "./runtime-bootstrap.js";
 
 export async function resolvePythonRuntimePlan(roots: readonly SelectedRuntimeComponent[], options: RuntimeRegistryOptions & {
-  python: string; uv?: string; platform: string; abi: string; run?: RuntimeCommandRunner;
+  python: string; uv?: string; platform: string; abi?: string; run?: RuntimeCommandRunner;
 }): Promise<{ plan: Extract<ArtifactInstallPlan, { kind: "python" }>; components: LockedRuntimeDependency[] }> {
   if (!roots.length || roots.some((root) => root.source !== "pypi")) throw new RuntimePolicyError("RUNTIME_RECIPE_INVALID", "Python resolution requires PyPI roots.");
   const staging = await mkdtemp(join(tmpdir(), "ebo-python-resolve-")), run = options.run ?? runRuntimeCommand;
@@ -17,12 +18,14 @@ export async function resolvePythonRuntimePlan(roots: readonly SelectedRuntimeCo
     if (result.code !== 0) throw new RuntimePolicyError("RUNTIME_PYTHON_RESOLUTION_FAILED", `${executable}: ${result.stderr.slice(0, 2000)}`);
   };
   try {
+    const bootstrap = await probePythonBootstrap(options.python, run, staging);
+    assertPythonTarget(bootstrap, options.platform, options.abi);
     const input = join(staging, "requirements.in"), frozen = join(staging, "requirements.txt"), report = join(staging, "report.json");
     await writeFile(input, roots.map((root) => `${root.name}==${root.selection.release.version}`).join("\n") + "\n", { mode: 0o600 });
     const cutoff = roots.map((root) => root.selection.cutoff).sort()[0]!;
-    await checked(options.uv ?? join(homedir(), ".local", "bin", "uv"), ["pip", "compile", input, "--output-file", frozen, "--python", options.python, "--no-python-downloads", "--no-config", "--no-cache", "--index-url", "https://pypi.org/simple", "--only-binary", ":all:", "--generate-hashes", "--exclude-newer", cutoff,
+    await checked(options.uv ?? join(homedir(), ".local", "bin", "uv"), ["pip", "compile", input, "--output-file", frozen, "--python", bootstrap.executable, "--no-python-downloads", "--no-config", "--no-cache", "--index-url", "https://pypi.org/simple", "--only-binary", ":all:", "--generate-hashes", "--exclude-newer", cutoff,
       ...roots.flatMap((root) => ["--exclude-newer-package", `${root.name}=${root.selection.cutoff}`]), "--prerelease", roots.some((root) => root.selection.policy.allowPrerelease) ? "allow" : "disallow"]);
-    await checked(options.python, ["-I", "-m", "pip", "install", "--dry-run", "--ignore-installed", "--only-binary=:all:", "--require-hashes", "--index-url=https://pypi.org/simple", "--report", report, "-r", frozen]);
+    await checked(bootstrap.executable, ["-I", "-m", "pip", "install", "--dry-run", "--ignore-installed", "--only-binary=:all:", "--require-hashes", "--index-url=https://pypi.org/simple", "--report", report, "-r", frozen]);
     const data = JSON.parse(await readFile(report, "utf8"));
     if (!Array.isArray(data.install) || !data.install.length) throw new RuntimePolicyError("RUNTIME_DEPENDENCY_LOCK_INVALID", "Python resolver returned no install graph.");
     const components: LockedRuntimeDependency[] = [], artifacts: RuntimeArtifact[] = [], requirements: string[] = [];
@@ -55,6 +58,6 @@ export async function resolvePythonRuntimePlan(roots: readonly SelectedRuntimeCo
       components.push({ id: `${roots.map((root) => root.id).join("+")}:${name}`, name, version, ecosystem: "PyPI", source: "pypi", location: file.filename, selection });
     }
     for (const root of roots) if (!components.some((component) => component.name === root.name.toLowerCase().replace(/[-_.]+/gu, "-") && component.version === root.selection.release.version)) throw new RuntimePolicyError("RUNTIME_ROOT_MISSING", root.name);
-    return { plan: { kind: "python", recipe: "ebo-python/v1", platform: options.platform, abi: options.abi, python: options.python, artifacts, requirements }, components };
+    return { plan: { kind: "python", recipe: "ebo-python/v1", platform: options.platform, abi: bootstrap.abi, python: bootstrap.executable, bootstrap, artifacts, requirements }, components };
   } finally { await rm(staging, { recursive: true, force: true }); }
 }

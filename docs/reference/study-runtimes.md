@@ -52,6 +52,13 @@ resolution and installation receive explicit OS, CPU and Linux libc settings.
 The inspection output shows each graph's platform and ABI. Loading a graph on
 a different host reports a target mismatch before an SDK can execute.
 
+Python runtimes resolve on their execution host. Set `EBO_RUNTIME_PYTHON` to an
+absolute interpreter path when `python3` does not meet the selected packages'
+requirements. The freeze records the probed Python version, ABI, platform and
+binary digest. Installation verifies that interpreter; each launch verifies the
+installed virtual environment and probes its installed package versions. A host
+interpreter cannot prepare a Python runtime labelled for a different platform.
+
 ## Selection policy
 
 The default minimum release age is 24 hours. `policy.minReleaseAgeMs` changes it
