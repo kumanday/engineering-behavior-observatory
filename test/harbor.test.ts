@@ -1,3 +1,6 @@
+import {freezeStudyRuntimes} from "../src/study-runtimes.js";
+import {withStudyRuntime} from "../src/runtime-context.js";
+import {fakePythonRuntimeOptions} from "./runtime-python-fixture.js";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -484,7 +487,11 @@ test("the trial runner refuses the host-only preparation profile", async () => {
  const queue = await compileHarborRunQueue(experimentFor(root, taskSourceId, { environmentProfile: "local-fs-test", contextPolicy: "fresh" }) as never, { studyRoot: root, adapter });
  const queuePath = join(root, "queue.json");
  writeFileSync(queuePath, JSON.stringify(queue));
- await assert.rejects(runHarborBackedQueueEntry({ studyRoot: root, queuePath, runId: queue.entries[0]!.runId, outputRoot: join(root,"out"), adapter }), /requires an explicitly compiled smol/);
+ const options = fakePythonRuntimeOptions();
+ await freezeStudyRuntimes(root, {studyId: "harbor-preparation-boundary", roles: ["harbor", "smol"]}, options);
+ await withStudyRuntime({studyRoot: root, role: "harbor", options}, async () => {
+  await assert.rejects(runHarborBackedQueueEntry({ studyRoot: root, queuePath, runId: queue.entries[0]!.runId, outputRoot: join(root,"out"), adapter }), /requires an explicitly compiled smol/);
+ });
 });
 
 /* ------------------------------------ step bundle definition ------------------------------------ */

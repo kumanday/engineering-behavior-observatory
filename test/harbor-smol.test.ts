@@ -248,7 +248,7 @@ async def check():
     except ValueError as exc: assert 'never broadened' in str(exc)
     else: raise AssertionError('Unsupported policy must fail')
 asyncio.run(check())
-print(f'Harbor {e.HARBOR_VERSION} model/Smol {e.SMOL_VERSION} boundary: passed')
+print('Harbor ' + e.importlib.metadata.version('harbor') + ' model/Smol ' + e.importlib.metadata.version('smolmachines') + ' boundary: passed')
 `], { cwd: root, encoding: "utf8", timeout: 30_000 });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /boundary: passed/);
