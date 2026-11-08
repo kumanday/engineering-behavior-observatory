@@ -262,6 +262,8 @@ export class RunBundleAssembler {
   private runtimeLock?: RunRuntimeBinding;
   private revision = 0;
   private finalized = false;
+  private finalizing = false;
+  private mutationTail: Promise<void> = Promise.resolve();
   private captureMissing: CaptureMissingEvidence[] = [];
 
   public constructor(definition: RunBundleDefinition) {
@@ -318,6 +320,10 @@ export class RunBundleAssembler {
 
   public async registerArtifact(input: RegisterRunBundleArtifact): Promise<RunBundleEvidenceDescriptor> {
     this.assertOpen();
+    return this.enqueueMutation(() => this.registerArtifactOwned(input));
+  }
+
+  private async registerArtifactOwned(input: RegisterRunBundleArtifact): Promise<RunBundleEvidenceDescriptor> {
     if (!isSafeArtifactRelativePath(input.relativePath) || input.relativePath.toLowerCase() === "manifest.json") {
       throw new Error(`Artifact path "${input.relativePath}" is unsafe or reserved.`);
     }
@@ -347,8 +353,10 @@ export class RunBundleAssembler {
     document: unknown,
   ): Promise<RunBundleEvidenceDescriptor> {
     this.assertOpen();
-    await writeMetadataAtomically(this.bundleRoot, input.relativePath, document, undefined, { overwrite: false });
-    return this.registerArtifact(input);
+    return this.enqueueMutation(async () => {
+      await writeMetadataAtomically(this.bundleRoot, input.relativePath, document, undefined, { overwrite: false });
+      return this.registerArtifactOwned(input);
+    });
   }
 
   public async writeAgentSdkTelemetry(input: {
@@ -417,21 +425,24 @@ export class RunBundleAssembler {
       const relativePath = format === "patch"
         ? options.relativePath ?? "workspace.patch"
         : options.snapshotRelativePath ?? "workspace.tar.gz";
-      if (patch !== undefined) {
-        await writeArtifactAtomically(this.bundleRoot, relativePath, patch, undefined, { overwrite: false });
-      } else {
-        await workspaceSnapshot(capturedPath, treeDigest, async (snapshotPath) => {
-          await writeArtifactAtomically(this.bundleRoot, relativePath, createReadStream(snapshotPath), undefined, { overwrite: false });
+      this.assertOpen();
+      const descriptor = await this.enqueueMutation(async () => {
+        if (patch !== undefined) {
+          await writeArtifactAtomically(this.bundleRoot, relativePath, patch, undefined, { overwrite: false });
+        } else {
+          await workspaceSnapshot(capturedPath, treeDigest, async (snapshotPath) => {
+            await writeArtifactAtomically(this.bundleRoot, relativePath, createReadStream(snapshotPath), undefined, { overwrite: false });
+          });
+        }
+        return this.registerArtifactOwned({
+          id: options.id ?? "workspace",
+          source: options.source ?? `workspace-${format}`,
+          kind: "workspace",
+          mediaType: format === "patch" ? "text/x-diff" : "application/gzip",
+          sharingClass: "restricted",
+          relativePath,
+          fingerprint,
         });
-      }
-      const descriptor = await this.registerArtifact({
-        id: options.id ?? "workspace",
-        source: options.source ?? `workspace-${format}`,
-        kind: "workspace",
-        mediaType: format === "patch" ? "text/x-diff" : "application/gzip",
-        sharingClass: "restricted",
-        relativePath,
-        fingerprint,
       });
       const outcome: CapturedWorkspaceOutcome = { descriptor, fingerprint, treeDigest, format };
       await whileProjected?.(capturedPath, outcome);
@@ -457,6 +468,12 @@ export class RunBundleAssembler {
     qualification?: CaptureQualificationOptions;
   }): Promise<RunManifest> {
     this.assertOpen();
+    this.finalizing = true;
+    try {return await this.enqueueMutation(() => this.finalizeOwned(input));}
+    catch (error) {this.finalizing = false; throw error;}
+  }
+
+  private async finalizeOwned(input: Parameters<RunBundleAssembler["finalize"]>[0]): Promise<RunManifest> {
     const terminal = structuredClone(input.terminal);
     const context = currentStudyRuntime();
     if (this.runtimeLock && context && context.launch.lockDigest === this.runtimeLock.lockDigest && context.launch.role === this.runtimeLock.role) {
@@ -485,6 +502,14 @@ export class RunBundleAssembler {
   private assertOpen(): void {
     if (this.manifest === undefined) throw new Error("Run-bundle assembler is not initialized.");
     if (this.finalized) throw new Error("Run bundle is already finalized.");
+    if (this.finalizing) throw new Error("Run bundle is being finalized.");
+  }
+
+  /** Compute candidates and publish their files as one ordered mutation. */
+  private enqueueMutation<T>(action: () => Promise<T>): Promise<T> {
+    const operation = this.mutationTail.then(action);
+    this.mutationTail = operation.then(() => undefined, () => undefined);
+    return operation;
   }
 
   private async checkpoint(

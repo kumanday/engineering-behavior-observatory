@@ -21,10 +21,11 @@ export async function runRuntimeCommandLine(args: readonly string[], write: (tex
       emit(summary(await freezeStudyRuntimes(resolve(args[1]!), request, options))); return 0;
     }
     if (args[0] === "inspect" && args.length === 2) { emit(summary(await readStudyRuntimeLock(resolve(args[1]!)))); return 0; }
-    if (args[0] === "bind-queue" && args.length === 4) {
+    if (args[0] === "bind-queue" && (args.length === 4 || args.length === 6 && args[4] === "--configuration-root" && args[5] && !args[5].startsWith("--"))) {
       const {readRunQueueVersioned} = await import("./harbor/queue.js");
-      const studyRoot = resolve(args[1]!), queue = await readRunQueueVersioned(resolve(args[2]!), {bundleRoot: studyRoot, studyRoot});
-      const bound = await bindStudyRuntimeQueue(studyRoot, queue);
+      const studyRoot = resolve(args[1]!), configurationRoot = args[5] ? resolve(args[5]) : studyRoot;
+      const queue = await readRunQueueVersioned(resolve(args[2]!), {bundleRoot: configurationRoot, studyRoot: configurationRoot});
+      const bound = await bindStudyRuntimeQueue(studyRoot, queue, {configurationRoot});
       const {dirname, basename} = await import("node:path");
       const destination = resolve(args[3]!);
       writeMetadataAtomicallyIfAbsentSync(dirname(destination), basename(destination), bound);
@@ -39,6 +40,6 @@ export async function runRuntimeCommandLine(args: readonly string[], write: (tex
           receiptLocator: context.launch.receiptLocator, warnings: context.launch.warnings });
       }); return 0;
     }
-    write("Usage: ebo runtime list | freeze <study-root> <request.json> | inspect <study-root> | check <study-root> <role> | bind-queue <study-root> <queue.json> <output.json>\n"); return 1;
+    write("Usage: ebo runtime list | freeze <study-root> <request.json> | inspect <study-root> | check <study-root> <role> | bind-queue <study-root> <queue.json> <output.json> [--configuration-root <path>]\n"); return 1;
   } catch (error) { write(`${error instanceof Error ? error.message : String(error)}\n`); return 1; }
 }

@@ -174,6 +174,7 @@ export async function captureDevinCliRunOwned(options: CaptureDevinCliRunOptions
   let verifierResult: VerifierResult | undefined;
   let capture: DevinCliCapture | undefined;
   let nativeEvidenceRegistered = false;
+  let nativeEvidenceRegistration: Promise<void> | undefined;
 
   const captureWorkspace = async (context?: VerifierExecutionContext): Promise<CapturedWorkspaceOutcome> => {
     if (workspaceOutcome !== undefined) return workspaceOutcome;
@@ -203,26 +204,29 @@ export async function captureDevinCliRunOwned(options: CaptureDevinCliRunOptions
 
   const registerNativeEvidence = async (): Promise<void> => {
     if (nativeEvidenceRegistered || capture === undefined) return;
-    if (await nonempty(`${assembler.bundleRoot}/session.jsonl`)) {
-      await assembler.registerArtifact({
-        id: "session",
+    const recordedCapture = capture;
+    return nativeEvidenceRegistration ??= (async () => {
+      if (await nonempty(`${assembler.bundleRoot}/session.jsonl`)) {
+        await assembler.registerArtifact({
+          id: "session",
+          source: DEVIN_HARNESS,
+          kind: "session",
+          mediaType: "application/x-ndjson",
+          sharingClass: "restricted",
+          relativePath: "session.jsonl",
+          ...(recordedCapture.sessionId === undefined ? {} : { nativeReference: { type: "session", id: recordedCapture.sessionId } }),
+        });
+      }
+      await assembler.writeJsonArtifact({
+        id: "telemetry",
         source: DEVIN_HARNESS,
-        kind: "session",
-        mediaType: "application/x-ndjson",
+        kind: "telemetry",
+        mediaType: "application/json",
         sharingClass: "restricted",
-        relativePath: "session.jsonl",
-        ...(capture.sessionId === undefined ? {} : { nativeReference: { type: "session", id: capture.sessionId } }),
-      });
-    }
-    await assembler.writeJsonArtifact({
-      id: "telemetry",
-      source: DEVIN_HARNESS,
-      kind: "telemetry",
-      mediaType: "application/json",
-      sharingClass: "restricted",
-      relativePath: "telemetry/devin.json",
-    }, capture.telemetry);
-    nativeEvidenceRegistered = true;
+        relativePath: "telemetry/devin.json",
+      }, recordedCapture.telemetry);
+      nativeEvidenceRegistered = true;
+    })();
   };
 
   const coordinatedWorkspace: WorkspaceCoordinator = {

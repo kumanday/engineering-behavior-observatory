@@ -50,7 +50,7 @@ export async function resolveNpmRuntimePlan(roots: readonly SelectedRuntimeCompo
       const owner = roots.find((root) => location === `node_modules/${root.name}`);
       if (owner && owner.name !== name) throw new RuntimePolicyError("RUNTIME_ROOT_VERSION_MISMATCH", `npm changed selected package identity ${owner.name}.`);
       const variant = !owner && Array.isArray(entry.os) && entry.os.length > 0 && Array.isArray(entry.cpu) && entry.cpu.length > 0
-        ? roots.find(root => root.name === name && entry.version.startsWith(`${root.selection.release.version}-`)) : undefined;
+        ? roots.find(root => root.name === name && entry.os.some((os: unknown) => typeof os === "string" && entry.cpu.some((cpu: unknown) => typeof cpu === "string" && entry.version === `${root.selection.release.version}-${os}-${cpu}`))) : undefined;
       const policy = owner?.selection ?? roots[0]!.selection;
       const selection = selectRuntimeRelease(metadata.get(name)!, { now: policy.selectedAt, minReleaseAgeMs: owner ? policy.policy.minReleaseAgeMs : Math.max(...roots.map((root) => root.selection.policy.minReleaseAgeMs)),
         allowPrerelease: owner?.selection.policy.allowPrerelease ?? (Boolean(variant) || roots.some((root) => root.selection.policy.allowPrerelease)), override: entry.version });

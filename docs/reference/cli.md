@@ -222,4 +222,8 @@ coverage and compatibility semantics.
 composition. `ebo runtime inspect <study-root>` reads the retained selection.
 `ebo runtime check <study-root> <role>` verifies installation, withdrawal status,
 security results and the selected SDK API without an agent turn.
+`ebo runtime bind-queue <study-root> <queue.json> <output.json>` binds a queue
+to the freeze. Add `--configuration-root <bundle-root>` when its source references
+live elsewhere. Native run commands and operational judge commands accept
+`--runtime-study <study-root>` to select that freeze.
 See [Study runtime locks](study-runtimes.md) for request fields and receipts.

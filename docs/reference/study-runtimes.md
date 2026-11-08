@@ -93,6 +93,12 @@ container using the workspace owner’s UID/GID and a writable temporary home. `
 owned container supplies the execution endpoint. Remove `serverLaunch` executable
 settings when migrating a configuration to a study lock.
 
+The configuration bundle and runtime study can use separate directories. Pass
+`--configuration-root <bundle-root>` to `runtime bind-queue` to resolve the queue’s
+source references there. Pass `--runtime-study <study-root>` to a native queue-run
+command to select the corresponding runtime freeze. Without those options, each
+command uses its existing root argument.
+
 ## Selection policy
 
 The default minimum release age is 24 hours. `policy.minReleaseAgeMs` changes it

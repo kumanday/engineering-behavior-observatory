@@ -12,7 +12,7 @@ import type {
 } from "./uniform-events.js";
 
 export const OPENHANDS_AGENT_SERVER_VERSION = "1.54.0";
-/** Agent Server versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
+/** Agent Server versions with checked conformance fixtures; other retained releases carry confidence limitations. */
 export const RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS: readonly string[] = [OPENHANDS_AGENT_SERVER_VERSION, "1.46.0", "1.44.1"];
 export const OPENHANDS_TYPESCRIPT_CLIENT_VERSION = "1.54.0";
 export const OPENHANDS_DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;

@@ -141,6 +141,7 @@ export async function captureOpenHandsAgentServerRunOwned(options: CaptureOpenHa
   let verifierResult: VerifierResult | undefined;
   let capture: OpenHandsCapture | undefined;
   let nativeEvidenceWritten = false;
+  let nativeEvidenceWrite: Promise<void> | undefined;
   let captureSettled = false;
   let progressiveSessionId: string | undefined;
   let progressiveWriteError: string | undefined;
@@ -190,43 +191,46 @@ export async function captureOpenHandsAgentServerRunOwned(options: CaptureOpenHa
 
   const writeNativeEvidence = async (): Promise<void> => {
     if (nativeEvidenceWritten) return;
-    await sessionWriter.flush();
-    if (progressiveWriteError !== undefined) throw new Error(progressiveWriteError);
-    if (!captureSettled || sessionWriter.count === 0) return;
-    await sessionWriter.close();
-    await assembler.registerArtifact({
-      id: "session",
-      source: "openhands-agent-server",
-      kind: "session",
-      mediaType: "application/x-ndjson",
-      sharingClass: "restricted",
-      relativePath: "session.jsonl",
-      ...(progressiveSessionId === undefined ? {} : {
-        nativeReference: { type: "session", id: progressiveSessionId },
-      }),
-    });
-    if (capture === undefined) {
-      nativeEvidenceWritten = true;
-      return;
-    }
-    const hooks = capture.records.filter(({ record }) => record.payload.kind === "HookExecutionEvent");
-    if (hooks.length > 0) {
-      const hookBytes = Buffer.from(`${hooks.map(({ record }) => JSON.stringify({
-        session_id: capture!.conversationId,
-        hook_event_name: record.payload.hook_event_type,
-        native_record: record,
-      })).join("\n")}\n`);
-      await writeArtifactAtomically(assembler.bundleRoot, "hooks.jsonl", hookBytes, undefined, { overwrite: false });
+    if (!captureSettled) {await sessionWriter.flush(); return;}
+    return nativeEvidenceWrite ??= (async () => {
+      await sessionWriter.flush();
+      if (progressiveWriteError !== undefined) throw new Error(progressiveWriteError);
+      if (!captureSettled || sessionWriter.count === 0) return;
+      await sessionWriter.close();
       await assembler.registerArtifact({
-        id: "hooks",
+        id: "session",
         source: "openhands-agent-server",
-        kind: "hook",
+        kind: "session",
         mediaType: "application/x-ndjson",
         sharingClass: "restricted",
-        relativePath: "hooks.jsonl",
+        relativePath: "session.jsonl",
+        ...(progressiveSessionId === undefined ? {} : {
+          nativeReference: { type: "session", id: progressiveSessionId },
+        }),
       });
-    }
-    nativeEvidenceWritten = true;
+      if (capture === undefined) {
+        nativeEvidenceWritten = true;
+        return;
+      }
+      const hooks = capture.records.filter(({ record }) => record.payload.kind === "HookExecutionEvent");
+      if (hooks.length > 0) {
+        const hookBytes = Buffer.from(`${hooks.map(({ record }) => JSON.stringify({
+          session_id: capture!.conversationId,
+          hook_event_name: record.payload.hook_event_type,
+          native_record: record,
+        })).join("\n")}\n`);
+        await writeArtifactAtomically(assembler.bundleRoot, "hooks.jsonl", hookBytes, undefined, { overwrite: false });
+        await assembler.registerArtifact({
+          id: "hooks",
+          source: "openhands-agent-server",
+          kind: "hook",
+          mediaType: "application/x-ndjson",
+          sharingClass: "restricted",
+          relativePath: "hooks.jsonl",
+        });
+      }
+      nativeEvidenceWritten = true;
+    })();
   };
 
   const coordinatedWorkspace: WorkspaceCoordinator = {

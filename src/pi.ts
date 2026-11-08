@@ -65,7 +65,7 @@ export const PI_ADAPTER_VERSION = "1.0.0";
 export const RETAINED_PI_ADAPTER_VERSIONS: readonly string[] = ["1.0.0"];
 export const PI_NORMALIZATION_ADAPTER_VERSION = "1.0.0";
 export const PINNED_PI_SDK_VERSION = "1.1.0";
-/** Pi SDK versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
+/** Pi SDK versions with checked conformance fixtures; other retained releases carry confidence limitations. */
 export const RETAINED_PI_SDK_VERSIONS: readonly string[] = [PINNED_PI_SDK_VERSION, "0.87.1", "0.85.1"];
 
 const ATTEMPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;

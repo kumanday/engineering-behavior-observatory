@@ -69,3 +69,16 @@ test("each selected root keeps its own release-age policy when roots share an np
   const result = await resolveNpmRuntimePlan(roots, {platform: `${process.platform}-${process.arch}`, abi: "fixture", run: network.run, fetch});
   assert.equal(result.components.find((component) => component.name === "recent")!.selection.policy.minReleaseAgeMs, 0);
 });
+
+test("OS and CPU metadata cannot opt a stable runtime into a release candidate dependency", async () => {
+  const name = "@example/runtime", version = "9.9.9", candidate = `${version}-rc.1`, integrity = "sha512-Zml4dHVyZQ==";
+  const releases = [version, candidate].map(version => ({version, source: "npm" as const, publishedAt: "2026-11-05T00:00:00Z", locator: `https://registry.npmjs.org/${version}.tgz`, integrity}));
+  await assert.rejects(resolveNpmRuntimePlan([{id: "runtime", name, source: "npm", selection: selectRuntimeRelease(releases, {now: "2026-11-07T12:00:00Z"})}], {
+    platform: "darwin-arm64", abi: "node-24", run: async (_cmd, _args, cwd) => {
+      await writeFile(join(cwd, "package-lock.json"), JSON.stringify({lockfileVersion: 3, packages: {"": {dependencies: {[name]: version}},
+        [`node_modules/${name}`]: {version, resolved: releases[0]!.locator, integrity},
+        "node_modules/@example/runtime-candidate": {name, version: candidate, os: ["darwin"], cpu: ["arm64"], resolved: releases[1]!.locator, integrity}}}));
+      return {code: 0, stdout: "", stderr: ""};
+    }, fetch: async () => Response.json({time: Object.fromEntries(releases.map(release => [release.version, release.publishedAt])), versions: Object.fromEntries(releases.map(release => [release.version, {dist: {tarball: release.locator, integrity}}]))}),
+  }), /RUNTIME_NO_ELIGIBLE_RELEASE.*prerelease/);
+});

@@ -1643,7 +1643,7 @@ test("retains progressively written native evidence when lifecycle cancellation 
         pollIntervalMs: 50,
       },
       signal: controller.signal,
-      shutdownGraceMs: 250,
+      shutdownGraceMs: 1,
     });
     const session = result.manifest.evidence.find(({ kind }) => kind === "session");
 

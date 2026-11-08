@@ -86,3 +86,16 @@ test("binding one source object to two studies leaves each returned binding inde
     assert.equal(queueRunId(queue, queue.entries[0]!.runId), queue.entries[0]!.runId);
   } finally {await rm(root, {recursive: true, force: true});}
 });
+
+test("the runtime CLI can bind a queue whose configurations live outside the runtime study", async () => {
+  const {root, experiment} = bundleFixture(), options = fakeSdkRuntimeOptions("9.9.9");
+  try {
+    experiment.harnessSet = {"cursor-sdk": experiment.harnessSet["harness-a"]!};
+    const queue = compileRunQueue(experiment, {bundleRoot: root, freezeLocators: {"task-a": "freezes/task-a.json"}}), source = join(root, "queue.json"), destination = join(root, "bound.json"), study = join(root, "runtime-study");
+    writeRunQueue(source, queue);
+    await freezeStudyRuntimes(study, {studyId: "separate-configurations", roles: ["cursor-sdk"]}, options);
+    let output = "";
+    assert.equal(await runRuntimeCommandLine(["bind-queue", study, source, destination, "--configuration-root", root], text => {output += text;}, options), 0, output);
+    assert.deepEqual(readRunQueue(destination, undefined, {bundleRoot: root}), queue);
+  } finally {await rm(root, {recursive: true, force: true});}
+});
