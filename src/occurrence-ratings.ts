@@ -59,6 +59,7 @@ export type FallbackRecord = {
 
 /** The reasoning model for deferred ratings. `run` replaces the Codex app-server turn (tests). */
 export type RatingFallback = {
+  runtime?: import("./runtime-context.js").StudyRuntimeBinding;
   model: string;
   effort: CodexTurnSettings["evaluator"]["effort"];
   executable?: string;
@@ -771,6 +772,7 @@ async function askFallback(
       const startedAt = new Date();
       const started = performance.now();
       const result = await (fallback.run ?? ((text: string, schema: Record<string, unknown>) => runCodexStructuredTurn(text, {
+        runtime: fallback.runtime,
         evaluator: { model: fallback.model, effort: fallback.effort, ...(fallback.executable === undefined ? {} : { executable: fallback.executable }) },
         limits: { maxWallClockMs: fallback.maxWallClockMs ?? 300_000, maxInputChars: prompt.length, maxOutputChars: 4_000 + pairs.length * 1_200 },
       }, schema, FALLBACK_INSTRUCTIONS)))(prompt, outputSchema);

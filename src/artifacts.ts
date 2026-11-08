@@ -1187,6 +1187,8 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("atif-producer-profile.v1.json"));
   ajv.addSchema(readSchema("behavior-assertions.v1.json"));
   ajv.addSchema(readSchema("semantic-judge.v1.json"));
+  ajv.addSchema(readSchema("semantic-judge-runtime.v1.json"));
+  ajv.addSchema(readSchema("study-runtimes.v1.json"));
   ajv.addSchema(readSchema("migration.v1.json"));
   ajv.addSchema(readSchema("human-calibration.v1.json"));
   ajv.addSchema(readSchema("aggregation.v1.json"));
@@ -1260,6 +1262,9 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.atlas-bundle/v1", requiredValidator(ajv, "urn:ebo:schema:atlas-bundle:v1#/$defs/bundle")],
     ["ebo.semantic-judge-request/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/request")],
     ["ebo.semantic-judge-input/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/input")],
+    ["ebo.study-runtime-lock/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/lock")],
+    ["ebo.runtime-launch/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/launch")],
+    ["ebo.semantic-judgment/v3", requiredValidator(ajv, "urn:ebo:schema:semantic-judge-runtime:v1#/$defs/judgment")],
     ["ebo.semantic-judgment/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/judgment")],
     ["ebo.semantic-judge-answer/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeAnswer")],
     ["ebo.semantic-judgment/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgment")],

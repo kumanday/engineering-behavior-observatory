@@ -1,4 +1,5 @@
-import { runtimeTest } from "./with-runtime-fixture.js";
+import { fakeSdkRuntimeOptions } from "./runtime-fixture-helper.js";
+import { runtimeTest, prepareRuntimeCliFixture } from "./with-runtime-fixture.js";
 const test = runtimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -61,13 +62,15 @@ for (const mode of ["run", "batch"] as const) test(`judge ${mode} CLI SIGINT ret
     request.evaluator = { backend: "codex-app-server", executable, provider: "openai", model: "fixture", effort: "low" };
     request.rubric.instructions = "CLI_INTERRUPT_FIXTURE";
     request.limits.maxWallClockMs = 10000;
+    const runtimeRoot = join(root, "judge-study");
+    const preload = await prepareRuntimeCliFixture(runtimeRoot, "codex-judge", executable);
     const output = join(root, "judge-output");
     writeFileSync(join(root, "observations.json"), JSON.stringify(observations));
     writeFileSync(join(root, "request.json"), JSON.stringify(request));
     const batchPath = join(root, "batch.json");
     const job = { bundleRoot, observations: "observations.json", request: "request.json", outputRoot: output };
     writeFileSync(batchPath, JSON.stringify({ jobs: [job, { ...job, outputRoot: "never-started" }] }));
-    cli = spawn(process.execPath, ["dist/src/cli.js", "judge", ...(mode === "batch" ? ["batch", batchPath] : ["run", bundleRoot, join(root, "observations.json"), join(root, "request.json"), output])], { stdio: "ignore" });
+    cli = spawn(process.execPath, ["--import", preload, "dist/src/cli.js", "--runtime-study", runtimeRoot, "judge", ...(mode === "batch" ? ["batch", batchPath] : ["run", bundleRoot, join(root, "observations.json"), join(root, "request.json"), output])], { stdio: "ignore" });
     const exit = once(cli, "exit");
     const deadline = Date.now() + 10000;
     while (!existsSync(`${executable}.ready`) && cli.exitCode === null && Date.now() < deadline) await delay(20);
@@ -85,7 +88,7 @@ for (const mode of ["run", "batch"] as const) test(`judge ${mode} CLI SIGINT ret
     request.rubric.instructions = "MALFORMED_OUTPUT_FIXTURE";
     request.limits.maxOutputChars = 256;
     const malformedRoot = join(root, "malformed-output");
-    const malformed = await runAgentSdkSemanticJudge({ bundleRoot, observations, request, outputRoot: malformedRoot });
+    const malformed = await runAgentSdkSemanticJudge({ runtime: {studyRoot: runtimeRoot, options: fakeSdkRuntimeOptions(CODEX_APP_SERVER_VERSION)}, bundleRoot, observations, request, outputRoot: malformedRoot });
     assert.equal(malformed.status, "failed");
     assert.ok(malformed.rawModelResponse);
     const rawModelPath = join(malformedRoot, malformed.rawModelResponse.path);
@@ -157,7 +160,7 @@ test("packages bounded blinded untrusted evidence and retains deterministic prop
       abstention, { ...request, evaluator }, packaged, "fixture-runtime").evaluator.configurationDigest;
     assert.equal(evaluatorDigest(request.evaluator), evaluatorDigest({ ...request.evaluator, backend: "claude-agent-sdk" }));
     const codexEvaluator = { backend: "codex-app-server", provider: "openai", model: "fixture", effort: "low" } as const;
-    assert.equal(parseSemanticJudgeResponse(abstention, { ...request, evaluator: codexEvaluator }, packaged).evaluator.version, CODEX_APP_SERVER_VERSION);
+    assert.equal(parseSemanticJudgeResponse(abstention, { ...request, evaluator: codexEvaluator }, packaged).evaluator.version, "unrecorded");
     assert.equal(evaluatorDigest(codexEvaluator), evaluatorDigest({ ...codexEvaluator, executable: "codex" }));
     assert.equal(evaluatorDigest({ ...codexEvaluator, executable: "./fixture-codex" }),
       evaluatorDigest({ ...codexEvaluator, executable: resolve("fixture-codex") }));
@@ -269,6 +272,7 @@ test("packages bounded blinded untrusted evidence and retains deterministic prop
     assert.deepEqual(validateArtifact("semantic input", retainedInput), []);
     assert.deepEqual(validateArtifact("semantic judgment", retainedJudgment), []);
     const nativeJudgment = structuredClone(retainedJudgment);
+    nativeJudgment.runtime.role = "codex-judge";
     nativeJudgment.evaluator.provider = "openai";
     nativeJudgment.evaluator.backend = { id: "codex-app-server", version: CODEX_APP_SERVER_VERSION };
     nativeJudgment.evaluator.environment = { parentPreserved: false, mode: "replace", modelEffortOverrides: "removed", ambientTelemetry: "removed",

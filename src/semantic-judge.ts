@@ -1,5 +1,6 @@
+import { currentStudyRuntime, runInStudyRuntime, requireStudyRuntime, lockedRuntimeVersion, studyRuntimeModule, type StudyRuntimeBinding } from "./runtime-context.js";
 import type { RetainedNormalizationInput } from "./uniform-events.js";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -17,8 +18,8 @@ import {
   type BehaviorAssertion,
 } from "./behavior-assertions.js";
 import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
-import { CODEX_APP_SERVER_VERSION, type CodexReasoningEffort } from "./codex.js";
-import { runCodexSemanticJudge, resolveCodexJudgeExecutable, CODEX_JUDGE_INHERITED_KEYS } from "./codex-judge.js";
+import { type CodexReasoningEffort } from "./codex.js";
+import { runCodexSemanticJudgeOwned, resolveCodexJudgeExecutable, CODEX_JUDGE_INHERITED_KEYS } from "./codex-judge.js";
 import {
   assertNoDuplicateJsonKeys,
   canonicalizeMetadata,
@@ -189,7 +190,8 @@ type RecordReference = {
 type Availability<Value> = { status: "available"; value: Value } | { status: "unavailable"; reason: string };
 
 export type SemanticJudgmentRecord = {
-  schemaVersion: "ebo.semantic-judgment/v1";
+  schemaVersion: "ebo.semantic-judgment/v1" | "ebo.semantic-judgment/v3";
+  runtime?: { lockDigest: string; role: string; lock: RecordReference; launch: RecordReference; warnings: string[] };
   id: string;
   runId: string;
   attemptId: string;
@@ -221,6 +223,7 @@ export type SemanticJudgmentRecord = {
 };
 
 export type RunAgentSdkSemanticJudgeOptions = {
+  runtime?: StudyRuntimeBinding;
   bundleRoot: string;
   observations: StructuralObservationSet;
   request: SemanticJudgeRequest;
@@ -236,6 +239,11 @@ export async function runAgentSdkSemanticJudge(
   options: RunAgentSdkSemanticJudgeOptions,
 ): Promise<SemanticJudgmentRecord> {
   validateRequest(options.request);
+  const role = options.request.evaluator.backend === "codex-app-server" ? "codex-judge" : "claude-agent-sdk";
+  return runInStudyRuntime(role, options.runtime, () => runOwnedSemanticJudge(options));
+}
+
+async function runOwnedSemanticJudge(options: RunAgentSdkSemanticJudgeOptions): Promise<SemanticJudgmentRecord> {
   assertOutsideSource(options.bundleRoot, options.outputRoot);
   const evidence = await createRetainedBehaviorEvidence(options.bundleRoot);
   await validateStructuralObservationSet(options.observations, evidence.resolver);
@@ -285,20 +293,27 @@ export async function runAgentSdkSemanticJudge(
   const installedSdkVersion = probeClaudeAgentSdkCapabilities().sdkVersion;
   const selectedBackend = options.request.evaluator.backend ?? CLAUDE_SEMANTIC_JUDGE_BACKEND_ID;
   const backend: SemanticJudgeBackend = options.backend ?? (selectedBackend === "codex-app-server" ? {
-    id: "codex-app-server", version: CODEX_APP_SERVER_VERSION, run: runCodexSemanticJudge,
+    id: "codex-app-server", version: lockedRuntimeVersion("codex-judge"), run: runCodexSemanticJudgeOwned,
   } : {
     id: CLAUDE_SEMANTIC_JUDGE_BACKEND_ID,
     version: installedSdkVersion,
-    run: (prompt, request, signal) => runClaudeAgentSdkSemanticJudge(prompt, request, claudeQuery, signal),
+    run: (prompt, request, signal) => runClaudeAgentSdkSemanticJudgeOwned(prompt, request, studyRuntimeModule("@anthropic-ai/claude-agent-sdk", {query: claudeQuery}).query, signal),
   });
-  if (backend.id !== selectedBackend || backend.version !== (selectedBackend === "codex-app-server" ? CODEX_APP_SERVER_VERSION : installedSdkVersion)
+  if (backend.id !== selectedBackend || backend.version !== (selectedBackend === "codex-app-server" ? lockedRuntimeVersion("codex-judge") : installedSdkVersion)
       || typeof backend.run !== "function") {
     throw new Error("Semantic judge backend identity is invalid.");
   }
   prepareOutputRoot(options.bundleRoot, outputRoot);
   const inputReference = writeRestrictedJson(outputRoot, "input.json", input);
+  let backendResult: SemanticJudgeBackendResult;
+  try {
+    backendResult = await backend.run(prompt, options.request, options.signal);
+  } catch (error) {
+    backendResult = { status: "failed", kind: "provider", message: errorMessage(error) };
+  }
   const base = {
-    schemaVersion: "ebo.semantic-judgment/v1" as const,
+    schemaVersion: "ebo.semantic-judgment/v3" as const,
+    runtime: retainJudgeRuntime(outputRoot),
     id: options.request.id,
     runId: input.runId,
     attemptId: input.attemptId,
@@ -326,12 +341,6 @@ export async function runAgentSdkSemanticJudge(
       limits: structuredClone(options.request.limits),
     },
   };
-  let backendResult: SemanticJudgeBackendResult;
-  try {
-    backendResult = await backend.run(prompt, options.request, options.signal);
-  } catch (error) {
-    backendResult = { status: "failed", kind: "provider", message: errorMessage(error) };
-  }
   const timing = !validTiming(backendResult.timing)
     ? unavailable(backendResult.timing === undefined ? "Judge timing was not reported." : "Judge timing was invalid.")
     : available(structuredClone(backendResult.timing));
@@ -421,6 +430,11 @@ export async function runClaudeAgentSdkSemanticJudge(
   queryFunction: typeof claudeQuery = claudeQuery,
   signal?: AbortSignal,
 ): Promise<SemanticJudgeBackendResult> {
+  return runInStudyRuntime("claude-agent-sdk", undefined, () => runClaudeAgentSdkSemanticJudgeOwned(prompt, request, queryFunction, signal));
+}
+
+async function runClaudeAgentSdkSemanticJudgeOwned(prompt: string, request: SemanticJudgeRequest, queryFunction: typeof claudeQuery, signal?: AbortSignal): Promise<SemanticJudgeBackendResult> {
+  requireStudyRuntime("claude-agent-sdk");
   const controller = new AbortController();
   const isolatedCwd = mkdtempSync(join(tmpdir(), "ebo-semantic-judge-"));
   let handle: ReturnType<typeof claudeQuery> | undefined;
@@ -693,7 +707,7 @@ export function parseSemanticJudgeResponse(
   value: unknown,
   request: SemanticJudgeRequest,
   input: SemanticJudgeInput,
-  evaluatorVersion: string = request.evaluator.backend === "codex-app-server" ? CODEX_APP_SERVER_VERSION : probeClaudeAgentSdkCapabilities().sdkVersion,
+  evaluatorVersion: string = request.evaluator.backend === "codex-app-server" ? currentStudyRuntime()?.launch.role === "codex-judge" ? lockedRuntimeVersion("codex-judge") : "unrecorded" : probeClaudeAgentSdkCapabilities().sdkVersion,
 ): BehaviorAssertion {
   const envelope = record(value, "Judge response envelope");
   exactKeys(envelope, ["judgment"], "Judge response envelope");
@@ -779,9 +793,9 @@ export function parseSemanticJudgeResponse(
     behavior: structuredClone(request.behavior),
     rubric: { id: request.rubric.id, version: request.rubric.version },
     evaluator: { id: `${request.evaluator.provider}/${request.evaluator.model}`, version: evaluatorVersion,
-      configurationDigest: digest({ promptVersion: input.promptVersion, evaluator: {
-        ...request.evaluator, backend: request.evaluator.backend ?? CLAUDE_SEMANTIC_JUDGE_BACKEND_ID,
-        ...(request.evaluator.backend === "codex-app-server" ? { executable: resolveCodexJudgeExecutable(request.evaluator.executable) } : {}),
+      configurationDigest: digest({ promptVersion: input.promptVersion, ...(matchingJudgeRuntime(request) ? { runtimeLockDigest: currentStudyRuntime()!.launch.lockDigest } : {}), evaluator: {
+        ...Object.fromEntries(Object.entries(request.evaluator).filter(([key]) => !matchingJudgeRuntime(request) || key !== "executable")), backend: request.evaluator.backend ?? CLAUDE_SEMANTIC_JUDGE_BACKEND_ID,
+        ...(request.evaluator.backend === "codex-app-server" && !matchingJudgeRuntime(request) ? { executable: resolveCodexJudgeExecutable(request.evaluator.executable) } : {}),
       },
         rubric: request.rubric, limits: request.limits, blinding: request.blinding }) },
     judgment,
@@ -1301,4 +1315,14 @@ function boundedMessage(value: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Semantic judge backend failed.";
+}
+
+function matchingJudgeRuntime(request: SemanticJudgeRequest): boolean {
+  return currentStudyRuntime()?.launch.role === (request.evaluator.backend === "codex-app-server" ? "codex-judge" : "claude-agent-sdk");
+}
+function retainJudgeRuntime(root: string): NonNullable<SemanticJudgmentRecord["runtime"]> {
+  const context = currentStudyRuntime()!;
+  return { lockDigest: context.launch.lockDigest, role: context.launch.role, warnings: [...context.launch.warnings],
+    lock: writeRestrictedJson(root, "runtime-lock.json", JSON.parse(readFileSync(join(context.studyRoot, "runtimes", "lock.json"), "utf8"))),
+    launch: writeRestrictedJson(root, "runtime-launch.json", JSON.parse(readFileSync(join(context.studyRoot, context.launch.receiptLocator), "utf8"))) };
 }

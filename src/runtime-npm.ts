@@ -23,22 +23,32 @@ export async function resolveNpmRuntimePlan(roots: readonly SelectedRuntimeCompo
   const packageJson = { name: "ebo-study-runtime", version: "1.0.0", private: true, dependencies };
   const staging = await mkdtemp(join(tmpdir(), "ebo-runtime-resolve-"));
   try {
-    await writeFile(join(staging, "package.json"), canonicalizeMetadata(packageJson), { mode: 0o600 });
+    // The global cutoff constrains dependency resolution. Each already-selected
+    // root has its own cutoff, so fetch that exact tarball without filtering it
+    // through another root's policy. The returned install plan uses exact versions.
+    const rootTarballs = Object.fromEntries(roots.map((root) => {
+      const url = new URL(root.selection.release.locator);
+      if (url.protocol !== "https:" || url.username || url.password) throw new RuntimePolicyError("RUNTIME_ARTIFACT_INVALID", "npm root tarballs require HTTPS without URL credentials.");
+      return [root.name, url.href];
+    }));
+    await writeFile(join(staging, "package.json"), canonicalizeMetadata({...packageJson, dependencies: rootTarballs}), { mode: 0o600 });
     const cutoff = roots.map((root) => root.selection.cutoff).sort()[0]!;
     const result = await (options.run ?? runRuntimeCommand)(join(dirname(process.execPath), "npm"), ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund", `--before=${cutoff}`,
       ...await runtimeNpmConfiguration(staging)], staging);
     if (result.code !== 0) throw new RuntimePolicyError("RUNTIME_DEPENDENCY_RESOLUTION_FAILED", result.stderr.slice(0, 2000));
     const packageLock = JSON.parse(await readFile(join(staging, "package-lock.json"), "utf8")) as { lockfileVersion: unknown; packages?: Record<string, any> };
     if (packageLock.lockfileVersion !== 3 || !packageLock.packages) throw new RuntimePolicyError("RUNTIME_DEPENDENCY_LOCK_INVALID", "npm did not produce a v3 exact dependency lock.");
+    if (!packageLock.packages[""]) throw new RuntimePolicyError("RUNTIME_DEPENDENCY_LOCK_INVALID", "npm lock lacks its root manifest.");
+    packageLock.packages[""].dependencies = {...dependencies};
     const components: LockedRuntimeDependency[] = [], metadata = new Map<string, Awaited<ReturnType<typeof fetchRuntimeReleases>>>();
     for (const [location, entry] of Object.entries(packageLock.packages)) {
       if (!location) continue;
       const name = location.split("node_modules/").at(-1)!;
       if (!entry || typeof entry.version !== "string" || entry.link || !location.startsWith("node_modules/") || location.includes("..")) throw new RuntimePolicyError("RUNTIME_DEPENDENCY_LOCK_INVALID", `Non-registry package ${location}.`);
       if (!metadata.has(name)) metadata.set(name, await fetchRuntimeReleases({ source: "npm", name }, options));
-      const owner = roots.find((root) => root.name === name);
+      const owner = roots.find((root) => location === `node_modules/${root.name}`);
       const policy = owner?.selection ?? roots[0]!.selection;
-      const selection = selectRuntimeRelease(metadata.get(name)!, { now: policy.selectedAt, minReleaseAgeMs: Math.max(...roots.map((root) => root.selection.policy.minReleaseAgeMs)),
+      const selection = selectRuntimeRelease(metadata.get(name)!, { now: policy.selectedAt, minReleaseAgeMs: owner ? policy.policy.minReleaseAgeMs : Math.max(...roots.map((root) => root.selection.policy.minReleaseAgeMs)),
         allowPrerelease: owner?.selection.policy.allowPrerelease ?? roots.some((root) => root.selection.policy.allowPrerelease), override: entry.version });
       if (selection.release.integrity !== entry.integrity || selection.release.locator !== entry.resolved) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", `npm lock and registry disagree for ${name}@${entry.version}.`);
       if (!owner && selection.release.deprecated) selection.warnings = [`RUNTIME_DEPENDENCY_DEPRECATED: ${name}@${entry.version}: ${selection.release.deprecated}`];

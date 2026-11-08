@@ -66,7 +66,7 @@ async function createCodexFixture(role: string, fallback?: string): Promise<{stu
     const result = await run(command, args, cwd);
     if (args[0] === "ci") {
       const bin = join(cwd, "node_modules", ".bin"); await mkdir(bin, { recursive: true });
-      const executable = join(bin, "codex"), file = fallback ?? fileURLToPath(new URL("../../test/fixtures/codex/fake-app-server.mjs", import.meta.url));
+      const executable = join(bin, "codex"), file = fallback ?? fileURLToPath(new URL(role === "codex-judge" ? "../../test/fixtures/codex/fake-judge.mjs" : "../../test/fixtures/codex/fake-app-server.mjs", import.meta.url));
       await writeFile(executable, `#!${process.execPath}\nimport {pathToFileURL} from 'node:url';\nconst args=process.argv.slice(2);if(args.includes('--version')){console.log('codex-cli ${version}');process.exit(0);}const file=args[0]?.endsWith('.mjs')?args.shift():${JSON.stringify(file)};process.argv=[process.execPath,file,...args];await import(pathToFileURL(file).href);\n`);
       await chmod(executable, 0o700);
     }
@@ -77,6 +77,7 @@ async function createCodexFixture(role: string, fallback?: string): Promise<{stu
 }
 /** Child CLI tests mock registry/OSV I/O through Node's ordinary module preload. */
 export async function prepareRuntimeCliFixture(studyRoot: string, role: string, cliFallback?: string): Promise<string> {
+  await mkdir(studyRoot, {recursive: true});
   const binding = await createConformanceRuntimeFixture(role, false, cliFallback);
   try { await cp(join(binding.studyRoot, "runtimes"), join(studyRoot, "runtimes"), {recursive: true, force: false, errorOnExist: true}); }
   finally { await rm(binding.studyRoot, {recursive: true, force: true}); }

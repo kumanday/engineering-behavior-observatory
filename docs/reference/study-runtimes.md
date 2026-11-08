@@ -111,3 +111,24 @@ missing receipt or inconsistent runtime binding fails bundle verification.
 Existing v1 bundles retain their original schema and bytes. Retained analysis
 uses the copies of the lock and launch receipt inside the bundle. It does not
 need an installed study runtime, a registry connection or an OSV query.
+
+## Judge execution
+
+Freeze `codex-judge` for the Codex backend or `claude-agent-sdk` for the Claude
+backend. Pass `--runtime-study <study-root>` to `ebo judge run` or
+`ebo judge batch`. The batch rechecks each job before launch. The same option
+binds the Codex fallback used by `ebo occurrences rate`. Library callers pass
+`runtime: { studyRoot }` to the semantic-judge runner or establish a study
+context. A configured or ambient executable does not select the judge runtime.
+
+New operational judgments use `ebo.semantic-judgment/v3`. They retain the lock
+and actual launch receipt as restricted artifacts and expose runtime warnings.
+Their evaluator configuration digest binds the stable lock digest. Changing an
+unused executable path or the launch receipt ID does not change that digest.
+The v1 operational judgment and v2 analysis judgment contracts remain readable.
+
+A shared npm graph applies each selected root's own age policy. Dependencies
+use the strictest age policy in that graph. Resolution acquires the selected
+root tarballs directly, then writes an exact-version package manifest and
+package lock for installation. A nested dependency with the same package name
+is checked as a dependency of the graph.

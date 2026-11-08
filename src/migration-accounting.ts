@@ -80,7 +80,7 @@ export type MigrationReconciliation = {
     preservedAssertionUnits: number; measuredForecastUsd: number | null; unpricedAffectedUnits: number; authorizedPaidBudgetUsd: 0 };
 };
 const hash = (value: unknown): Hash => `sha256:${digestMetadata(value).value}`;
-const schemas = new Set(["ebo.behavior-assertion/v1", "ebo.semantic-judgment/v1", "ebo.semantic-judge-input/v1",
+const schemas = new Set(["ebo.behavior-assertion/v1", "ebo.semantic-judgment/v1", "ebo.semantic-judgment/v3", "ebo.semantic-judge-input/v1",
   "ebo.structural-observation-set/v1", "ebo.occurrence-ratings/v1"]);
 const limits = { files: 100_000, fileBytes: 64 * 1024 * 1024, totalBytes: 2 * 1024 * 1024 * 1024 };
 
@@ -159,7 +159,7 @@ export function inventoryMigrationStudy(study: MigrationStudy): MigrationInvento
       if (!schemas.has(value.schemaVersion)) throw new Error("UNSUPPORTED_MIGRATION_ARTIFACT");
       records.push({ path, schemaVersion: value.schemaVersion, digest, validationProfile: validationProfiles.get(path)! });
       if (value.schemaVersion === "ebo.behavior-assertion/v1") noteAssertion(value as BehaviorAssertion, path);
-      if (value.schemaVersion !== "ebo.semantic-judgment/v1") continue;
+      if (!["ebo.semantic-judgment/v1", "ebo.semantic-judgment/v3"].includes(value.schemaVersion)) continue;
       const judgment = value as SemanticJudgmentRecord;
       const input = reference<SemanticJudgeInput>(path, judgment.input), assertion = reference<BehaviorAssertion>(path, judgment.assertion);
       if (input.status === "verified" && (input.value!.schemaVersion !== "ebo.semantic-judge-input/v1" || input.value!.runId !== judgment.runId || input.value!.attemptId !== judgment.attemptId)) input.status = "invalid";

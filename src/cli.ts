@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import type { StudyRuntimeBinding } from "./runtime-context.js";
 import { runRuntimeCommandLine } from "./runtime-cli.js";
 import { runAnalysisV2Command } from "./analysis-v2-cli.js";
 
@@ -143,8 +144,15 @@ export function main(
   write: (message: string) => void = (message) => {
     process.stdout.write(message);
   },
-  dependencies: { semanticJudgeBackend?: SemanticJudgeBackend } = {},
+  dependencies: { semanticJudgeBackend?: SemanticJudgeBackend; runtime?: StudyRuntimeBinding } = {},
 ): number | Promise<number> {
+  const runtimeFlag = args.indexOf("--runtime-study");
+  if (runtimeFlag !== -1) {
+    const studyRoot = args[runtimeFlag + 1];
+    if (!studyRoot || studyRoot.startsWith("--") || args.lastIndexOf("--runtime-study") !== runtimeFlag) { write("--runtime-study requires one study root.\n"); return 1; }
+    dependencies = {...dependencies, runtime: {studyRoot: resolve(studyRoot)}};
+    args = [...args.slice(0, runtimeFlag), ...args.slice(runtimeFlag + 2)];
+  }
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
     write(usage);
     return 0;
@@ -322,7 +330,7 @@ export function main(
   }
 
   if (args[0] === "occurrences" && args[1] === "rate") {
-    return runOccurrenceRatingCommand(args.slice(2), write);
+    return runOccurrenceRatingCommand(args.slice(2), write, dependencies.runtime);
   }
 
   if (args[0] === "claims" && args[1] === "check") {
@@ -436,6 +444,7 @@ export function main(
     process.on("SIGTERM", abort);
     try {
       return runAgentSdkSemanticJudge({
+        runtime: dependencies.runtime,
         bundleRoot,
         observations: readJson(observationsPath) as StructuralObservationSet,
         request: readJson(requestPath) as SemanticJudgeRequest,
@@ -906,7 +915,7 @@ async function runClaimCheckCommand(args: string[], write: (message: string) => 
   }
 }
 
-async function runOccurrenceRatingCommand(args: string[], write: (message: string) => void): Promise<number> {
+async function runOccurrenceRatingCommand(args: string[], write: (message: string) => void, runtime?: StudyRuntimeBinding): Promise<number> {
   const usage = "Usage: ebo occurrences rate <run-bundle-root> <observations.json> <output.json> --provider <typesafe|fireworks> [--model <id>] [--choice-confidence <0-1>] [--noul-margin <0-0.5>] [--fallback-model <codex-model> [--fallback-effort <effort>]]\n";
   const [bundleRoot, observationsPath, outputPath, ...flags] = args;
   const options: Record<string, string> = {};
@@ -940,7 +949,7 @@ async function runOccurrenceRatingCommand(args: string[], write: (message: strin
     const ratings = await rateRetainedOccurrences(bundleRoot, observations,
       { provider: provider as DecisionProviderId, ...(options["--model"] === undefined ? {} : { model: options["--model"] }) },
       { policy,
-        ...(options["--fallback-model"] === undefined ? {} : { fallback: { model: options["--fallback-model"], effort: (options["--fallback-effort"] ?? "medium") as CodexReasoningEffort } }),
+        ...(options["--fallback-model"] === undefined ? {} : { fallback: { runtime, model: options["--fallback-model"], effort: (options["--fallback-effort"] ?? "medium") as CodexReasoningEffort } }),
         onDecision: (record, occurrenceId) => appendFileSync(partialPath, `${JSON.stringify({ occurrenceId, record })}\n`, { mode: 0o600 }),
         onFallback: (record) => appendFileSync(partialPath, `${JSON.stringify({ fallback: record })}\n`, { mode: 0o600 }) });
     await writeObservationReport(outputPath, ratings, bundleRoot);

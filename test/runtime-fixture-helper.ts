@@ -7,7 +7,8 @@ export const fakeSdkRuntimeOptions = (version: string | Record<string, string>, 
   return new Response(JSON.stringify({ time: { [selectedVersion]: "2026-11-05T00:00:00Z" }, versions: { [selectedVersion]: { ...(name === "fixture-deprecated-dependency" ? { deprecated: "Use the platform API" } : deprecatedDependency ? { dependencies: { "fixture-deprecated-dependency": "2.0.0" } } : {}), dist: { tarball: `https://registry.npmjs.org/${encodeURIComponent(name)}.tgz`, integrity: "sha512-Zml4dHVyZQ==" } } } }));
 }, run: async (_cmd: string, args: readonly string[], cwd: string) => {
   const pkg = JSON.parse(await readFile(join(cwd, "package.json"), "utf8"));
-  const graph = { ...pkg.dependencies, ...(deprecatedDependency ? { "fixture-deprecated-dependency": "2.0.0" } : {}) };
+  const graph: Record<string, string> = Object.fromEntries(Object.entries(pkg.dependencies).map(([name, declared]) => [name, String(declared).startsWith("https:") ? typeof version === "object" ? version[name]! : name === "@factory/cli" ? "8.8.8" : version : String(declared)]));
+  if (deprecatedDependency) graph["fixture-deprecated-dependency"] = "2.0.0";
   if (args.includes("--package-lock-only")) await writeFile(join(cwd, "package-lock.json"), JSON.stringify({ lockfileVersion: 3, packages: { "": { dependencies: pkg.dependencies }, ...Object.fromEntries(Object.entries(graph as Record<string, string>).map(([name, version]) => [`node_modules/${name}`, { version, resolved: `https://registry.npmjs.org/${encodeURIComponent(name)}.tgz`, integrity: "sha512-Zml4dHVyZQ==" }])) } }));
   if (args[0] === "ci") for (const name of Object.keys(graph)) {
     const root = join(cwd, "node_modules", name); await mkdir(root, { recursive: true });

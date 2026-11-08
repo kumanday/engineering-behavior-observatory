@@ -28,3 +28,20 @@ test("freezes transitive package integrity and checks the age and security ident
   assert.equal(result.plan.packageLock.lockfileVersion, 3);
   assert.match(result.components.find((c) => c.name === "dependency")!.selection.warnings.join(), /RUNTIME_DEPENDENCY_DEPRECATED.*dependency@2.0.0/);
 });
+
+test("each selected root keeps its own release-age policy when roots share an npm graph", async () => {
+  const { selectRuntimeRelease } = await import("../src/runtime-resolution.js");
+  const { fakeSdkRuntimeOptions } = await import("./runtime-fixture-helper.js");
+  const network = fakeSdkRuntimeOptions({older: "1.0.0", recent: "2.0.0"});
+  const fetch = async (url: string) => {
+    const payload = await (await network.fetch(url)).json() as any;
+    if (url.endsWith("recent")) payload.time["2.0.0"] = "2026-11-07T11:00:00Z";
+    return new Response(JSON.stringify(payload));
+  };
+  const roots = ["older", "recent"].map((name) => {
+    const version = name === "older" ? "1.0.0" : "2.0.0";
+    return {id: name, name, source: "npm" as const, ecosystem: "npm", selection: selectRuntimeRelease([{version, source: "npm", publishedAt: name === "older" ? "2026-11-05T00:00:00Z" : "2026-11-07T11:00:00Z", locator: `https://registry.npmjs.org/${name}.tgz`, integrity: "sha512-Zml4dHVyZQ=="}], {now: "2026-11-07T12:00:00Z", minReleaseAgeMs: name === "older" ? 86400000 : 0})};
+  });
+  const result = await resolveNpmRuntimePlan(roots, {platform: `${process.platform}-${process.arch}`, abi: "fixture", run: network.run, fetch});
+  assert.equal(result.components.find((component) => component.name === "recent")!.selection.policy.minReleaseAgeMs, 0);
+});
