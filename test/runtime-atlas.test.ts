@@ -10,7 +10,7 @@ import {createAtlasFixture} from './atlas-fixture.js';
 const identity=listAnalysisRuntimes()[0]!,pin={id:identity.id,manifestDigest:identity.manifestDigest};
 test('cohorts retain shipped runtime receipts and deduplicate equivalent projections of the same attempts',async()=>{
  const root=mkdtempSync(join(tmpdir(),'ebo-runtime-atlas-'));try{
-  await createAtlasFixture(join(root,'study'));
+  await createAtlasFixture(join(root,'study'),{legacyManifest:true});
   const original=join(root,'study'),copy=join(root,'copied-study');cpSync(original,copy,{recursive:true});
   const rewrite=(value:unknown):unknown=>typeof value==='string'&&value.startsWith(original)?copy+value.slice(original.length):Array.isArray(value)?value.map(rewrite):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([key,item])=>[key,rewrite(item)])):value;
   writeFileSync(join(copy,'aggregation.json'),JSON.stringify(rewrite(JSON.parse(readFileSync(join(copy,'aggregation.json'),'utf8')))));

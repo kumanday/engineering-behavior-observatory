@@ -149,3 +149,9 @@ export function lockedRuntimeVersion(componentId: string): string {
   if (!component) throw new RuntimePolicyError("RUNTIME_COMPONENT_NOT_FROZEN", componentId);
   return component.selection.release.version;
 }
+
+export function lockedRuntimePython(): string {
+  const context = currentStudyRuntime();
+  if (!context || !context.launch.roots.some((root) => root.source === "pypi")) throw new RuntimePolicyError("RUNTIME_PYTHON_NOT_FROZEN", "Select the study's Python runtime before executing Harbor.");
+  return join(context.launch.runtimeRoot, "venv", "bin", "python");
+}

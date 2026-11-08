@@ -1,4 +1,4 @@
-import { runtimeTest, prepareRuntimeCliFixture } from "./with-runtime-fixture.js";
+import { runtimeTest, prepareRuntimeCliFixture, withRuntimeFixture } from "./with-runtime-fixture.js";
 const test = runtimeTest("codex-app-server");
 import assert from "node:assert/strict";
 import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
@@ -850,10 +850,10 @@ test("retained auth failure without an owned turn supports observations and abst
       limits: { maxEvidenceItems: 20, maxRecordChars: 4096, maxInputChars: 40000, maxOutputChars: 16000, maxCitations: 2, maxWallClockMs: 1000, maxTurns: 1 },
       blinding: { evaluatedModelIdentity: "redact" } };
     const outputRoot = join(root, "judgment");
-    const judgment = await runRetainedSemanticJudge({ bundleRoot: definition.bundleRoot, observations, request, outputRoot,
+    const judgment = await withRuntimeFixture("codex-judge", () => runRetainedSemanticJudge({ bundleRoot: definition.bundleRoot, observations, request, outputRoot,
       backend: { id: "codex-app-server", version: CODEX_APP_SERVER_VERSION, run: async () => ({ status: "completed", raw: { synthetic: true }, response: { judgment: {
         disposition: "abstained", assessment: null, confidence: null, reason: "No completed turn.", missingEvidenceCapability: null,
-        rationale: "Synthetic fixture.", alternativeExplanation: "No behavioral claim.", claims: [], citations: [] } } }) } });
+        rationale: "Synthetic fixture.", alternativeExplanation: "No behavioral claim.", claims: [], citations: [] } } }) } }));
     assert.equal(judgment.status, "proposed");
     assert.equal(await main(["assertions", "validate", definition.bundleRoot, join(outputRoot, "assertion.json")], () => undefined), 0);
     assert.deepEqual(await readFile(join(definition.bundleRoot, "manifest.json")), before);

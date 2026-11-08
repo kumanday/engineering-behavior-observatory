@@ -646,7 +646,7 @@ function tarGzipFixture(): Buffer {
 
 /* ------------------------------------ real adapter (gated) ------------------------------------ */
 
-test("the pinned Harbor adapter reports its version and docker availability honestly", async (t) => {
+test("the installed Harbor adapter reports its version and docker availability honestly", async (t) => {
   let adapter: HarborAdapter;
   try {
     adapter = await createHarborAdapter();
@@ -655,7 +655,7 @@ test("the pinned Harbor adapter reports its version and docker availability hone
     return;
   }
   const version = await adapter.version();
-  assert.equal(version.harborVersion, "0.24.0");
+  assert.ok(version.harborVersion.length > 0);
   const preflight = await adapter.dockerPreflight();
   // Either outcome is honest; both must be explicit.
   assert.equal(typeof preflight.available, "boolean");
@@ -719,4 +719,16 @@ test("prior-trajectory probes preserve official invalid-task classification for 
     }
     assert.equal(inspected, 3);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Harbor reading accepts an unfamiliar package version and records the version actually used", async () => {
+  const adapter = await createHarborAdapter(async () => ({code: 0, stderr: "", stdout: JSON.stringify({ok: true, protocol: 1, harborVersion: "99.9.9", defaultTaskSchemaVersion: "1.4", pythonVersion: "3-fixture"})}));
+  assert.equal((await adapter.version()).harborVersion, "99.9.9");
+  const root = tempRoot("actual-version");
+  try {
+    const observed = fakeAdapter(); observed.version = adapter.version;
+    const inspection = await inspectHarborTask(writePrototypeTask(root), {adapter: observed});
+    assert.equal(inspection.classification, "valid");
+    assert.equal(inspection.harborPackageVersion, "99.9.9");
+  } finally {rmSync(root, {recursive: true, force: true});}
 });

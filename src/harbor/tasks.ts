@@ -4,7 +4,7 @@ import { dirname, join, resolve, sep } from "node:path";
 
 import { digestBytes, digestMetadata, writeMetadataAtomically } from "../artifacts.js";
 import type { AssessmentMode, Digest } from "../contracts.js";
-import { createHarborAdapter, HarborAdapterError, HARBOR_PACKAGE_PIN, type HarborAdapter, type HarborIdentity, type HarborInstruction, type HarborTaskLockJson } from "./adapter.js";
+import { createHarborAdapter, HarborAdapterError, type HarborAdapter, type HarborIdentity, type HarborInstruction, type HarborTaskLockJson } from "./adapter.js";
 
 /** EBO execution-profile restriction: links are rejected during Harbor ingestion. */
 export const HARBOR_PATH_POLICY_VERSION = "ebo.harbor-path-policy/v2";
@@ -185,9 +185,10 @@ export async function inspectHarborTask(taskDir: string, options: InspectHarborT
     classification: "unsupported", reasonCode: "unsupported-imported-trajectory",
     reason: "Task-shipped trajectory.json requires seeded-context support outside the current execution profile.",
     unsupported: ["unsupported-imported-trajectory"], summary: null, identity: null, instructions: null, taskLock: null,
-    harborPackageVersion: HARBOR_PACKAGE_PIN,
+    harborPackageVersion: "not-invoked",
   };
   const adapter = options.adapter ?? await createHarborAdapter();
+  const harborPackageVersion = (await adapter.version()).harborVersion;
   const assessmentMode: AssessmentMode = options.assessmentMode ?? "observational";
   const disableVerification = assessmentMode === "observational";
   const unsupported: HarborUnsupportedReasonCode[] = [];
@@ -206,7 +207,7 @@ export async function inspectHarborTask(taskDir: string, options: InspectHarborT
         identity: null,
         instructions: null,
         taskLock: null,
-        harborPackageVersion: HARBOR_PACKAGE_PIN,
+        harborPackageVersion,
       };
     }
     throw error;
@@ -233,7 +234,7 @@ export async function inspectHarborTask(taskDir: string, options: InspectHarborT
       identity: null,
       instructions: null,
       taskLock: null,
-      harborPackageVersion: HARBOR_PACKAGE_PIN,
+      harborPackageVersion,
     };
   }
 
@@ -247,7 +248,7 @@ export async function inspectHarborTask(taskDir: string, options: InspectHarborT
       identity: null,
       instructions: null,
       taskLock: null,
-      harborPackageVersion: HARBOR_PACKAGE_PIN,
+      harborPackageVersion,
     };
   }
 
@@ -266,7 +267,7 @@ export async function inspectHarborTask(taskDir: string, options: InspectHarborT
     identity,
     instructions,
     taskLock: lock.taskLock,
-    harborPackageVersion: HARBOR_PACKAGE_PIN,
+    harborPackageVersion,
   };
 }
 

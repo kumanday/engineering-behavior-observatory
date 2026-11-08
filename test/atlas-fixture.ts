@@ -1,5 +1,5 @@
 import { withRuntimeFixture } from "./with-runtime-fixture.js";
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { HookInput, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -19,7 +19,7 @@ const sha = (value: unknown): `sha256:${string}` => `sha256:${digestMetadata(val
 const json = (path: string, value: unknown) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 
 /** Deterministic synthetic identities; injected capture never calls a model. */
-export async function createAtlasFixture(root: string): Promise<string> {
+export async function createAtlasFixture(root: string, options: {legacyManifest?: boolean} = {}): Promise<string> {
   root = resolve(root);
   mkdirSync(root, { recursive: true });
   const corpusRoot = join(root, "corpus");
@@ -49,6 +49,13 @@ export async function createAtlasFixture(root: string): Promise<string> {
       yield { type: "result", subtype: "success", duration_ms: 12, duration_api_ms: 8, is_error: false, num_turns: 1, stop_reason: null, total_cost_usd: 0.01, usage: { input_tokens: 3, output_tokens: 2 }, modelUsage: {}, permission_denials: [], result: "Synthetic complete", session_id: `synthetic-session-${index}`, uuid: `synthetic-result-${index}` } as unknown as SDKMessage;
     } });
     await withRuntimeFixture("claude-agent-sdk", () => captureClaudeAgentSdkRun({ definition, startingWorkspacePath: start, workspace: { setup: async () => ({ status: "ready", path: final, artifactId: "workspace", retained: true }) }, configuration: { prompt: "Synthetic fixture only.", model: definition.run.model.id, tools: ["Read"], permissionMode: "dontAsk" }, expectedHooks: ["SessionStart"], query }));
+    if (options.legacyManifest) {
+      // Authored v1 interchange for exercising shipped readers on these native records.
+      const path = join(bundleRoot, "manifest.json"), manifest = JSON.parse(readFileSync(path, "utf8"));
+      manifest.schemaVersion = "run-manifest/v1"; delete manifest.runtimeLock;
+      manifest.evidence = manifest.evidence.filter((entry: {source: string}) => entry.source !== "ebo-runtime");
+      json(path, manifest); rmSync(join(bundleRoot, "runtime"), {recursive: true, force: true});
+    }
     if (index !== 6) {
       const path = join(root, `observations-${index}.json`);
       json(path, await createAgentSdkStructuralObservationSet(bundleRoot)); observationSets.push({ bundleRoot, path });
