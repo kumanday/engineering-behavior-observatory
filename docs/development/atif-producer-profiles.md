@@ -62,3 +62,12 @@ requiring today's registry to reproduce an admission key. Source and receipt
 integrity remain mandatory. New core or overlay semantics change derivation
 identity and require selective downstream dependency reconciliation. Frozen
 compatibility readers and the rc.1 artifact retain their own implementations.
+
+## Mapping status
+
+In `ebo.atif-core-mapping/v1`, `producerStatus: "supported"` means **core-readable**:
+the document has an ATIF interpretation available through EBO's generic reader.
+Overlay admission is recorded separately by the import manifest's `overlays`
+and the mapping's optional `profileDigest`. An unknown producer normally has
+`producerStatus: "supported"` and no overlay digest. This field conveys no
+claim about native harness support, complete history or behavioral equivalence.

@@ -38,6 +38,8 @@ ${rows.map(({ profile, row, calls, results }) => `| [${row.name}](../harnesses/$
 
 All imported measurements describe recorded documents. They do not establish complete attempts, successful execution, native request coverage or equivalent harness behavior. Optional overlays interpret verified producer extensions and record their reasons; core counts and retained source content remain available outside an overlay’s verified version range.
 
+ATIF token fields keep their source definitions: \`prompt_tokens\` includes cached input, \`cached_tokens\` is a subset of that input, and \`completion_tokens\` includes reasoning and tool calls. Core retains per-step values as separately cited resource observations and recorded final totals as source-labelled document measurements. It does not add the final total to the step values or turn them into a complete-attempt total. Generic imports leave the common normalized input/output token totals unavailable; native and overlay conversions can use different input/cache definitions. The Pi overlay establishes its uncached-input conversion only with sufficient cache-component evidence. Atlas displays this accounting boundary beside the imported origin label.
+
 [Limitation codes](atif-limitations.md) define the confidence and availability labels. [ATIF interpretation](../development/atif-producer-profiles.md) explains core projection and optional overlays.
 
 The matrix test reads membership from the native adapter registry, imports every fixture through core, and compares this document byte for byte. Update it after building with \`node dist/test/atif-harness-coverage-write.js\`; run \`node --test dist/test/atif-harness-coverage.test.js\` to check it.

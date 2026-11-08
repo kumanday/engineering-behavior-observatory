@@ -284,3 +284,24 @@ test("the admission interpretation binds changes to the compatibility projector 
     assert.ok((await readImportedBehaviorEvidence(destination)).dataset.events.length > 0);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("generic token values retain ATIF source definitions separately from common normalized aliases", async () => {
+  const source = { schema_version: "ATIF-v1.8", agent: { name: "acme-agent", version: "9.9.9" },
+    steps: [10, 12].map((prompt_tokens, index) => ({ step_id: index + 1, source: "agent", message: "Recorded response.", llm_call_count: 1,
+      metrics: { prompt_tokens, completion_tokens: 2, cached_tokens: 4 } })),
+    final_metrics: { total_prompt_tokens: 22, total_completion_tokens: 4, total_cached_tokens: 8 } };
+  const input = { read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "token-definitions", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` as const };
+  const evidence = await projectAtifV2(input);
+  const { createStructuralObservationSetV2 } = await import("../src/analysis-v2.js");
+  const observations = await createStructuralObservationSetV2(evidence.dataset, evidence.resolver);
+  const prompt = observations.observations.filter(({ measure }) => measure === "resource-prompt_tokens-unknown-source-declared");
+  assert.deepEqual(prompt.map(({ value }) => value.status === "known" ? value.value : null).sort((a, b) => Number(a) - Number(b)), [10, 12]);
+  assert.ok(prompt.every(({ scope, citations }) => scope.kind === "recorded-document" && citations.length > 0));
+  const { normalizeAtif } = await import("../src/atif-normalizer.js");
+  const normalized = await normalizeAtif(input);
+  assert.equal(normalized.mapping.producerStatus, "supported");
+  assert.equal(normalized.mapping.profileDigest, undefined);
+  assert.equal(normalized.mapping.measures["input-token-count"]!.status, "unavailable");
+  assert.equal(normalized.mapping.measures["output-token-count"]!.status, "unavailable");
+  assert.deepEqual(normalized.mapping.measures["source-final-total_prompt_tokens"], { status: "known", value: 22, unit: "tokens" });
+});

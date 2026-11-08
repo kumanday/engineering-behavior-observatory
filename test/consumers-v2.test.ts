@@ -94,6 +94,8 @@ test("Atlas units retain typed unknowns and use the same pointed citation digest
   try {
     writeAtlasViewV2(view, join(root, "view")); const html = readFileSync(join(root, "view/index.html"), "utf8");
     assert.equal(html.includes("</script><script>window.fixtureXss"), false); assert.ok(html.includes("textContent"));
+    assert.match(html, /input includes cached tokens/u);
+    assert.match(html, /output includes reasoning and tool calls/u);
     assert.throws(() => writeAtlasViewV2(view, join(root, "view")), /EEXIST/u);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

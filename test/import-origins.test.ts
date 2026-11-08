@@ -124,6 +124,8 @@ test("an unknown producer and owned capture build a mixed Atlas cohort with exac
     assert.equal(view.cases.length, 1); assert.equal(view.cases[0]!.origin, "imported");
     assert.equal(view.cases[0]!.outcome, "unavailable");
     assert.match(renderAtlas(view, false), /Imported evidence/u);
+    assert.match(renderAtlas(view, false), /input includes cached tokens/u);
+    assert.match(renderAtlas(view, false), /output includes reasoning and tool calls/u);
     writeFileSync(join(root, "claims-source.json"), JSON.stringify({ study: "imported-test", source: { file: "synthetic", title: "Synthetic" }, number_kinds: {},
       claims: [{ id: "C1", type: "descriptive", text: "Synthetic citation test.", source_section: "fixture", numbers: [], support: [assertion.id] }] }));
     writeFileSync(join(root, "bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v1", id: "imported-test", title: "Imported Pi", claims: "claims-source.json", cohorts: [{ id: "pi", atlasRequest: "atlas.json" }] }));
