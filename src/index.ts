@@ -733,3 +733,8 @@ export { selectRuntimeRelease, RuntimePolicyError } from "./runtime-resolution.j
 export type { RuntimePolicy, RuntimeRelease, RuntimeSelection } from "./runtime-resolution.js";
 
 export {bindStudyRuntimeQueue, queueRunId, type StudyFreeze, type RuntimeBoundQueue} from "./study-runtime-bindings.js";
+
+export {prepareHarnessVerification, validateHarnessVerificationCandidate, admitHarnessVerification, withdrawHarnessVerification} from "./harness-verification-candidate.js";
+export type {VerificationRequest, VerificationCase, VerificationCandidate} from "./harness-verification-candidate.js";
+export {readVerificationCatalog, snapshotVerification, evaluateVerification, assertVerificationReceipt, assertVerificationSnapshot, harnessCaptureContract, VerificationError} from "./harness-verification.js";
+export type {HarnessVerificationReceipt, VerificationAdmission, VerificationCatalog, VerificationSubject, VerificationScope, VerificationSnapshot, VerificationResult, VerificationClaim, VerificationClaimResult} from "./harness-verification.js";

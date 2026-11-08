@@ -5,6 +5,7 @@ on:
     paths:
       - 'src/**'
       - 'schemas/**'
+      - 'verification/**'
       - 'test/**'
       - 'compatibility/**'
       - 'scripts/atif-*'

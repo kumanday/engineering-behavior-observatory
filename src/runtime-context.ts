@@ -1,5 +1,5 @@
+import {withVerificationContext, currentVerificationResult} from "./verification-context.js";
 import {coordinatorRuntimeEnvironment} from "./runtime-environment.js";
-import { readFileSync } from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
@@ -95,15 +95,13 @@ export async function withStudyRuntime<T>(binding: { studyRoot: string; role: st
       context.packages.set(component.name, { root, metadata });
       context.probes.push({ componentId: component.id, package: component.name, expectedVersion: component.selection.release.version, actualVersion: metadata.version, source: "package-metadata" });
       if (!component.sdk) continue;
-      const baseline = conformanceVersions()[component.name];
-      if (baseline !== metadata.version) launch.warnings.push(`HARNESS_VERSION_UNVERIFIED: ${component.name}@${metadata.version}; capture coverage is unverified for this release.`);
       const specifiers = component.name === "@factory/droid-sdk" ? [component.name, `${component.name}/node`] : [component.name];
       for (const specifier of specifiers) {
         const entry = await resolveRuntimeImport(specifier, launch.runtimeRoot);
         const rel = relative(launch.runtimeRoot, entry);
         if (rel === ".." || rel.startsWith(`..${sep}`)) throw new RuntimePolicyError("RUNTIME_SDK_NOT_ISOLATED", specifier);
         const module = await import(pathToFileURL(entry).href) as Record<string, any>;
-        assertSdkRuntimeContract(specifier, module); context.modules.set(specifier, module);
+        assertSdkRuntimeContract(specifier, module); context.modules.set(specifier, module); (launch.contractChecks ??= []).push(specifier);
       }
     }
     await writeFile(join(binding.studyRoot, launch.receiptLocator), canonicalizeMetadata({ ...launch, probes: context.probes, status: "probed" }), { mode: 0o600 });
@@ -111,7 +109,24 @@ export async function withStudyRuntime<T>(binding: { studyRoot: string; role: st
     await writeFile(join(binding.studyRoot, launch.receiptLocator), canonicalizeMetadata({ ...launch, probes: context.probes, status: "probe-failed", error: error instanceof Error ? error.message : String(error) }), { mode: 0o600 });
     throw error;
   }
-  return storage.run(context, callback);
+  return storage.run(context, () => withVerificationContext(launch.verification, async () => {
+    refreshRuntimeVerificationWarnings();
+    await writeFile(join(binding.studyRoot, launch.receiptLocator), canonicalizeMetadata({...launch, probes: context.probes, status: "probed"}), {mode: 0o600});
+    return callback();
+  }, null, launch.verificationSubject));
+}
+/** Confidence warnings describe frozen evidence, independently of current launch security checks. */
+export function refreshRuntimeVerificationWarnings(): void {
+  const context = currentStudyRuntime(); if (!context?.launch.verificationSubject) return;
+  const result = currentVerificationResult();
+  context.launch.warnings = context.launch.warnings.filter(value => !/^HARNESS_(?:VERSION_UNVERIFIED|CAPTURE_UNVERIFIED|VERIFICATION_CONFLICT):/u.test(value));
+  if (result.state === "unverified") context.launch.warnings.push("HARNESS_VERSION_UNVERIFIED: no admitted matching runtime probe; capture evidence remains readable.");
+  else {
+    const unknown = Object.entries(result.claims).filter(([claim, state]) => !["installation", "runtime-probe", "module-api"].includes(claim) && state !== "checked").map(([claim]) => claim);
+    if (unknown.length) context.launch.warnings.push(`HARNESS_CAPTURE_UNVERIFIED: ${unknown.join(", ")}; only the named checked capabilities have verification evidence for this profile and route.`);
+  }
+  const conflicts = Object.entries(result.claims).filter(([, state]) => state === "conflict").map(([claim]) => claim);
+  if (conflicts.length) context.launch.warnings.push(`HARNESS_VERIFICATION_CONFLICT: ${conflicts.join(", ")}; an explicit resolving admission is required.`);
 }
 export function lockedRuntimeExecutable(componentId: string): { path: string; version: string } {
   const context = currentStudyRuntime(), component = context?.launch.roots.find((component) => component.id === componentId);
@@ -155,18 +170,14 @@ export async function runInStudyRuntime<T>(role: string, binding: StudyRuntimeBi
   });
 }
 
-function conformanceVersions(): Record<string, string> {
-  const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
-  return { ...manifest.dependencies, ...manifest.devDependencies };
-}
-
-export type RuntimeExecutionSummary = { lockDigest: RuntimeLaunch["lockDigest"]; role: string; receiptLocator: string; warnings: string[];
+export type RuntimeExecutionSummary = { lockDigest: RuntimeLaunch["lockDigest"]; role: string; receiptLocator: string; warnings: string[]; verification?: import("./harness-verification.js").VerificationResult;
   versions: { componentId: string; name: string; expectedVersion: string; actualVersion: string | null; source: RuntimeProbe["source"] | null }[] };
 export function runtimeExecutionSummary(): RuntimeExecutionSummary | undefined {
   const context = currentStudyRuntime();
   if (!context) return undefined;
+  refreshRuntimeVerificationWarnings();
   return { lockDigest: context.launch.lockDigest, role: context.launch.role, receiptLocator: context.launch.receiptLocator,
-    warnings: [...context.launch.warnings], versions: context.launch.roots.map((root) => {
+    warnings: [...context.launch.warnings], ...(context.launch.verificationSubject ? {verification: currentVerificationResult()} : {}), versions: context.launch.roots.map((root) => {
       const probe = context.probes.findLast((probe) => probe.componentId === root.id);
       return { componentId: root.id, name: root.name, expectedVersion: root.selection.release.version, actualVersion: probe?.actualVersion ?? null, source: probe?.source ?? null };
     }) };

@@ -58,13 +58,13 @@ async function assertUnfamiliarRuntimeReadback(root: string, eventCount: number)
     writeFileSync(path, JSON.stringify(changed));
     const evidence = await createRetainedBehaviorEvidence(copy);
     assert.equal(evidence.dataset.events.length, eventCount, `${manifest.run.harness.id}: unfamiliar versions preserve normalized events`);
-    assert.ok(evidence.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_UNVERIFIED"), manifest.run.harness.id);
+    assert.ok(evidence.verification?.limitations.includes("HARNESS_VERSION_UNVERIFIED"), manifest.run.harness.id);
     const projected = await createRetainedBehaviorEvidenceV2(copy);
     assert.ok(projected.dataset.sources[0]!.limitations?.includes("HARNESS_VERSION_UNVERIFIED"));
     assert.ok(projected.dataset.events.length > 0);
     changed.run.harness.version = "9000.2.0"; writeFileSync(path, JSON.stringify(changed));
     const disagreement = await createRetainedBehaviorEvidence(copy);
     assert.equal(disagreement.dataset.events.length, eventCount, "version disagreement is evidence metadata, not a format failure");
-    assert.ok(disagreement.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_UNVERIFIED"));
+    assert.ok(disagreement.verification?.limitations.includes("HARNESS_VERSION_UNVERIFIED"));
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 }

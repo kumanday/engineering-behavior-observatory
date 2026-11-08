@@ -349,7 +349,7 @@ export async function captureCodexAppServerRunOwned(options: CaptureCodexAppServ
   };
   const terminal = structuredClone(attempt.terminal);
   if (workspaceOutcome === undefined) delete terminal.workspaceArtifactId;
-  const manifest = await assembler.finalize({ terminal, missingEvidence, qualification: qualificationOptions });
+  const manifest = await assembler.finalize({ terminal, attemptRecord: attempt.record, missingEvidence, qualification: qualificationOptions });
   const qualification = await qualifyRunBundle(assembler.bundleRoot, qualificationOptions);
   if (capture === undefined || capture.threadId === undefined) return { runtime: runtimeExecutionSummary(), attempt, manifest, qualification, capture };
   const { dataset, coverage } = await describeAndValidateCodexDataset(capture);

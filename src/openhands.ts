@@ -1,6 +1,6 @@
+import {legacyV1Profile} from "./legacy-v1-confidence.js";
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, recordRuntimeProbe, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { withLockedOpenHandsServer } from "./openhands-runtime.js";
-import { retainedVersionProfile } from "./retained-version-policy.js";
 import type {
   AdapterCapabilityProfile,
   CapturedNativeRecord,
@@ -13,6 +13,7 @@ import type {
 
 export const OPENHANDS_AGENT_SERVER_VERSION = "1.54.0";
 /** Agent Server versions with checked conformance fixtures; other retained releases carry confidence limitations. */
+/** Historical fixture inventory; not a runtime confidence list. */
 export const RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS: readonly string[] = [OPENHANDS_AGENT_SERVER_VERSION, "1.46.0", "1.44.1"];
 export const OPENHANDS_TYPESCRIPT_CLIENT_VERSION = "1.54.0";
 export const OPENHANDS_DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
@@ -63,7 +64,7 @@ export const OPENHANDS_AGENT_SERVER_CAPABILITIES = {
 
 /** Retained evidence keeps the identity of the runtime that produced it. */
 export function openHandsCapabilityProfile(version: string): AdapterCapabilityProfile {
-  return retainedVersionProfile({ ...OPENHANDS_AGENT_SERVER_CAPABILITIES, adapterId: `openhands-agent-server-v${version}` }, RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS, version);
+  return legacyV1Profile({ ...OPENHANDS_AGENT_SERVER_CAPABILITIES, adapterId: `openhands-agent-server-v${version}` }, "openhands-agent-server", version);
 }
 
 export interface OpenHandsWebSocket {
@@ -205,14 +206,7 @@ async function captureOpenHandsConversation(request: OpenHandsCaptureRequest): P
 
   let serverInfo: Record<string, unknown> = {};
   try {
-    const deadline = Date.now() + (request.timeoutMs ?? 120_000);
-    for (;;) {
-      try {serverInfo = await requestJson(fetch, baseUrl, "/server_info", undefined, request.sessionApiKey, maxResponseBytes, request.signal, request.timeoutMs); break;}
-      catch (error) {
-        if (!(error instanceof TypeError) || (error.cause as {code?: string} | undefined)?.code !== "ECONNREFUSED" || Date.now() >= deadline || request.signal?.aborted) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-    }
+    serverInfo = await readOpenHandsServerInfo(fetch, baseUrl, request.sessionApiKey, maxResponseBytes, request.signal, request.timeoutMs);
     append("server-info", serverInfo);
     if (typeof serverInfo.version !== "string") throw new Error("RUNTIME_PROBE_INVALID: OpenHands /server_info lacks a version.");
     await recordRuntimeProbe("openhands", serverInfo.version, "server-info");
@@ -862,6 +856,19 @@ async function readFinalEvents(
     pageId = typeof page.next_page_id === "string" && page.next_page_id.length > 0 ? page.next_page_id : undefined;
   } while (pageId !== undefined);
   return events;
+}
+
+/** Wait for the owned server's HTTP listener; other failures remain explicit. */
+export async function readOpenHandsServerInfo(fetch: typeof globalThis.fetch, baseUrl: URL | string, sessionApiKey?: string,
+  maxResponseBytes = 1024 * 1024, signal?: AbortSignal, timeoutMs = 120_000): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {return await requestJson(fetch, new URL(baseUrl), "/server_info", undefined, sessionApiKey, maxResponseBytes, signal, Math.max(1, deadline - Date.now()));}
+    catch (error) {
+      if (!(error instanceof TypeError) || (error.cause as {code?: string} | undefined)?.code !== "ECONNREFUSED" || Date.now() >= deadline || signal?.aborted) throw error;
+      await new Promise(resolve => setTimeout(resolve, Math.min(100, Math.max(1, deadline - Date.now()))));
+    }
+  }
 }
 
 async function requestJson(

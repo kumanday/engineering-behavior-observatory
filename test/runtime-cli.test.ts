@@ -35,3 +35,29 @@ test("runtime CLI freezes an exact SDK graph, inspects the freeze and checks it 
     for (const document of documents) assert.ok(document.warnings.some((warning: string) => /RUNTIME_DEPENDENCY_DEPRECATED.*fixture-deprecated-dependency@2.0.0.*platform API/u.test(warning)), JSON.stringify(document));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("runtime CLI prepares and admits real probe outputs at the mocked registry boundary, then freezes the selected catalog", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ebo-verification-cli-")), options = fakeSdkRuntimeOptions("9.9.9", true); let output = "";
+  const run = async (args: string[]) => {output = ""; const code = await runRuntimeCommandLine(args, text => {output += text;}, options); assert.equal(code, 0, output); return JSON.parse(output);};
+  try {
+    const qualification = join(root, "qualification"), request = join(root, "request.json"), candidate = join(root, "candidate.json"), operator = join(root, "operator.json"), catalog = join(root, "catalog");
+    await writeFile(request, JSON.stringify({studyId: "qualification", roles: ["cursor-sdk"]}));
+    await run(["freeze", qualification, request]);
+    await writeFile(request, JSON.stringify({studyRoot: qualification, role: "cursor-sdk"}));
+    const probe = await run(["verify", request, candidate]);
+    assert.equal(probe.claims["module-api"], "checked");
+    assert.match(probe.warnings.join(), /RUNTIME_DEPENDENCY_DEPRECATED.*fixture-deprecated-dependency@2.0.0/);
+    await writeFile(operator, JSON.stringify({id: "test-only", reason: "Authored test registry; never a production verification seed"}));
+    options.query = async () => ({vulns: [{id: "GHSA-new-at-admission", summary: "New operator warning"}]});
+    const admitted = await run(["verification", "admit", catalog, candidate, operator]);
+    assert.match(admitted.warnings.join(), /GHSA-new-at-admission/);
+    assert.match(admitted.warnings.join(), /RUNTIME_DEPENDENCY_DEPRECATED.*fixture-deprecated-dependency@2.0.0/);
+    assert.equal((await run(["verification", "inspect", catalog])).receipts.length, 1);
+    await writeFile(request, JSON.stringify({studyId: "research", roles: ["cursor-sdk"]}));
+    const research = await run(["freeze", join(root, "research"), request, "--verification-catalog", catalog]);
+    assert.equal(research.groups[0].verification["cursor-sdk"].state, "probe-checked");
+    await writeFile(operator, JSON.stringify({id: "test-only", reason: "Explicit fixture withdrawal", receiptDigests: [probe.receiptDigest]}));
+    await run(["verification", "withdraw", catalog, operator]);
+    assert.equal((await run(["inspect", join(root, "research")])).groups[0].verification["cursor-sdk"].state, "probe-checked");
+  } finally {await rm(root, {recursive: true, force: true});}
+});

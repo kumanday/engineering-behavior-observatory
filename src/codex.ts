@@ -1,6 +1,6 @@
+import {legacyV1Profile} from "./legacy-v1-confidence.js";
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, probeLockedRuntimeExecutable, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
-import { retainedVersionProfile } from "./retained-version-policy.js";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { lstat, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -42,6 +42,7 @@ import {
 
 export const CODEX_APP_SERVER_VERSION = "0.162.1";
 /** App-server versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
+/** Historical fixture inventory; not a runtime confidence list. */
 export const RETAINED_CODEX_APP_SERVER_VERSIONS: readonly string[] = [CODEX_APP_SERVER_VERSION, "0.157.0", "0.153.4", "0.150.1"];
 export const CODEX_ADAPTER_VERSION = "0.1.0";
 export const CODEX_HARNESS = "codex-app-server";
@@ -681,9 +682,9 @@ export async function describeAndValidateCodexDataset(
   const dataset = describeNormalizedDataset({
     capture,
     normalization,
-    capabilityProfile: retainedVersionProfile(runtimeVersion === "0.150.1" ? CODEX_0_150_1_CAPABILITIES
+    capabilityProfile: legacyV1Profile(runtimeVersion === "0.150.1" ? CODEX_0_150_1_CAPABILITIES
       : runtimeVersion === "0.153.4" ? CODEX_0_153_4_CAPABILITIES
-      : runtimeVersion === "0.157.0" ? CODEX_0_157_0_CAPABILITIES : CODEX_APP_SERVER_CAPABILITIES, RETAINED_CODEX_APP_SERVER_VERSIONS, runtimeVersion),
+      : runtimeVersion === "0.157.0" ? CODEX_0_157_0_CAPABILITIES : CODEX_APP_SERVER_CAPABILITIES, "codex-app-server", runtimeVersion),
     adapterVersion: CODEX_ADAPTER_VERSION,
     nativeType: codexNativeType,
   });

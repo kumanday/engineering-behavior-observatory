@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "ebo.legacy-v1-annotation-policy/v1",
+  "sourceCommit": "55b187cff33782c26b25208ce4a7dcf991d9d4c3",
+  "purpose": "Reproduce historical normalized v1 payload annotations. Never selects current verification or eligibility.",
+  "versions": {
+    "claude-agent-sdk": [
+      "0.3.296"
+    ],
+    "codex-app-server": [
+      "0.162.1",
+      "0.157.0",
+      "0.153.4",
+      "0.150.1"
+    ],
+    "devin-cli": [
+      "3000.11.3"
+    ],
+    "cursor-sdk": [
+      "1.0.37",
+      "1.0.31"
+    ],
+    "pi-sdk": [
+      "1.1.0",
+      "0.87.1",
+      "0.85.1"
+    ],
+    "pi-sdk-adapter": [
+      "1.0.0"
+    ],
+    "factory-droid": [
+      "0.238.0"
+    ],
+    "@factory/droid-sdk": [
+      "0.9.1"
+    ],
+    "factory-adapter": [
+      "0.1.0"
+    ],
+    "openhands-agent-server": [
+      "1.54.0",
+      "1.46.0",
+      "1.44.1"
+    ],
+    "deepseek-harness": [
+      "0.2.0-rc.2",
+      "0.1.7-rc.2",
+      "0.1.1-rc.2"
+    ]
+  }
+}

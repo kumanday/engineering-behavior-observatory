@@ -173,8 +173,11 @@ model and one bounded synthetic local workspace edit through the same command.
 ## Retained evidence and ATIF
 
 Retained evidence is read through this adapter's native format contract.
-Unfamiliar runtime or capture-adapter versions add a confidence limitation;
-version declarations and disagreements remain visible as cohort metadata.
+The study freezes verification receipts for its runtime, capture contract and
+recorded scope. The [verification catalog](../reference/harness-verification.md)
+reports installation probes separately from named capture capabilities. Missing
+or conflicting evidence adds a confidence limitation; version declarations and
+disagreements remain visible as cohort metadata.
 Malformed records and corrupted source bindings receive specific diagnostics.
 [Limitation definitions](../reference/atif-limitations.md) explain version confidence.
 

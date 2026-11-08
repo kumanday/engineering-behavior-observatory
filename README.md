@@ -130,7 +130,7 @@ harness inside that environment. Existing packet-based studies remain supported
 and keep the workflow below.
 
 Prepare an admitted, frozen task packet and a queue with your harness
-configuration. [Freeze the study’s runtime releases](docs/reference/study-runtimes.md) with the default 24-hour release age gate, inspect its security and deprecation warnings, and bind the queue. All arms and reruns reuse that lock. Then run one selected entry:
+configuration. [Freeze the study’s runtime releases](docs/reference/study-runtimes.md) with the default 24-hour release age gate, inspect its security and deprecation warnings, and bind the queue. All arms and reruns reuse that lock. Its [verification snapshot](docs/reference/harness-verification.md) distinguishes installation probes from capture capabilities checked for a specific profile and model route. Then run one selected entry:
 
 ```sh
 ebo agent-sdk run study/bundle study/queue.json <run-id> study/runs

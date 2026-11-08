@@ -1,3 +1,4 @@
+import {readVerificationCatalog, snapshotVerification, runtimeVerificationSubject, runtimeExecutionVerificationSubject, assertVerificationSnapshot, verificationDigest, type VerificationSnapshot, type VerificationSubject} from "./harness-verification.js";
 import { refreshFrozenRuntimeRelease } from "./runtime-status.js";
 import {assertStudyRuntimeRequest} from "./runtime-request.js";
 import {discoverArtifactProofs} from "./runtime-proofs.js";
@@ -18,18 +19,26 @@ type Hash = `sha256:${string}`;
 export type StudyRuntimeRequest = { studyId: string; roles: string[]; policy?: RuntimePolicy;
   harnessPolicies?: Record<string, RuntimePolicy>; overrides?: Record<string, string>; roleTargets?: Record<string, {platform: string; architecture: string}>; target?: { platform: string; architecture: string } };
 export type StudyRuntimeGroup = { id: string; roles: string[]; roots: SelectedRuntimeComponent[]; components: LockedRuntimeDependency[];
-  plan: RuntimeInstallPlan; installation: { key: string; receiptDigest: Hash } };
-export type StudyRuntimeLock = { schemaVersion: "ebo.study-runtime-lock/v1"; studyId: string; request: StudyRuntimeRequest; requestDigest: Hash;
+  plan: RuntimeInstallPlan; verification?: Record<string, VerificationSnapshot>; installation: { key: string; receiptDigest: Hash } };
+export type StudyRuntimeLock = { schemaVersion: "ebo.study-runtime-lock/v1" | "ebo.study-runtime-lock/v2"; studyId: string; request: StudyRuntimeRequest; requestDigest: Hash;
   createdAt: string; target: { platform: string; architecture: string }; groups: StudyRuntimeGroup[]; security: RuntimeSecurityReceipt; digest: Hash };
-export type StudyRuntimeOptions = RuntimeRegistryOptions & RuntimeSecurityOptions & { run?: RuntimeCommandRunner; python?: string; pythonAbi?: string; uv?: string };
-export type RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v1"; lockDigest: Hash; role: string; runtimeRoot: string;
+export type StudyRuntimeOptions = RuntimeRegistryOptions & RuntimeSecurityOptions & { run?: RuntimeCommandRunner; python?: string; pythonAbi?: string; uv?: string; verificationCatalogRoot?: string };
+export type RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v1" | "ebo.runtime-launch/v2"; verification?: VerificationSnapshot; verificationSubject?: VerificationSubject; contractChecks?: string[]; lockDigest: Hash; role: string; runtimeRoot: string;
   roots: SelectedRuntimeComponent[]; platform: string; abi: string; security: RuntimeSecurityReceipt; warnings: string[]; receiptLocator: string };
 const hash = (value: unknown): Hash => `sha256:${digestMetadata(value).value}`;
 const paths = (root: string) => ({ lock: join(resolve(root), "runtimes", "lock.json"), cache: join(resolve(root), "runtimes", "cache"), receipts: join(resolve(root), "runtimes", "launches") });
 const withoutDigest = (lock: StudyRuntimeLock): Omit<StudyRuntimeLock, "digest"> => { const { digest: _digest, ...value } = lock; return value; };
 export async function readStudyRuntimeLock(studyRoot: string): Promise<StudyRuntimeLock> {
   const lock = JSON.parse(await readFile(paths(studyRoot).lock, "utf8")) as StudyRuntimeLock;
-  if (lock.schemaVersion !== "ebo.study-runtime-lock/v1" || !Array.isArray(lock.groups) || hash(withoutDigest(lock)) !== lock.digest || hash(lock.request) !== lock.requestDigest) throw new RuntimePolicyError("RUNTIME_LOCK_INTEGRITY", "Study runtime lock is malformed or changed.");
+  if (!["ebo.study-runtime-lock/v1", "ebo.study-runtime-lock/v2"].includes(lock.schemaVersion) || !Array.isArray(lock.groups) || hash(withoutDigest(lock)) !== lock.digest || hash(lock.request) !== lock.requestDigest) throw new RuntimePolicyError("RUNTIME_LOCK_INTEGRITY", "Study runtime lock is malformed or changed.");
+  if (lock.schemaVersion === "ebo.study-runtime-lock/v2") for (const group of lock.groups) {
+    if (!group.verification) throw new RuntimePolicyError("RUNTIME_LOCK_INTEGRITY", "Verification snapshot is absent from a v2 lock.");
+    for (const role of group.roles) {
+      const subject = runtimeVerificationSubject(role, group); if (!subject) continue;
+      const snapshot = group.verification[role]; assertVerificationSnapshot(snapshot);
+      if (verificationDigest({...subject, contractDigest: snapshot.subject.contractDigest}) !== verificationDigest(snapshot.subject)) throw new RuntimePolicyError("RUNTIME_LOCK_INTEGRITY", "Verification snapshot differs from its frozen runtime.");
+    }
+  }
   return lock;
 }
 /** Idempotent freeze. A different policy or composition requires a new study revision. */
@@ -89,10 +98,13 @@ export async function freezeStudyRuntimes(studyRoot: string, request: StudyRunti
       // Check the whole graph before any package can be loaded or executed.
       await checkRuntimeSecurity(components, options);
       const installed = await installRuntime(plan, { ...options, cacheRoot: locations.cache });
-      groups.push({ id: roles.join("+"), roles, roots, components, plan, installation: { key: installed.key, receiptDigest: hash(installed.receipt) } });
+      const verification: Record<string, VerificationSnapshot> = {};
+      const catalog = await readVerificationCatalog(options.verificationCatalogRoot);
+      for (const role of roles) {const subject = runtimeVerificationSubject(role, {roots, components, plan}); if (subject) verification[role] = snapshotVerification(subject, catalog);}
+      groups.push({ id: roles.join("+"), roles, roots, components, plan, verification, installation: { key: installed.key, receiptDigest: hash(installed.receipt) } });
     }
     const security = await checkRuntimeSecurity(groups.flatMap((group) => group.components), options);
-    const value: Omit<StudyRuntimeLock, "digest"> = { schemaVersion: "ebo.study-runtime-lock/v1", studyId: request.studyId, request: structuredClone(request), requestDigest: hash(request), createdAt, target, groups, security };
+    const value: Omit<StudyRuntimeLock, "digest"> = { schemaVersion: "ebo.study-runtime-lock/v2", studyId: request.studyId, request: structuredClone(request), requestDigest: hash(request), createdAt, target, groups, security };
     const lock = { ...value, digest: hash(value) };
     await writeFile(locations.lock, canonicalizeMetadata(lock), { flag: "wx", mode: 0o600 }); return lock;
   } catch (error) {
@@ -128,7 +140,7 @@ export async function prepareRuntimeLaunch(studyRoot: string, role: string, opti
   const security = await checkRuntimeSecurity(lock.groups.flatMap((group) => group.components), options);
   const runtimeRoot = join(locations.cache, group.installation.key), receipt = await verifyInstalledRuntime(runtimeRoot, group.plan, options);
   if (hash(receipt) !== group.installation.receiptDigest) throw new RuntimePolicyError("RUNTIME_CACHE_INTEGRITY", "Installation receipt differs from the study freeze.");
-  const launch: RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v1", lockDigest: lock.digest, role, runtimeRoot, roots: group.roots, platform: group.plan.platform, abi: group.plan.abi, security, warnings: [...warnings, ...security.warnings], receiptLocator };
+  const launch: RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v2", ...(group.verification?.[role] ? {verification: group.verification[role]} : {}), ...(runtimeExecutionVerificationSubject(role, group) ? {verificationSubject: runtimeExecutionVerificationSubject(role, group)} : {}), lockDigest: lock.digest, role, runtimeRoot, roots: group.roots, platform: group.plan.platform, abi: group.plan.abi, security, warnings: [...warnings, ...security.warnings], receiptLocator };
   await mkdir(locations.receipts, { recursive: true, mode: 0o700 });
   await writeFile(join(resolve(studyRoot), receiptLocator), canonicalizeMetadata(launch), { flag: "wx", mode: 0o600 }); return launch;
   } catch (error) {

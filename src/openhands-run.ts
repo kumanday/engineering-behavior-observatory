@@ -369,7 +369,7 @@ export async function captureOpenHandsAgentServerRunOwned(options: CaptureOpenHa
     const terminal = structuredClone(attempt.terminal);
     if (workspaceOutcome === undefined) delete terminal.workspaceArtifactId;
     const manifest = await assembler.finalize({
-      terminal,
+      terminal, attemptRecord: attempt.record,
       missingEvidence: [
         {
           kind: sessionWriter.count === 0 ? "session" : "session-identity",
@@ -437,7 +437,7 @@ export async function captureOpenHandsAgentServerRunOwned(options: CaptureOpenHa
       detail: workspaceCaptureError.slice(0, 4096),
     }] : []),
   ];
-  const manifest = await assembler.finalize({ terminal, missingEvidence, qualification: qualificationOptions });
+  const manifest = await assembler.finalize({ terminal, attemptRecord: attempt.record, missingEvidence, qualification: qualificationOptions });
   const qualification = await qualifyRunBundle(assembler.bundleRoot, qualificationOptions);
   const retainedWorkspacePath = workspace?.status === "ready" && workspaceOutcome === undefined
     ? workspace.path

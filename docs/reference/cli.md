@@ -218,7 +218,7 @@ coverage and compatibility semantics.
 ## Study runtimes
 
 `ebo runtime list` lists execution roles and their software components.
-`ebo runtime freeze <study-root> <request.json>` resolves and installs a study
+`ebo runtime freeze <study-root> <request.json> [--verification-catalog <path>]` resolves and installs a study
 composition. `ebo runtime inspect <study-root>` reads the retained selection.
 `ebo runtime check <study-root> <role>` verifies installation, withdrawal status,
 security results and the selected SDK API without an agent turn.
@@ -227,3 +227,13 @@ to the freeze. Add `--configuration-root <bundle-root>` when its source referenc
 live elsewhere. Native run commands and operational judge commands accept
 `--runtime-study <study-root>` to select that freeze.
 See [Study runtime locks](study-runtimes.md) for request fields and receipts.
+
+### Harness verification commands
+
+`ebo runtime verify <request.json> <candidate.json>` prepares a private probe or
+owned-capture verification candidate without submitting model turns.
+`ebo runtime verification admit <catalog> <candidate.json> <operator.json>`
+validates and admits reviewed evidence. `verification inspect <catalog>` reads
+the catalog; `verification withdraw <catalog> <withdrawal.json>` records an
+explicit withdrawal. See [harness verification](harness-verification.md) for
+request fields, claim definitions and immutable study snapshots.
