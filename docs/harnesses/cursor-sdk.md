@@ -1,10 +1,12 @@
 # Cursor TypeScript SDK harness
 
 EBO can execute one selected frozen queue entry through the first-party
-`@cursor/sdk` local-agent API. The integration pins SDK `1.0.37`, creates an
+`@cursor/sdk` local-agent API. The integration loads the study’s SDK, creates an
 attempt-owned `JsonlLocalAgentStore`, and retains stream messages, detailed
 callbacks, terminal `wait()` evidence, conversation history, billing readback,
 the official native store, and the final workspace before normalization.
+
+Freeze the `cursor-sdk` role using the [study runtime workflow](../reference/study-runtimes.md). The 1.0.37 development dependency establishes a conformance baseline.
 
 The SDK package version does not freeze Cursor's service, selected model, or
 separately deployed local runtime. The selected model must be an exact result
@@ -64,7 +66,7 @@ automation, or environment values are loaded from configuration. Supply
 `CURSOR_API_KEY` only in the process environment through the approved secret
 path; it is passed directly to the SDK and never written to an artifact. The
 SDK owns its child processes and does not expose a per-agent environment
-allowlist in this pin. During the deliberately single-entry SDK run, EBO keeps
+allowlist at the observed SDK boundary. During the deliberately single-entry SDK run, EBO keeps
 only platform/network variables and `CURSOR_API_KEY` in the process environment,
 records the allowed key names (never values), and restores the original
 environment after agent disposal. Concurrent in-process Cursor captures are

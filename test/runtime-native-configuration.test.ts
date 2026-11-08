@@ -8,6 +8,20 @@ import { validateFactoryConfiguration } from "../src/factory-droid.js";
 import { resolveCodexConfigurationRecord, CODEX_CONTRACT_DIGEST } from "../src/codex-run.js";
 import { resolveDevinConfigurationRecord, DEVIN_CONTRACT_DIGEST } from "../src/devin-run.js";
 import { resolveCursorSdkConfigurationRecord } from "../src/cursor-sdk-runner.js";
+import {resolveHarnessRuntimeRole} from "../src/study-runtime-bindings.js";
+import {createDeepSeekRuntimeComposition} from "../src/deepseek-adapter.js";
+import {readFile} from "node:fs/promises";
+import {resolve} from "node:path";
+
+test("a DeepSeek alias selects its native composition without adding an invalid adapter field", async () => {
+  const baseDir = resolve("test/fixtures/deepseek/compositions/minimal"), input = JSON.parse(await readFile(join(baseDir, "composition.json"), "utf8"));
+  const composition = createDeepSeekRuntimeComposition({...input, baseDir});
+  const root = await mkdtemp(join(tmpdir(), "ebo-deepseek-arm-"));
+  try {
+    const bytes = Buffer.from(JSON.stringify(composition)); await writeFile(join(root, "harness.json"), bytes);
+    assert.equal(resolveHarnessRuntimeRole(root, "deepseek-arm-a", {locator: "harness.json", digest: digestBytes(bytes)}), "deepseek-harness");
+  } finally {await rm(root, {recursive: true, force: true});}
+});
 
 test("native configuration accepts exact unfamiliar release versions for subsequent study-lock verification", async () => {
   assert.doesNotThrow(() => validateFactoryConfiguration({ executable: "/frozen/droid", version: "9.9.9", sdkVersion: "10.0.0", model: "fixture", autonomyLevel: "off", reasoningEffort: "low", permissionDecision: "cancel" } as any));

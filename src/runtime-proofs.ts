@@ -3,14 +3,14 @@ import {mkdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {canonicalizeMetadata, digestMetadata} from "./artifacts.js";
 import {discoverOciProofs} from "./runtime-oci.js";
-import {runtimeJson, type RuntimeRegistryOptions, type RuntimeRegistryRequest} from "./runtime-registry.js";
+import {runtimeJson, runtimeJsonResponse, type RuntimeRegistryOptions, type RuntimeRegistryRequest} from "./runtime-registry.js";
 import {RuntimePolicyError, type RuntimeRelease} from "./runtime-resolution.js";
 import type {RuntimeCommandRunner, RuntimeInstallReceipt} from "./runtime-installation.js";
 
 export type ArtifactProof =
   | {kind: "github-attestation"; repository: string; subject: string; bundles: unknown[]; digest: string}
   | {kind: "oci-cosign"; repository: string; image: string; mode: "signature" | "attestation"; manifests: unknown[]}
-  | {kind: "oci-buildkit-provenance"; subject: string; blobs: {digest: string; bytesBase64: string}[]};
+  | {kind: "oci-buildkit-provenance" | "oci-index-binding"; subject: string; blobs: {digest: string; bytesBase64: string}[]};
 
 /** Discover proofs only for selected artifacts; a missing proof is distinct from a failed lookup. */
 export async function discoverArtifactProofs(request: RuntimeRegistryRequest, release: RuntimeRelease, options: RuntimeRegistryOptions): Promise<ArtifactProof[]> {
@@ -21,17 +21,22 @@ export async function discoverArtifactProofs(request: RuntimeRegistryRequest, re
   const subjects = [...new Set([subject, ...(typeof release.metadata?.indexDigest === "string" ? [release.metadata.indexDigest] : [])])];
   for (const digest of subjects) {
     const bundles: unknown[] = [];
-    for (let page = 1; ; page++) {
-      let data: any;
-      try {data = await runtimeJson(`https://api.github.com/repos/${request.repository}/attestations/${digest}?per_page=100&page=${page}`, options);}
+    const base = `https://api.github.com/repos/${request.repository}/attestations/${digest}`, visited = new Set<string>();
+    let next: string | undefined = `${base}?per_page=100`;
+    while (next) {
+      if (visited.has(next) || visited.size >= 100 || new URL(next).origin !== "https://api.github.com" || new URL(next).pathname !== new URL(base).pathname) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "Invalid GitHub attestation pagination.");
+      visited.add(next);
+      let data: any, response: Response;
+      try {({data, response} = await runtimeJsonResponse(next, options));}
       catch (error) {if (error instanceof RuntimePolicyError && /HTTP 404\b/u.test(error.message)) break; throw error;}
       if (!Array.isArray(data.attestations)) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "GitHub attestations response lacks its bundle list.");
       for (const entry of data.attestations) {
-        if (!entry.bundle || typeof entry.bundle !== "object") throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "An offered GitHub attestation lacks its bundle.");
-        bundles.push(entry.bundle);
+        const bundle = entry.bundle ?? (typeof entry.bundle_url === "string" ? await runtimeJson(entry.bundle_url, options) : undefined);
+        if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "An offered GitHub attestation lacks its bundle.");
+        bundles.push(bundle);
       }
-      if (data.attestations.length < 100) break;
-      if (page >= 100) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "Too many publisher attestations.");
+      const link = /<([^>]+)>;\s*rel="?next"?/u.exec(response.headers.get("link") ?? "")?.[1];
+      next = link ? new URL(link, next).href : undefined;
     }
     if (bundles.length) proofs.push({kind: "github-attestation", repository: request.repository, subject: release.source === "oci" ? `oci://${request.name}@${digest}` : subject, bundles, digest: `sha256:${digestMetadata(bundles).value}`});
   }
@@ -65,7 +70,7 @@ export async function verifyArtifactProofs(proofs: readonly ArtifactProof[], art
         const bytes = Buffer.from(blob.bytesBase64, "base64");
         if (`sha256:${createHash("sha256").update(bytes).digest("hex")}` !== blob.digest) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", "Frozen OCI provenance changed.");
       }
-      output = {status: "content-linked", publisherIdentity: "unsigned", subject: proof.subject};
+      output = {status: "content-linked", publisherIdentity: proof.kind === "oci-index-binding" ? "not-applicable" : "unsigned", subject: proof.subject};
     }
     receipts.push({kind: proof.kind, result: {proofPath: path, proofDigest: `sha256:${digestMetadata(proof).value}`, output}});
   }

@@ -85,6 +85,7 @@ import {
 } from "./scheduler.js";
 
 const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <command> ...
+       ebo runtime <list|freeze|inspect|check|bind-queue> ...
        ebo matrix compile <experiment.json> <bundle-root> <queue.json> [--freeze-locator <task-id>=<path>]
        ebo queue inspect <queue.json>
        ebo queue validate <queue.json> [experiment.json] [--bundle-root <bundle-root>]

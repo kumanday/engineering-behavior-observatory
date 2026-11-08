@@ -70,7 +70,7 @@ export async function fetchOciReleases(request: RuntimeRegistryRequest, options:
   return releases;
 }
 
-/** Check standard referrers, Cosign tags and the selected platform's BuildKit provenance. */
+/** Check both platform and index proofs, including the OCI 1.1 referrers fallback. */
 export async function discoverOciProofs(request: RuntimeRegistryRequest, release: RuntimeRelease, options: RuntimeRegistryOptions): Promise<ArtifactProof[]> {
   const {base, get} = ociRegistryClient(request, options), subject = release.locator.split("@")[1]!;
   const proofs: ArtifactProof[] = [];
@@ -78,36 +78,59 @@ export async function discoverOciProofs(request: RuntimeRegistryRequest, release
     try {return await get(url);}
     catch (error) {if (error instanceof RuntimePolicyError && /HTTP 404\b/u.test(error.message)) return undefined; throw error;}
   };
-  const references = await optional(`${base}/referrers/${subject}`);
-  if (references && !Array.isArray(references.json.manifests)) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "OCI referrers response lacks its descriptor list.");
-  const descriptors = references?.json.manifests ?? [];
-  for (const mode of ["signature", "attestation"] as const) {
-    const suffix = mode === "signature" ? "sig" : "att";
-    const tagged = await optional(`${base}/manifests/${subject.replace(":", "-")}.${suffix}`);
-    const offered = descriptors.filter((entry: any) => String(entry.artifactType ?? "").includes(mode === "signature" ? "cosign.artifact.sig" : "cosign.artifact.att"));
-    if (tagged || offered.length) proofs.push({kind: "oci-cosign", repository: request.repository!, image: release.locator, mode, manifests: [...offered, ...(tagged ? [tagged.json] : [])]});
-  }
-  const provenance: {digest: string; bytesBase64: string}[] = [];
-  const retain = (value: {bytes: Buffer}, expected: string) => {verify(value.bytes, expected); provenance.push({digest: expected, bytesBase64: value.bytes.toString("base64")});};
+  const linked: {digest: string; bytesBase64: string}[] = [];
+  const retain = (value: {bytes: Buffer}, expected: string) => {verify(value.bytes, expected); linked.push({digest: expected, bytesBase64: value.bytes.toString("base64")});};
+  const subjects = [subject], builtkit: any[] = [];
   const indexDigest = release.metadata?.indexDigest;
   if (typeof indexDigest === "string") {
     const index = await get(`${base}/manifests/${indexDigest}`); retain(index, indexDigest);
-    if (!index.json.manifests?.some((entry: any) => entry.digest === subject)) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "Frozen OCI index no longer references its selected platform.");
-    descriptors.push(...index.json.manifests.filter((entry: any) => entry.annotations?.["vnd.docker.reference.type"] === "attestation-manifest" && entry.annotations?.["vnd.docker.reference.digest"] === subject));
+    if (!index.json.manifests?.some((entry: any) => entry.digest === subject)) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "Frozen OCI index does not reference its selected platform.");
+    subjects.push(indexDigest);
+    proofs.push({kind: "oci-index-binding", subject, blobs: [...linked]});
+    builtkit.push(...index.json.manifests.filter((entry: any) => entry.annotations?.["vnd.docker.reference.type"] === "attestation-manifest" && entry.annotations?.["vnd.docker.reference.digest"] === subject));
   }
-  for (const descriptor of descriptors) {
-    if (String(descriptor.artifactType ?? "").includes("cosign.artifact.")) continue;
-    const manifest = await get(`${base}/manifests/${descriptor.digest}`); retain(manifest, descriptor.digest);
-    for (const layer of manifest.json.layers ?? manifest.json.blobs ?? []) {
-      if (!String(layer.mediaType).includes("in-toto") && !String(layer.mediaType).includes("sigstore.bundle")) continue;
-      const blob = await get(`${base}/blobs/${layer.digest}`); retain(blob, layer.digest);
-      if (String(layer.mediaType).includes("sigstore.bundle")) {
-        const bundles = [blob.json];
-        proofs.push({kind: "github-attestation", repository: request.repository!, subject: `oci://${release.locator}`, bundles, digest: `sha256:${digestMetadata(bundles).value}`});
-      } else if (!Array.isArray(blob.json.subject) || !blob.json.subject.some((entry: any) => entry.digest?.sha256 === subject.slice(7))) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "OCI provenance does not name the selected image digest.");
+  const readReferences = async (digest: string): Promise<any[]> => {
+    const descriptors: any[] = [], visited = new Set<string>();
+    let next: string | undefined = `${base}/referrers/${digest}`;
+    while (next) {
+      const parsed = new URL(next), expected = new URL(`${base}/referrers/${digest}`);
+      if (visited.has(next) || visited.size >= 100 || parsed.origin !== expected.origin || parsed.pathname !== expected.pathname) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "Invalid OCI proof pagination.");
+      visited.add(next);
+      let references = await optional(next);
+      if (!references && visited.size === 1) references = await optional(`${base}/manifests/${digest.replace(":", "-")}`);
+      if (!references) break;
+      if (!Array.isArray(references.json.manifests)) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "OCI referrers response lacks its descriptor list.");
+      descriptors.push(...references.json.manifests);
+      const link = /<([^>]+)>;\s*rel="?next"?/u.exec(references.response.headers.get("link") ?? "")?.[1];
+      next = link ? new URL(link, next).href : undefined;
+    }
+    return descriptors;
+  };
+  let unsignedStatements = 0;
+  for (const digest of [...new Set(subjects)]) {
+    const descriptors = [...await readReferences(digest), ...(digest === subject ? builtkit : [])];
+    for (const mode of ["signature", "attestation"] as const) {
+      const tagged = await optional(`${base}/manifests/${digest.replace(":", "-")}.${mode === "signature" ? "sig" : "att"}`);
+      const offered = descriptors.filter((entry: any) => String(entry.artifactType ?? "").includes(mode === "signature" ? "cosign.artifact.sig" : "cosign.artifact.att"));
+      if (tagged || offered.length) proofs.push({kind: "oci-cosign", repository: request.repository!, image: `${request.name}@${digest}`, mode, manifests: [...offered, ...(tagged ? [tagged.json] : [])]});
+    }
+    for (const descriptor of descriptors) {
+      if (String(descriptor.artifactType ?? "").includes("cosign.artifact.")) continue;
+      const manifest = await get(`${base}/manifests/${descriptor.digest}`); retain(manifest, descriptor.digest);
+      for (const layer of manifest.json.layers ?? manifest.json.blobs ?? []) {
+        if (!String(layer.mediaType).includes("in-toto") && !String(layer.mediaType).includes("sigstore.bundle")) continue;
+        const blob = await get(`${base}/blobs/${layer.digest}`); retain(blob, layer.digest);
+        if (String(layer.mediaType).includes("sigstore.bundle")) {
+          const bundles = [blob.json];
+          proofs.push({kind: "github-attestation", repository: request.repository!, subject: `oci://${request.name}@${digest}`, bundles, digest: `sha256:${digestMetadata(bundles).value}`});
+        } else {
+          if (!Array.isArray(blob.json.subject) || !blob.json.subject.some((entry: any) => entry.digest?.sha256 === digest.slice(7))) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "OCI provenance does not name its image digest.");
+          unsignedStatements++;
+        }
+      }
     }
   }
-  if (provenance.length) proofs.push({kind: "oci-buildkit-provenance", subject, blobs: provenance});
+  if (unsignedStatements) proofs.push({kind: "oci-buildkit-provenance", subject, blobs: linked});
   return proofs;
 }
 

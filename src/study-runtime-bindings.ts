@@ -45,6 +45,7 @@ export function resolveHarnessRuntimeRole(root: string, arm: string, configurati
   const maintained = listRuntimeRecipes().filter((recipe) => recipe.harness).map((recipe) => recipe.id);
   if (maintained.includes(arm)) return arm;
   const configuration = JSON.parse(resolveBundleConfiguration(root, configurationRef).toString("utf8"));
+  if (configuration.schemaVersion === "ebo.deepseek-runtime-composition/v1") return "deepseek-harness";
   if (typeof configuration.adapter !== "string" || !maintained.includes(configuration.adapter)) throw new RuntimePolicyError("RUNTIME_ROLE_UNKNOWN", `Queue arm ${arm} needs a maintained native adapter in its harness configuration.`);
   return configuration.adapter;
 }

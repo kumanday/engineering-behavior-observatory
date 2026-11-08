@@ -61,7 +61,7 @@ open without installing their runtimes. Execution checks that a bound queue's
 runtime lock matches the active study before reading harness configuration or
 starting capture. A different runtime selection belongs to a new study revision.
 All arms in the queue must have a frozen native adapter runtime; arm names can
-refer to that adapter through their harness configuration.
+refer to that adapter through their harness configuration. DeepSeek’s versioned runtime composition identifies its adapter directly.
 
 A request's `target` supplies the default OS and CPU architecture. `roleTargets`
 overrides them for an individual role, for example:
@@ -89,7 +89,7 @@ OpenHands capture starts an owned Docker container from the frozen image digest.
 EBO checks the running container's image identity and uses its published loopback
 port for REST and WebSocket requests. The launch receipt retains both expected
 and actual image identities. Run capture mounts the attempt workspace into that
-container. `baseUrl` is retained as a configuration compatibility field; the
+container using the workspace owner’s UID/GID and a writable temporary home. `baseUrl` is retained as a configuration compatibility field; the
 owned container supplies the execution endpoint. Remove `serverLaunch` executable
 settings when migrating a configuration to a study lock.
 
@@ -135,6 +135,10 @@ hash-bound wheels; source builds are disabled. Python dependency resolution uses
 `uv` and pip. Offered PyPI attestations require the `pypi_attestations` verifier
 in the selected bootstrap Python environment. A missing verifier reports an
 installation failure.
+
+Vendor archives and container images also check the maintained publisher’s GitHub attestations. Offered bundles are retained and verified with `gh attestation verify` against that repository and artifact digest. OCI discovery follows referrers and Cosign signature/attestation tags; offered Cosign proofs require `cosign` and the publisher’s GitHub Actions identity. BuildKit provenance is checked against the selected platform digest and retained as unsigned, content-linked metadata. It does not establish a signed publisher identity. Failed proof discovery or verification blocks installation; an absent proof is recorded as `not-offered`.
+
+Per-study SDK installation keeps studies isolated and lets compatible releases run without rebuilding EBO. It costs disk space, preparation time and registry access. The package.json SDK dependencies supply development types and conformance fixtures. Before loading a study’s SDK, EBO verifies its files and required API exports; conformance tests exercise the retained protocol shapes. A changed API reports its specific contract failure. Automated dependency bumps alone would keep one shared SDK version and would not reproduce different frozen studies concurrently.
 
 OSV is queried for every locked component during resolution and before a launch.
 A `MAL-…` advisory blocks execution. Other active advisories are retained as

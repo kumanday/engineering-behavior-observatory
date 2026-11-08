@@ -6,9 +6,7 @@ Agent SDK remains EBO's primary Anthropic capture path. Codex native protocol
 records remain authoritative, OTLP is separately retained timing/resource
 evidence, and uniform events are a digest-checked projection after capture.
 
-The supported runtime is `codex-cli 0.162.1`. EBO rejects a different executable
-version, starts a new child for each attempt, and never connects to the desktop
-daemon or changes `~/.codex/config.toml`.
+Freeze the `codex-app-server` role using the [study runtime workflow](../reference/study-runtimes.md). EBO starts the frozen executable in a new child for each attempt and checks its reported version against the lock. The generated 0.162.1 contract is a conformance baseline. Capture uses an owned child and leaves desktop sessions and `~/.codex/config.toml` intact.
 
 Each child receives a temporary isolated `CODEX_HOME`, a controlled instruction
 file, and no copied user configuration. When the standard local login file is

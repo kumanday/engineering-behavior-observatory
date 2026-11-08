@@ -7,19 +7,9 @@ then derives uniform events and behavioral observations from the retained stream
 
 ## Install and authenticate
 
-EBO pins **`@factory/droid-sdk` 0.9.1** and **Droid CLI 0.238.0** separately.
-The SDK is an EBO dependency. Install the CLI in a dedicated runtime directory:
+Freeze the `factory-droid` role using the [study runtime workflow](../reference/study-runtimes.md). It selects the official CLI and SDK separately, installs their exact dependency graph with lifecycle scripts disabled, and checks the CLI’s reported version against the lock. The 0.238.0 CLI and 0.9.1 SDK fixtures establish the development conformance baseline.
 
-```sh
-npm install --prefix "$PWD/factory-runtime" --save-exact @factory/cli@0.238.0
-"$PWD/factory-runtime/node_modules/.bin/droid" --version
-```
-
-The output must be `0.238.0`. Use the executable's absolute path in the frozen
-harness configuration. EBO probes the version before capture, records the
-executable digest, and disables the standalone updater in the child environment.
-The npm distribution also disables its updater. Run install scripts so the npm
-launcher resolves to the platform binary rather than a JavaScript shim.
+EBO selects the executable from the isolated runtime directory, records its digest, and disables its updater. The harness configuration’s executable and version fields remain part of the captured condition; actual execution identities come from the study lock and runtime probes.
 
 Select a managed route or a BYOK route in the frozen model record. Managed
 routes use `FACTORY_API_KEY`; BYOK defaults to `FIREWORKS_API_KEY`. Either can

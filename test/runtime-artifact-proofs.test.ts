@@ -44,6 +44,7 @@ test("an offered OCI signature cannot be ignored when the image content digest m
   let verified = false;
   options.fetch = async (url, init) => {
     if (url.includes("/attestations/")) return new Response("", {status: 404});
+    if (url.includes("/referrers/") && !url.includes("page=2")) return new Response(JSON.stringify({schemaVersion: 2, manifests: []}), {headers: {link: `<${url}?page=2>; rel="next"`}});
     if (url.includes("/referrers/")) return Response.json({schemaVersion: 2, manifests: [{digest: `sha256:${"e".repeat(64)}`, artifactType: "application/vnd.dev.cosign.artifact.sig.v1+json"}]});
     if (/sha256-[a-f0-9]+\.(?:sig|att)$/u.test(url)) return new Response("", {status: 404});
     return fetcher(url, init);
@@ -77,11 +78,52 @@ test("OCI BuildKit provenance is linked to the selected platform and preserves u
       if (!correct) {await assert.rejects(discoverArtifactProofs(request, release, {fetch}), /RUNTIME_PROOF_INVALID/); continue;}
       const proofs = await discoverArtifactProofs(request, release, {fetch});
       const receipts = await verifyArtifactProofs(proofs, release.locator, root, async () => {throw new Error("Unsigned metadata must not claim a cryptographic verifier");});
-      assert.equal((receipts[0]!.result as any).output.publisherIdentity, "unsigned");
-      const changed = structuredClone(proofs);
+      assert.equal((receipts.find(receipt => receipt.kind === "oci-buildkit-provenance")!.result as any).output.publisherIdentity, "unsigned");
+      const changed = structuredClone(proofs.filter(proof => proof.kind === "oci-buildkit-provenance"));
       assert.equal(changed[0]!.kind, "oci-buildkit-provenance");
       if (changed[0]!.kind === "oci-buildkit-provenance") changed[0]!.blobs[0]!.bytesBase64 = Buffer.from("changed").toString("base64");
       await assert.rejects(verifyArtifactProofs(changed, release.locator, root, async () => {throw new Error("must not execute");}), /RUNTIME_INTEGRITY_MISMATCH/);
     }
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
+test("GitHub bundle URLs and cursor links retain every offered attestation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ebo-github-proof-cursor-")), options = fakeVendorRuntimeOptions(), fetcher = options.fetch!, runner = options.run!;
+  const bundles = [{mediaType: "fixture-a"}, {mediaType: "fixture-b"}];
+  options.fetch = async (url, init) => {
+    if (url === "https://proof.example/bundle-a") return Response.json(bundles[0]);
+    if (url.includes("/attestations/") && url.includes("after=cursor")) return Response.json({attestations: [{bundle: bundles[1]}]});
+    if (url.includes("/attestations/")) return new Response(JSON.stringify({attestations: [{bundle_url: "https://proof.example/bundle-a"}]}), {headers: {link: `<${url}&after=cursor>; rel="next"`}});
+    return fetcher(url, init);
+  };
+  options.run = async (command, args, cwd) => {
+    if (command !== "gh") return runner(command, args, cwd);
+    const bytes = await readFile(args[args.indexOf("--bundle") + 1]!, "utf8");
+    assert.deepEqual(bytes.trim().split("\n").map(line => JSON.parse(line)), bundles);
+    return {code: 0, stdout: "verified", stderr: ""};
+  };
+  try {await freezeStudyRuntimes(root, {studyId: "cursor-proofs", roles: ["devin-cli"]}, options);}
+  finally {await rm(root, {recursive: true, force: true});}
+});
+
+test("an index-only OCI signature in the standard referrers fallback is verified", async () => {
+  const subject = `sha256:${"a".repeat(64)}`, index = JSON.stringify({schemaVersion: 2, manifests: [{digest: subject}]}), indexDigest = `sha256:${createHash("sha256").update(index).digest("hex")}`;
+  const request = {source: "oci" as const, name: "ghcr.io/openhands/agent-server", repository: "OpenHands/software-agent-sdk"};
+  const release = {source: "oci" as const, version: "9.9.9", publishedAt: "2026-11-01T00:00:00Z", locator: `${request.name}@${subject}`, integrity: "unused", metadata: {indexDigest}};
+  const root = await mkdtemp(join(tmpdir(), "ebo-index-signature-"));
+  try {
+    const fetch = async (url: string) => {
+      if (url.endsWith(`/manifests/${indexDigest}`)) return new Response(index);
+      if (url.endsWith(`/manifests/${indexDigest.replace(":", "-")}`)) return Response.json({schemaVersion: 2, manifests: [{digest: `sha256:${"e".repeat(64)}`, artifactType: "application/vnd.dev.cosign.artifact.sig.v1+json"}]});
+      return new Response("", {status: 404});
+    };
+    const proofs = await discoverArtifactProofs(request, release, {fetch});
+    assert.equal(proofs.some(proof => proof.kind === "oci-buildkit-provenance"), false, "An image index is not provenance");
+    let verified = false;
+    await assert.rejects(verifyArtifactProofs(proofs, release.locator, root, async (command, args) => {
+      assert.equal(command, "cosign"); assert.equal(args.at(-1), `${request.name}@${indexDigest}`); verified = true;
+      return {code: 1, stdout: "", stderr: "invalid signature"};
+    }), /RUNTIME_PROOF_VERIFICATION_FAILED/);
+    assert.equal(verified, true);
   } finally {await rm(root, {recursive: true, force: true});}
 });

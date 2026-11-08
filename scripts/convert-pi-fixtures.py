@@ -14,9 +14,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("root", type=pathlib.Path)
 parser.add_argument("--check", action="store_true")
 args = parser.parse_args()
-if version("harbor") != "0.24.0":
-    raise SystemExit("Synthetic fixture generation requires harbor==0.24.0")
-manifest = {"schemaVersion": "ebo.atif-synthetic-fixtures/v1", "producer": "harbor.agents.installed.pi.Pi", "harborVersion": "0.24.0", "fixtures": []}
+print(json.dumps({"harborVersion": version("harbor")}), flush=True)
+manifest = {"schemaVersion": "ebo.atif-synthetic-fixtures/v1", "producer": "harbor.agents.installed.pi.Pi", "harborVersion": version("harbor"), "fixtures": []}
 for source in sorted(args.root.glob("*.native.jsonl")):
     name = source.name.removesuffix(".native.jsonl")
     outputs = []
@@ -42,8 +41,8 @@ for source in sorted(args.root.glob("*.native.jsonl")):
 target = args.root / "manifest.json"
 text = json.dumps(manifest, indent=2) + "\n"
 if args.check:
-    if target.read_text() != text:
-        raise SystemExit("Synthetic manifest drift")
+    if json.loads(target.read_text())["fixtures"] != manifest["fixtures"]:
+        raise SystemExit("Synthetic fixture digest drift")
 else:
     target.write_text(text)
 print(f"PASS: {len(manifest['fixtures'])} independent deterministic Pi conversions")

@@ -7,7 +7,7 @@ export type RuntimeRegistryOptions = { fetch?: RuntimeFetch };
 const object = (value: unknown): Record<string, any> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 const sri = (digest: string): string => `sha256-${Buffer.from(digest.replace(/^sha256:/, ""), "hex").toString("base64")}`;
 
-export async function runtimeJson(url: string, options: RuntimeRegistryOptions = {}, init?: RequestInit): Promise<any> {
+export async function runtimeJsonResponse(url: string, options: RuntimeRegistryOptions = {}, init?: RequestInit): Promise<{data: any; response: Response}> {
   const parsed = new URL(url);
   if (parsed.protocol !== "https:" || parsed.username || parsed.password) throw new RuntimePolicyError("RUNTIME_REGISTRY_URL", "Runtime metadata requires HTTPS without URL credentials.");
   const response = await (options.fetch ?? fetch)(url, { signal: AbortSignal.timeout(30_000), ...init });
@@ -15,8 +15,12 @@ export async function runtimeJson(url: string, options: RuntimeRegistryOptions =
   const chunks: Uint8Array[] = []; let size = 0;
   if (!response.body) throw new RuntimePolicyError("RUNTIME_METADATA_INVALID", "Empty registry response.");
   for await (const chunk of response.body) { size += chunk.length; if (size > 64 * 1024 * 1024) { await response.body.cancel().catch(() => {}); throw new RuntimePolicyError("RUNTIME_METADATA_TOO_LARGE", "Registry response exceeds 64 MiB."); } chunks.push(chunk); }
-  try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+  try { return {data: JSON.parse(Buffer.concat(chunks).toString("utf8")), response}; }
   catch { throw new RuntimePolicyError("RUNTIME_METADATA_INVALID", "Registry returned malformed JSON."); }
+}
+
+export async function runtimeJson(url: string, options: RuntimeRegistryOptions = {}, init?: RequestInit): Promise<any> {
+  return (await runtimeJsonResponse(url, options, init)).data;
 }
 
 export async function fetchRuntimeReleases(request: RuntimeRegistryRequest, options: RuntimeRegistryOptions = {}): Promise<RuntimeRelease[]> {

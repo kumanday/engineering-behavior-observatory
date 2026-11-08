@@ -1,14 +1,13 @@
 # Pi TypeScript SDK harness
 
-EBO integrates `@earendil-works/pi-coding-agent` `1.1.0` directly through its public TypeScript SDK. `ebo pi run` executes one caller-selected frozen queue entry; it does not add RPC, ACP, a Pi fork, or another scheduler.
+EBO integrates `@earendil-works/pi-coding-agent` directly through its public TypeScript SDK. Freeze the `pi-sdk` role using the [study runtime workflow](../reference/study-runtimes.md); it selects Pi and codemode together. `ebo pi run` executes one caller-selected frozen queue entry; it does not add RPC, ACP, a Pi fork, or another scheduler.
 
-Pi 1.1.0 supplies an explicit `aborted` flag on `agent_settled`. EBO retains it,
+The 1.1.0 conformance baseline supplies an explicit `aborted` flag on `agent_settled`. EBO retains it,
 classifies that terminal as interrupted, and rejects completed retained evidence
 that contradicts it. Retained 0.85.1 and 0.87.1 captures remain readable.
 
 EBO supplies its own resource loader and exact tool list. The loader admits only
-digest-bound resources and the selected passive observer. Freeze fresh harness
-configuration records for 1.1.0; preserve existing experiments and captures.
+digest-bound resources and the selected passive observer. Freeze harness configuration records alongside the study’s selected releases.
 
 ## Operator command
 
@@ -28,7 +27,7 @@ ebo pi run \
 
 The queue uses the existing model, harness, native-limits, native-tool-policy, and capture-profile references. Each referenced record declares `schemaVersion: "ebo.pi-config/v1"`. The checked-in synthetic shapes are under `test/fixtures/pi/configs/`; their provider URL is intentionally non-routable.
 
-The model record owns the queue model-condition ID, effective provider/model, API dialect, base URL, credential environment-variable name, thinking level, optional provider-specific thinking-level map, advertised input types, context/output limits, and the pricing inputs Pi requires. Pi's opt-in `xhigh` and `max` levels require an explicit non-null mapping in this digest-bound record so the SDK cannot silently clamp them. Credentials remain process environment only; the runtime uses an empty attempt-local credential store so the user's Pi home cannot override the selected route. The retained composition also records Pi's effective non-secret prompt-cache retention (`long` or `short`) so ambient `PI_CACHE_RETENTION` differences remain explicit. The harness record pins Pi and may explicitly reference digest-bound extensions, skills, prompt templates, context files, and a system prompt. Admitted extension modules must be self-contained; import, dynamic-import, re-export, and CommonJS dependency syntax is rejected so the entrypoint digest covers the complete executable extension. Candidate workspace resources and the user's Pi home are not auto-discovered. The capture profile can set `passiveObserver: false` for a controlled observer-disabled condition; it defaults to enabled.
+The model record owns the queue model-condition ID, effective provider/model, API dialect, base URL, credential environment-variable name, thinking level, optional provider-specific thinking-level map, advertised input types, context/output limits, and the pricing inputs Pi requires. Pi's opt-in `xhigh` and `max` levels require an explicit non-null mapping in this digest-bound record so the SDK cannot silently clamp them. Credentials remain process environment only; the runtime uses an empty attempt-local credential store so the user's Pi home cannot override the selected route. The retained composition also records Pi's effective non-secret prompt-cache retention (`long` or `short`) so ambient `PI_CACHE_RETENTION` differences remain explicit. The harness record describes Pi and may explicitly reference digest-bound extensions, skills, prompt templates, context files, and a system prompt. Admitted extension modules must be self-contained; import, dynamic-import, re-export, and CommonJS dependency syntax is rejected so the entrypoint digest covers the complete executable extension. Candidate workspace resources and the user's Pi home are not auto-discovered. The capture profile can set `passiveObserver: false` for a controlled observer-disabled condition; it defaults to enabled.
 
 The tool-policy record selects Pi's public built-in tools and a child-process environment allowlist. The provider credential variable is rejected if it appears in that allowlist. This is configuration containment, not an OS sandbox: Pi still runs in the local trusted environment and its file tools can access paths allowed by the host account.
 
