@@ -21,21 +21,22 @@ snapshot. Unsupported identities or changed runtimes fail explicitly.
 
 The frozen capsule includes its schema, contract and ontology assets. Its eight
 read APIs consume retained evidence. The external dependency roots named in each
-manifest are isolated from active capture SDKs through a dependency anchor and
-exact compatibility aliases. Pi's historical sibling packages are routed through
-the same isolated graph. Snapshot bytes and identities stay fixed.
+manifest are isolated from active capture SDKs through exact compatibility
+aliases. Pi's historical sibling packages use those aliases too. The historical
+DeepSeek client and protocol are retained as one 34 KB JavaScript dependency,
+with both MIT licenses, original manifests, npm integrity identities and input
+hashes. Its pinned builder reproduces the bytes from the two retained source
+files. Only the two shipped readers use it. Its deferred capture launch helpers
+are outside the qualified read interface.
 
-The returned `nodeVersion` identifies the snapshot's original qualification
-host. Compatibility checks also replay both readers on Node 26.13.0. The
-published dependency anchor declares its original Node 24.19.0 engine; standard
-npm installs warn on Node 26, and `engine-strict` installs reject that metadata.
-Use `npm run ebo` or the checkout's explicit `dist/src/cli.js` when operating from
-source. The dependency anchor carries its own historical CLI entrypoint.
+Snapshot bytes and identities stay fixed. The returned `nodeVersion` identifies
+the original qualification host; compatibility checks replay both readers on
+Node 26.13.0 as well. The source checkout and installed package expose the
+current `ebo` binary.
 
-The package lock retains the resolved support dependencies. The snapshot
-manifest pins the original external roots; it does not describe every transitive
-package as a byte-identical historical closure. Golden retained readback and
-packet verification check the preserved analysis behavior.
+The package lock retains resolved support dependencies. The snapshot manifests
+pin external roots rather than every transitive package byte. Golden retained
+readback and packet verification check preserved analysis behavior.
 
 ## Reproduce the native 1.4 baseline
 

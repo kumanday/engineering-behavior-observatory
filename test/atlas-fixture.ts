@@ -24,8 +24,8 @@ const json = (path: string, value: unknown) => writeFileSync(path, `${JSON.strin
 /** Deterministic synthetic identities; injected capture never calls a model. */
 export async function createAtlasFixture(root: string, options: {legacyManifest?: boolean} = {}): Promise<string> {
   if (options.legacyManifest && currentStudyRuntime()?.launch.roots[0]?.selection.release.version !== "0.3.296") {
-    const anchor = createRequire(createRequire(import.meta.url).resolve("@ebo-compat/v1-dependencies/package.json"));
-    const binding = await createConformanceRuntimeFixture("claude-agent-sdk", false, undefined, "", anchor.resolve("@anthropic-ai/claude-agent-sdk"));
+    const anchor = createRequire(import.meta.url);
+    const binding = await createConformanceRuntimeFixture("claude-agent-sdk", false, undefined, "", anchor.resolve("@ebo-compat/anthropic-ai-claude-agent-sdk"));
     try {return await withStudyRuntime({...binding, role: "claude-agent-sdk"}, () => createAtlasFixture(root, options));}
     finally {rmSync(binding.studyRoot, {recursive: true, force: true});}
   }

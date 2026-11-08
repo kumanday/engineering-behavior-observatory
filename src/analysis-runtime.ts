@@ -41,9 +41,16 @@ const expectedExports = ["createRetainedBehaviorEvidence", "createRetainedStruct
 const rawHash = (bytes: Uint8Array): Hash => `sha256:${digestBytes(bytes).value}`;
 const frozenDependencies = new Map<string, Record<string, string>>();
 const frozenPackageRoots = new Map<string, Record<string, string>>();
-const compatibility = JSON.parse(readBoundedFile(fileURLToPath(new URL("../../compatibility/runtime-dependencies.json", import.meta.url)), "Compatibility dependencies", undefined, 64 * 1024).toString("utf8")) as {anchor: string; anchorPackage: string; anchorVersion: string; aliases: Record<string, string>};
-// This package supplies dependency metadata only; its EBO entrypoint is never loaded.
-const compatibilityRequire = () => createRequire(createRequire(import.meta.url).resolve(`${compatibility.anchor}/package.json`));
+const compatibility = JSON.parse(readBoundedFile(fileURLToPath(new URL("../../compatibility/runtime-dependencies.json", import.meta.url)), "Compatibility dependencies", undefined, 64 * 1024).toString("utf8")) as {
+  aliases: Record<string, string>; bundles: Record<string, {version: string; entry: string; sha256: string}>};
+const bundledDependency = (name: string) => {
+  const bundle = compatibility.bundles[name];
+  if (!bundle) return undefined;
+  const path = fileURLToPath(new URL(`../../compatibility/${bundle.entry}`, import.meta.url));
+  const bytes = readBoundedFile(path, "Historical SDK dependency", undefined, 1024 * 1024);
+  if (rawHash(bytes) !== `sha256:${bundle.sha256}`) throw new Error("Historical SDK dependency differs from its frozen digest.");
+  return {...bundle, path};
+};
 const compatibilityAlias = (name: string): string => `@ebo-compat/${name.replace(/^@/u, "").replace("/", "-")}`;
 // Only imports made by the two shipped reader files use historical packages.
 // Live adapters and study runtimes keep ordinary Node resolution.
@@ -52,8 +59,12 @@ registerHooks({resolve(specifier, context, nextResolve) {
     ?? [...frozenPackageRoots].find(([root]) => context.parentURL!.startsWith(root))?.[1]);
   const name = dependencies && Object.keys(dependencies).find(name => specifier === name || specifier.startsWith(`${name}/`));
   if (!name) return nextResolve(specifier, context);
-  return Object.hasOwn(compatibility.aliases, name) ? nextResolve(`${compatibilityAlias(name)}${specifier.slice(name.length)}`, {...context, parentURL: import.meta.url})
-    : nextResolve(specifier, {...context, parentURL: pathToFileURL(createRequire(import.meta.url).resolve(`${compatibility.anchor}/package.json`)).href});
+  const bundle = bundledDependency(name);
+  if (bundle) {
+    if (specifier !== name) throw new Error("Historical SDK dependency has no registered subpath.");
+    return nextResolve(pathToFileURL(bundle.path).href, context);
+  }
+  return nextResolve(`${compatibilityAlias(name)}${specifier.slice(name.length)}`, {...context, parentURL: import.meta.url});
 }});
 
 export function listAnalysisRuntimes(): readonly AnalysisRuntimeIdentity[] { return structuredClone(registered); }
@@ -70,11 +81,11 @@ export async function loadAnalysisRuntime(id: string): Promise<FrozenAnalysisRun
   if (manifest.id !== identity.id || manifest.source.commit !== identity.sourceCommit || manifest.nodeVersion !== identity.nodeVersion
       || manifest.entry !== "dist/src/reader.mjs" || JSON.stringify(manifest.exports) !== JSON.stringify(expectedExports)) throw new Error("Registered analysis runtime identity differs from its snapshot.");
   const entry = pathToFileURL(join(root, manifest.entry)).href;
-  if (installedPackage(compatibility.anchor, createRequire(import.meta.url), compatibility.anchorPackage)?.version !== compatibility.anchorVersion) throw new Error("Historical dependency anchor differs from its retained version.");
   const dependencies = {...manifest.dependencies, ...compatibility.aliases};
   for (const [name, version] of Object.entries(dependencies)) {
-    const actual = Object.hasOwn(compatibility.aliases, name) ? installedPackage(compatibilityAlias(name), createRequire(import.meta.url), name)
-      : installedPackage(name, compatibilityRequire());
+    const bundle = bundledDependency(name);
+    if (bundle) {if (bundle.version !== version) throw new Error(`Historical dependency ${name} differs from its pinned version.`); continue;}
+    const actual = installedPackage(compatibilityAlias(name), createRequire(import.meta.url), name);
     if (actual?.version !== version) throw new Error(`Analysis runtime dependency ${name} differs from its pinned version.`);
     frozenPackageRoots.set(pathToFileURL(actual.root + "/").href, dependencies);
   }

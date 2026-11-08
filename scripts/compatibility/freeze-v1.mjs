@@ -25,10 +25,10 @@ const walk=(root,path='')=>readdirSync(join(root,path),{withFileTypes:true}).fla
  const next=path?`${path}/${entry.name}`:entry.name;if(entry.isSymbolicLink())throw Error('Frozen runtime assets cannot contain links.');
  return entry.isDirectory()?walk(root,next):[next];
 }).sort();
-function dependencyVersion(name,require){
+function dependencyVersion(name,require,packageName=name){
  let path;try{path=require.resolve(`${name}/package.json`);}catch{path=(require.resolve.paths(name)??[]).map(root=>join(root,name,"package.json")).find(existsSync);if(!path)path=require.resolve(name);}
  let current=dirname(path);
- for(let i=0;i<16;i++){const file=join(current,'package.json');if(existsSync(file)){const value=JSON.parse(readFileSync(file));if(value.name===name)return value.version;}const parent=dirname(current);if(parent===current)break;current=parent;}
+ for(let i=0;i<16;i++){const file=join(current,'package.json');if(existsSync(file)){const value=JSON.parse(readFileSync(file));if(value.name===packageName)return value.version;}const parent=dirname(current);if(parent===current)break;current=parent;}
  throw Error(`Cannot identify frozen reader dependency ${name}.`);
 }
 try{
@@ -41,10 +41,11 @@ try{
  const result=await build({absWorkingDir:temporary,entryPoints:['compatibility-entry.ts'],bundle:true,platform:'node',format:'esm',packages:'external',outfile:join(snapshot,'dist/src/reader.mjs'),metafile:true,logLevel:'silent'});
  for(const directory of ['schemas','contracts','ontology'])cpSync(join(temporary,directory),join(snapshot,directory),{recursive:true});
  cpSync(join(temporary,'LICENSE'),join(snapshot,'LICENSE'));
- const localRequire=createRequire(import.meta.url),compatibility=JSON.parse(readFileSync(join(repo,'compatibility/runtime-dependencies.json'))),require=createRequire(localRequire.resolve(`${compatibility.anchor}/package.json`)),dependencies={};
+ const localRequire=createRequire(import.meta.url),compatibility=JSON.parse(readFileSync(join(repo,'compatibility/runtime-dependencies.json'))),dependencies={};
  for(const output of Object.values(result.metafile.outputs))for(const item of output.imports){
   if(!item.external||item.path.startsWith('node:'))continue;
-  const name=item.path.startsWith('@')?item.path.split('/').slice(0,2).join('/'):item.path.split('/')[0];dependencies[name]=Object.hasOwn(compatibility.aliases,name)?compatibility.aliases[name]:dependencyVersion(name,require);
+  const name=item.path.startsWith('@')?item.path.split('/').slice(0,2).join('/'):item.path.split('/')[0];
+  dependencies[name]=compatibility.bundles[name]?.version ?? dependencyVersion(`@ebo-compat/${name.replace(/^@/u,'').replace('/','-')}`,localRequire,name);
  }
  const files=walk(snapshot).map(path=>{const bytes=readFileSync(join(snapshot,path));return{path,bytes:bytes.length,digest:sha(bytes)};});
  const manifest={schemaVersion:'ebo.analysis-runtime-snapshot/v1',id,source:{repository:'https://github.com/kumanday/engineering-behavior-observatory',commit:sourceCommit},nodeVersion:'24.19.0',builder:{id:'esbuild',version:esbuildVersion},entry:'dist/src/reader.mjs',exports:Object.values(exportsByModule).flat().sort(),dependencies:Object.fromEntries(Object.entries(dependencies).sort(([a],[b])=>a.localeCompare(b))),files};
