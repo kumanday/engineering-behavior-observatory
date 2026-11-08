@@ -7,6 +7,7 @@ import { fetchRuntimeReleases, runtimeJson, type RuntimeRegistryOptions } from "
 import { RuntimePolicyError, selectRuntimeRelease } from "./runtime-resolution.js";
 import type { SelectedRuntimeComponent, LockedRuntimeDependency } from "./runtime-npm.js";
 import { assertPythonTarget, probePythonBootstrap } from "./runtime-bootstrap.js";
+import { digestMetadata } from "./artifacts.js";
 
 export async function resolvePythonRuntimePlan(roots: readonly SelectedRuntimeComponent[], options: RuntimeRegistryOptions & {
   python: string; uv?: string; platform: string; abi?: string; run?: RuntimeCommandRunner;
@@ -45,18 +46,18 @@ export async function resolvePythonRuntimePlan(roots: readonly SelectedRuntimeCo
       const simpleFile = Array.isArray(simple.files) ? simple.files.find((candidate: any) => candidate.filename === file.filename) : undefined;
       const artifact: RuntimeArtifact = { locator: url, integrity: actual.integrity, filename: basename(file.filename) };
       if (simpleFile?.provenance) {
-        let repository = owner?.repository;
-        if (!repository) {
-          const detail = await runtimeJson(`https://pypi.org/pypi/${encodeURIComponent(name)}/${encodeURIComponent(version)}/json`, options);
-          const source = Object.entries(detail.info?.project_urls ?? {})
-            .filter(([label]) => /^(?:source(?:[ _-]?(?:code|repository))?|repository|code|github|home[ _-]?page)$/iu.test(label))
-            .sort(([a], [b]) => Number(/^home/iu.test(a)) - Number(/^home/iu.test(b)))
-            .map(([, value]) => value)
-            .find((value) => typeof value === "string" && /^https:\/\/github.com\/(?!sponsors\/|orgs\/)[^/?#]+\/[^/?#]+\/?$/u.test(value));
-          repository = typeof source === "string" ? new URL(source).pathname.replace(/^\/|\/$/gu, "") : undefined;
+        const provenanceUrl = String(simpleFile.provenance), provenance = await runtimeJson(provenanceUrl, options);
+        if (!Array.isArray(provenance.attestation_bundles) || !provenance.attestation_bundles.length) throw new RuntimePolicyError("RUNTIME_ATTESTATION_INVALID", `PyPI provenance has no publisher bundles for ${name}.`);
+        const repositories = new Set<string>();
+        for (const bundle of provenance.attestation_bundles) {
+          const publisher = bundle.publisher, host = publisher?.kind === "GitHub" ? "github.com" : publisher?.kind === "GitLab" ? "gitlab.com" : undefined;
+          if (!host || typeof publisher.repository !== "string" || !/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+$/u.test(publisher.repository)) throw new RuntimePolicyError("RUNTIME_ATTESTATION_IDENTITY_MISSING", `PyPI publisher identity is unsupported or malformed for ${name}.`);
+          repositories.add(`https://${host}/${publisher.repository}`);
         }
-        if (!repository) throw new RuntimePolicyError("RUNTIME_ATTESTATION_IDENTITY_MISSING", `Offered PyPI attestation lacks a repository identity for ${name}.`);
-        artifact.attestation = { provenanceUrl: String(simpleFile.provenance), repository: `https://github.com/${repository}` };
+        if (repositories.size !== 1) throw new RuntimePolicyError("RUNTIME_ATTESTATION_IDENTITY_AMBIGUOUS", `PyPI provenance has multiple repository identities for ${name}.`);
+        const repository = [...repositories][0]!;
+        if (owner?.repository && repository.toLowerCase() !== `https://github.com/${owner.repository}`.toLowerCase()) throw new RuntimePolicyError("RUNTIME_ATTESTATION_IDENTITY_MISMATCH", `PyPI publisher for ${name} differs from the maintained runtime source.`);
+        artifact.attestation = { provenanceUrl, repository, provenance, provenanceDigest: `sha256:${digestMetadata(provenance).value}` };
       }
       artifacts.push(artifact); requirements.push(`${name}==${version} --hash=sha256:${hash}`);
       components.push({ id: `${roots.map((root) => root.id).join("+")}:${name}`, name, version, ecosystem: "PyPI", source: "pypi", location: file.filename, selection });

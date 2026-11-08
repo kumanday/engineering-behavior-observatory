@@ -30,9 +30,12 @@ test("rejects a Python plan whose declared target differs from its actual interp
   await assert.rejects(resolvePythonRuntimePlan(roots, {...options, platform: "linux-x64"}), /RUNTIME_PLATFORM_MISMATCH/);
 });
 
-test("PyPI attestation identity follows source metadata rather than a GitHub funding link", async () => {
+for (const sample of [
+  {name: "attrs", version: "26.1.0", declared: "python-attrs/attrs", publisher: "python-attrs/attrs"},
+  {name: "filelock", version: "3.26.0", declared: "tox-dev/py-filelock", publisher: "tox-dev/filelock"},
+]) test(`PyPI provenance supplies ${sample.name}'s publisher identity independently of project links`, async () => {
   const {roots, options, sha} = fixture(), originalRun = options.run, originalFetch = options.fetch;
-  const name = "attrs", version = "26.2.0", filename = `attrs-${version}-py3-none-any.whl`, url = `https://files.pythonhosted.org/${filename}`;
+  const {name, version} = sample, filename = `${name}-${version}-py3-none-any.whl`, url = `https://files.pythonhosted.org/${filename}`;
   options.run = async (command, args) => {
     const result = await originalRun(command, args);
     if (args.includes("--report")) {
@@ -42,11 +45,14 @@ test("PyPI attestation identity follows source metadata rather than a GitHub fun
     return result;
   };
   options.fetch = async (request) => {
-    if (!request.includes("/attrs/")) return originalFetch(request);
-    if (request.includes("/simple/")) return Response.json({files: [{filename, provenance: "https://pypi.org/integrity/attrs/provenance"}]});
-    if (request.includes(`/${version}/json`)) return Response.json({info: {project_urls: {Funding: "https://github.com/sponsors/hynek", GitHub: "https://github.com/python-attrs/attrs"}}});
+    if (!request.includes(`/${name}/`)) return originalFetch(request);
+    if (request.includes("/integrity/")) return Response.json({version: 1, attestation_bundles: [{publisher: {kind: "GitHub", repository: sample.publisher, workflow: "release.yml"}, attestations: []}]});
+    if (request.includes("/simple/")) return Response.json({files: [{filename, provenance: `https://pypi.org/integrity/${name}/provenance`}]});
+    if (request.includes(`/${version}/json`)) return Response.json({info: {project_urls: {Funding: "https://github.com/sponsors/hynek", GitHub: `https://github.com/${sample.declared}`}}});
     return Response.json({releases: {[version]: [{filename, url, digests: {sha256: sha}, upload_time_iso_8601: "2026-11-05T00:00:00Z", yanked: false}]}});
   };
   const result = await resolvePythonRuntimePlan(roots, options);
-  assert.equal(result.plan.artifacts.find((artifact) => artifact.filename === filename)?.attestation?.repository, "https://github.com/python-attrs/attrs");
+  const attestation = result.plan.artifacts.find((artifact) => artifact.filename === filename)?.attestation;
+  assert.equal(attestation?.repository, `https://github.com/${sample.publisher}`);
+  assert.ok(Reflect.get(attestation!, "provenance"));
 });

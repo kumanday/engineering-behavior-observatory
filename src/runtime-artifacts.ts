@@ -5,9 +5,10 @@ import { RuntimePolicyError } from "./runtime-resolution.js";
 import type { RuntimeFetch } from "./runtime-registry.js";
 import type { RuntimeCommandRunner, RuntimeInstallReceipt } from "./runtime-installation.js";
 import { assertPythonIdentity, probePythonBootstrap, type PythonBootstrap } from "./runtime-bootstrap.js";
+import { canonicalizeMetadata, digestMetadata } from "./artifacts.js";
 
 export type RuntimeArtifact = { locator: string; integrity: string; filename: string;
-  attestation?: { provenanceUrl: string; repository: string } };
+  attestation?: { provenanceUrl: string; repository: string; provenance?: Record<string, unknown>; provenanceDigest?: string } };
 type Base = { platform: string; abi: string };
 export type ArtifactInstallPlan = Base & (
   { kind: "binary"; recipe: "ebo-binary/v1"; artifact: RuntimeArtifact; archive: "tar.gz" | "raw" } |
@@ -69,8 +70,19 @@ export async function installArtifactRuntime(plan: ArtifactInstallPlan, staging:
     if (!artifact.filename.endsWith(".whl")) throw new RuntimePolicyError("RUNTIME_PYTHON_SOURCE_BUILD_DISABLED", "Frozen Python runtimes install wheels only; source build scripts are disabled.");
     await downloadRuntimeArtifact(artifact, join(wheels, artifact.filename), fetcher);
     if (artifact.attestation) {
-      const output = await command(run, plan.python, ["-I", "-m", "pypi_attestations", "verify", "pypi", "--repository", artifact.attestation.repository, join(wheels, artifact.filename)], staging);
-      proofs.push({ kind: "pypi-attestation", result: { filename: artifact.filename, repository: artifact.attestation.repository, output } });
+      const args = ["-I", "-B", "-m", "pypi_attestations", "verify", "pypi", "--repository", artifact.attestation.repository];
+      let provenancePath: string | undefined;
+      if (artifact.attestation.provenance) {
+        const digest = `sha256:${digestMetadata(artifact.attestation.provenance).value}`;
+        if (digest !== artifact.attestation.provenanceDigest) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", "Frozen PyPI provenance differs from its digest.");
+        await mkdir(join(staging, "proofs"), {recursive: true});
+        provenancePath = `proofs/${artifact.filename}.provenance.json`;
+        await writeFile(join(staging, provenancePath), canonicalizeMetadata(artifact.attestation.provenance), {mode: 0o600});
+        args.push("--provenance-file", join(staging, provenancePath));
+      }
+      const output = await command(run, plan.python, [...args, join(wheels, artifact.filename)], staging);
+      proofs.push({ kind: "pypi-attestation", result: { filename: artifact.filename, repository: artifact.attestation.repository,
+        ...(provenancePath ? {provenancePath, provenanceDigest: artifact.attestation.provenanceDigest} : {}), output } });
     } else proofs.push({ kind: "pypi-attestation", result: { filename: artifact.filename, status: "not-offered" } });
   }
   await command(run, plan.python, ["-I", "-m", "venv", "--copies", join(staging, "venv")], staging);
