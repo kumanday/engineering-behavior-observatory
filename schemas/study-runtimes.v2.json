@@ -108,6 +108,54 @@
                 "additionalProperties": {
                   "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/snapshot"
                 }
+              },
+              "executionEnvironment": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "role": {
+                    "const": "smol"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "boundary": {
+                    "enum": [
+                      "host-vm",
+                      "task-guest"
+                    ]
+                  },
+                  "coordinatorPlatform": {
+                    "type": "string"
+                  },
+                  "platform": {
+                    "type": "string"
+                  },
+                  "abi": {
+                    "type": "string"
+                  },
+                  "componentDigest": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  "pythonBinaryIntegrity": {
+                    "type": "string"
+                  },
+                  "coordinatorAbi": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "role",
+                  "version",
+                  "boundary",
+                  "coordinatorPlatform",
+                  "platform",
+                  "abi",
+                  "componentDigest",
+                  "pythonBinaryIntegrity",
+                  "coordinatorAbi"
+                ]
               }
             },
             "required": [
@@ -180,6 +228,19 @@
         "digest": {
           "type": "string",
           "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "artifactInputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pythonWheelhouseDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "pythonWheelhouseDigest"
+          ]
         }
       },
       "required": [

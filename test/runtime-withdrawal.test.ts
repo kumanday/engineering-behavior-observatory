@@ -39,16 +39,16 @@ test("a frozen Python launch checks its selected wheel for yanking and changed i
   } finally {await rm(root, {recursive: true, force: true});}
 });
 
-test("a frozen image uses its manifest digest after tag removal and verifies Docker's actual config", async () => {
+test("a frozen image uses its manifest digest after tag removal and verifies registry config bytes", async () => {
   const {fakeOciRuntimeOptions} = await import("./runtime-oci-fixture.js");
   const root = await mkdtemp(join(tmpdir(), "ebo-image-withdrawal-")), options = fakeOciRuntimeOptions();
-  const fetch = options.fetch!, run = options.run!; let tagRemoved = false, digestRemoved = false, localChanged = false;
+  const fetch = options.fetch!; let tagRemoved = false, digestRemoved = false, localChanged = false;
   options.fetch = async (url, init) => {
     if (url.includes("tags/list") && tagRemoved) return new Response(JSON.stringify({tags: []}));
     if (url.includes("/manifests/sha256:") && digestRemoved) return new Response("", {status: 404});
+    if (url.includes("/blobs/sha256:") && localChanged) return new Response(JSON.stringify({changed: true}));
     return fetch(url, init);
   };
-  options.run = async (command, args, cwd) => localChanged && args.includes("inspect") ? {code: 0, stdout: JSON.stringify([{Id: `sha256:${"c".repeat(64)}`}]), stderr: ""} : run(command, args, cwd);
   try {
     await freezeStudyRuntimes(root, {studyId: "image-withdrawal", roles: ["openhands-agent-server"]}, options);
     tagRemoved = true;

@@ -8,7 +8,7 @@ import {freezeStudyRuntimes} from "../src/study-runtimes.js";
 import {prepareHarnessVerification} from "../src/harness-verification-candidate.js";
 
 test("OpenHands probe waits for its owned listener and retains actual image execution evidence", async () => {
-  const root = await mkdtemp(join(tmpdir(), "ebo-openhands-verification-")), options = fakeOciRuntimeOptions(), fetch = options.fetch!, run = options.run!;
+  const root = await mkdtemp(join(tmpdir(), "ebo-openhands-verification-")), options = fakeOciRuntimeOptions(), fetch = options.fetch!, start = options.startOpenHandsSmol!;
   let calls = 0, stops = 0;
   options.fetch = async (url, init) => {
     if (!url.startsWith("http://127.0.0.1:")) return fetch(url, init);
@@ -16,7 +16,7 @@ test("OpenHands probe waits for its owned listener and retains actual image exec
     if (calls === 1) throw new TypeError("Listener is starting", {cause: {code: "ECONNREFUSED"}});
     return new Response(JSON.stringify({version: "1.54.0"}));
   };
-  options.run = async (command, args, cwd) => {if (args[0] === "rm") stops += 1; return run(command, args, cwd);};
+  options.startOpenHandsSmol = async request => {const server = await start(request); return {...server, stop: async () => {stops += 1; await server.stop();}};};
   try {
     await freezeStudyRuntimes(root, {studyId: "probe-only", roles: ["openhands-agent-server"]}, options);
     const candidate = await prepareHarnessVerification({studyRoot: root, role: "openhands-agent-server"}, options);
@@ -25,7 +25,7 @@ test("OpenHands probe waits for its owned listener and retains actual image exec
     assert.equal(calls, 2); assert.equal(stops, 1);
     const {readdir} = await import("node:fs/promises");
     const receipt = JSON.parse(await readFile(join(root, "runtimes/launches", (await readdir(join(root, "runtimes/launches")))[0]!), "utf8"));
-    assert.ok(receipt.executions.some((execution: any) => execution.actualImage === execution.expectedImage));
-    assert.ok(receipt.executions.some((execution: any) => execution.actualConfigDigest === execution.expectedConfigDigest));
+    assert.ok(receipt.executions.some((execution: any) => execution.image === execution.expectedImage));
+    assert.ok(receipt.executions.some((execution: any) => execution.imageConfigDigest === execution.expectedConfigDigest && execution.kind === "smol-local-vm"));
   } finally {await rm(root, {recursive: true, force: true});}
 });

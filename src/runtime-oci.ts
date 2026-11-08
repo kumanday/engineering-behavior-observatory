@@ -9,7 +9,7 @@ const verify = (bytes: Uint8Array, expected: string): void => { if (!/^sha256:[a
 function ociRegistryClient(request: RuntimeRegistryRequest, options: RuntimeRegistryOptions) {
   const split = request.name.indexOf("/"), registry = request.name.slice(0, split), repository = request.name.slice(split + 1);
   if (split < 1 || !/^[a-z0-9.-]+(?::[0-9]+)?$/u.test(registry) || !/^[a-z0-9._/-]+$/u.test(repository)) throw new RuntimePolicyError("RUNTIME_IMAGE_INVALID", "Use an explicit registry/repository image name.");
-  const base = `https://${registry}/v2/${repository}`, accept = "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json";
+  const base = `https://${registry === "docker.io" ? "registry-1.docker.io" : registry}/v2/${repository}`, accept = "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json";
   let token: string | undefined;
   const get = async (url: string): Promise<{ response: Response; bytes: Buffer; json: any }> => {
     const fetcher = options.fetch ?? fetch;
@@ -151,4 +151,20 @@ export async function fetchFrozenOciRelease(request: RuntimeRegistryRequest, fro
     if (error instanceof RuntimePolicyError && /HTTP 404\b/u.test(error.message)) throw new RuntimePolicyError("RUNTIME_RELEASE_WITHDRAWN", `${request.name}@${reference} is unavailable.`);
     throw error;
   }
+}
+
+/** Inspect an immutable platform manifest and its config without pulling image layers. */
+export async function readOciDescriptorBinding(image: string, platform: string, options: RuntimeRegistryOptions = {}): Promise<{configDigest: string; layerDigests: string[]}> {
+  const [name, reference] = image.split("@");
+  if (!name || !reference || !/^sha256:[a-f0-9]{64}$/u.test(reference)) throw new RuntimePolicyError("RUNTIME_IMAGE_INVALID", "Use an immutable OCI platform digest.");
+  const split = platform.lastIndexOf("-"), os = platform.slice(0, split), architecture = platform.slice(split + 1).replace(/^x64$/u, "amd64");
+  const current = await fetchFrozenOciRelease({source: "oci", name, platform: os, architecture}, {source: "oci", version: "0", publishedAt: "", locator: image, integrity: `sha256-${Buffer.from(reference.slice(7), "hex").toString("base64")}`}, options);
+  const manifest = current.metadata!.manifest as {config: {digest: string}; layers: {digest: string}[]};
+  if (!/^sha256:[a-f0-9]{64}$/u.test(manifest.config.digest) || manifest.layers.some(layer => !/^sha256:[a-f0-9]{64}$/u.test(layer.digest))) throw new RuntimePolicyError("RUNTIME_METADATA_INVALID", "OCI content descriptors require SHA-256 identities.");
+  return {configDigest: manifest.config.digest, layerDigests: manifest.layers.map(layer => layer.digest)};
+}
+/** Verify immutable registry bytes without a daemon or an image-layer install. */
+export async function verifyOciDescriptors(plan: {image: string; platform: string; configDigest: string; layerDigests: string[]}, options: RuntimeRegistryOptions = {}): Promise<void> {
+  const current = await readOciDescriptorBinding(plan.image, plan.platform, options);
+  if (current.configDigest !== plan.configDigest || JSON.stringify(current.layerDigests) !== JSON.stringify(plan.layerDigests)) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", "OCI descriptors differ from the frozen plan.");
 }

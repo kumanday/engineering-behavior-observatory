@@ -1,3 +1,4 @@
+import {resolveHarnessRuntimeRole} from "../study-runtime-bindings.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -82,7 +83,7 @@ async function runOfficialHarborTrialOwned(input: OfficialHarborTrialInput): Pro
     ...condition, frozenPythonVersions: Object.fromEntries(host.probes.filter((probe) => probe.source === "package-metadata").map((probe) => [probe.package, probe.actualVersion])), smolEvents: join(root, "harbor", "smol-events.jsonl"),
     taskPath: prepared.task.snapshotDirectory, attemptId, trialsDir: join(root, "harbor", "trials"),
     model: entry.modelId, verified: prepared.verifier.requested, budgetMs: prepared.budget.coordinatorWallClockMs,
-    build: "ebo-harbor-smol-v1", nativeRoot,
+    build: "ebo-harbor-smol-v1", nativeRoot, openhandsGuest: resolveHarnessRuntimeRole(input.studyRoot, prepared.run.harnessId, configuration.harness) === "openhands-agent-server",
     runtime: { ...runtime, archiveDigest: digestBytes(archive).value }, configurationFiles,
     workerInput: { prepared, configuration, configurationRoot: "/tmp/ebo-worker/config", runtimeLock: {studyRoot: "/opt/ebo/study", digest: runtimeLock.digest}, ...(host.studyFreeze && host.sourceRunId ? {queueBinding: {studyFreeze: host.studyFreeze, sourceRunId: host.sourceRunId}} : {}) },
   };

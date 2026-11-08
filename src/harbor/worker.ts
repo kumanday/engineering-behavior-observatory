@@ -1,3 +1,4 @@
+import {currentOpenHandsSmolGuest, withOwnedOpenHandsSmolGuest, type OwnedSmolGuest} from "../openhands-smol-guest.js";
 import {resolveHarnessRuntimeRole} from "../study-runtime-bindings.js";
 import { adoptStudyRunBinding, currentStudyRuntime, runInStudyRuntime } from "../runtime-context.js";
 import { readStudyRuntimeLock } from "../study-runtimes.js";
@@ -17,6 +18,7 @@ import type { PreparedHarborExecution } from "./execution.js";
 import type { HarborHarnessStepExecutor, HarborStepExecution } from "./runner.js";
 
 export type HarborWorkerInput = {
+  ownedSmolEnvironment?: OwnedSmolGuest;
   runtimeLock?: {studyRoot: string; digest: string};
   queueBinding?: {studyFreeze: import("../study-runtime-bindings.js").StudyFreeze; sourceRunId: string};
   prepared: PreparedHarborExecution; configuration: HarborHarnessConfigurationReferences;
@@ -85,6 +87,7 @@ export function createNativeHarborExecutor(input: HarborWorkerInput): HarborHarn
 /** Executes native capture in the actual Harbor working directory. No task packet translation. */
 export async function runHarborWorker(input: HarborWorkerInput, executor?: HarborHarnessStepExecutor): Promise<HarborStepExecution> {
   const role = input.prepared?.run.harnessId ? resolveHarnessRuntimeRole(input.configurationRoot, input.prepared.run.harnessId, input.configuration.harness) : currentStudyRuntime()?.launch.role ?? "unselected";
+  if (role === "openhands-agent-server" && input.ownedSmolEnvironment && !currentOpenHandsSmolGuest()) return withOwnedOpenHandsSmolGuest(input.ownedSmolEnvironment, () => runHarborWorker(input, executor));
   const current = currentStudyRuntime();
   const binding = input.runtimeLock ? {studyRoot: input.runtimeLock.studyRoot, ...(current?.studyRoot === input.runtimeLock.studyRoot ? {options: current.options} : {})} : undefined;
   return runInStudyRuntime(role, binding, async () => {

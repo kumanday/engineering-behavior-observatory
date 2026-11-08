@@ -277,18 +277,20 @@ test("forwards abort through the SDK controller and closes the query", async () 
 test("lets the lifecycle enforce timeout as a budget stop", async () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-agent-sdk-timeout-"));
   try {
+    let started = false;
     let closed = false;
     const result = await executeRunAttempt({
       run,
       workspace: { setup: async () => ({ status: "ready", path: root, artifactId: "workspace-1", retained: true }) },
-      harness: (context) => executeClaudeAgentSdk(context, configuration, noOpSink, blockingQuery(undefined, () => { closed = true; })),
-      harnessBudgetMs: 20,
-      shutdownGraceMs: 100,
+      harness: (context) => executeClaudeAgentSdk(context, configuration, noOpSink, blockingQuery(() => { started = true; }, () => { closed = true; })),
+      harnessBudgetMs: 500,
+      shutdownGraceMs: 500,
       evidence: { flush: () => undefined },
     });
 
     assert.equal(result.classification.kind, "budget-stop");
     assert.equal(result.terminal.stopReason, "budget");
+    assert.equal(started, true);
     assert.equal(closed, true);
   } finally {
     rmSync(root, { recursive: true, force: true });

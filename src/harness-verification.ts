@@ -1,3 +1,4 @@
+import {currentOpenHandsSmolGuest} from "./openhands-smol-guest.js";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
@@ -196,7 +197,7 @@ const contractModules: Record<string, string[]> = {
   "cursor-sdk": ["cursor-sdk.js", "cursor-sdk-runner.js", "v2-profiles/cursor.js"],
   "pi-sdk": ["pi.js", "v2-profiles/pi.js"],
   "factory-droid": ["factory-droid.js", "factory-run.js", "v2-profiles/factory.js"],
-  "openhands-agent-server": ["openhands.js", "openhands-run.js", "openhands-runtime.js", "v2-profiles/openhands.js"],
+  "openhands-agent-server": ["openhands.js", "openhands-run.js", "openhands-runtime.js", "openhands-smol.js", "openhands-smol-guest.js", "v2-profiles/openhands.js"],
   "deepseek-harness": ["deepseek-adapter.js", "harbor/other-harnesses.js", "v2-profiles/deepseek.js"],
 };
 /** Runtime releases and format contracts are independent dimensions. */
@@ -205,15 +206,15 @@ export function harnessCaptureContract(harness: string): VerificationHash {
   return verificationDigest([...modules, "run-bundles.js", "native-v2.js", "projection-v2.js", "normalization-v2.js", "retained-evidence.js", "retained-version-policy.js", "verification-context.js", "verification-retained.js", "runtime-context.js", "harness-verification-candidate.js", "harness-verification.js", "normalization-integrity.js", "process-protocol.js", "lifecycle.js", "../../schemas/run-bundles/v2.json"].map(path =>
     ({path, digest: verificationDigest(readFileSync(new URL(path, import.meta.url)).toString("utf8"))})));
 }
-export function runtimeVerificationSubject(role: string, group: Pick<import("./study-runtimes.js").StudyRuntimeGroup, "components" | "plan" | "roots">, contractDigest?: VerificationHash, abi?: string): VerificationSubject | undefined {
+export function runtimeVerificationSubject(role: string, group: Pick<import("./study-runtimes.js").StudyRuntimeGroup, "components" | "plan" | "roots" | "executionEnvironment">, contractDigest?: VerificationHash, abi?: string): VerificationSubject | undefined {
   const harness = listRuntimeRecipes().find(recipe => recipe.id === role)?.harness;
   if (!harness) return undefined;
   return canonicalVerificationSubject({harness, platform: group.plan.platform, abi: abi ?? group.plan.abi, contractDigest: contractDigest ?? harnessCaptureContract(harness),
-    components: group.components.map(component => ({id: component.id, name: component.name, version: component.version, integrity: component.selection.release.integrity}))});
+    components: [...group.components.map(component => ({id: component.id, name: component.name, version: component.version, integrity: component.selection.release.integrity})), ...group.executionEnvironment ? [{id: "smol-environment", name: "smolmachines", version: group.executionEnvironment.version, integrity: verificationDigest(group.executionEnvironment)}] : []]});
 }
 /** Live execution records the coordinator ABI actually used to load an npm graph. */
-export function runtimeExecutionVerificationSubject(role: string, group: Pick<import("./study-runtimes.js").StudyRuntimeGroup, "components" | "plan" | "roots">): VerificationSubject | undefined {
-  return runtimeVerificationSubject(role, group, undefined, group.plan.kind === "npm" ? `node-${process.versions.node}-modules-${process.versions.modules}` : group.plan.abi);
+export function runtimeExecutionVerificationSubject(role: string, group: Pick<import("./study-runtimes.js").StudyRuntimeGroup, "components" | "plan" | "roots" | "executionEnvironment">): VerificationSubject | undefined {
+  return runtimeVerificationSubject(role, group.executionEnvironment ? {...group, executionEnvironment: {...group.executionEnvironment, coordinatorAbi: `node-${process.versions.node}-modules-${process.versions.modules}`, coordinatorPlatform: `${process.platform}-${process.arch}`, boundary: currentOpenHandsSmolGuest() ? "task-guest" : "host-vm"}} : group, undefined, group.plan.kind === "npm" ? `node-${process.versions.node}-modules-${process.versions.modules}` : group.plan.abi);
 }
 export function verificationScopeForRun(run: {model: {provider: string; id: string; configurationDigest?: string}}, configuration: {captureProfileDigest?: VerificationHash}): VerificationScope | null {
   if (!configuration.captureProfileDigest) return null;

@@ -211,7 +211,10 @@ class OwnedSmolEnvironment(SmolEnvironment):
             self.event('branch-failed', parent=parent['machine'], error=str(exc),
                        recovery='Drain attempts and restart the preparation owner; never cold-fallback on chain limits')
             raise
-        self.event('branch-ready', parent=parent['machine'], child=self._machine.name,
+        pulled = await self._machine.pull_image(self.task_env_config.docker_image)
+        if pulled.reference != self.task_env_config.docker_image: raise ValueError('Smol branch image reference differs from its frozen input')
+        self.ebo_image_identity = {'reference': pulled.reference, 'configDigest': pulled.digest}
+        self.event('branch-ready', imageConfigDigest=pulled.digest, parent=parent['machine'], child=self._machine.name,
                    durationSeconds=time.monotonic()-started, fingerprint=key)
 
     async def _upload_environment_dir_after_start(self):
@@ -310,12 +313,12 @@ async def serve_parents(request):
                     machines.append(machine)
                     result = await machine.exec(['mkdir', '-p', env.task_env_config.workdir])
                     if result.exit_code: raise RuntimeError('Cannot create task workdir')
+                    setup_evidence = work / (key + '-setup.json')
+                    await prepare_local_context(env, machine, binding, setup_evidence, request['budgetMs'] / 1000)
                     if identity['role'] == 'agent':
                         marker = await machine.read_file('/opt/ebo/runtime.sha256')
                         if marker.decode().strip() != manifest['runtimeArchiveDigest']:
                             raise ValueError('Prepared image has the wrong /opt/ebo runtime pack')
-                    setup_evidence = work / (key + '-setup.json')
-                    await prepare_local_context(env, machine, binding, setup_evidence, request['budgetMs'] / 1000)
                     checkpoint = {'machine': machine.name, 'resources': {
                         'cpus': env._effective_cpus, 'memory_mb': env._effective_memory_mb,
                         'storage_mb': env._effective_storage_mb, 'gpus': env._effective_gpus},

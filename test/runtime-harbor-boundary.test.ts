@@ -27,26 +27,35 @@ test("a worker runtime can bind its archive to one study lock while historical w
   } finally {await rm(root, {recursive: true, force: true});}
 });
 
-test("worker packaging requires an immutable Node image and retains the selected study graph", async () => {
-  const {mkdtemp, mkdir, readFile, rm, stat, writeFile} = await import("node:fs/promises");
-  const {tmpdir} = await import("node:os"); const {dirname, join} = await import("node:path");
+test("worker packaging uses local Smol and retains the immutable image and study graph", async () => {
+  const {mkdtemp, mkdir, readFile, rm, cp, writeFile} = await import("node:fs/promises");
+  const {tmpdir} = await import("node:os"); const {join} = await import("node:path");
   const {execFile} = await import("node:child_process"); const {promisify} = await import("node:util"); const exec = promisify(execFile);
   const {freezeStudyRuntimes} = await import("../src/study-runtimes.js"); const {fakeSdkRuntimeOptions} = await import("./runtime-fixture-helper.js");
-  const root = await mkdtemp(join(tmpdir(), "ebo-worker-package-")), study = join(root, "study"), output = join(root, "output"), bin = join(root, "bin"), calls = join(root, "docker-call.json");
-  await mkdir(bin);
+  const {buildHarborRuntime} = await import(new URL("../../scripts/build-harbor-runtime.mjs", import.meta.url).href);
+  const root = await mkdtemp(join(tmpdir(), "ebo-worker-package-")), study = join(root, "study"), output = join(root, "output");
   try {
     const lock = await freezeStudyRuntimes(study, {studyId: "worker-package", roles: ["pi-sdk"], target: {platform: "linux", architecture: "arm64"}}, fakeSdkRuntimeOptions("9.9.9"));
-    const fakeDocker = `#!${process.execPath}\nimport {cp,mkdir,mkdtemp,writeFile} from 'node:fs/promises';import {join} from 'node:path';import {execFileSync} from 'node:child_process';const args=process.argv.slice(2);await writeFile(${JSON.stringify(calls)},JSON.stringify(args));const mount=target=>args.find(v=>v.includes('target='+target)).split(',')[1].slice(7);const out=mount('/output'),study=mount('/study');const stage=await mkdtemp(join(out,'stage-'));await mkdir(join(stage,'study'));await cp(join(study,'runtimes'),join(stage,'study','runtimes'),{recursive:true});execFileSync('tar',['-czf',join(out,'worker.tgz'),'-C',stage,'.']);await writeFile(join(out,'node-version.txt'),process.version);\n`;
-    await writeFile(join(bin, "docker"), fakeDocker, {mode: 0o700});
-    const env = {...process.env, PATH: `${bin}:${dirname(process.execPath)}:${process.env.PATH}`}, script = "scripts/build-harbor-runtime.mjs";
-    await assert.rejects(exec(process.execPath, [script, output, "--study", study, "--node-image", "node:latest"], {env}), /immutable/);
-    await assert.rejects(stat(calls), {code: "ENOENT"});
+    let invoked = false;
+    await assert.rejects(buildHarborRuntime({destination: output, study, nodeImage: "node:latest"}, () => {invoked = true;}), /immutable/);
+    assert.equal(invoked, false);
     const image = `docker.io/library/node@sha256:${"d".repeat(64)}`;
-    await exec(process.execPath, [script, output, "--study", study, "--node-image", image], {env});
+    const nodeVersion = JSON.parse(await readFile("package.json", "utf8")).engines.node;
+    const build = await buildHarborRuntime({destination: output, study, nodeImage: image}, async (request: any) => {
+      invoked = true;
+      assert.equal(request.image, image);
+      assert.deepEqual(request.mounts.map((mount: any) => [mount.target, mount.readOnly]), [["/source", true], ["/study", true], ["/output", false]]);
+      const stage = join(root, "stage"); await mkdir(join(stage, "study"), {recursive: true});
+      await cp(join(study, "runtimes"), join(stage, "study/runtimes"), {recursive: true});
+      await exec("tar", ["-czf", join(output, "worker.tgz"), "-C", stage, "."]);
+      await writeFile(join(output, "node-version.txt"), `v${nodeVersion}`);
+      return {backend: "smolvm", target: "local", image, imageConfigDigest: "authored-config", machine: "authored-build-vm"};
+    });
+    assert.equal(invoked, true); assert.equal(build.execution.backend, "smolvm");
     const runtime = JSON.parse(await readFile(join(output, "worker.json"), "utf8"));
     assert.equal(runtime.schemaVersion, "ebo.harbor-worker-runtime/v2"); assert.equal(runtime.studyLockDigest, lock.digest);
-    assert.ok(JSON.parse(await readFile(calls, "utf8")).includes(image));
     const metadata = await exec("tar", ["-xOf", join(output, "worker.tgz"), `./study/runtimes/cache/${lock.groups[0]!.installation.key}/node_modules/@earendil-works/pi-coding-agent/package.json`]);
     assert.equal(JSON.parse(metadata.stdout).version, "9.9.9");
+    await assert.rejects(buildHarborRuntime({destination: output, study, nodeImage: image}, async () => ({backend: "docker", target: "local", image, imageConfigDigest: "authored-config"})), /local Smol/);
   } finally {await rm(root, {recursive: true, force: true});}
 });

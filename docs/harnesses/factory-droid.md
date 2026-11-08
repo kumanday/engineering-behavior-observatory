@@ -208,7 +208,7 @@ target for Harbor execution. Build the worker archive from that study:
 
 ```sh
 node scripts/build-harbor-runtime.mjs .ebo/harbor-runtime \
-  --study ./study --node-image <Node-24.19.0-Linux-arm64-image@sha256:platform-digest>
+  --study ./study --node-image <pinned-Node-Linux-arm64-image@sha256:platform-digest>
 ```
 
 The worker uses the CLI and SDK in the frozen study cache.
@@ -218,6 +218,7 @@ runtime's `environmentKeys`. The builder archives the CLI's npm lockfile and
 platform binary with the SDK worker. Follow the [runtime image and Smol binding
 instructions](../guides/harbor-tasks.md#build-and-pin-the-guest-runtime); the
 archive, guest image and model configuration are distinct frozen inputs.
+The archive builder uses the study’s local Smol engine.
 
 ## Verification and live qualification
 

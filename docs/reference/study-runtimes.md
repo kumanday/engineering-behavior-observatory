@@ -95,13 +95,17 @@ The bootstrap interpreter needs `pip` and `pypi-attestations`. Its TLS trust sto
 must validate PyPI and Sigstore; `SSL_CERT_FILE` selects an operator-provided CA
 bundle for installation commands. Signature and certificate checks remain enabled.
 
-OpenHands capture starts an owned Docker container from the frozen image digest.
-EBO checks the running container's image identity and uses its published loopback
-port for REST and WebSocket requests. The launch receipt retains both expected
-and actual image identities. Run capture mounts the attempt workspace into that
-container using the workspace owner’s UID/GID and a writable temporary home. `baseUrl` is retained as a configuration compatibility field; the
-owned container supplies the execution endpoint. Remove `serverLaunch` executable
-settings when migrating a configuration to a study lock.
+OpenHands freezes an OCI image and a local `smol` engine in the same study.
+OCI admission verifies the registry descriptors; Smol pulls the immutable image
+when creating its VM. A native coordinator owns that VM and its loopback server.
+A Harbor worker runs the server inside its existing task VM. Set
+`"openhandsBoundary": "task-guest"` for that study; the default is `"host-vm"`.
+Qualification binds the selected boundary, coordinator platform, Node ABI and
+Smol/Python composition. The guest coordinator runs as root inside its task VM,
+joins the server to a dedicated cgroup, then applies the workspace owner's UID
+and GID. Shutdown confirms the cgroup is empty before retaining a stable
+workspace. `baseUrl` remains a configuration compatibility field; the owned
+server supplies the executable endpoint.
 
 The configuration bundle and runtime study can use separate directories. Pass
 `--configuration-root <bundle-root>` to `runtime bind-queue` to resolve the queue’s
@@ -221,3 +225,43 @@ use the strictest age policy in that graph. Resolution acquires the selected
 root tarballs directly, then writes an exact-version package manifest and
 package lock for installation. A nested dependency with the same package name
 is checked as a dependency of the graph.
+
+## Admit a prepared Python wheel
+
+A missing wheel can be prepared outside EBO and admitted explicitly:
+
+```sh
+ebo runtime freeze ./study ./runtime-request.json \
+  --python-wheelhouse /private/prepared-wheels/wheelhouse.json
+```
+
+The `ebo.local-python-wheels/v1` manifest lists each wheel and its
+`ebo.python-wheel-build/v1` provenance file with separate SHA-256 digests. The
+provenance records the upstream released sdist, source publication time, build
+time, Python/platform target, recipe, pinned build tools, library inputs and
+passing check receipts. EBO checks that the source matches PyPI and enforces
+release age against that source. Applied source patches record their URL, exact
+commit, SHA-256, publication time and upstream status. The age gate uses the
+newest source or patch publication time. Repackaged upstream binary wheels also
+record the original wheel's URL, hash and publication time. EBO checks that
+binary against PyPI at freeze and before launch; its age and withdrawal status
+participate in admission. Stable-ABI wheels retain their upstream ABI tag and
+record the Python version used to test the prepared artifact. Each admitted
+wheel may be up to 64 MiB, with a 128 MiB total per manifest. The complete
+serialized study lock must also fit the 64 MiB qualification artifact limit.
+Retained wheel bytes use base64, so the effective combined wheel limit is
+smaller and depends on the other lock receipts. Freeze rejects an oversized
+lock before creating its frozen record.
+
+A locally prepared wheel is labelled
+as an operator build. Its build time remains separate from source age.
+
+The freeze retains the wheel bytes and provenance in its content-addressed
+plan. Installs remain wheel-only, hash-checked and offline. The original
+wheelhouse is therefore unnecessary when reopening retained installations.
+Supplying a wheelhouse again validates it against the frozen admission;
+different inputs require a new study revision. Registry withdrawal checks
+apply to the upstream source, and launch security receipts query OSV for the
+runtime packages and declared build inputs. `runtime inspect` displays admitted
+wheels, source identity, build time and provenance digest. EBO executes no source
+builds during resolution or installation.

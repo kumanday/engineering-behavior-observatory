@@ -275,7 +275,7 @@ export async function captureOpenHandsAgentServerRunOwned(options: CaptureOpenHa
       const { serverWorkspacePath, serverLaunch, credentialEnv, ...configuration } = options.configuration;
       void serverLaunch; void credentialEnv;
       if (serverLaunch !== undefined) throw new Error("OpenHands serverLaunch is replaced by the study's frozen image; remove the executable launch configuration.");
-      return withLockedOpenHandsServer({...configuration, workspacePath, ...(serverWorkspacePath ? {serverWorkspacePath} : {})}, async (server) => {
+      return withLockedOpenHandsServer({...configuration, workspacePath, signal, onStarting: registerShutdown, shutdownGraceMs: options.shutdownGraceMs, ...(serverWorkspacePath ? {serverWorkspacePath} : {})}, async (server) => {
       configuration.baseUrl = server.baseUrl;
       registerShutdown(async () => {
         try {if (!server.isStopped() && progressiveSessionId !== undefined) await cleanupOpenHandsConversation(configuration, progressiveSessionId, options.shutdownGraceMs ?? 250);}

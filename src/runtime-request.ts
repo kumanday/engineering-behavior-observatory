@@ -17,10 +17,11 @@ function policy(value: unknown): void {
   catch (error) {if (!(error instanceof RuntimePolicyError) || error.code !== "RUNTIME_NO_ELIGIBLE_RELEASE") throw error;}
 }
 export function assertStudyRuntimeRequest(value: unknown): asserts value is StudyRuntimeRequest {
-  keys(value, ["studyId", "roles", "policy", "harnessPolicies", "overrides", "roleTargets", "target"], "Runtime request");
+  keys(value, ["studyId", "roles", "openhandsBoundary", "policy", "harnessPolicies", "overrides", "roleTargets", "target"], "Runtime request");
   if (typeof value.studyId !== "string" || !value.studyId.trim() || !Array.isArray(value.roles) || !value.roles.length || value.roles.some((role: unknown) => typeof role !== "string") || new Set(value.roles).size !== value.roles.length) throw new RuntimePolicyError("RUNTIME_STUDY_INVALID", "A study ID and unique runtime roles are required.");
   const recipes = listRuntimeRecipes(), selected = recipes.filter((recipe) => value.roles.includes(recipe.id));
   if (selected.length !== value.roles.length) throw new RuntimePolicyError("RUNTIME_ROLE_UNKNOWN", "Request contains an unknown execution role.");
+  if (value.openhandsBoundary !== undefined && !["host-vm", "task-guest"].includes(value.openhandsBoundary)) throw new RuntimePolicyError("RUNTIME_STUDY_INVALID", "OpenHands boundary must be host-vm or task-guest.");
   if (value.policy !== undefined) policy(value.policy);
   if (value.target !== undefined) target(value.target);
   if (value.roleTargets !== undefined) {

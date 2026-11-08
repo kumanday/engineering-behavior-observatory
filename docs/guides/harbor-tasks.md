@@ -116,20 +116,24 @@ boundary; it is not independent grading.
 npm run build
 node scripts/build-harbor-runtime.mjs study/config/runtime \
   --study study \
-  --node-image <Node-24.19.0-Linux-arm64-image@sha256:platform-digest> \
-  --base <public-runtime-base@sha256:platform-digest> \
-  --image <registry/ebo-runtime:tag>
+  --node-image <pinned-Node-Linux-arm64-image@sha256:platform-digest>
 ```
 
-The builder installs EBO's coordinating dependencies from its npm lock with
-install scripts disabled, then copies the study's exact runtime caches and lock
-into `worker.tgz`. The supplied immutable Node image must report Node 24.19.0.
-The task image must already provide Git, CA certificates and compatible system
-libraries. The local execution image contains the pack at `/opt/ebo`. It records
-the build recipe, original startup settings and archive digest in `image-build.json`.
-Publishing is a separate, explicit `docker push <registry/ebo-runtime:tag>`
-operation. Use the resulting **linux/arm64 manifest digest**, not an index digest
-or a daemon-local tag, in the environment bindings. Keep the pack outside the task.
+The builder uses the study's local Smol SDK and its immutable Node image. It
+installs EBO's coordinating dependencies from the npm lock with install scripts
+disabled, then retains the study's runtime caches and lock in `worker.tgz`.
+The image must report the Node version pinned by EBO's `package.json`.
+`worker-build.json` records the image digest, actual Node probe, archive digest
+and owned Smol execution receipt.
+
+Place `worker.tgz` in the admitted agent environment context and use `localSetup`
+to verify its SHA-256, extract it into `/opt/ebo`, and write that archive digest to
+`/opt/ebo/runtime.sha256`. The preparation owner runs the setup before checking
+the marker and creating reusable parents. Bind a registry-accessible
+**linux/arm64 manifest digest** in the environment manifest. The supplied image
+must provide Git, CA certificates and compatible system libraries. Worker
+preparation and local setup use Smol directly.
+
 The reusable runtime image must have compatible Linux
 architecture, glibc and the system tools needed by its harness. A macOS runtime
 or Alpine/musl image is not interchangeable with this archive.
