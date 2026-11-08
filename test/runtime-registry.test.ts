@@ -26,7 +26,7 @@ test("resolves OCI stable flavors using image creation time and platform digests
   const hash = (text: string) => `sha256:${createHash("sha256").update(text).digest("hex")}`;
   const manifest = JSON.stringify({ schemaVersion: 2, config: { digest: hash(config) }, layers: [{ digest: `sha256:${"b".repeat(64)}`, size: 42 }] });
   const releases = await fetchRuntimeReleases({ source: "oci", name: "ghcr.io/openhands/agent-server", platform: "linux", architecture: "arm64", flavor: "python" }, { fetch: async (url) => {
-    if (url.endsWith("/tags/list")) return json({ tags: ["latest", "1.54.0-python"] });
+    if (url.endsWith("/tags/list")) return json({ tags: ["latest", "rel-1.54.0-python"] });
     if (url.includes("/manifests/")) return new Response(manifest);
     if (url.endsWith(`/blobs/${hash(config)}`)) return new Response(config);
     throw new Error(`Unexpected URL ${url}`);

@@ -1,5 +1,6 @@
 import { refreshFrozenRuntimeRelease } from "./runtime-status.js";
 import {assertStudyRuntimeRequest} from "./runtime-request.js";
+import {discoverArtifactProofs} from "./runtime-proofs.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -77,12 +78,13 @@ export async function freezeStudyRuntimes(studyRoot: string, request: StudyRunti
       else {
         if (roots.length !== 1) throw new RuntimePolicyError("RUNTIME_RECIPE_INVALID", "Artifact runtimes require one root.");
         const root = roots[0]!, release = root.selection.release;
+        const publisherProofs = await discoverArtifactProofs(root, release, options);
         components = [{ id: root.id, name: root.name, version: release.version, source: root.source, location: release.locator, selection: root.selection,
           ...(root.ecosystem ? { ecosystem: root.ecosystem } : { purl: root.purl! }) }];
         if (root.source === "oci") {
           const manifest = release.metadata?.manifest as any;
-          plan = { kind: "oci", recipe: "ebo-oci/v1", platform: `${root.platform}-${root.architecture}`, abi: "oci", image: release.locator, configDigest: manifest.config.digest, layerDigests: manifest.layers.map((layer: any) => layer.digest) };
-        } else plan = { kind: "binary", recipe: "ebo-binary/v1", platform, abi: "native", artifact: { locator: release.locator, integrity: release.integrity, filename: "runtime.tar.gz" }, archive: "tar.gz" };
+          plan = { kind: "oci", recipe: "ebo-oci/v1", platform: `${root.platform}-${root.architecture}`, abi: "oci", image: release.locator, configDigest: manifest.config.digest, layerDigests: manifest.layers.map((layer: any) => layer.digest), publisherProofs };
+        } else plan = { kind: "binary", recipe: "ebo-binary/v1", platform, abi: "native", artifact: { locator: release.locator, integrity: release.integrity, filename: "runtime.tar.gz" }, archive: "tar.gz", publisherProofs };
       }
       // Check the whole graph before any package can be loaded or executed.
       await checkRuntimeSecurity(components, options);

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { RuntimePolicyError, type RuntimeRelease } from "./runtime-resolution.js";
 import type { RuntimeRegistryOptions, RuntimeRegistryRequest } from "./runtime-registry.js";
+import type {ArtifactProof} from "./runtime-proofs.js";
+import {digestMetadata} from "./artifacts.js";
 
 const digest = (bytes: Uint8Array): string => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 const verify = (bytes: Uint8Array, expected: string): void => { if (!/^sha256:[a-f0-9]{64}$/u.test(expected) || digest(bytes) !== expected) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", "OCI descriptor digest differs from downloaded bytes."); };
@@ -49,7 +51,7 @@ export async function fetchOciReleases(request: RuntimeRegistryRequest, options:
   const flavor = request.flavor ? `-${request.flavor}` : "";
   for (const tag of tags) {
     if (flavor && !tag.endsWith(flavor)) continue;
-    const version = (flavor ? tag.slice(0, -flavor.length) : tag).replace(/^v/u, "");
+    const version = (flavor ? tag.slice(0, -flavor.length) : tag).replace(/^(?:rel-|v)/u, "");
     if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version)) continue;
     let image = await get(`${base}/manifests/${encodeURIComponent(tag)}`), indexDigest: string | undefined;
     if (Array.isArray(image.json.manifests)) {
@@ -66,6 +68,47 @@ export async function fetchOciReleases(request: RuntimeRegistryRequest, options:
       integrity: `sha256-${Buffer.from(manifestDigest.slice(7), "hex").toString("base64")}`, metadata: { tag, manifestDigest, indexDigest: indexDigest ?? null, manifest: image.json, config: config.json } });
   }
   return releases;
+}
+
+/** Check standard referrers, Cosign tags and the selected platform's BuildKit provenance. */
+export async function discoverOciProofs(request: RuntimeRegistryRequest, release: RuntimeRelease, options: RuntimeRegistryOptions): Promise<ArtifactProof[]> {
+  const {base, get} = ociRegistryClient(request, options), subject = release.locator.split("@")[1]!;
+  const proofs: ArtifactProof[] = [];
+  const optional = async (url: string) => {
+    try {return await get(url);}
+    catch (error) {if (error instanceof RuntimePolicyError && /HTTP 404\b/u.test(error.message)) return undefined; throw error;}
+  };
+  const references = await optional(`${base}/referrers/${subject}`);
+  if (references && !Array.isArray(references.json.manifests)) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "OCI referrers response lacks its descriptor list.");
+  const descriptors = references?.json.manifests ?? [];
+  for (const mode of ["signature", "attestation"] as const) {
+    const suffix = mode === "signature" ? "sig" : "att";
+    const tagged = await optional(`${base}/manifests/${subject.replace(":", "-")}.${suffix}`);
+    const offered = descriptors.filter((entry: any) => String(entry.artifactType ?? "").includes(mode === "signature" ? "cosign.artifact.sig" : "cosign.artifact.att"));
+    if (tagged || offered.length) proofs.push({kind: "oci-cosign", repository: request.repository!, image: release.locator, mode, manifests: [...offered, ...(tagged ? [tagged.json] : [])]});
+  }
+  const provenance: {digest: string; bytesBase64: string}[] = [];
+  const retain = (value: {bytes: Buffer}, expected: string) => {verify(value.bytes, expected); provenance.push({digest: expected, bytesBase64: value.bytes.toString("base64")});};
+  const indexDigest = release.metadata?.indexDigest;
+  if (typeof indexDigest === "string") {
+    const index = await get(`${base}/manifests/${indexDigest}`); retain(index, indexDigest);
+    if (!index.json.manifests?.some((entry: any) => entry.digest === subject)) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "Frozen OCI index no longer references its selected platform.");
+    descriptors.push(...index.json.manifests.filter((entry: any) => entry.annotations?.["vnd.docker.reference.type"] === "attestation-manifest" && entry.annotations?.["vnd.docker.reference.digest"] === subject));
+  }
+  for (const descriptor of descriptors) {
+    if (String(descriptor.artifactType ?? "").includes("cosign.artifact.")) continue;
+    const manifest = await get(`${base}/manifests/${descriptor.digest}`); retain(manifest, descriptor.digest);
+    for (const layer of manifest.json.layers ?? manifest.json.blobs ?? []) {
+      if (!String(layer.mediaType).includes("in-toto") && !String(layer.mediaType).includes("sigstore.bundle")) continue;
+      const blob = await get(`${base}/blobs/${layer.digest}`); retain(blob, layer.digest);
+      if (String(layer.mediaType).includes("sigstore.bundle")) {
+        const bundles = [blob.json];
+        proofs.push({kind: "github-attestation", repository: request.repository!, subject: `oci://${release.locator}`, bundles, digest: `sha256:${digestMetadata(bundles).value}`});
+      } else if (!Array.isArray(blob.json.subject) || !blob.json.subject.some((entry: any) => entry.digest?.sha256 === subject.slice(7))) throw new RuntimePolicyError("RUNTIME_PROOF_INVALID", "OCI provenance does not name the selected image digest.");
+    }
+  }
+  if (provenance.length) proofs.push({kind: "oci-buildkit-provenance", subject, blobs: provenance});
+  return proofs;
 }
 
 /** Frozen launches read the immutable manifest even if its tag has moved. */

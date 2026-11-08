@@ -7,6 +7,23 @@ import {freezeStudyRuntimes} from "../src/study-runtimes.js";
 import {captureOpenHandsAgentServer} from "../src/openhands.js";
 import {fakeOciRuntimeOptions} from "./runtime-oci-fixture.js";
 
+test("an owned OpenHands server can write its Linux bind mount as the workspace owner", async () => {
+  const {withStudyRuntime} = await import("../src/runtime-context.js");
+  const {withLockedOpenHandsServer} = await import("../src/openhands-runtime.js");
+  const {stat} = await import("node:fs/promises");
+  const root = await mkdtemp(join(tmpdir(), "ebo-openhands-user-")), workspace = join(root, "workspace"), options = fakeOciRuntimeOptions(), original = options.run!;
+  await mkdir(workspace, {mode: 0o700});
+  const owner = await stat(workspace); let launchArgs: readonly string[] = [];
+  options.run = async (command, args, cwd) => {if (args[0] === "run") launchArgs = args; return original(command, args, cwd);};
+  try {
+    await freezeStudyRuntimes(root, {studyId: "workspace-owner", roles: ["openhands-agent-server"]}, options);
+    await withStudyRuntime({studyRoot: root, role: "openhands-agent-server", options}, async () => withLockedOpenHandsServer({workspacePath: workspace}, async () => {
+      assert.equal(launchArgs[launchArgs.indexOf("--user") + 1], `${owner.uid}:${owner.gid}`);
+      assert.ok(launchArgs.includes("HOME=/tmp"));
+    }));
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
 test("OpenHands rejects an actual container image that differs from the frozen image before contacting a server", async () => {
   const root = await mkdtemp(join(tmpdir(), "ebo-openhands-binding-")), options = fakeOciRuntimeOptions(), original = options.run!;
   let contacted = false, stopped = false;

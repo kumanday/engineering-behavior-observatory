@@ -11,6 +11,7 @@ export function fakeVendorRuntimeOptions(cliFallback?: string): StudyRuntimeOpti
   const platform = listRuntimeRecipes().find((recipe) => recipe.id === "devin-cli")!.components[0]!.platform!;
   const locator = `https://static.devin.ai/cli/${version}/fixture.tar.gz`;
   return { now: () => "2026-11-07T12:00:00Z", query: async () => ({}), fetch: async (url) => {
+    if (url.includes("/attestations/")) return new Response("", {status: 404});
     if (url === locator) return new Response(archive);
     return new Response(JSON.stringify(url.includes("api.github.com") ? [{tag_name: `v${version}`, published_at: "2026-11-05T00:00:00Z", draft: false, prerelease: false}] : {platforms: {[platform]: {url: locator, sha256: sha}}}));
   }, run: async (_command, args, cwd) => {

@@ -6,10 +6,11 @@ import type { RuntimeFetch } from "./runtime-registry.js";
 import type { RuntimeCommandRunner, RuntimeInstallReceipt } from "./runtime-installation.js";
 import { assertPythonIdentity, probePythonBootstrap, type PythonBootstrap } from "./runtime-bootstrap.js";
 import { canonicalizeMetadata, digestMetadata } from "./artifacts.js";
+import {verifyArtifactProofs, type ArtifactProof} from "./runtime-proofs.js";
 
 export type RuntimeArtifact = { locator: string; integrity: string; filename: string;
   attestation?: { provenanceUrl: string; repository: string; provenance?: Record<string, unknown>; provenanceDigest?: string } };
-type Base = { platform: string; abi: string };
+type Base = { platform: string; abi: string; publisherProofs?: ArtifactProof[] };
 export type ArtifactInstallPlan = Base & (
   { kind: "binary"; recipe: "ebo-binary/v1"; artifact: RuntimeArtifact; archive: "tar.gz" | "raw" } |
   { kind: "python"; recipe: "ebo-python/v1"; artifacts: RuntimeArtifact[]; python: string; bootstrap: PythonBootstrap; requirements: string[] } |
@@ -48,21 +49,23 @@ export async function installArtifactRuntime(plan: ArtifactInstallPlan, staging:
   const proofs: RuntimeInstallReceipt["proofs"] = [];
   if (plan.kind === "oci") {
     if (!/^[^\s]+@sha256:[a-f0-9]{64}$/u.test(plan.image)) throw new RuntimePolicyError("RUNTIME_IMAGE_INVALID", "An immutable platform manifest digest is required.");
+    const publisherProofs = await verifyArtifactProofs(plan.publisherProofs ?? [], plan.image, staging, run);
     await command(run, "docker", ["pull", "--platform", plan.platform.replace(/-/, "/"), plan.image], staging);
     const inspected = JSON.parse(await command(run, "docker", ["image", "inspect", plan.image], staging));
     if (inspected[0]?.Id !== plan.configDigest) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", "Docker config differs from the frozen OCI manifest.");
     await writeFile(join(staging, "image.json"), JSON.stringify({ image: plan.image, configDigest: plan.configDigest, layerDigests: plan.layerDigests }), { mode: 0o600 });
-    return [{ kind: "oci-content-digests", result: { configDigest: plan.configDigest, layerDigests: plan.layerDigests } }];
+    return [...publisherProofs, { kind: "oci-content-digests", result: { configDigest: plan.configDigest, layerDigests: plan.layerDigests } }];
   }
   if (plan.kind === "binary") {
     const archive = join(staging, plan.artifact.filename);
     await downloadRuntimeArtifact(plan.artifact, archive, fetcher);
+    const publisherProofs = await verifyArtifactProofs(plan.publisherProofs ?? [], archive, staging, run);
     if (plan.archive === "tar.gz") {
       await mkdir(join(staging, "runtime"));
       await command(run, "python3", ["-I", "-c", extractScript, archive, join(staging, "runtime")], staging);
       await rm(archive);
     } else await chmod(archive, 0o700);
-    return [{ kind: "vendor-checksum", result: { integrity: plan.artifact.integrity } }];
+    return [...publisherProofs, { kind: "vendor-checksum", result: { integrity: plan.artifact.integrity } }];
   }
   assertPythonIdentity(await probePythonBootstrap(plan.python, run, staging), plan.bootstrap);
   const wheels = join(staging, "wheels"); await mkdir(wheels);

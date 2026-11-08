@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { currentStudyRuntime, recordRuntimeExecution } from "./runtime-context.js";
@@ -24,10 +24,14 @@ export async function withLockedOpenHandsServer<T>(request: {sessionApiKey?: str
     return result.stdout;
   };
   const args = ["run", "--detach", "--platform", plan.platform.replace(/-/, "/"), "--publish", "127.0.0.1::8000"];
+  let workspaceUser: string | undefined;
   if (request.workspacePath) {
     const target = request.serverWorkspacePath ?? request.workspacePath;
     if (!isAbsolute(request.workspacePath) || !isAbsolute(target) || request.workspacePath.includes(",") || target.includes(",")) throw new RuntimePolicyError("RUNTIME_WORKSPACE_INVALID", "OpenHands workspace mounts require absolute paths without commas.");
     args.push("--mount", `type=bind,source=${request.workspacePath},target=${target}`);
+    const owner = await stat(request.workspacePath);
+    workspaceUser = `${owner.uid}:${owner.gid}`;
+    args.push("--user", workspaceUser, "--env", "HOME=/tmp");
   }
   const temporary = await mkdtemp(join(tmpdir(), "ebo-openhands-server-"));
   let containerId: string;
@@ -46,9 +50,10 @@ export async function withLockedOpenHandsServer<T>(request: {sessionApiKey?: str
   try {
     let actual: any; try {actual = JSON.parse(await command(["container", "inspect", containerId]))[0];} catch (error) {if (error instanceof RuntimePolicyError) throw error; throw new RuntimePolicyError("RUNTIME_PROBE_INVALID", "Docker container inspect returned malformed JSON.");}
     const binding = {componentId: "openhands", kind: "docker-container", containerId, expectedImage: plan.image, expectedConfigDigest: plan.configDigest,
-      actualConfigDigest: actual?.Image ?? null, actualImage: actual?.Config?.Image ?? null};
+      actualConfigDigest: actual?.Image ?? null, actualImage: actual?.Config?.Image ?? null, workspaceUser: workspaceUser ?? null, actualUser: actual?.Config?.User ?? null};
     await recordRuntimeExecution(binding);
     if (actual?.Image !== plan.configDigest || actual?.Config?.Image !== plan.image) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", "The actual OpenHands container differs from the study's frozen image.");
+    if (workspaceUser && actual?.Config?.User !== workspaceUser) throw new RuntimePolicyError("RUNTIME_CONTAINER_BINDING_INVALID", "OpenHands did not start as the workspace owner.");
     const ports = actual.NetworkSettings?.Ports?.["8000/tcp"];
     if (actual.State?.Running !== true || !Array.isArray(ports) || ports.length !== 1 || ports[0]?.HostIp !== "127.0.0.1" || !/^\d+$/u.test(ports[0]?.HostPort ?? "")) throw new RuntimePolicyError("RUNTIME_CONTAINER_BINDING_INVALID", "OpenHands requires a running container with one loopback server port.");
     const server = {baseUrl: `http://127.0.0.1:${ports[0].HostPort}`, stop, isStopped: () => stopped};
