@@ -4,7 +4,8 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readd
 import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("cursor-sdk");
 import { Cursor } from "@cursor/sdk";
 
 import type {
@@ -88,7 +89,7 @@ test("runs one frozen Cursor SDK entry through native store, export, observation
 
     const manifest = readManifest(summary.bundlePath);
     assert.equal(manifest.run.model.provider, "cursor");
-    assert.deepEqual(manifest.run.runtime, [
+    assert.deepEqual(manifest.run.runtime.filter(({ source }) => source === "cursor"), [
       { source: "cursor", name: "cursor-sdk", version: "1.0.37" },
       { source: "cursor", name: "local-agent-runtime", version: "not-exposed" },
     ]);

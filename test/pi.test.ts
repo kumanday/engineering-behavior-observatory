@@ -5,7 +5,8 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("pi-sdk");
 import { gzipSync } from "node:zlib";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 

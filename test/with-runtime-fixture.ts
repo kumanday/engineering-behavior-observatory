@@ -1,18 +1,22 @@
 import nodeTest, { after, type TestContext } from "node:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { freezeStudyRuntimes, type StudyRuntimeOptions } from "../src/study-runtimes.js";
 import { currentStudyRuntime, withStudyRuntime } from "../src/runtime-context.js";
 import { fakeSdkRuntimeOptions } from "./runtime-fixture-helper.js";
 
 const fixtures = new Map<string, Promise<{ studyRoot: string; options: StudyRuntimeOptions }>>();
 export async function createConformanceRuntimeFixture(role: string, deprecatedDependency = false): Promise<{ studyRoot: string; options: StudyRuntimeOptions }> {
-  if (role !== "claude-agent-sdk") throw new Error(`No authored runtime fixture for ${role}.`);
-  const name = "@anthropic-ai/claude-agent-sdk", entry = createRequire(import.meta.url).resolve(name);
-  const metadata = JSON.parse(await readFile(join(dirname(entry), "package.json"), "utf8"));
+  if (!["claude-agent-sdk", "cursor-sdk", "pi-sdk"].includes(role)) throw new Error(`No authored runtime fixture for ${role}.`);
+  const name = role === "cursor-sdk" ? "@cursor/sdk" : role === "pi-sdk" ? "@earendil-works/pi-coding-agent" : "@anthropic-ai/claude-agent-sdk", entry = fileURLToPath(import.meta.resolve(name));
+  let packageRoot = dirname(entry), metadata: any;
+  for (;;) {
+    try { metadata = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")); if (metadata.name === name) break; } catch {}
+    if (dirname(packageRoot) === packageRoot) throw new Error(`No package metadata for ${name}.`);
+    packageRoot = dirname(packageRoot);
+  }
   const studyRoot = await mkdtemp(join(tmpdir(), "ebo-conformance-runtime-")), options = fakeSdkRuntimeOptions(metadata.version, deprecatedDependency), run = options.run;
   options.run = async (command, args, cwd) => {
     const result = await run(command, args, cwd);

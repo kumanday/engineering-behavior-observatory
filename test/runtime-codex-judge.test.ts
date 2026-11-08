@@ -1,3 +1,4 @@
+import { probeClaudeAgentSdkCapabilities } from "../src/agent-sdk.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chmod, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
@@ -26,6 +27,7 @@ test("the judge uses its frozen executable and accepts an unfamiliar matching ac
   try {
     await freezeStudyRuntimes(root, { studyId: "judge-study", roles: ["codex-judge"] }, options);
     await withStudyRuntime({ studyRoot: root, role: "codex-judge", options }, async () => {
+      assert.ok(probeClaudeAgentSdkCapabilities().sdkVersion, "A pure conformance probe does not require a different harness runtime");
       const request = { evaluator: { backend: "codex-app-server", executable: "/must-not-use-ambient-or-configured-codex", provider: "openai", model: "fixture", effort: "low" }, limits: { maxOutputChars: 16000, maxWallClockMs: 5000, maxCitations: 2 } } as SemanticJudgeRequest;
       const result = await runCodexSemanticJudge("success", request);
       assert.equal(result.status, "completed", JSON.stringify(result));

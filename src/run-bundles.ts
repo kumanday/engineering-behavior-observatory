@@ -284,7 +284,7 @@ export class RunBundleAssembler {
       const primary = context.launch.roots[0]!;
       const actual = context.packages.get(primary.name)?.metadata.version ?? primary.selection.release.version;
       this.run.harness.version = actual;
-      this.run.runtime = this.run.runtime.filter((component) => component.name !== context.launch.role).concat([{ source: "EBO", name: context.launch.role, version: actual }]);
+      this.run.runtime = this.run.runtime.map((component) => component.name === context.launch.role ? { ...component, version: actual } : component);
       this.run.runtime = this.run.runtime.filter((component) => !context.launch.roots.some((root) => root.name === component.name)).concat(context.launch.roots.map((root) => ({ source: root.source, name: root.name, version: context.packages.get(root.name)?.metadata.version ?? root.selection.release.version })));
       this.runtimeLock = { lockDigest: context.launch.lockDigest, role: context.launch.role, lockArtifactId: "runtime-lock", launchArtifactId: "runtime-launch" };
       for (const [id, sourcePath] of [["runtime-lock", "runtimes/lock.json"], ["runtime-launch", context.launch.receiptLocator]]) {

@@ -1,3 +1,4 @@
+import { currentStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, studyRuntimeModule, type StudyRuntimeBinding, type RuntimeExecutionSummary } from "./runtime-context.js";
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { randomUUID } from "node:crypto";
 import { lstatSync } from "node:fs";
@@ -11,7 +12,7 @@ import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact, validateRu
 import { isSafeArtifactRelativePath, resolveBundleConfiguration, type ArtifactReference } from "./contracts.js";
 import {
   assertCursorWorkspaceIsolation,
-  captureCursorSdkRun,
+  captureCursorSdkRunOwned,
   CURSOR_SDK_HARNESS,
   CURSOR_SDK_VERSION,
   type CursorSdkAgentFactory,
@@ -77,6 +78,7 @@ export type CursorSdkConfigurationKind = CursorSdkConfigurationRecord["kind"];
 export type CursorSdkModelLister = (options: { apiKey: string; signal?: AbortSignal }) => Promise<SDKModel[]>;
 
 export type RunCursorSdkQueueEntryOptions = {
+  runtime?: StudyRuntimeBinding;
   bundleRoot: string;
   queuePath: string;
   runId: string;
@@ -90,6 +92,7 @@ export type RunCursorSdkQueueEntryOptions = {
 };
 
 export type CursorSdkRunSummary = {
+  runtime?: RuntimeExecutionSummary;
   runId: string;
   attemptId: string;
   bundlePath: string;
@@ -106,6 +109,11 @@ const ATTEMPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 /** Execute exactly one digest-pinned queue entry through the local Cursor SDK. */
 export async function runCursorSdkQueueEntry(options: RunCursorSdkQueueEntryOptions): Promise<CursorSdkRunSummary> {
+  const binding = options.runtime ?? (currentStudyRuntime() ? undefined : { studyRoot: options.bundleRoot });
+  return runInStudyRuntime("cursor-sdk", binding, () => runCursorSdkQueueEntryOwned(options));
+}
+
+async function runCursorSdkQueueEntryOwned(options: RunCursorSdkQueueEntryOptions): Promise<CursorSdkRunSummary> {
   const bundleRoot = resolve(options.bundleRoot);
   const queue = readRunQueue(options.queuePath, undefined, { bundleRoot });
   const matches = queue.entries.filter((candidate) => candidate.runId === options.runId);
@@ -124,7 +132,7 @@ export async function runCursorSdkQueueEntry(options: RunCursorSdkQueueEntryOpti
     throw new Error("An approved Cursor credential is required through the runtime secret path.");
   }
   if (options.signal?.aborted) throw new Error("Cursor model catalog lookup was interrupted.");
-  const catalogPromise = (options.modelLister ?? ((input) => Cursor.models.list({ apiKey: input.apiKey })))(
+  const catalogPromise = (options.modelLister ?? ((input) => studyRuntimeModule("@cursor/sdk", { Cursor }).Cursor.models.list({ apiKey: input.apiKey })))(
     { apiKey: auth, ...(options.signal === undefined ? {} : { signal: options.signal }) },
   );
   const availableModels = await abortablePreflight(catalogPromise, options.signal, "Cursor model catalog lookup");
@@ -182,7 +190,7 @@ export async function runCursorSdkQueueEntry(options: RunCursorSdkQueueEntryOpti
     baselineRoot = await mkdtemp(join(tmpdir(), "ebo-cursor-sdk-baseline-"));
     const startingWorkspacePath = join(baselineRoot, "workspace");
     await cp(workspace.path, startingWorkspacePath, { recursive: true, preserveTimestamps: true, force: false });
-    const result = await captureCursorSdkRun({
+    const result = await captureCursorSdkRunOwned({
       definition,
       startingWorkspacePath,
       workspace: {
@@ -220,6 +228,7 @@ export async function runCursorSdkQueueEntry(options: RunCursorSdkQueueEntryOpti
     });
     const manifest = reopenFinalManifest(attemptBundleRoot);
     return {
+      runtime: runtimeExecutionSummary(),
       runId: entry.runId,
       attemptId,
       bundlePath: attemptBundleRoot,

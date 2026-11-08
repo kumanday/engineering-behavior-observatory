@@ -7,7 +7,7 @@ import { listRuntimeRecipes } from "./runtime-catalog.js";
 import { installRuntime, verifyInstalledRuntime, type RuntimeCommandRunner, type RuntimeInstallPlan } from "./runtime-installation.js";
 import { resolveNpmRuntimePlan, type SelectedRuntimeComponent, type LockedRuntimeDependency } from "./runtime-npm.js";
 import { resolvePythonRuntimePlan } from "./runtime-python.js";
-import { fetchRuntimeReleases, type RuntimeRegistryOptions } from "./runtime-registry.js";
+import { fetchFrozenNpmRelease, fetchRuntimeReleases, type RuntimeRegistryOptions } from "./runtime-registry.js";
 import { RuntimePolicyError, selectRuntimeRelease, type RuntimePolicy } from "./runtime-resolution.js";
 import { checkRuntimeSecurity, type RuntimeSecurityOptions, type RuntimeSecurityReceipt } from "./runtime-security.js";
 
@@ -103,8 +103,8 @@ export async function prepareRuntimeLaunch(studyRoot: string, role: string, opti
   try {
   for (const component of lock.groups.flatMap((group) => group.components)) {
     const recipe = lock.groups.flatMap((group) => group.roots).find((root) => root.name === component.name && root.source === component.source);
-    const key = `${component.source}:${component.name}`;
-    if (!metadata.has(key)) metadata.set(key, await fetchRuntimeReleases(recipe ?? { source: component.source, name: component.name }, options));
+    const key = `${component.source}:${component.name}:${component.version}`;
+    if (!metadata.has(key)) metadata.set(key, component.source === "npm" ? [await fetchFrozenNpmRelease(component.name, component.selection.release, options)] : await fetchRuntimeReleases(recipe ?? { source: component.source, name: component.name }, options));
     const current = metadata.get(key)!.find((release) => release.version === component.version);
     if (!current || current.yanked || current.unpublished || current.malicious || current.draft) throw new RuntimePolicyError("RUNTIME_RELEASE_WITHDRAWN", `${component.name}@${component.version} is unavailable, yanked, draft or malicious.`);
     if (component.source === "npm" && (current.integrity !== component.selection.release.integrity || current.locator !== component.selection.release.locator)) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", `Registry changed ${component.name}@${component.version}.`);

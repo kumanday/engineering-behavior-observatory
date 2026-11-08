@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile, realpath, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { join, relative, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { canonicalizeMetadata } from "./artifacts.js";
 import { RuntimePolicyError } from "./runtime-resolution.js";
 import { prepareRuntimeLaunch, type RuntimeLaunch, type StudyRuntimeOptions } from "./study-runtimes.js";
@@ -57,7 +58,7 @@ export async function withStudyRuntime<T>(binding: { studyRoot: string; role: st
       if (baseline !== metadata.version) launch.warnings.push(`HARNESS_VERSION_UNVERIFIED: ${component.name}@${metadata.version}; capture coverage is unverified for this release.`);
       const specifiers = component.name === "@factory/droid-sdk" ? [component.name, `${component.name}/node`] : [component.name];
       for (const specifier of specifiers) {
-        const entry = await realpath(createRequire(join(launch.runtimeRoot, "package.json")).resolve(specifier));
+        const entry = await resolveRuntimeImport(specifier, launch.runtimeRoot);
         const rel = relative(launch.runtimeRoot, entry);
         if (rel === ".." || rel.startsWith(`..${sep}`)) throw new RuntimePolicyError("RUNTIME_SDK_NOT_ISOLATED", specifier);
         const module = await import(pathToFileURL(entry).href) as Record<string, any>;
@@ -115,4 +116,17 @@ export function runtimeExecutionSummary(): RuntimeExecutionSummary | undefined {
       const probe = context.probes.findLast((probe) => probe.componentId === root.id);
       return { componentId: root.id, name: root.name, expectedVersion: root.selection.release.version, actualVersion: probe?.actualVersion ?? null, source: probe?.source ?? null };
     }) };
+}
+
+const execFileAsync = promisify(execFile);
+async function resolveRuntimeImport(specifier: string, root: string): Promise<string> {
+  try {
+    // ESM conditions must resolve from the selected study, including packages
+    // that intentionally expose no CommonJS entrypoint. This evaluates no SDK code.
+    const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", "process.stdout.write(import.meta.resolve(process.argv[1]))", specifier],
+      { cwd: root, env: {}, encoding: "utf8", timeout: 5_000, maxBuffer: 65_536 });
+    const url = new URL(stdout.trim());
+    if (url.protocol !== "file:") throw new Error("SDK entrypoint is not a local file.");
+    return realpath(fileURLToPath(url));
+  } catch (error) { throw new RuntimePolicyError("RUNTIME_SDK_CONTRACT_FAILED", `${specifier}: import resolution failed: ${error instanceof Error ? error.message.slice(0, 2000) : String(error)}`); }
 }

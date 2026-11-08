@@ -1,4 +1,4 @@
-import { studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
+import { currentStudyRuntime, requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
 import * as developmentSdk from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { renameSync } from "node:fs";
@@ -262,6 +262,7 @@ export type PiSessionFactoryInput = {
 export type PiSessionFactory = (input: PiSessionFactoryInput) => Promise<PiSession>;
 
 export type CapturePiSdkRunOptions = {
+  runtime?: StudyRuntimeBinding;
   definition: RunBundleDefinition;
   configurationRoot: string;
   startingWorkspacePath: string;
@@ -282,6 +283,7 @@ export type CapturePiSdkRunOptions = {
 };
 
 export type CapturePiSdkRunResult = {
+  runtime?: RuntimeExecutionSummary;
   attempt: RunAttemptResult;
   manifest: RunManifest;
   qualification: CaptureQualificationReport;
@@ -289,6 +291,12 @@ export type CapturePiSdkRunResult = {
 
 /** Execute one direct Pi TypeScript SDK session and retain native history, transient events, and passive observations. */
 export async function capturePiSdkRun(options: CapturePiSdkRunOptions): Promise<CapturePiSdkRunResult> {
+  return runInStudyRuntime("pi-sdk", options.runtime, () => capturePiSdkRunOwned(options));
+}
+
+/** Internal capture layer of an already checked launch. */
+export async function capturePiSdkRunOwned(options: CapturePiSdkRunOptions): Promise<CapturePiSdkRunResult> {
+  requireStudyRuntime("pi-sdk");
   if (options.definition.run.harness.id !== PI_HARNESS) throw new Error(`Pi run harness must be ${PI_HARNESS}.`);
   if (options.definition.run.model.id !== options.model.model) throw new Error("Declared model does not match Pi configuration.");
   if (options.toolPolicy.environmentAllowlist.includes(options.model.apiKeyEnv)) {
@@ -610,7 +618,7 @@ export async function capturePiSdkRun(options: CapturePiSdkRunOptions): Promise<
   }
   const manifest = await assembler.finalize({ terminal, missingEvidence, qualification: qualificationOptions });
   const qualification = await qualifyRunBundle(assembler.bundleRoot, qualificationOptions);
-  return { attempt, manifest, qualification };
+  return { attempt, manifest, qualification, runtime: runtimeExecutionSummary() };
 }
 
 async function createProductionPiSession(input: PiSessionFactoryInput): Promise<PiSession> {
@@ -1145,6 +1153,7 @@ function piUnmappedReason(record: PiNativeRecord): string {
 }
 
 export type RunPiQueueEntryOptions = {
+  runtime?: StudyRuntimeBinding;
   bundleRoot: string;
   queuePath: string;
   runId: string;
@@ -1156,6 +1165,7 @@ export type RunPiQueueEntryOptions = {
 };
 
 export type PiRunSummary = {
+  runtime?: RuntimeExecutionSummary;
   runId: string;
   attemptId: string;
   bundlePath: string;
@@ -1169,6 +1179,11 @@ export type PiRunSummary = {
 
 /** Execute exactly one frozen queue entry through the pinned direct Pi SDK integration. */
 export async function runPiQueueEntry(options: RunPiQueueEntryOptions): Promise<PiRunSummary> {
+  const binding = options.runtime ?? (currentStudyRuntime() ? undefined : { studyRoot: options.bundleRoot });
+  return runInStudyRuntime("pi-sdk", binding, () => runPiQueueEntryOwned(options));
+}
+
+async function runPiQueueEntryOwned(options: RunPiQueueEntryOptions): Promise<PiRunSummary> {
   const bundleRoot = resolve(options.bundleRoot);
   const queue = readRunQueue(options.queuePath, undefined, { bundleRoot });
   const matches = queue.entries.filter((entry) => entry.runId === options.runId);
@@ -1214,7 +1229,7 @@ export async function runPiQueueEntry(options: RunPiQueueEntryOptions): Promise<
     const verifierReference = packet.assessmentMode === "verified" ? packet.restricted.verifier : undefined;
     const verifierFormat = verifierReference?.locator.toLowerCase().endsWith(".mjs") ? "module" : "commonjs";
     const definition = buildPiDefinition(queue.captureProfile, entry, packet, destination, attemptId, model, harness, verifierFormat);
-    const result = await capturePiSdkRun({
+    const result = await capturePiSdkRunOwned({
       definition,
       configurationRoot: bundleRoot,
       startingWorkspacePath,
@@ -1255,6 +1270,7 @@ export async function runPiQueueEntry(options: RunPiQueueEntryOptions): Promise<
     });
     const manifest = reopenManifest(destination);
     return {
+      runtime: runtimeExecutionSummary(),
       runId: entry.runId,
       attemptId,
       bundlePath: destination,

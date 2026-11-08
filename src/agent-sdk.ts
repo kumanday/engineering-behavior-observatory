@@ -372,6 +372,7 @@ export async function openClaudeAgentSdkStreamCapture(
 
 export function probeClaudeAgentSdkCapabilities(): ClaudeAgentSdkCapabilities {
   const { sdkVersion, claudeCodeVersion } = installedVersions();
+  const sdk = (currentStudyRuntime()?.modules.get(PACKAGE_NAME) ?? developmentSdk) as typeof developmentSdk;
   return {
     sdkVersion,
     claudeCodeVersion,
@@ -380,7 +381,7 @@ export function probeClaudeAgentSdkCapabilities(): ClaudeAgentSdkCapabilities {
     stderr: { status: "available" },
     abort: { status: "available" },
     hookLifecycleMessages: { status: "available" },
-    hooks: Object.fromEntries(agentSdk().HOOK_EVENTS.map((event) => [event, { status: "available", evidence: "callback" }])) as Record<HookEvent, { status: "available"; evidence: "callback" }>,
+    hooks: Object.fromEntries(sdk.HOOK_EVENTS.map((event) => [event, { status: "available", evidence: "callback" }])) as Record<HookEvent, { status: "available"; evidence: "callback" }>,
     unsupportedHooks: [],
     hookOccurrenceAuthority: "hooks.jsonl",
     telemetry: {

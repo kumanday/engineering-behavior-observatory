@@ -74,3 +74,19 @@ async function githubReleases(request: RuntimeRegistryRequest, options: RuntimeR
   }
   return releases;
 }
+
+/** A launch verifies the frozen npm version; it does not enumerate release history. */
+export async function fetchFrozenNpmRelease(name: string, frozen: RuntimeRelease, options: RuntimeRegistryOptions = {}): Promise<RuntimeRelease> {
+  let payload: Record<string, any>;
+  try { payload = object(await runtimeJson(`https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(frozen.version)}`, options)); }
+  catch (error) {
+    if (error instanceof RuntimePolicyError && /HTTP 404\b/u.test(error.message)) throw new RuntimePolicyError("RUNTIME_RELEASE_WITHDRAWN", `${name}@${frozen.version} is unpublished.`);
+    throw error;
+  }
+  // Registry mirrors may include a packument; only its requested version is read.
+  const metadata = typeof payload.version === "string" ? payload : object(object(payload.versions)[frozen.version]);
+  if (metadata.version !== undefined && metadata.version !== frozen.version) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", `Registry returned a different version for ${name}@${frozen.version}.`);
+  const dist = object(metadata.dist);
+  if (typeof dist.integrity !== "string" || typeof dist.tarball !== "string") throw new RuntimePolicyError("RUNTIME_METADATA_INVALID", `Registry omitted frozen artifact identity for ${name}@${frozen.version}.`);
+  return { ...frozen, locator: dist.tarball, integrity: dist.integrity, deprecated: metadata.deprecated ? String(metadata.deprecated) : "", metadata };
+}

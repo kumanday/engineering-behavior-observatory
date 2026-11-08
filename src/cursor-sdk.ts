@@ -1,4 +1,4 @@
-import { studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
 import * as developmentSdk from "@cursor/sdk";
 import { markRetainedVersion, retainedVersionProfile } from "./retained-version-policy.js";
 import { createHash } from "node:crypto";
@@ -111,6 +111,7 @@ export type CaptureCursorSdkVerifier = (
 ) => VerifierResult | Promise<VerifierResult>;
 
 export type CaptureCursorSdkRunOptions = {
+  runtime?: StudyRuntimeBinding;
   definition: RunBundleDefinition;
   startingWorkspacePath: string;
   workspace: WorkspaceCoordinator;
@@ -129,6 +130,7 @@ export type CaptureCursorSdkRunOptions = {
 };
 
 export type CaptureCursorSdkRunResult = {
+  runtime?: RuntimeExecutionSummary;
   attempt: RunAttemptResult;
   manifest: RunManifest;
   qualification: CaptureQualificationReport;
@@ -186,6 +188,12 @@ export const CURSOR_SDK_CAPABILITIES: AdapterCapabilityProfile = {
 
 /** Execute one SDK-owned local attempt and retain all source channels before projection. */
 export async function captureCursorSdkRun(options: CaptureCursorSdkRunOptions): Promise<CaptureCursorSdkRunResult> {
+  return runInStudyRuntime("cursor-sdk", options.runtime, () => captureCursorSdkRunOwned(options));
+}
+
+/** Internal capture layer of an already checked launch. */
+export async function captureCursorSdkRunOwned(options: CaptureCursorSdkRunOptions): Promise<CaptureCursorSdkRunResult> {
+  requireStudyRuntime("cursor-sdk");
   requireText(options.apiKey, "Cursor API key");
   requireText(options.prompt, "Cursor prompt");
   if (options.configuration.toolPolicy.enableAgentRetries !== true) {
@@ -371,6 +379,7 @@ export async function captureCursorSdkRun(options: CaptureCursorSdkRunOptions): 
   const manifest = await assembler.finalize({ terminal, missingEvidence, qualification: qualificationOptions });
   const qualification = await qualifyRunBundle(assembler.bundleRoot, qualificationOptions);
   return {
+    runtime: runtimeExecutionSummary(),
     attempt,
     manifest,
     qualification,
