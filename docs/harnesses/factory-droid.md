@@ -213,13 +213,15 @@ the shared capture core in Harbor's task filesystem. Each step creates a fresh
 native session; cross-step resume is unsupported. Harbor owns task setup and
 verification after capture has drained.
 
-Build the Linux runtime with the pinned Factory CLI included:
+Include `factory-droid` in the study runtime request and select a Linux ARM64
+target for Harbor execution. Build the worker archive from that study:
 
 ```sh
-node scripts/build-harbor-runtime.mjs .ebo/harbor-runtime --factory
+node scripts/build-harbor-runtime.mjs .ebo/harbor-runtime \
+  --study ./study --node-image <Node-24.19.0-Linux-arm64-image@sha256:platform-digest>
 ```
 
-Use `/opt/ebo/factory-cli/node_modules/.bin/droid` in the guest harness record.
+The worker uses the CLI and SDK in the frozen study cache.
 Declare `FACTORY_API_KEY` for managed models or `FIREWORKS_API_KEY` for BYOK
 (or the selected credential variable) in the worker
 runtime's `environmentKeys`. The builder archives the CLI's npm lockfile and
@@ -267,7 +269,7 @@ GLM-5.3-Flash smoke passed with Droid 0.238.0 and SDK 0.9.1 without Factory
 credentials. A Factory-hosted versus BYOK benchmark is a separate study.
 
 The separate VM check requires the [qualified Smol host and guest runtime](../guides/harbor-tasks.md#build-and-pin-the-guest-runtime).
-Build with `--factory`, then bind the runtime archive, `image-build.json`, a
+Build from the frozen study, then bind the runtime archive, `image-build.json`, a
 registry-accessible Linux ARM64 execution-image digest, and the bundled libkrun
 digest. Set `EBO_HARBOR_PYTHON`, `EBO_HARBOR_RUNTIME`, `EBO_SMOL_IMAGE`, and
 `EBO_SMOL_LIBKRUN_SHA256`. With the selected model and credential supplied:

@@ -34,13 +34,13 @@ async function trialFixture() {
   const root = await mkdtemp(join(tmpdir(), "ebo-harbor-trial-"));
   const attempt = join(root, "attempt");
   const options = fakePythonRuntimeOptions();
-  await freezeStudyRuntimes(root, {studyId: "harbor-host", roles: ["harbor", "smol"]}, options);
+  const runtimeLock = await freezeStudyRuntimes(root, {studyId: "harbor-host", roles: ["harbor", "smol"]}, options);
   const ref = async (locator: string, content: string) => {
     await writeFile(join(root, locator), content);
     return { locator, digest: digestBytes(Buffer.from(content)) };
   };
   const archive = await ref("worker.tgz", "test archive; not executed");
-  const workerRef = await ref("worker.json", JSON.stringify({ schemaVersion: "ebo.harbor-worker-runtime/v1", archive, node: "node", entrypoint: "worker.js", environmentKeys: [] }));
+  const workerRef = await ref("worker.json", JSON.stringify({ schemaVersion: "ebo.harbor-worker-runtime/v2", studyLockDigest: runtimeLock.digest, archive, node: "node", entrypoint: "worker.js", environmentKeys: [] }));
   const environmentRef = await ref("environment.json", JSON.stringify({ schemaVersion: "ebo.smol-environments/v1", platform: "linux/arm64", runtimeArchiveDigest: archive.digest.value }));
   const config = await ref("config.json", "{}");
   const digest = config.digest;

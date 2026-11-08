@@ -18,7 +18,8 @@ import { readStudyRuntimeLock } from "../study-runtimes.js";
 import { frozenPythonEnvironment } from "../runtime-bootstrap.js";
 
 export type HarborWorkerRuntime = {
-  schemaVersion: "ebo.harbor-worker-runtime/v1";
+  schemaVersion: "ebo.harbor-worker-runtime/v1" | "ebo.harbor-worker-runtime/v2";
+  studyLockDigest?: string;
   archive: ArtifactReference;
   node: string;
   entrypoint: string;
@@ -29,7 +30,7 @@ export function resolveHarborWorkerRuntime(root: string, reference: ArtifactRefe
   const text = resolveBundleConfiguration(root, reference).toString("utf8");
   assertNoDuplicateJsonKeys(text);
   const value = JSON.parse(text) as HarborWorkerRuntime;
-  if (value.schemaVersion !== "ebo.harbor-worker-runtime/v1" || !isSafeArtifactRelativePath(value.node)
+  if (!["ebo.harbor-worker-runtime/v1", "ebo.harbor-worker-runtime/v2"].includes(value.schemaVersion) || value.schemaVersion === "ebo.harbor-worker-runtime/v2" && !/^sha256:[a-f0-9]{64}$/u.test(value.studyLockDigest ?? "") || !isSafeArtifactRelativePath(value.node)
     || !isSafeArtifactRelativePath(value.entrypoint) || !Array.isArray(value.environmentKeys)
     || value.environmentKeys.some(k => !/^[A-Z][A-Z0-9_]*$/.test(k))
     || value.environmentKeys.some(k => ["NODE_OPTIONS", "PYTHONPATH", "LD_PRELOAD", "DOCKER_HOST"].includes(k))) {
@@ -51,6 +52,8 @@ export async function runOfficialHarborTrial(input: {
   if (!queue.execution.workerRef) throw new Error("Smol Harbor runs require an execution.workerRef for the pinned Linux capture runtime.");
   const runtime = resolveHarborWorkerRuntime(input.studyRoot, queue.execution.workerRef);
   const runtimeLock = await readStudyRuntimeLock(input.studyRoot);
+  assertWorkerStudyRuntime(runtime, runtimeLock.digest);
+  if (runtimeLock.digest !== host.launch.lockDigest) throw new Error("RUNTIME_LOCK_INTEGRITY: Harbor host context differs from the selected study lock.");
   const archive = resolveBundleConfiguration(input.studyRoot, runtime.archive, 2 * 1024 * 1024 * 1024);
   const root = prepared.evidence.attemptRoot;
   await mkdir(prepared.evidence.harborDir, { recursive: true, mode: 0o700 });
@@ -161,6 +164,11 @@ export async function runOfficialHarborTrial(input: {
     }, undefined, { overwrite: false });
     return summary;
   }
+}
+
+export function assertWorkerStudyRuntime(runtime: HarborWorkerRuntime, digest: string): void {
+  if (!runtime.studyLockDigest) throw new Error("RUNTIME_WORKER_MIGRATION_REQUIRED: prepare a v2 worker pack containing the frozen study runtimes.");
+  if (runtime.studyLockDigest !== digest) throw new Error("RUNTIME_LOCK_INTEGRITY: worker archive was prepared for a different study lock.");
 }
 
 async function attachHarborEvidence(bundle: string, content: unknown): Promise<void> {

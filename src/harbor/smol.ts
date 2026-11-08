@@ -8,7 +8,7 @@ import { createHarborAdapter } from "./adapter.js";
 import { harborStudyPaths } from "./study.js";
 import { readHarborRunQueue, type RunQueueV2 } from "./queue.js";
 import { HARBOR_TRIAL_SCRIPT } from "./trial-script.js";
-import { resolveHarborWorkerRuntime } from "./official-trial.js";
+import { assertWorkerStudyRuntime, resolveHarborWorkerRuntime } from "./official-trial.js";
 import { currentStudyRuntime, lockedRuntimePython, withStudyRuntime } from "../runtime-context.js";
 import type { StudyRuntimeOptions } from "../study-runtimes.js";
 import { frozenPythonEnvironment } from "../runtime-bootstrap.js";
@@ -39,6 +39,8 @@ async function serveSmolEnvironmentsOwned(studyRoot: string, queuePath: string):
   if (!context.launch.roots.some((root) => root.id === "harbor")) throw new Error("RUNTIME_ROLE_NOT_FROZEN: Smol preparation requires harbor and smol in the same frozen Python group.");
   const adapter = await createHarborAdapter();
   const queue = await readHarborRunQueue(queuePath, { studyRoot, adapter });
+  if (!queue.execution.workerRef) throw new Error("RUNTIME_WORKER_MIGRATION_REQUIRED: select a frozen worker pack.");
+  assertWorkerStudyRuntime(resolveHarborWorkerRuntime(studyRoot, queue.execution.workerRef), context.launch.lockDigest);
   const condition = smolCondition(studyRoot, queue);
   const tasks = new Map<string, { id: string; path: string; verified: boolean }>();
   for (const entry of queue.entries) {
