@@ -59,9 +59,15 @@ function validateNpmPlan(plan: NpmRuntimeInstallPlan): void {
     if (!path.startsWith("node_modules/") || path.includes("..") || !pkg.version || !/^https:\/\//u.test(pkg.resolved ?? "") || !/^(?:sha512|sha256)-[A-Za-z0-9+/]+=*$/u.test(pkg.integrity ?? "") || pkg.link) throw new RuntimePolicyError("RUNTIME_INSTALL_PLAN_INVALID", `Package lacks exact registry integrity: ${path}.`);
   }
 }
-export async function verifyInstalledRuntime(root: string, plan: RuntimeInstallPlan): Promise<RuntimeInstallReceipt> {
+export async function verifyInstalledRuntime(root: string, plan: RuntimeInstallPlan, options: {run?: RuntimeCommandRunner} = {}): Promise<RuntimeInstallReceipt> {
   const receipt = JSON.parse(await readFile(join(root, receiptName), "utf8")) as RuntimeInstallReceipt;
   if (receipt.schemaVersion !== "ebo.runtime-installation/v1" || receipt.planDigest !== runtimePlanKey(plan) || canonicalizeMetadata(receipt.inventory) !== canonicalizeMetadata(await inventory(root))) throw new RuntimePolicyError("RUNTIME_CACHE_INTEGRITY", "Installed runtime differs from its frozen plan or inventory.");
+  if (plan.kind === "oci") {
+    const result = await (options.run ?? runRuntimeCommand)("docker", ["image", "inspect", plan.image], root);
+    if (result.code !== 0) throw new RuntimePolicyError("RUNTIME_IMAGE_UNAVAILABLE", "The frozen image is absent from Docker; prepare that exact digest again.");
+    let actual: any; try {actual = JSON.parse(result.stdout);} catch {throw new RuntimePolicyError("RUNTIME_PROBE_INVALID", "Docker image inspect returned malformed JSON.");}
+    if (actual[0]?.Id !== plan.configDigest) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", "Docker's actual image config differs from the frozen manifest.");
+  }
   return receipt;
 }
 export async function installRuntime(plan: RuntimeInstallPlan, options: { cacheRoot: string; run?: RuntimeCommandRunner; fetch?: RuntimeFetch }): Promise<InstalledRuntime> {
@@ -71,7 +77,7 @@ export async function installRuntime(plan: RuntimeInstallPlan, options: { cacheR
   const release = await lockfile.lock(root, { realpath: false, stale: 120_000, update: 30_000, retries: { retries: 300, factor: 1, minTimeout: 100, maxTimeout: 1000 } });
   let staging: string | undefined;
   try {
-    try { await lstat(root); return { root, key, receipt: await verifyInstalledRuntime(root, plan) }; }
+    try { await lstat(root); return { root, key, receipt: await verifyInstalledRuntime(root, plan, options) }; }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     staging = await mkdtemp(join(cache, ".runtime-partial-"));
     const run = options.run ?? runRuntimeCommand;

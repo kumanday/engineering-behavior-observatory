@@ -1,3 +1,4 @@
+import { refreshFrozenRuntimeRelease } from "./runtime-status.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -7,7 +8,7 @@ import { listRuntimeRecipes } from "./runtime-catalog.js";
 import { installRuntime, verifyInstalledRuntime, type RuntimeCommandRunner, type RuntimeInstallPlan } from "./runtime-installation.js";
 import { resolveNpmRuntimePlan, type SelectedRuntimeComponent, type LockedRuntimeDependency } from "./runtime-npm.js";
 import { resolvePythonRuntimePlan } from "./runtime-python.js";
-import { fetchFrozenNpmRelease, fetchRuntimeReleases, type RuntimeRegistryOptions } from "./runtime-registry.js";
+import { fetchRuntimeReleases, type RuntimeRegistryOptions } from "./runtime-registry.js";
 import { RuntimePolicyError, selectRuntimeRelease, type RuntimePolicy } from "./runtime-resolution.js";
 import { checkRuntimeSecurity, type RuntimeSecurityOptions, type RuntimeSecurityReceipt } from "./runtime-security.js";
 
@@ -97,21 +98,25 @@ export async function freezeStudyRuntimes(studyRoot: string, request: StudyRunti
 export async function prepareRuntimeLaunch(studyRoot: string, role: string, options: StudyRuntimeOptions = {}): Promise<RuntimeLaunch> {
   const lock = await readStudyRuntimeLock(studyRoot), group = lock.groups.find((group) => group.roles.includes(role));
   if (!group) throw new RuntimePolicyError("RUNTIME_ROLE_NOT_FROZEN", `Study has no frozen ${role} runtime.`);
-  const locations = paths(studyRoot), warnings: string[] = [], metadata = new Map<string, Awaited<ReturnType<typeof fetchRuntimeReleases>>>();
+  const locations = paths(studyRoot), warnings: string[] = [];
   const receiptLocator = `runtimes/launches/${randomUUID()}.json`;
   await mkdir(locations.receipts, { recursive: true, mode: 0o700 });
   try {
-  for (const component of lock.groups.flatMap((group) => group.components)) {
-    const recipe = lock.groups.flatMap((group) => group.roots).find((root) => root.name === component.name && root.source === component.source);
-    const key = `${component.source}:${component.name}:${component.version}`;
-    if (!metadata.has(key)) metadata.set(key, component.source === "npm" ? [await fetchFrozenNpmRelease(component.name, component.selection.release, options)] : await fetchRuntimeReleases(recipe ?? { source: component.source, name: component.name }, options));
-    const current = metadata.get(key)!.find((release) => release.version === component.version);
-    if (!current || current.yanked || current.unpublished || current.malicious || current.draft) throw new RuntimePolicyError("RUNTIME_RELEASE_WITHDRAWN", `${component.name}@${component.version} is unavailable, yanked, draft or malicious.`);
-    if (component.source === "npm" && (current.integrity !== component.selection.release.integrity || current.locator !== component.selection.release.locator)) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", `Registry changed ${component.name}@${component.version}.`);
-    if (current.deprecated) warnings.push(`${recipe ? "RUNTIME_DEPRECATED" : "RUNTIME_DEPENDENCY_DEPRECATED"}: ${component.name}@${component.version}: ${current.deprecated}`);
+  const components = lock.groups.flatMap((owner) => owner.components.map((component) => ({owner, component})));
+  const checked = new Map<string, Awaited<ReturnType<typeof refreshFrozenRuntimeRelease>>>();
+  for (let offset = 0; offset < components.length; offset += 16) {
+    const results = await Promise.allSettled(components.slice(offset, offset + 16).map(async ({owner, component}) => {
+      const recipe = owner.roots.find((root) => root.name === component.name && root.source === component.source);
+      const key = `${component.source}:${component.name}:${component.version}:${component.selection.release.locator}`;
+      const current = checked.get(key) ?? await refreshFrozenRuntimeRelease(recipe ?? {source: component.source, name: component.name}, component.selection.release, options);
+      checked.set(key, current);
+      const isRoot = recipe?.selection.release.version === component.version && (component.source !== "npm" || component.location === `node_modules/${component.name}`);
+      return current.deprecated ? `${isRoot ? "RUNTIME_DEPRECATED" : "RUNTIME_DEPENDENCY_DEPRECATED"}: ${component.name}@${component.version}: ${current.deprecated}` : undefined;
+    }));
+    for (const result of results) {if (result.status === "rejected") throw result.reason; if (result.value) warnings.push(result.value);}
   }
   const security = await checkRuntimeSecurity(lock.groups.flatMap((group) => group.components), options);
-  const runtimeRoot = join(locations.cache, group.installation.key), receipt = await verifyInstalledRuntime(runtimeRoot, group.plan);
+  const runtimeRoot = join(locations.cache, group.installation.key), receipt = await verifyInstalledRuntime(runtimeRoot, group.plan, options);
   if (hash(receipt) !== group.installation.receiptDigest) throw new RuntimePolicyError("RUNTIME_CACHE_INTEGRITY", "Installation receipt differs from the study freeze.");
   const launch: RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v1", lockDigest: lock.digest, role, runtimeRoot, roots: group.roots, security, warnings: [...warnings, ...security.warnings], receiptLocator };
   await mkdir(locations.receipts, { recursive: true, mode: 0o700 });

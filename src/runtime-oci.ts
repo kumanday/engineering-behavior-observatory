@@ -4,7 +4,7 @@ import type { RuntimeRegistryOptions, RuntimeRegistryRequest } from "./runtime-r
 
 const digest = (bytes: Uint8Array): string => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 const verify = (bytes: Uint8Array, expected: string): void => { if (!/^sha256:[a-f0-9]{64}$/u.test(expected) || digest(bytes) !== expected) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", "OCI descriptor digest differs from downloaded bytes."); };
-export async function fetchOciReleases(request: RuntimeRegistryRequest, options: RuntimeRegistryOptions): Promise<RuntimeRelease[]> {
+function ociRegistryClient(request: RuntimeRegistryRequest, options: RuntimeRegistryOptions) {
   const split = request.name.indexOf("/"), registry = request.name.slice(0, split), repository = request.name.slice(split + 1);
   if (split < 1 || !/^[a-z0-9.-]+(?::[0-9]+)?$/u.test(registry) || !/^[a-z0-9._/-]+$/u.test(repository)) throw new RuntimePolicyError("RUNTIME_IMAGE_INVALID", "Use an explicit registry/repository image name.");
   const base = `https://${registry}/v2/${repository}`, accept = "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json";
@@ -31,6 +31,11 @@ export async function fetchOciReleases(request: RuntimeRegistryRequest, options:
     try { return { response, bytes, json: JSON.parse(bytes.toString("utf8")) }; }
     catch { throw new RuntimePolicyError("RUNTIME_METADATA_INVALID", "OCI metadata is malformed."); }
   };
+  return {base, get};
+}
+
+export async function fetchOciReleases(request: RuntimeRegistryRequest, options: RuntimeRegistryOptions): Promise<RuntimeRelease[]> {
+  const {base, get} = ociRegistryClient(request, options);
   const tags: string[] = []; let next: string | undefined = `${base}/tags/list`; const seen = new Set<string>();
   while (next) {
     if (seen.has(next) || seen.size > 100 || !next.startsWith(`${base}/tags/list`)) throw new RuntimePolicyError("RUNTIME_METADATA_INVALID", "Invalid OCI tag pagination.");
@@ -61,4 +66,21 @@ export async function fetchOciReleases(request: RuntimeRegistryRequest, options:
       integrity: `sha256-${Buffer.from(manifestDigest.slice(7), "hex").toString("base64")}`, metadata: { tag, manifestDigest, indexDigest: indexDigest ?? null, manifest: image.json, config: config.json } });
   }
   return releases;
+}
+
+/** Frozen launches read the immutable manifest even if its tag has moved. */
+export async function fetchFrozenOciRelease(request: RuntimeRegistryRequest, frozen: RuntimeRelease, options: RuntimeRegistryOptions): Promise<RuntimeRelease> {
+  const reference = frozen.locator.slice(request.name.length + 1);
+  if (!frozen.locator.startsWith(`${request.name}@`) || !/^sha256:[a-f0-9]{64}$/u.test(reference)) throw new RuntimePolicyError("RUNTIME_IMAGE_INVALID", "Frozen image requires its platform manifest digest.");
+  const {base, get} = ociRegistryClient(request, options);
+  try {
+    const manifest = await get(`${base}/manifests/${reference}`); verify(manifest.bytes, reference);
+    if (manifest.json.schemaVersion !== 2 || !manifest.json.config?.digest || !Array.isArray(manifest.json.layers)) throw new RuntimePolicyError("RUNTIME_METADATA_INVALID", "Frozen OCI image lacks its config/layers.");
+    const config = await get(`${base}/blobs/${manifest.json.config.digest}`); verify(config.bytes, manifest.json.config.digest);
+    if (config.json.os !== request.platform || config.json.architecture !== request.architecture) throw new RuntimePolicyError("RUNTIME_IMAGE_PLATFORM_MISMATCH", "Frozen image platform differs from the study.");
+    return {...frozen, metadata: {...frozen.metadata, manifest: manifest.json, config: config.json}};
+  } catch (error) {
+    if (error instanceof RuntimePolicyError && /HTTP 404\b/u.test(error.message)) throw new RuntimePolicyError("RUNTIME_RELEASE_WITHDRAWN", `${request.name}@${reference} is unavailable.`);
+    throw error;
+  }
 }
