@@ -7,7 +7,7 @@ Existing task-packet/v1 studies and their commands remain readable and unchanged
 
 ## Prepare the study runtime
 
-EBO runs on Node 24.19.0. Harbor and Smol run in a jointly resolved Python
+EBO runs on Node 26.13.0 with npm 12.2.2. Harbor and Smol run in a jointly resolved Python
 virtual environment selected by the [study runtime lock](../reference/study-runtimes.md).
 The host needs a compatible Python interpreter, `uv`, and `pypi-attestations`
 available to that bootstrap interpreter for verifying offered wheel attestations.
@@ -45,13 +45,13 @@ is exported before checking the snapshot's contents.
 The current runtime profile targets Apple Silicon macOS with Smol's bundled
 libkrun. The environment manifest pins that library's SHA-256. Do not override
 `SMOLVM_LIB_DIR`.
-Docker is used only to build images, not to execute tasks or graders.
-`local-fs-test` supports preparation tests only; old Docker queues remain
+Smol prepares workers and executes agents and graders using immutable OCI images.
+`local-fs-test` supports preparation tests only; retained Docker queues remain
 readable but must be explicitly recompiled as new Smol conditions to run.
 
 The worker runtime's `environmentKeys` allowlist passes selected host values as
 plaintext into the attempt child. Keep it minimal: an agent with shell access
-inside the guest can read those values. Smol 1.26.1 exposes host-side HTTPS
+inside the guest can read those values. Smol exposes host-side HTTPS
 header substitution through `MachineConfig.credentials` and `CredentialSpec`.
 EBO's qualified Harbor worker path uses the environment allowlist. Use a
 separately approved route for experiments that require host-held credentials;
@@ -116,20 +116,25 @@ boundary; it is not independent grading.
 npm run build
 node scripts/build-harbor-runtime.mjs study/config/runtime \
   --study study \
-  --node-image <Node-24.19.0-Linux-arm64-image@sha256:platform-digest> \
-  --base <public-runtime-base@sha256:platform-digest> \
-  --image <registry/ebo-runtime:tag>
+  --node-image <pinned-Node-Linux-arm64-image@sha256:platform-digest>
 ```
 
-The builder installs EBO's coordinating dependencies from its npm lock with
-install scripts disabled, then copies the study's exact runtime caches and lock
-into `worker.tgz`. The supplied immutable Node image must report Node 24.19.0.
-The task image must already provide Git, CA certificates and compatible system
-libraries. The local execution image contains the pack at `/opt/ebo`. It records
-the build recipe, original startup settings and archive digest in `image-build.json`.
-Publishing is a separate, explicit `docker push <registry/ebo-runtime:tag>`
-operation. Use the resulting **linux/arm64 manifest digest**, not an index digest
-or a daemon-local tag, in the environment bindings. Keep the pack outside the task.
+Use an empty destination. The builder uses the study's local Smol SDK and an
+immutable Linux Node image. It verifies the pinned npm release and installs
+EBO's coordinating dependencies from the npm lock with install scripts
+disabled. The archive retains the full study lock, selected Linux installations
+and the host Smol receipt used by OpenHands.
+`worker-build.json` records the image digest, actual Node and npm probes,
+npm integrity, archive digest and Smol execution receipt.
+
+Place `worker.tgz` in the admitted agent environment context and use `localSetup`
+to verify its SHA-256, extract it into `/opt/ebo`, and write that archive digest to
+`/opt/ebo/runtime.sha256`. The preparation owner runs the setup before checking
+the marker and creating reusable parents. Bind a registry-accessible
+**linux/arm64 manifest digest** in the environment manifest. The supplied image
+must provide Git, CA certificates and compatible system libraries. Worker
+preparation and local setup use Smol directly.
+
 The reusable runtime image must have compatible Linux
 architecture, glibc and the system tools needed by its harness. A macOS runtime
 or Alpine/musl image is not interchangeable with this archive.
@@ -164,7 +169,7 @@ configuration files at `/tmp/ebo-worker/config/<locator>`.
 | Factory Droid | Frozen Linux CLI/SDK graph and selected Factory key | Official SDK with native recording; fresh owned session per step |
 | Codex | Frozen Linux app-server runtime | Owned stdio child; no host daemon |
 | DeepSeek Harness | Named Linux runtime/plugin composition and its installed runtime | Official TypeScript JSON-RPC client |
-| OpenHands | Docker available inside the guest; frozen Agent Server image | Owned image, loopback REST/WebSocket and mounted task workspace |
+| OpenHands | Frozen Agent Server image as the task guest; cgroup v2 | Agent Server inside that guest, loopback REST/WebSocket and the same task workspace |
 | Devin CLI | Frozen Linux vendor binary and Cognition credential | Owned ACP child and retained session |
 
 The archive contains EBO's coordinating dependencies and the study's exact
@@ -248,7 +253,12 @@ pin their revisions explicitly.
 uploads that context locally and runs the script with `sh -eu`, with the
 uploaded context as its working directory. It creates the declared task workdir
 first. Setup runs once per parent, before any attempt branches; failure prevents
-that parent from becoming ready. The temporary context is removed after success.
+that parent from becoming ready. The binding uses the image's startup and user
+by default. For an OpenHands task image, set `parentStartup: "idle"` to defer
+Agent Server startup and `localSetupUser: "root"` to install the worker during
+trusted setup. Assign the prepared workspace to the image's non-root user so
+Agent Server can run there with that user's permissions. Both choices are
+frozen in the image binding. The temporary context is removed after success.
 The setup exit code, output and script digest are retained as local evidence.
 No Dockerfile instructions are interpreted or translated into shell commands.
 When switching from a task-built image, explicitly move its installation/copy

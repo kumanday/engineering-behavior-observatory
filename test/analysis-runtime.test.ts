@@ -6,9 +6,21 @@ import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {listAnalysisRuntimes,loadAnalysisRuntime,validateRuntimeSnapshot} from "../src/analysis-runtime.js";
 import {createRetainedBehaviorEvidence} from "../src/retained-evidence.js";
-import {digestMetadata} from "../src/artifacts.js";
+import {digestBytes,digestMetadata} from "../src/artifacts.js";
 const taggedHash=(value:unknown):`sha256:${string}`=>`sha256:${digestMetadata(value).value}`;
 const identity=listAnalysisRuntimes()[0]!,snapshot=resolve('compatibility',identity.id),hash=(value:unknown)=>digestMetadata(value).value;
+test("frozen SDK imports preserve historical Pi siblings and current SDK module identities", async () => {
+ const {registerHooks} = await import("node:module"), {fileURLToPath} = await import("node:url"), {dirname} = await import("node:path");
+ const activePi = await import("@earendil-works/pi-coding-agent"), activeCursor = await import("@cursor/sdk"), activeDeepSeek = await import("@deepseek-ai/dsh-sdk-client");
+ const routed: string[] = [];
+ const observer = registerHooks({resolve(specifier, context, next) {const result = next(specifier, context); if (["@earendil-works/pi-ai", "@earendil-works/pi-agent-core", "@earendil-works/pi-telemetry"].includes(specifier) && result.url.startsWith("file:")) routed.push(result.url); return result;}});
+ try {
+  await loadAnalysisRuntime(identity.id);
+  const versions = routed.map(url => {let path = dirname(fileURLToPath(url)); for (;;) {try {const metadata = JSON.parse(readFileSync(join(path, "package.json"), "utf8")); if (["@earendil-works/pi-ai", "@earendil-works/pi-agent-core", "@earendil-works/pi-telemetry"].includes(metadata.name)) return metadata.version;} catch {} const parent = dirname(path); if (parent === path) throw new Error("No historical SDK metadata"); path = parent;}});
+  assert.ok(versions.length >= 2, "loading the fixed reader must exercise historical Pi sibling imports"); assert.ok(versions.every(version => version === "1.1.0"));
+  assert.equal(await import("@earendil-works/pi-coding-agent"), activePi); assert.equal(await import("@cursor/sdk"), activeCursor); assert.equal(await import("@deepseek-ai/dsh-sdk-client"), activeDeepSeek);
+ } finally {observer.deregister();}
+});
 test('the frozen v1 reader is selected only by a shipped runtime identity',async()=>{
  await assert.rejects(loadAnalysisRuntime('../../untrusted-reader'),/Unsupported/u);
  const runtime=await loadAnalysisRuntime(identity.id);assert.deepEqual(runtime.identity,identity);
@@ -53,12 +65,45 @@ test('the original main runtime preserves occurrence rules 1.1 alongside correct
 });
 
 
-test("fresh installs retain exact external dependency versions for fixed readers", () => {
+test("fresh installs isolate the frozen reader roots and Pi sibling graph", async () => {
+  const {createRequire} = await import("node:module");
+  const local = createRequire(import.meta.url);
+  const config = JSON.parse(readFileSync(new URL("../../compatibility/runtime-dependencies.json", import.meta.url), "utf8"));
   const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
   for (const runtime of listAnalysisRuntimes()) {
     const snapshot = JSON.parse(readFileSync(new URL(`../../compatibility/${runtime.id}/runtime-manifest.json`, import.meta.url), "utf8"));
-    for (const [name, version] of Object.entries(snapshot.dependencies)) {
-      assert.equal(packageJson.dependencies[name], version, `${runtime.id}: fresh installation must retain ${name}`);
+    for (const [name, version] of Object.entries({...snapshot.dependencies, ...config.aliases})) {
+      if (config.bundles[name]) {
+        const bundle = config.bundles[name];
+        assert.equal(bundle.version, version);
+        assert.equal(digestBytes(readFileSync(new URL(`../../compatibility/${bundle.entry}`, import.meta.url))).value, bundle.sha256);
+        continue;
+      }
+      const alias = "@ebo-compat/" + name.replace(/^@/u, "").replace("/", "-");
+      const installed = (local.resolve.paths(alias) ?? []).map(root => join(root, alias, "package.json")).find(path => {try {return JSON.parse(readFileSync(path, "utf8")).name === name;} catch {return false;}});
+      assert.ok(installed, name);
+      assert.equal(JSON.parse(readFileSync(installed, "utf8")).version, version, `${runtime.id}: ${name}`);
+      if (Object.hasOwn(config.aliases, name)) assert.equal(packageJson.dependencies[alias], `npm:${name}@${version}`);
     }
+    // Loading exercises the original ESM-only Pi export through the scoped resolver.
+    await loadAnalysisRuntime(runtime.id);
   }
+});
+
+test("a changed historical SDK dependency is rejected before its code executes", async () => {
+  const {execFileSync} = await import("node:child_process");
+  const {mkdirSync} = await import("node:fs");
+  const {pathToFileURL} = await import("node:url");
+  const root = mkdtempSync(join(tmpdir(), "ebo-sdk-integrity-"));
+  try {
+    mkdirSync(join(root, "dist"));
+    cpSync(resolve("dist/src"), join(root, "dist/src"), {recursive: true});
+    cpSync(resolve("compatibility"), join(root, "compatibility"), {recursive: true});
+    symlinkSync(resolve("node_modules"), join(root, "node_modules"), "dir");
+    symlinkSync(resolve("schemas"), join(root, "schemas"), "dir");
+    writeFileSync(join(root, "package.json"), '{"type":"module"}');
+    writeFileSync(join(root, "compatibility/deepseek-sdk-client-0.2.0-rc.2/sdk.mjs"), 'throw new Error("changed SDK executed");');
+    const script = `const {loadAnalysisRuntime}=await import(${JSON.stringify(pathToFileURL(join(root, "dist/src/analysis-runtime.js")).href)});try{await loadAnalysisRuntime(${JSON.stringify(identity.id)});throw Error("unexpected acceptance");}catch(error){if(!/Historical SDK dependency differs from its frozen digest/.test(error.message))throw error;console.log("rejected before execution");}`;
+    assert.match(execFileSync(process.execPath, ["--input-type=module", "-e", script], {encoding: "utf8"}), /rejected before execution/);
+  } finally {rmSync(root, {recursive: true, force: true});}
 });

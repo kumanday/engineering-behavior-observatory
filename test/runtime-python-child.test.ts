@@ -24,9 +24,9 @@ test("a Python bootstrap preserves the selected virtual environment executable",
   try {
     const created = await runRuntimeCommand(process.env.EBO_HARBOR_PYTHON ?? "python3", ["-I", "-B", "-m", "venv", "--without-pip", join(root, "venv")], root);
     assert.equal(created.code, 0, created.stderr);
-    const selected = join(root, "venv", "bin", "python");
+    const selected = join(await realpath(join(root, "venv", "bin")), "python");
     const identity = await probePythonBootstrap(selected, runRuntimeCommand, root);
-    assert.equal(identity.executable, join(await realpath(join(root, "venv", "bin")), "python"));
+    assert.equal(identity.executable, selected);
   } finally {await rm(root, {recursive: true, force: true});}
 });
 

@@ -1,10 +1,23 @@
 # OpenHands Agent Server adapter
 
-The OpenHands adapter executes one EBO attempt through an owned Agent Server container and its REST/WebSocket boundary. It preserves source records before projecting uniform events.
+The OpenHands adapter executes one EBO attempt through an owned Agent Server in a local Smol VM and its REST/WebSocket boundary. It preserves source records before projecting uniform events.
 
 ## Freeze the server
 
-Freeze the `openhands-agent-server` role using the [study runtime workflow](../reference/study-runtimes.md). EBO resolves the age-eligible stable image for the selected platform and installs its immutable digest. Capture starts a container from that image, checks its actual image identity and `/server_info.version`, and uses its loopback port. The attempt workspace is mounted with its owner’s UID and GID so the container can write retained outcomes on Linux.
+Freeze `openhands-agent-server` and `smol` through the [study runtime
+workflow](../reference/study-runtimes.md). EBO resolves an age-eligible stable
+OCI image and binds its platform manifest digest to the study's Smol engine.
+Capture checks the owned VM's image identity and `/server_info.version`, then
+uses its loopback REST/WebSocket endpoint.
+
+Native capture mounts the attempt workspace with its owner's UID and GID.
+Harbor capture runs an owned server inside the existing task VM; set
+`"openhandsBoundary": "task-guest"` in that study's runtime request. Its trusted
+coordinator starts the server inside a dedicated cgroup before applying the
+workspace UID and GID. This contains tool sessions that detach from the server's
+process group. Shutdown proves the cgroup is empty before workspace capture.
+Host VM coordination and guest server execution have distinct qualification
+identities.
 
 The 1.54.0 [contract manifest](../../contracts/openhands-agent-server-v1.54.0.json) records the development conformance baseline: OpenAPI digest, server commit, image and authentication mode. Retained captures preserve their own observed runtime and adapter identities.
 
@@ -22,7 +35,7 @@ The run configuration must expose the actual model at `agent.llm.model` or
 `agent_settings.llm.model`; EBO rejects a request whose executable model differs
 from the run manifest identity.
 
-1. Verify `/server_info` reports exactly `1.54.0`.
+1. Verify `/server_info` reports the version frozen for this study.
 2. Create one conversation with the supplied agent configuration and the
    workspace path visible to the server. Authenticated REST requests use the
    pinned server's `X-Session-API-Key` header.
@@ -35,7 +48,7 @@ from the run manifest identity.
    verifier result before finalizing the run bundle. If workspace packaging
    fails, preserve and report the disposable workspace path for recovery.
 
-Container callers can set `serverWorkspacePath` when the Agent Server sees a
+Native callers can set `serverWorkspacePath` when the Agent Server sees a
 different mount path from the local EBO coordinator.
 
 ## Reconciliation and completeness

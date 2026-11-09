@@ -2,7 +2,7 @@
 
 EBO drives DeepSeek Harness out of process through the official public client and protocol packages. Freeze the `deepseek-harness` role using the [study runtime workflow](../reference/study-runtimes.md); the lock covers the runtime, client and protocol together. It does not import source modules,
 embed the agent loop, or implement JSON-RPC framing, correlation,
-subscriptions, or process teardown. Opt into prereleases explicitly when the selected upstream channel requires them. The 0.2.0-rc.2 development dependencies establish a conformance baseline.
+subscriptions, or process teardown. Opt into prereleases explicitly when the selected upstream channel requires them.
 
 The upstream contracts are the official
 [TypeScript client](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sdk/client/README.md),

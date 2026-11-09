@@ -44,7 +44,7 @@ try {
   run("npm", ["run", "typecheck"]);
   const [{ containsPortableLocalHomePath, containsPortableSecretPattern }, typescript] = await Promise.all([
     import("../dist/src/exports.js"),
-    import("typescript"),
+    import("@typescript/typescript6"),
   ]);
   const tests = readdirSync(join(root, "dist", "test"))
     .filter((name) => name.endsWith(".test.js"))

@@ -1,3 +1,4 @@
+import {admitLocalPythonWheels, localWheelInputDigest, localWheelSecurity} from "./runtime-local-wheels.js";
 import {readVerificationCatalog, snapshotVerification, runtimeVerificationSubject, runtimeExecutionVerificationSubject, assertVerificationSnapshot, verificationDigest, type VerificationSnapshot, type VerificationSubject} from "./harness-verification.js";
 import { refreshFrozenRuntimeRelease } from "./runtime-status.js";
 import {assertStudyRuntimeRequest} from "./runtime-request.js";
@@ -7,6 +8,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import lockfile from "proper-lockfile";
 import { canonicalizeMetadata, digestMetadata } from "./artifacts.js";
+import {MAX_QUALIFICATION_ARTIFACT_BYTES} from "./contracts.js";
 import { listRuntimeRecipes } from "./runtime-catalog.js";
 import { installRuntime, verifyInstalledRuntime, type RuntimeCommandRunner, type RuntimeInstallPlan } from "./runtime-installation.js";
 import { resolveNpmRuntimePlan, type SelectedRuntimeComponent, type LockedRuntimeDependency } from "./runtime-npm.js";
@@ -16,13 +18,13 @@ import { RuntimePolicyError, selectRuntimeRelease, type RuntimePolicy } from "./
 import { checkRuntimeSecurity, type RuntimeSecurityOptions, type RuntimeSecurityReceipt } from "./runtime-security.js";
 
 type Hash = `sha256:${string}`;
-export type StudyRuntimeRequest = { studyId: string; roles: string[]; policy?: RuntimePolicy;
+export type StudyRuntimeRequest = { studyId: string; roles: string[]; openhandsBoundary?: "host-vm" | "task-guest"; policy?: RuntimePolicy;
   harnessPolicies?: Record<string, RuntimePolicy>; overrides?: Record<string, string>; roleTargets?: Record<string, {platform: string; architecture: string}>; target?: { platform: string; architecture: string } };
 export type StudyRuntimeGroup = { id: string; roles: string[]; roots: SelectedRuntimeComponent[]; components: LockedRuntimeDependency[];
-  plan: RuntimeInstallPlan; verification?: Record<string, VerificationSnapshot>; installation: { key: string; receiptDigest: Hash } };
+  plan: RuntimeInstallPlan; executionEnvironment?: {role: "smol"; version: string; boundary: "host-vm" | "task-guest"; coordinatorPlatform: string; platform: string; abi: string; componentDigest: Hash; pythonBinaryIntegrity: string; coordinatorAbi: string}; verification?: Record<string, VerificationSnapshot>; installation: { key: string; receiptDigest: Hash } };
 export type StudyRuntimeLock = { schemaVersion: "ebo.study-runtime-lock/v1" | "ebo.study-runtime-lock/v2"; studyId: string; request: StudyRuntimeRequest; requestDigest: Hash;
-  createdAt: string; target: { platform: string; architecture: string }; groups: StudyRuntimeGroup[]; security: RuntimeSecurityReceipt; digest: Hash };
-export type StudyRuntimeOptions = RuntimeRegistryOptions & RuntimeSecurityOptions & { run?: RuntimeCommandRunner; python?: string; pythonAbi?: string; uv?: string; verificationCatalogRoot?: string };
+  createdAt: string; artifactInputs?: {pythonWheelhouseDigest: Hash}; target: { platform: string; architecture: string }; groups: StudyRuntimeGroup[]; security: RuntimeSecurityReceipt; digest: Hash };
+export type StudyRuntimeOptions = RuntimeRegistryOptions & RuntimeSecurityOptions & { run?: RuntimeCommandRunner; python?: string; pythonAbi?: string; uv?: string; pythonWheelhouse?: string; verificationCatalogRoot?: string; startOpenHandsSmol?: import("./openhands-smol.js").OpenHandsSmolStarter };
 export type RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v1" | "ebo.runtime-launch/v2"; verification?: VerificationSnapshot; verificationSubject?: VerificationSubject; contractChecks?: string[]; lockDigest: Hash; role: string; runtimeRoot: string;
   roots: SelectedRuntimeComponent[]; platform: string; abi: string; security: RuntimeSecurityReceipt; warnings: string[]; receiptLocator: string };
 const hash = (value: unknown): Hash => `sha256:${digestMetadata(value).value}`;
@@ -32,6 +34,10 @@ export async function readStudyRuntimeLock(studyRoot: string): Promise<StudyRunt
   const lock = JSON.parse(await readFile(paths(studyRoot).lock, "utf8")) as StudyRuntimeLock;
   if (!["ebo.study-runtime-lock/v1", "ebo.study-runtime-lock/v2"].includes(lock.schemaVersion) || !Array.isArray(lock.groups) || hash(withoutDigest(lock)) !== lock.digest || hash(lock.request) !== lock.requestDigest) throw new RuntimePolicyError("RUNTIME_LOCK_INTEGRITY", "Study runtime lock is malformed or changed.");
   if (lock.schemaVersion === "ebo.study-runtime-lock/v2") for (const group of lock.groups) {
+    if (group.executionEnvironment) {
+      const engine = lock.groups.find(candidate => candidate.roles.includes("smol"));
+      if (!engine || !sameSmolEnvironment(group.executionEnvironment, engine)) throw new RuntimePolicyError("RUNTIME_LOCK_INTEGRITY", "Smol environment differs from the frozen execution binding.");
+    }
     if (!group.verification) throw new RuntimePolicyError("RUNTIME_LOCK_INTEGRITY", "Verification snapshot is absent from a v2 lock.");
     for (const role of group.roles) {
       const subject = runtimeVerificationSubject(role, group); if (!subject) continue;
@@ -44,11 +50,13 @@ export async function readStudyRuntimeLock(studyRoot: string): Promise<StudyRunt
 /** Idempotent freeze. A different policy or composition requires a new study revision. */
 export async function freezeStudyRuntimes(studyRoot: string, request: StudyRuntimeRequest, options: StudyRuntimeOptions = {}): Promise<StudyRuntimeLock> {
   assertStudyRuntimeRequest(request);
+  const wheelhouseDigest = options.pythonWheelhouse ? localWheelInputDigest(await admitLocalPythonWheels(options.pythonWheelhouse)) : undefined;
   const locations = paths(studyRoot); await mkdir(join(resolve(studyRoot), "runtimes"), { recursive: true, mode: 0o700 });
   const unlock = await lockfile.lock(locations.lock, { realpath: false, stale: 120_000, update: 30_000, retries: { retries: 300, factor: 1, minTimeout: 100, maxTimeout: 1000 } });
   try {
     try {
       const retained = await readStudyRuntimeLock(studyRoot);
+      if (wheelhouseDigest && retained.artifactInputs?.pythonWheelhouseDigest !== wheelhouseDigest) throw new RuntimePolicyError("RUNTIME_STUDY_FROZEN", "Local wheel admission differs from the frozen study; use a new study revision.");
       if (retained.requestDigest !== hash(request)) throw new RuntimePolicyError("RUNTIME_STUDY_FROZEN", "Runtime policy/composition differs from the frozen study; create a new study revision.");
       return retained;
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
@@ -92,21 +100,33 @@ export async function freezeStudyRuntimes(studyRoot: string, request: StudyRunti
           ...(root.ecosystem ? { ecosystem: root.ecosystem } : { purl: root.purl! }) }];
         if (root.source === "oci") {
           const manifest = release.metadata?.manifest as any;
-          plan = { kind: "oci", recipe: "ebo-oci/v1", platform: `${root.platform}-${root.architecture}`, abi: "oci", image: release.locator, configDigest: manifest.config.digest, layerDigests: manifest.layers.map((layer: any) => layer.digest), publisherProofs };
+          plan = { kind: "oci", recipe: "ebo-oci/v2", platform: `${root.platform}-${root.architecture}`, abi: "oci", image: release.locator, configDigest: manifest.config.digest, layerDigests: manifest.layers.map((layer: any) => layer.digest), publisherProofs };
         } else plan = { kind: "binary", recipe: "ebo-binary/v1", platform, abi: "native", artifact: { locator: release.locator, integrity: release.integrity, filename: "runtime.tar.gz" }, archive: "tar.gz", publisherProofs };
       }
       // Check the whole graph before any package can be loaded or executed.
-      await checkRuntimeSecurity(components, options);
+      await checkRuntimeSecurity([...components, ...plan.kind === "python" ? localWheelSecurity(plan.artifacts) : []], options);
       const installed = await installRuntime(plan, { ...options, cacheRoot: locations.cache });
       const verification: Record<string, VerificationSnapshot> = {};
       const catalog = await readVerificationCatalog(options.verificationCatalogRoot);
       for (const role of roles) {const subject = runtimeVerificationSubject(role, {roots, components, plan}); if (subject) verification[role] = snapshotVerification(subject, catalog);}
       groups.push({ id: roles.join("+"), roles, roots, components, plan, verification, installation: { key: installed.key, receiptDigest: hash(installed.receipt) } });
     }
-    const security = await checkRuntimeSecurity(groups.flatMap((group) => group.components), options);
-    const value: Omit<StudyRuntimeLock, "digest"> = { schemaVersion: "ebo.study-runtime-lock/v2", studyId: request.studyId, request: structuredClone(request), requestDigest: hash(request), createdAt, target, groups, security };
+    const engine = groups.find(group => group.roles.includes("smol"));
+    if (engine) for (const group of groups.filter(group => group.roles.includes("openhands-agent-server"))) {
+      group.executionEnvironment = {...smolEnvironment(engine), boundary: request.openhandsBoundary ?? "host-vm", coordinatorPlatform: request.openhandsBoundary === "task-guest" ? group.plan.platform.replace(/-amd64$/u, "-x64") : `${process.platform}-${process.arch}`};
+      const subject = runtimeVerificationSubject("openhands-agent-server", group)!;
+      group.verification = {...group.verification, "openhands-agent-server": snapshotVerification(subject, await readVerificationCatalog(options.verificationCatalogRoot))};
+    }
+    const security = await checkRuntimeSecurity(groups.flatMap((group) => [...group.components, ...group.plan.kind === "python" ? localWheelSecurity(group.plan.artifacts) : []]), options);
+    if (wheelhouseDigest) {
+      const actualInputs = groups.flatMap(group => group.plan.kind === "python" ? group.plan.artifacts.filter(artifact => artifact.localWheel).map(artifact => ({filename: artifact.filename, sha256: artifact.localWheel!.provenance.wheel.sha256, provenanceDigest: artifact.localWheel!.provenanceDigest})) : []);
+      if (localWheelInputDigest(actualInputs) !== wheelhouseDigest) throw new RuntimePolicyError("RUNTIME_LOCAL_WHEEL_INVALID", "Frozen artifact inputs differ from the admitted wheelhouse.");
+    }
+    const value: Omit<StudyRuntimeLock, "digest"> = { ...(wheelhouseDigest ? {artifactInputs: {pythonWheelhouseDigest: wheelhouseDigest}} : {}), schemaVersion: "ebo.study-runtime-lock/v2", studyId: request.studyId, request: structuredClone(request), requestDigest: hash(request), createdAt, target, groups, security };
     const lock = { ...value, digest: hash(value) };
-    await writeFile(locations.lock, canonicalizeMetadata(lock), { flag: "wx", mode: 0o600 }); return lock;
+    const serialized = canonicalizeMetadata(lock);
+    if (Buffer.byteLength(serialized) > MAX_QUALIFICATION_ARTIFACT_BYTES) throw new RuntimePolicyError("RUNTIME_LOCK_TOO_LARGE", "The serialized runtime lock exceeds the 64 MiB qualification artifact limit. Use fewer prepared artifacts per study.");
+    await writeFile(locations.lock, serialized, { flag: "wx", mode: 0o600 }); return lock;
   } catch (error) {
     if (error instanceof RuntimePolicyError && error.receipt) {
       const failures = join(resolve(studyRoot), "runtimes", "resolution-failures"); await mkdir(failures, { recursive: true, mode: 0o700 });
@@ -137,7 +157,7 @@ export async function prepareRuntimeLaunch(studyRoot: string, role: string, opti
     }));
     for (const result of results) {if (result.status === "rejected") throw result.reason; if (result.value) warnings.push(result.value);}
   }
-  const security = await checkRuntimeSecurity(lock.groups.flatMap((group) => group.components), options);
+  const security = await checkRuntimeSecurity(lock.groups.flatMap((group) => [...group.components, ...group.plan.kind === "python" ? localWheelSecurity(group.plan.artifacts) : []]), options);
   const runtimeRoot = join(locations.cache, group.installation.key), receipt = await verifyInstalledRuntime(runtimeRoot, group.plan, options);
   if (hash(receipt) !== group.installation.receiptDigest) throw new RuntimePolicyError("RUNTIME_CACHE_INTEGRITY", "Installation receipt differs from the study freeze.");
   const launch: RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v2", ...(group.verification?.[role] ? {verification: group.verification[role]} : {}), ...(runtimeExecutionVerificationSubject(role, group) ? {verificationSubject: runtimeExecutionVerificationSubject(role, group)} : {}), lockDigest: lock.digest, role, runtimeRoot, roots: group.roots, platform: group.plan.platform, abi: group.plan.abi, security, warnings: [...warnings, ...security.warnings], receiptLocator };
@@ -149,4 +169,15 @@ export async function prepareRuntimeLaunch(studyRoot: string, role: string, opti
       security: error instanceof RuntimePolicyError ? error.receipt ?? null : null, error: error instanceof Error ? error.message : String(error) }), { flag: "wx", mode: 0o600 });
     throw error;
   }
+}
+
+function smolEnvironment(engine: StudyRuntimeGroup): NonNullable<StudyRuntimeGroup["executionEnvironment"]> {
+  if (engine.plan.kind !== "python") throw new RuntimePolicyError("RUNTIME_RECIPE_INVALID", "Smol requires a frozen Python runtime.");
+  return {role: "smol", boundary: "host-vm", coordinatorPlatform: `${process.platform}-${process.arch}`, version: engine.roots.find(root => root.name === "smolmachines")!.selection.release.version,
+    platform: engine.plan.platform, abi: engine.plan.abi, pythonBinaryIntegrity: engine.plan.bootstrap.binaryIntegrity,
+    componentDigest: hash(engine.components.map(component => ({name: component.name, version: component.version, integrity: component.selection.release.integrity})).sort((a, b) => a.name.localeCompare(b.name))),
+    coordinatorAbi: `node-${process.versions.node}-modules-${process.versions.modules}`};
+}
+function sameSmolEnvironment(environment: NonNullable<StudyRuntimeGroup["executionEnvironment"]>, engine: StudyRuntimeGroup): boolean {
+  return hash({...smolEnvironment(engine), coordinatorAbi: environment.coordinatorAbi, boundary: environment.boundary, coordinatorPlatform: environment.coordinatorPlatform}) === hash(environment) && ["host-vm", "task-guest"].includes(environment.boundary) && /^(?:darwin|linux)-(?:arm64|x64)$/u.test(environment.coordinatorPlatform);
 }

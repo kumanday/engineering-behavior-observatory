@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import ts from "typescript";
+import ts from "@typescript/typescript6";
 import { containsPortableLocalHomePath, containsPortableSecretPattern } from "../src/exports.js";
 
 test("release source scan accepts reference-only Bearer headers and rejects credential literals", async () => {

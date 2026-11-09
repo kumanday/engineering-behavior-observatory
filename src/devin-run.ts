@@ -14,6 +14,7 @@ import {
   captureDevinCli,
   captureDevinCliOwned,
   bindDevinRuntime,
+  assertNativeDevinCredentialEnv,
   DEVIN_ADAPTER_VERSION,
   DEVIN_CLI_VERSION,
   DEVIN_DEFAULT_SHUTDOWN_GRACE_MS,
@@ -21,6 +22,7 @@ import {
   describeAndValidateDevinDataset,
   type DevinCliCapture,
   type DevinCliConfiguration,
+  type DevinCredentialFormat,
   type DevinPermissionDecision,
   type DevinSessionMode,
   type DevinTelemetrySignal,
@@ -76,8 +78,9 @@ export type DevinModelConfiguration = {
   provider: string;
   /** Native ACP model slug, e.g. `swe-2-high`. */
   model: string;
-  /** Environment variable copied into the isolated child for ACP authentication; defaults to WINDSURF_API_KEY. */
+  /** Environment variable supplying ACP authentication; defaults to WINDSURF_API_KEY for an environment key. */
   credentialEnv?: string;
+  credentialFormat?: DevinCredentialFormat;
 };
 
 export type DevinHarnessConfiguration = {
@@ -459,6 +462,7 @@ async function runDevinQueueEntryOwned(options: RunDevinQueueEntryOptions): Prom
         mode: toolPolicy.mode,
         permissionDecision: toolPolicy.permissionDecision,
         ...(model.credentialEnv === undefined ? {} : { credentialEnv: model.credentialEnv }),
+        ...(model.credentialFormat === undefined ? {} : { credentialFormat: model.credentialFormat }),
         ...(harness.arguments === undefined ? {} : { acpArgs: harness.arguments }),
         ...(captureProfile.telemetrySignals === undefined ? {} : { telemetry: { signals: captureProfile.telemetrySignals } }),
       },
@@ -547,10 +551,15 @@ export async function probeDevinRuntime(executable: string): Promise<{ path: str
 
 function validateConfiguration(record: Record<string, unknown>, kind: DevinConfigurationKind, reference: ArtifactReference): void {
   if (kind === "model") {
-    keys(record, ["schemaVersion", "kind", "provider", "model", "credentialEnv"], ["provider", "model"], reference);
+    keys(record, ["schemaVersion", "kind", "provider", "model", "credentialEnv", "credentialFormat"], ["provider", "model"], reference);
     requiredText(record.provider, "provider", reference);
     requiredText(record.model, "model", reference);
     if (record.credentialEnv !== undefined && (typeof record.credentialEnv !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(record.credentialEnv))) throw configError(reference, "credentialEnv must be an environment variable name");
+    if (record.credentialFormat !== undefined && record.credentialFormat !== "environment-key" && record.credentialFormat !== "cli-credentials-toml-base64") throw configError(reference, "unknown credentialFormat");
+    if (record.credentialFormat === "cli-credentials-toml-base64") {
+      try { assertNativeDevinCredentialEnv(record.credentialEnv); }
+      catch (error) { throw configError(reference, error instanceof Error ? error.message : String(error)); }
+    }
   } else if (kind === "harness") {
     keys(record, ["schemaVersion", "kind", "adapter", "executable", "version", "contractDigest", "arguments"], ["adapter", "executable", "version", "contractDigest"], reference);
     if (record.adapter !== DEVIN_HARNESS || !isExactRuntimeVersion(record.version)) throw configError(reference, "adapter and exact runtime versions are required");

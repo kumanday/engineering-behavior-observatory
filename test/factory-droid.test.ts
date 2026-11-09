@@ -43,7 +43,7 @@ async function runFake(root: string, mode = "success", overrides: Partial<Factor
   const workspacePath = join(root, "workspace"); await mkdir(workspacePath, { recursive: true });
   return captureFactoryDroid({ runId: "factory-run", attemptId: "factory-attempt", workspacePath, prompt: "Create a result file.",
     configuration: { ...config(mode), ...overrides }, evidencePath: join(root, "session.jsonl"),
-    shutdownGraceMs: 100, maxInMemoryObservations: 2, maxLineBytes: mode === "oversized" ? 4096 : undefined, signal });
+    shutdownGraceMs: mode === "delayed-interrupt" || mode === "hang" ? 2000 : 100, maxInMemoryObservations: 2, maxLineBytes: mode === "oversized" ? 4096 : undefined, signal });
 }
 const retainedOptions = (capture: FactoryCapture, expectsCompletion = true) => ({ sessionId: capture.sessionId, expectsCompletion,
   cliVersion: FACTORY_CLI_VERSION, sdkVersion: FACTORY_SDK_VERSION });

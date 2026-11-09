@@ -383,6 +383,54 @@ test("Devin mode and model mismatches are gaps, and unauthenticated children fai
   }
 });
 
+test("Devin authenticates with its native login file in the isolated child and removes it after capture", async () => {
+  const root = await temporaryRoot();
+  const key = "EBO_FAKE_DEVIN_NATIVE";
+  const original = process.env[key];
+  const oldTmp = process.env.TMPDIR, isolatedTmp = join(root, "tmp");
+  try {
+    await mkdir(isolatedTmp);
+    process.env.TMPDIR = isolatedTmp;
+    const value = Buffer.from('windsurf_api_key = "fixture-native-login"\n').toString("base64");
+    process.env[key] = value;
+    const configuration = { ...fakeConfiguration("native-credential-file"), credentialEnv: key,
+      credentialFormat: "cli-credentials-toml-base64" as const };
+    const request = {
+      runId: "run-native-login", attemptId: "attempt-native-login", workspacePath: root, prompt: "Perform one small task.",
+      configuration, evidencePath: join(root, "session.jsonl"), shutdownGraceMs: 500,
+    };
+    const result = await captureDevinCli(request);
+    assert.equal(result.terminalStatus, "completed");
+    assert.equal(result.telemetry.runtime.credentialFormat, configuration.credentialFormat);
+    assert.ok(!result.telemetry.effectiveConfiguration.environmentKeys.includes(key));
+    const evidence = await readFile(request.evidencePath, "utf8");
+    assert.ok(!evidence.includes(value) && !evidence.includes("fixture-native-login"));
+    const removedHome = await readFile(join(root, "fixture-auth-home.txt"), "utf8");
+    await assert.rejects(readFile(join(removedHome, "data/devin/credentials.toml")), {code: "ENOENT"});
+    // The exclusive evidence file forces a startup error after the credential is staged.
+    await assert.rejects(captureDevinCli(request), /EEXIST/u);
+    assert.ok(!(await readdir(isolatedTmp)).some(name => name.startsWith("ebo-devin-home-")));
+    await assert.rejects(captureDevinCli({...request, configuration:{...configuration, credentialEnv:"USER"}}), /process environment key/u);
+    const controller = new AbortController();
+    const interruptedPath = join(root, "interrupt.jsonl");
+    const pending = captureDevinCli({...request, evidencePath:interruptedPath, signal:controller.signal, shutdownGraceMs:2000,
+      configuration:{...fakeConfiguration("native-credential-file-interrupt"), credentialEnv:key, credentialFormat:configuration.credentialFormat}});
+    try {
+      await waitForRecord(interruptedPath, record => record.kind === "notification"
+        && isRecord(record.payload?.update) && record.payload.update.sessionUpdate === "tool_call_update");
+    } finally { controller.abort(); }
+    assert.equal((await pending).terminalStatus, "interrupted");
+    const interruptedHome = await readFile(join(root, "fixture-auth-home.txt"), "utf8");
+    await assert.rejects(readFile(join(interruptedHome, "data/devin/credentials.toml")), {code: "ENOENT"});
+    process.env[key] = "not canonical base64!";
+    await assert.rejects(captureDevinCli({...request, evidencePath: join(root, "invalid.jsonl")}), /canonical base64/u);
+  } finally {
+    if (oldTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = oldTmp;
+    if (original === undefined) delete process.env[key]; else process.env[key] = original;
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
 test("captureDevinCli rejects a missing credential before allocating the OTLP receiver and exits cleanly", async () => {
   const root = await temporaryRoot();
   try {

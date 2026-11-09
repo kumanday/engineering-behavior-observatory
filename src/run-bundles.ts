@@ -26,7 +26,7 @@ import {
   writeArtifactAtomically,
   writeMetadataAtomically, writeMetadataAtomicallyIfAbsentSync,
 } from "./artifacts.js";
-import { isSafeArtifactRelativePath, type AssessmentMode } from "./contracts.js";
+import { MAX_QUALIFICATION_ARTIFACT_BYTES, isSafeArtifactRelativePath, type AssessmentMode } from "./contracts.js";
 import { digestWorkspace, digestWorkspaceTree } from "./verifiers.js";
 import type { ClaudeAgentSdkAttemptEvidence, ClaudeAgentSdkCapabilities } from "./agent-sdk.js";
 import type { AttemptIdentity, TerminalRecord } from "./lifecycle.js";
@@ -229,7 +229,6 @@ export type CaptureQualificationOptions = {
 const execFileAsync = promisify(execFile);
 const MAX_WORKSPACE_PATCH_BYTES = 64 * 1024 * 1024;
 const MAX_WORKSPACE_SNAPSHOT_BYTES = 1024 * 1024 * 1024;
-const MAX_QUALIFICATION_ARTIFACT_BYTES = 64 * 1024 * 1024;
 const QUALIFICATION_DIMENSION_RANK = { qualified: 0, unsupported: 1, gap: 2, unqualified: 3 } as const;
 const PINNED_HOOK_EVENTS = new Set<string>(HOOK_EVENTS);
 const TAR_COMMAND = process.platform === "win32" ? "tar" : "/usr/bin/tar";

@@ -19,7 +19,10 @@ function summary(lock: StudyRuntimeLock): unknown {
   return { studyId: lock.studyId, lockDigest: lock.digest, createdAt: lock.createdAt, target: lock.target,
     groups: lock.groups.map((group) => ({ id: group.id, roles: group.roles, installationKey: group.installation.key, platform: group.plan.platform, abi: group.plan.abi,
       components: group.roots.map((root) => ({ id: root.id, name: root.name, version: root.selection.release.version, publishedAt: root.selection.release.publishedAt, cutoff: root.selection.cutoff })),
-      dependencyCount: group.components.length, verification: Object.fromEntries(Object.entries(group.verification ?? {}).map(([role, snapshot]) => [role, {
+      dependencyCount: group.components.length,
+      operatorBuiltWheels: group.plan.kind === "python" ? group.plan.artifacts.filter(artifact => artifact.localWheel).map(artifact => ({filename: artifact.filename, integrity: artifact.integrity,
+        source: artifact.localWheel!.provenance.source, builtAt: artifact.localWheel!.provenance.builtAt, provenanceDigest: artifact.localWheel!.provenanceDigest})) : [],
+      verification: Object.fromEntries(Object.entries(group.verification ?? {}).map(([role, snapshot]) => [role, {
         ...evaluateVerification(snapshot), scopedReceipts: snapshot.receipts.map(receipt => ({digest: receipt.digest, scope: receipt.scope, claims: receipt.claims})),
       }])) })), warnings: [...new Set([...lock.security.warnings, ...lock.groups.flatMap((group) => group.components.flatMap((component) => component.selection.warnings.map((warning) => warning.includes(component.name) ? warning : `${component.name}@${component.version}: ${warning}`)))])] };
 }
@@ -27,9 +30,17 @@ export async function runRuntimeCommandLine(args: readonly string[], write: (tex
   const emit = (value: unknown): void => write(`${canonicalizeMetadata(value)}\n`);
   try {
     if (args[0] === "list" && args.length === 1) { emit(listRuntimeRecipes()); return 0; }
-    if (args[0] === "freeze" && (args.length === 3 || args.length === 5 && args[3] === "--verification-catalog" && args[4])) {
+    if (args[0] === "freeze" && [3, 5, 7].includes(args.length)) {
+      const flags: Record<string, string> = {};
+      for (let index = 3; index < args.length; index += 2) {
+        const name = args[index]!, value = args[index + 1];
+        if (!["--verification-catalog", "--python-wheelhouse"].includes(name) || !value || value.startsWith("--") || flags[name]) throw new Error("Invalid runtime freeze option.");
+        flags[name] = value;
+      }
       const request = json(args[2]!) as StudyRuntimeRequest;
-      emit(summary(await freezeStudyRuntimes(resolve(args[1]!), request, {...options, ...(args[4] ? {verificationCatalogRoot: resolve(args[4])} : {})}))); return 0;
+      emit(summary(await freezeStudyRuntimes(resolve(args[1]!), request, {...options,
+        ...(flags["--verification-catalog"] ? {verificationCatalogRoot: resolve(flags["--verification-catalog"])} : {}),
+        ...(flags["--python-wheelhouse"] ? {pythonWheelhouse: resolve(flags["--python-wheelhouse"])} : {})}))); return 0;
     }
     if (args[0] === "verify" && args.length === 3) {
       const candidate = await prepareHarnessVerification(json(args[1]!) as VerificationRequest, options), destination = resolve(args[2]!);
@@ -72,6 +83,6 @@ export async function runRuntimeCommandLine(args: readonly string[], write: (tex
           receiptLocator: context.launch.receiptLocator, warnings: context.launch.warnings, verification: runtimeExecutionSummary()?.verification });
       }); return 0;
     }
-    write("Usage: ebo runtime list | freeze <study-root> <request.json> [--verification-catalog <path>] | inspect <study-root> | check <study-root> <role> | verify <request.json> <candidate.json> | verification inspect <catalog> | verification admit <catalog> <candidate.json> <operator.json> | verification withdraw <catalog> <withdrawal.json> | bind-queue <study-root> <queue.json> <output.json> [--configuration-root <path>]\n"); return 1;
+    write("Usage: ebo runtime list | freeze <study-root> <request.json> [--verification-catalog <path>] [--python-wheelhouse <manifest.json>] | inspect <study-root> | check <study-root> <role> | verify <request.json> <candidate.json> | verification inspect <catalog> | verification admit <catalog> <candidate.json> <operator.json> | verification withdraw <catalog> <withdrawal.json> | bind-queue <study-root> <queue.json> <output.json> [--configuration-root <path>]\n"); return 1;
   } catch (error) { write(`${error instanceof Error ? error.message : String(error)}\n`); return 1; }
 }

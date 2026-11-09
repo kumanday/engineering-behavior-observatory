@@ -6,7 +6,7 @@ attempt-owned `JsonlLocalAgentStore`, and retains stream messages, detailed
 callbacks, terminal `wait()` evidence, conversation history, billing readback,
 the official native store, and the final workspace before normalization.
 
-Freeze the `cursor-sdk` role using the [study runtime workflow](../reference/study-runtimes.md). The 1.0.37 development dependency establishes a conformance baseline.
+Freeze the `cursor-sdk` role using the [study runtime workflow](../reference/study-runtimes.md). Capture verification follows the selected SDK and configuration.
 
 The SDK package version does not freeze Cursor's service, selected model, or
 separately deployed local runtime. The selected model must be an exact result

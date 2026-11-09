@@ -5,6 +5,8 @@ import { gunzipSync } from "node:zlib";
 
 import type { TaskPacketFreezeRecord } from "./task-packets.js";
 
+export const MAX_QUALIFICATION_ARTIFACT_BYTES = 64 * 1024 * 1024;
+
 export type Digest = {
   algorithm: "sha256";
   value: string;

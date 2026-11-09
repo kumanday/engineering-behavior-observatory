@@ -20,11 +20,23 @@ unlisted files, and checks Node and installed dependency versions against the
 snapshot. Unsupported identities or changed runtimes fail explicitly.
 
 The frozen capsule includes its schema, contract and ontology assets. Its eight
-read APIs do not launch a candidate, verifier or model judge. Its external npm
-dependencies remain pinned to the installed versions named in the manifest;
-a later dependency upgrade must retain a compatible installation or qualify a
-new runtime identity. Snapshot files are ordinary shipped EBO code under the
-repository's license.
+read APIs consume retained evidence. The external dependency roots named in each
+manifest are isolated from active capture SDKs through exact compatibility
+aliases. Pi's historical sibling packages use those aliases too. The historical
+DeepSeek client and protocol are retained as one 34 KB JavaScript dependency,
+with both MIT licenses, original manifests, npm integrity identities and input
+hashes. Its pinned builder reproduces the bytes from the two retained source
+files. Only the two shipped readers use it. Its deferred capture launch helpers
+are outside the qualified read interface.
+
+Snapshot bytes and identities stay fixed. The returned `nodeVersion` identifies
+the original qualification host; compatibility checks replay both readers on
+Node 26.13.0 as well. The source checkout and installed package expose the
+current `ebo` binary.
+
+The package lock retains resolved support dependencies. The snapshot manifests
+pin external roots rather than every transitive package byte. Golden retained
+readback and packet verification check preserved analysis behavior.
 
 ## Reproduce the native 1.4 baseline
 
@@ -42,14 +54,14 @@ still require equivalent projections and observation sets.
 
 ## Reproduce the snapshots
 
-From a source checkout with Node 24.19.0 and installed dependencies:
+From a source checkout with the repository’s pinned Node release and installed dependencies:
 
 ```sh
 npm run compatibility:verify
 ```
 
 The builder verifies both registered snapshots. It archives each exact trusted Git commit into a temporary directory,
-bundles the named read APIs with the installed esbuild, copies the source
+bundles the named read APIs with the pinned historical esbuild, copies the source
 assets, and constructs a raw-byte inventory. It compares an existing capsule
 byte for byte and never overwrites it. A different source, builder or dependency
 result requires an explicit new runtime identity and qualification.

@@ -65,10 +65,8 @@ export async function verifyInstalledRuntime(root: string, plan: RuntimeInstallP
   const receipt = JSON.parse(await readFile(join(root, receiptName), "utf8")) as RuntimeInstallReceipt;
   if (receipt.schemaVersion !== "ebo.runtime-installation/v1" || receipt.planDigest !== runtimePlanKey(plan) || canonicalizeMetadata(receipt.inventory) !== canonicalizeMetadata(await inventory(root))) throw new RuntimePolicyError("RUNTIME_CACHE_INTEGRITY", "Installed runtime differs from its frozen plan or inventory.");
   if (plan.kind === "oci") {
-    const result = await (options.run ?? runRuntimeCommand)("docker", ["image", "inspect", plan.image], root);
-    if (result.code !== 0) throw new RuntimePolicyError("RUNTIME_IMAGE_UNAVAILABLE", "The frozen image is absent from Docker; prepare that exact digest again.");
-    let actual: any; try {actual = JSON.parse(result.stdout);} catch {throw new RuntimePolicyError("RUNTIME_PROBE_INVALID", "Docker image inspect returned malformed JSON.");}
-    if (actual[0]?.Id !== plan.configDigest) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", "Docker's actual image config differs from the frozen manifest.");
+    const admitted = JSON.parse(await readFile(join(root, "image.json"), "utf8"));
+    if (admitted.image !== plan.image || admitted.configDigest !== plan.configDigest || canonicalizeMetadata(admitted.layerDigests) !== canonicalizeMetadata(plan.layerDigests)) throw new RuntimePolicyError("RUNTIME_INTEGRITY_MISMATCH", "Admitted OCI descriptors differ from the frozen image.");
   }
   if (plan.kind === "python") assertPythonIdentity(await probePythonBootstrap(join(root, "venv", "bin", "python"), options.run ?? runRuntimeCommand, root), plan.bootstrap, true);
   return receipt;

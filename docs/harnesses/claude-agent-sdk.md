@@ -12,7 +12,7 @@ After [preparing and freezing a queue](../guides/operator-guide.md):
 ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root>
 ```
 
-Freeze the `claude-agent-sdk` role using the [study runtime workflow](../reference/study-runtimes.md). EBO loads that study’s SDK and probes its installed SDK/CLI. The checked-in 0.3.296 dependency is a development conformance baseline. The selected release and observed hooks determine capture capabilities; authentication determines model access.
+Freeze the `claude-agent-sdk` role using the [study runtime workflow](../reference/study-runtimes.md). EBO loads that study’s SDK and probes its installed SDK/CLI. The selected release and observed hooks determine capture capabilities; authentication determines model access.
 
 Supply an approved Agent SDK authentication route through the environment.
 The opt-in OAuth proofs use `CLAUDE_CODE_OAUTH_TOKEN` with

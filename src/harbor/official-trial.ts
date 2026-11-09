@@ -1,3 +1,4 @@
+import {resolveHarnessRuntimeRole} from "../study-runtime-bindings.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -45,6 +46,8 @@ export type OfficialHarborTrialInput = {
   entry: RunQueueV2["entries"][number]; attemptId: string; adapter: HarborAdapter; signal?: AbortSignal;
   invoke?: typeof invokeTrial;
 };
+export const MAX_HARBOR_RUNTIME_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024;
+
 export async function runOfficialHarborTrial(input: OfficialHarborTrialInput): Promise<HarborRunSummary> {
   const current = currentStudyRuntime();
   const binding = input.studyRoot && (!current || resolve(current.studyRoot) !== resolve(input.studyRoot)) ? {studyRoot: input.studyRoot} : undefined;
@@ -60,7 +63,7 @@ async function runOfficialHarborTrialOwned(input: OfficialHarborTrialInput): Pro
   const runtimeLock = await readStudyRuntimeLock(input.studyRoot);
   assertWorkerStudyRuntime(runtime, runtimeLock.digest);
   if (runtimeLock.digest !== host.launch.lockDigest) throw new Error("RUNTIME_LOCK_INTEGRITY: Harbor host context differs from the selected study lock.");
-  const archive = resolveBundleConfiguration(input.studyRoot, runtime.archive, 2 * 1024 * 1024 * 1024);
+  const archive = resolveBundleConfiguration(input.studyRoot, runtime.archive, MAX_HARBOR_RUNTIME_ARCHIVE_BYTES);
   const root = prepared.evidence.attemptRoot;
   await mkdir(prepared.evidence.harborDir, { recursive: true, mode: 0o700 });
   try {
@@ -82,7 +85,7 @@ async function runOfficialHarborTrialOwned(input: OfficialHarborTrialInput): Pro
     ...condition, frozenPythonVersions: Object.fromEntries(host.probes.filter((probe) => probe.source === "package-metadata").map((probe) => [probe.package, probe.actualVersion])), smolEvents: join(root, "harbor", "smol-events.jsonl"),
     taskPath: prepared.task.snapshotDirectory, attemptId, trialsDir: join(root, "harbor", "trials"),
     model: entry.modelId, verified: prepared.verifier.requested, budgetMs: prepared.budget.coordinatorWallClockMs,
-    build: "ebo-harbor-smol-v1", nativeRoot,
+    build: "ebo-harbor-smol-v1", nativeRoot, openhandsGuest: resolveHarnessRuntimeRole(input.studyRoot, prepared.run.harnessId, configuration.harness) === "openhands-agent-server",
     runtime: { ...runtime, archiveDigest: digestBytes(archive).value }, configurationFiles,
     workerInput: { prepared, configuration, configurationRoot: "/tmp/ebo-worker/config", runtimeLock: {studyRoot: "/opt/ebo/study", digest: runtimeLock.digest}, ...(host.studyFreeze && host.sourceRunId ? {queueBinding: {studyFreeze: host.studyFreeze, sourceRunId: host.sourceRunId}} : {}) },
   };

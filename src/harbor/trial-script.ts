@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from harbor.agents.base import BaseAgent
 from harbor.models.trial.config import TrialConfig
 from harbor.trial.trial import Trial
@@ -41,6 +42,12 @@ class EboAgent(BaseAgent):
             if result.return_code: raise RuntimeError('Worker configuration directory creation failed')
             await environment.upload_file(Path(item['hostPath']), '/tmp/ebo-worker/config/' + item['locator'])
 
+    async def worker_exec(self, environment, command, env=None):
+        if not self.request.get('openhandsGuest'):
+            return await environment.exec(command, env=env)
+        result = await environment._machine.exec(['sh', '-c', command], ExecOptions(user='0', env=env))
+        return SimpleNamespace(return_code=result.exit_code, stdout=result.stdout, stderr=result.stderr)
+
     async def run(self, instruction, environment, context):
         self.index += 1
         workdir = (await environment.exec('pwd')).stdout.strip()
@@ -50,6 +57,21 @@ class EboAgent(BaseAgent):
         created = await environment.exec('mkdir -p ' + shlex.quote(root) + ' ' + shlex.quote(scratch))
         if created.return_code: raise RuntimeError('Cannot prepare disk-backed worker evidence and scratch directories')
         payload = json.loads(json.dumps(self.request['workerInput']))
+        payload['ownedSmolEnvironment'] = {
+            'schemaVersion': 'ebo.smol-owned-task/v1', 'image': environment.ebo_image_identity['reference'], 'imageConfigDigest': environment.ebo_image_identity['configDigest'],
+            'machine': environment._machine.name, 'bootId': await boot_identity(environment._machine),
+            'engineVersion': importlib.metadata.version('smolmachines'),
+            'libkrunSha256': self.request['environmentManifest']['libkrunSha256'],
+        }
+        if self.request.get('openhandsGuest'):
+            # The VM owner creates one cgroup directory for its root coordinator. Native tools can
+            # create new sessions; cgroup.kill still contains their lifetimes.
+            cgroup = '/sys/fs/cgroup/ebo-openhands-' + uuid.uuid4().hex
+            result = await environment._machine.exec(['sh', '-eu', '-c',
+                'mkdir "$1"; test -f "$1/cgroup.kill"',
+                'ebo-openhands-containment', cgroup], ExecOptions(user='0'))
+            if result.exit_code: raise ValueError('RUNTIME_GUEST_CONTAINMENT_UNAVAILABLE: ' + result.stderr)
+            payload['ownedSmolEnvironment']['serverCgroupRoot'] = cgroup
         prepared = payload['prepared']
         # Deliver only this step. Future instructions and verifier gates stay on
         # the host with Harbor, not in a candidate-readable worker input file.
@@ -74,7 +96,7 @@ class EboAgent(BaseAgent):
         # Expose only the explicitly selected credential/route keys, not the host environment.
         command = ' '.join(shlex.quote(v) for v in argv)
         try:
-            result = await environment.exec(command, env=env)
+            result = await self.worker_exec(environment, command, env=env)
             target = Path(self.request['nativeRoot']) / str(self.index)
             target.mkdir(parents=True, exist_ok=True)
             (target / 'worker-stdio.json').write_text(json.dumps({'stdout': result.stdout, 'stderr': result.stderr, 'returnCode': result.return_code}))
@@ -83,7 +105,7 @@ class EboAgent(BaseAgent):
             # A canceled Smol exec may leave the Node process running. Bound its drain
             # before Harbor destroys the environment; never start a replacement attempt.
             stop = 'if test -f {r}/worker.pid && ! test -f {r}/worker-finished.json; then p=$(cat {r}/worker.pid); case "$p" in *[!0-9]*|"") exit 1;; esac; kill -TERM "$p" 2>/dev/null || true; for i in $(seq 1 20); do kill -0 "$p" 2>/dev/null || break; sleep 0.5; done; kill -KILL "$p" 2>/dev/null || true; fi'.format(r=shlex.quote(root))
-            try: await asyncio.wait_for(environment.exec(stop), timeout=15)
+            try: await asyncio.wait_for(self.worker_exec(environment, stop), timeout=15)
             finally:
                 target = Path(self.request['nativeRoot']) / str(self.index)
                 target.mkdir(parents=True, exist_ok=True)

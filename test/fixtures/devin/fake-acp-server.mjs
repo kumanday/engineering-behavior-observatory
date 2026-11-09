@@ -3,12 +3,13 @@
 // session/set_config_option, session/prompt, session/update notifications,
 // session/request_permission, _cognition.ai/* notifications, and the
 // session/prompt response that ends the turn.
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { request as httpRequest } from "node:http";
 
-const mode = process.argv.find((argument) => argument.startsWith("--mode="))?.slice(7) ?? "success";
+const fixtureMode = process.argv.find((argument) => argument.startsWith("--mode="))?.slice(7) ?? "success";
+const mode = fixtureMode === "native-credential-file-interrupt" ? "interrupt" : fixtureMode;
 if (!process.argv.includes("acp")) {
   process.stderr.write("fake devin: expected the acp subcommand\n");
   process.exit(2);
@@ -17,7 +18,18 @@ const REASONING_SENTINEL = "FIXTURE-HIDDEN-THOUGHT-7f3a";
 const SESSION_ID = "fixture-session";
 const FOREIGN_SESSION_ID = "foreign-session";
 const TOOL_CALL_ID = "call_fixture0001#abcdef";
-const authenticated = [process.env.WINDSURF_API_KEY, process.env.EBO_FAKE_DEVIN_KEY].some((value) => typeof value === "string" && value !== "");
+let authenticated = [process.env.WINDSURF_API_KEY, process.env.EBO_FAKE_DEVIN_KEY].some((value) => typeof value === "string" && value !== "");
+if (fixtureMode.startsWith("native-credential-file")) {
+  const path = join(process.env.XDG_DATA_HOME ?? "", "devin", "credentials.toml");
+  try {
+    authenticated = !authenticated && process.env.EBO_FAKE_DEVIN_NATIVE === undefined
+      && readFileSync(path, "utf8") === 'windsurf_api_key = "fixture-native-login"\n'
+      && (statSync(path).mode & 0o777) === 0o600;
+  } catch {
+    authenticated = false;
+  }
+  writeFileSync("fixture-auth-home.txt", process.env.HOME ?? "");
+}
 let otel;
 try {
   const config = JSON.parse(readFileSync(join(process.env.XDG_CONFIG_HOME ?? "", "devin", "config.json"), "utf8"));

@@ -1,0 +1,130 @@
+{
+  "inputs": {
+    "node_modules/@deepseek-ai/dsh-sdk-protocol/lib/index.js": {
+      "bytes": 7336,
+      "imports": [
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:string_decoder",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js": {
+      "bytes": 32528,
+      "imports": [
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node_modules/@deepseek-ai/dsh-sdk-protocol/lib/index.js",
+          "kind": "import-statement",
+          "original": "@deepseek-ai/dsh-sdk-protocol"
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:url",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "compatibility-entry.mjs": {
+      "bytes": 44,
+      "imports": [
+        {
+          "path": "node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js",
+          "kind": "import-statement",
+          "original": "@deepseek-ai/dsh-sdk-client"
+        }
+      ],
+      "format": "esm"
+    }
+  },
+  "outputs": {
+    "sdk.mjs": {
+      "imports": [
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:string_decoder",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:url",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "exports": [
+        "DeepSeekHarness",
+        "HarnessClient",
+        "HarnessSession",
+        "JsonRpcResponseError",
+        "RequestTimeoutError",
+        "SdkProtocolError",
+        "TransportClosedError"
+      ],
+      "entryPoint": "compatibility-entry.mjs",
+      "inputs": {
+        "node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js": {
+          "bytesInOutput": 27505
+        },
+        "node_modules/@deepseek-ai/dsh-sdk-protocol/lib/index.js": {
+          "bytesInOutput": 6857
+        },
+        "compatibility-entry.mjs": {
+          "bytesInOutput": 0
+        }
+      },
+      "bytes": 34693
+    }
+  }
+}
