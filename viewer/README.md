@@ -36,9 +36,8 @@ The viewer reads one bundle directory:
 | `native/<attempt>.json` | per-unit native records for the evidence drawer |
 | `views.json` | view specs with their build receipts |
 
-Arrow instead of Parquet because DuckDB-WASM would otherwise fetch the parquet extension from extensions.duckdb.org at
-runtime (blocked offline and under strict egress). Only the exception-handling DuckDB-WASM build ships: every browser
-with WebGPU supports it.
+Arrow IPC lets the viewer read units offline without downloading a Parquet extension. The viewer ships the base
+DuckDB-WASM build, which runs without cross-origin isolation. The unit cloud uses WebGPU.
 
 ## Commands, state and the URL
 

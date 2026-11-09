@@ -5,8 +5,8 @@
 import "./tokens.css";
 import "./style.css";
 import * as duckdb from "@duckdb/duckdb-wasm";
-import ehWasm from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
-import ehWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url";
+import baseWasm from "@duckdb/duckdb-wasm/dist/duckdb-base.wasm?url";
+import baseWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-base.worker.js?url";
 import { Coordinator, wasmConnector } from "@uwdata/mosaic-core";
 import { EmbeddingAtlas } from "embedding-atlas";
 import { ClusterArmPanel, rowsOf } from "./enrichment";
@@ -38,11 +38,11 @@ const dark = () => matchMedia("(prefers-color-scheme: dark)").matches;
 const file = (name: string) => new URL(name, bundleUrl).href;
 const getJson = async <T,>(name: string): Promise<T | null> => { try { const r = await fetch(file(name)); return r.ok ? await r.json() : null; } catch { return null; } };
 
-/** The exception-handling DuckDB-WASM build only: every browser with WebGPU (which the cloud needs) supports it. */
+/** The base DuckDB-WASM build works without cross-origin isolation. */
 async function initDuckDB(): Promise<duckdb.AsyncDuckDB> {
-  const worker = new Worker(ehWorker, { type: "module" });
+  const worker = new Worker(baseWorker, { type: "module" });
   const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), worker);
-  await db.instantiate(ehWasm);
+  await db.instantiate(baseWasm);
   return db;
 }
 
@@ -194,6 +194,11 @@ async function main() {
   const chartReadyPromise = new Promise<void>((resolve) => { chartReady = resolve; });
   let eaTools: EaTool[] = [];
   let atlasState: Record<string, any> = {};
+  const embeddingChartId = () => Object.entries(atlasState.charts ?? {}).find(([, spec]) => (spec as { type?: string }).type === "embedding")?.[0];
+  const cloudState = () => { const id = embeddingChartId(); return id ? (atlasState.chartStates?.[id] ?? {}) : {}; };
+  const signalChartReady = () => {
+    if (cloudState().viewport && eaTools.some(tool => tool.name === "chart_set_state")) chartReady();
+  };
   const panel = new ClusterArmPanel(document.getElementById("body-clusters")!, coordinator, highlight,
     lanes ? async (id, label) => { await showTab("lanes"); await lanes.focusCluster(id, label); } : undefined);
   const atlas = new EmbeddingAtlas(document.getElementById("atlas")!, {
@@ -212,7 +217,7 @@ async function main() {
     onStateChange: (state) => {
       const before = { ...getState(), cloud: committedCloud };
       atlasState = state as Record<string, any>;
-      if (embeddingChartId()) chartReady();
+      signalChartReady();
       // A pan, brush or legend click in the embedding view itself: one history entry once the gesture settles.
       // The first viewport Embedding Atlas publishes is its initial layout, not a reader's change.
       const committed = committedCloud as { viewport?: unknown } | null;
@@ -226,7 +231,7 @@ async function main() {
         settle = setTimeout(async () => { await refreshing; flushGesture(); }, 400);
       }
     },
-    modelContext: { provideContext: (context: { tools?: EaTool[] }) => { eaTools = context.tools ?? []; } },
+    modelContext: { provideContext: (context: { tools?: EaTool[] }) => { eaTools = context.tools ?? []; signalChartReady(); } },
   });
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => atlas.update({ colorScheme: dark() ? "dark" : "light" }));
   const eaTool = async (name: string, input: Record<string, unknown> = {}) => {
@@ -234,9 +239,11 @@ async function main() {
     if (!tool) throw new Error(`Embedding Atlas tool ${name} is not available.`);
     return tool.execute(input, null);
   };
-  const embeddingChartId = () => Object.entries(atlasState.charts ?? {}).find(([, spec]) => (spec as { type?: string }).type === "embedding")?.[0];
-  const cloudState = () => { const id = embeddingChartId(); return id ? (atlasState.chartStates?.[id] ?? {}) : {}; };
   const setCloudState = async (patch: Record<string, unknown>) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([chartReadyPromise, new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("The embedding chart is not ready.")), 10_000); })]);
+    } finally { clearTimeout(timeout); }
     const id = embeddingChartId();
     if (!id) throw new Error("The embedding chart is not ready.");
     const next = Object.fromEntries(Object.entries({ ...cloudState(), ...patch }).filter(([, v]) => v !== null && v !== undefined));
@@ -272,7 +279,6 @@ async function main() {
       return { viewport: st.viewport ?? null, brush: st.brush ?? null, legend: st.legend?.selection ?? null } as Json;
     },
     apply: async (st: { viewport: unknown; brush: unknown; legend: string[] | null }) => {
-      await chartReadyPromise;
       await setCloudState({ viewport: st.viewport, brush: st.brush, legend: st.legend?.length ? { selection: st.legend } : null });
     } });
 
