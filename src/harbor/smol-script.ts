@@ -103,11 +103,11 @@ async def prepare_local_context(env, machine, binding, evidence, timeout_seconds
     try:
         await env.upload_dir(context, guest)
         result = await machine.exec(['sh', '-eu', guest + '/' + setup],
-            ExecOptions(workdir=guest, timeout=max(1, int(timeout_seconds))))
+            ExecOptions(workdir=guest, timeout=max(1, int(timeout_seconds)), user='0'))
         json_write(evidence, {'script': setup, 'scriptDigest': hashlib.sha256(script.read_bytes()).hexdigest(),
             'exitCode': result.exit_code, 'stdout': result.stdout, 'stderr': result.stderr})
         if result.exit_code: raise RuntimeError('Local parent setup failed; see ' + str(evidence))
-        result = await machine.exec(['rm', '-rf', guest])
+        result = await machine.exec(['rm', '-rf', guest], ExecOptions(user='0'))
         if result.exit_code: raise RuntimeError('Cannot remove local preparation context')
     finally:
         env._machine = None
@@ -307,11 +307,12 @@ async def serve_parents(request):
                     start = time.monotonic()
                     machine = await AsyncMachine.create(MachineConfig(
                         name='ebo-parent-' + session[:8] + '-' + key[:10],
-                        image=env.task_env_config.docker_image, branchable=True, persistent=True,
+                        image=env.task_env_config.docker_image, command=['sleep', 'infinity'],
+                        branchable=True, persistent=True, wait_for_ports=False,
                         resources=env._resource_spec(), workdir='/',
                         ready_timeout_seconds=90), ConnectOptions(target='local'))
                     machines.append(machine)
-                    result = await machine.exec(['mkdir', '-p', env.task_env_config.workdir])
+                    result = await machine.exec(['mkdir', '-p', env.task_env_config.workdir], ExecOptions(user='0'))
                     if result.exit_code: raise RuntimeError('Cannot create task workdir')
                     setup_evidence = work / (key + '-setup.json')
                     await prepare_local_context(env, machine, binding, setup_evidence, request['budgetMs'] / 1000)
