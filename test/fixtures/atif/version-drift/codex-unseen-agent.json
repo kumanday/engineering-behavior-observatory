@@ -1,0 +1,67 @@
+{
+  "schema_version": "ATIF-v1.7",
+  "session_id": "synthetic-codex",
+  "agent": {
+    "name": "codex",
+    "version": "9.9.9",
+    "model_name": "synthetic-model"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "timestamp": "2026-11-07T00:00:02.000Z",
+      "source": "user",
+      "message": "Run checks."
+    },
+    {
+      "step_id": 2,
+      "timestamp": "2026-11-07T00:00:03.000Z",
+      "source": "agent",
+      "model_name": "synthetic-model",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-a",
+          "function_name": "exec_command",
+          "arguments": {
+            "cmd": "synthetic-test"
+          }
+        },
+        {
+          "tool_call_id": "call-b",
+          "function_name": "exec_command",
+          "arguments": {
+            "cmd": "synthetic-lint"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "call-a",
+            "content": "Synthetic failure."
+          },
+          {
+            "source_call_id": "call-b",
+            "content": "Synthetic success."
+          }
+        ]
+      },
+      "llm_call_count": 1,
+      "extra": {
+        "api_call_id": "api_call_1",
+        "codex_turn_id": "synthetic-turn",
+        "tool_call_details": {
+          "call-a": {
+            "raw_arguments": "{\"cmd\":\"synthetic-test\"}",
+            "item_type": "function_call"
+          },
+          "call-b": {
+            "raw_arguments": "{\"cmd\":\"synthetic-lint\"}",
+            "item_type": "function_call"
+          }
+        }
+      }
+    }
+  ]
+}

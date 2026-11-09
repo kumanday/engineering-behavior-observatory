@@ -20,17 +20,17 @@ or implement beyond the assigned issue.
   newline-delimited JSON-RPC stdio server. Runtime configuration and plugins own
   mechanistic experiments; EBO records the selected composition and native
   notifications. Do not embed its agent loop or recreate its protocol client.
-- Integrate OpenHands through a pinned Agent Server REST/WebSocket boundary.
+- Integrate OpenHands through a study-frozen Agent Server REST/WebSocket boundary.
   Claim only the evidence verified through that API; do not assume complete
   in-process `EventLog` delivery.
-- Integrate Codex through a pinned, owned `app-server` child over stdio. Match
+- Integrate Codex through a study-frozen, owned `app-server` child over stdio. Match
   native thread/turn terminal identities, retain history separately from
   streamed items, and never attach to a desktop daemon or infer completion from
   process exit.
-- Integrate Pi and Cursor through their pinned public TypeScript
+- Integrate Pi and Cursor through their study-frozen public TypeScript
   SDKs with attempt-owned native persistence, passive observation, and explicit
   local execution policies. SDK execution is not an OS sandbox.
-- Integrate Factory Droid through its pinned official TypeScript SDK with an
+- Integrate Factory Droid through its study-frozen official TypeScript SDK with an
   EBO-owned native JSON-RPC child and recording before SDK validation. Bind
   terminal session/turn identities; keep cumulative usage and child contributions
   separate from the owned turn total.
@@ -104,7 +104,7 @@ the built checkout as `ebo`; `npm run ebo -- --help` needs no global link.
 
 Use [the documentation index](docs/README.md) before adding a page. Keep the
 README focused on motivation, installation, quickstart, and navigation. Put
-runtime pins in harness guides and release history in `release/`.
+runtime selection policy in harness guides and release history in `release/`.
 
 OpenSymphony generated topic notes are private provenance, not public guides.
 Memory sync targets the ignored `.opensymphony/memory/sync-notes/` tree. Inspect

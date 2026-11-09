@@ -1,0 +1,38 @@
+{
+  "schema_version": "ATIF-v1.8",
+  "agent": {
+    "name": "deepseek-harness",
+    "version": "0.1.1-rc.2"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "user",
+      "message": "Inspect the authored fixture."
+    },
+    {
+      "step_id": 2,
+      "source": "agent",
+      "message": "Retained call shape with fictional content.",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-1",
+          "function_name": "bash",
+          "arguments": {
+            "command": "authored fixture value",
+            "description": "authored fixture value"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "call-1",
+            "content": "Authored result counterpart."
+          }
+        ]
+      }
+    }
+  ],
+  "notes": "Authored public counterpart of a private ATIF selection from a real retained native capture. Messages and argument values are fictional; the native tool name and argument object shape come from that capture. No upstream ATIF converter exists in the inspected Harbor release."
+}

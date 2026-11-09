@@ -70,6 +70,7 @@ export type AdapterCapabilityProfile = {
   adapterId: string;
   harness: string;
   nativeTypes: readonly string[];
+  limitations?: readonly string[];
   families: Record<UniformEventFamily, AdapterCapability>;
   evidence: Record<"nativeOrder" | "nativeTime" | "parentage" | "content", AdapterCapability>;
 };
@@ -89,10 +90,22 @@ export type QualifiedNativeCapture<NativeRecord> = {
   runId: string;
   attemptId: string;
   qualification: "qualified" | "qualified-with-gaps";
+  sourceLimitations?: readonly string[];
   records: readonly CapturedNativeRecord<NativeRecord>[];
 };
 
 export type NormalizationInput<NativeRecord> = QualifiedNativeCapture<NativeRecord>;
+
+/** Third-party evidence has no EBO-owned capture qualification. */
+export type ImportedNativeEvidence<NativeRecord> = {
+  runId: string;
+  attemptId: string;
+  qualification: "imported";
+  sourceLimitations?: readonly string[];
+  records: readonly CapturedNativeRecord<NativeRecord>[];
+};
+export type RetainedNormalizationInput<NativeRecord> = NormalizationInput<NativeRecord> | ImportedNativeEvidence<NativeRecord>;
+
 
 export type UnmappedNativeRecord = {
   reference: NativeEvidenceReference;

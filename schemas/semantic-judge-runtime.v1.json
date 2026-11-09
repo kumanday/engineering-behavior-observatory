@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:semantic-judge-runtime:v1",
+  "$defs": {
+    "judgment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "runId",
+        "attemptId",
+        "createdAt",
+        "status",
+        "input",
+        "evaluator",
+        "parse",
+        "timing",
+        "usage",
+        "runtime"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.semantic-judgment/v3"
+        },
+        "id": {
+          "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/identifier"
+        },
+        "runId": {
+          "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/identifier"
+        },
+        "attemptId": {
+          "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/identifier"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "enum": [
+            "proposed",
+            "failed"
+          ]
+        },
+        "input": {
+          "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/reference"
+        },
+        "evaluator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "model",
+            "effort",
+            "backend",
+            "environment",
+            "limits"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "backend": {
+                    "properties": {
+                      "id": {
+                        "const": "codex-app-server"
+                      }
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "provider": {
+                    "const": "openai"
+                  },
+                  "limits": {
+                    "properties": {
+                      "maxTurns": {
+                        "const": 1
+                      }
+                    },
+                    "not": {
+                      "required": [
+                        "maxBudgetUsd"
+                      ]
+                    }
+                  },
+                  "environment": {
+                    "required": [
+                      "mode",
+                      "allowedKeys",
+                      "authentication"
+                    ],
+                    "properties": {
+                      "parentPreserved": {
+                        "const": false
+                      },
+                      "removedKeys": {
+                        "const": [
+                          "*"
+                        ]
+                      },
+                      "allowedKeys": {
+                        "const": [
+                          "HOME",
+                          "CODEX_HOME",
+                          "PATH",
+                          "LANG",
+                          "LC_ALL",
+                          "TMPDIR"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "provider": {
+                    "const": "anthropic"
+                  },
+                  "effort": {
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh",
+                      "max"
+                    ]
+                  },
+                  "environment": {
+                    "properties": {
+                      "parentPreserved": {
+                        "const": true
+                      }
+                    },
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": [
+                            "mode"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "allowedKeys"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "authentication"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "provider": {
+              "enum": [
+                "anthropic",
+                "openai"
+              ]
+            },
+            "model": {
+              "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/identifier"
+            },
+            "effort": {
+              "enum": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultra"
+              ]
+            },
+            "backend": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "version"
+              ],
+              "properties": {
+                "id": {
+                  "enum": [
+                    "claude-agent-sdk",
+                    "codex-app-server"
+                  ]
+                },
+                "version": {
+                  "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/identifier"
+                }
+              }
+            },
+            "environment": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "parentPreserved",
+                "modelEffortOverrides",
+                "ambientTelemetry",
+                "removedKeys"
+              ],
+              "properties": {
+                "parentPreserved": {
+                  "type": "boolean"
+                },
+                "mode": {
+                  "const": "replace"
+                },
+                "allowedKeys": {
+                  "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/stringList"
+                },
+                "authentication": {
+                  "const": "existing-auth-json-only"
+                },
+                "modelEffortOverrides": {
+                  "const": "removed"
+                },
+                "ambientTelemetry": {
+                  "const": "removed"
+                },
+                "removedKeys": {
+                  "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/stringList"
+                }
+              }
+            },
+            "limits": {
+              "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/limits"
+            }
+          }
+        },
+        "rawResponse": {
+          "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/reference"
+        },
+        "rawModelResponse": {
+          "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/reference"
+        },
+        "parse": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "const": "valid"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "kind",
+                "message"
+              ],
+              "properties": {
+                "status": {
+                  "const": "failed"
+                },
+                "kind": {
+                  "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/identifier"
+                },
+                "message": {
+                  "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/text"
+                }
+              }
+            }
+          ]
+        },
+        "timing": {
+          "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/timingAvailability"
+        },
+        "usage": {
+          "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/usageAvailability"
+        },
+        "assertion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "digest",
+            "sharingClass",
+            "id"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "pattern": "^[^/]+$",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "digest": {
+              "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/digest"
+            },
+            "sharingClass": {
+              "const": "restricted"
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "id": {
+              "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/identifier"
+            }
+          }
+        },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "lockDigest",
+            "role",
+            "lock",
+            "launch",
+            "warnings"
+          ],
+          "properties": {
+            "lockDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "role": {
+              "enum": [
+                "claude-agent-sdk",
+                "codex-judge"
+              ]
+            },
+            "lock": {
+              "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/reference"
+            },
+            "launch": {
+              "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/reference"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "evaluator": {
+                "properties": {
+                  "backend": {
+                    "properties": {
+                      "id": {
+                        "const": "codex-app-server"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "runtime": {
+                "properties": {
+                  "role": {
+                    "const": "codex-judge"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "runtime": {
+                "properties": {
+                  "role": {
+                    "const": "claude-agent-sdk"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

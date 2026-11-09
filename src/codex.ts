@@ -1,3 +1,6 @@
+import {legacyV1Profile} from "./legacy-v1-confidence.js";
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, probeLockedRuntimeExecutable, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { lstat, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -39,6 +42,7 @@ import {
 
 export const CODEX_APP_SERVER_VERSION = "0.162.1";
 /** App-server versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
+/** Historical fixture inventory; not a runtime confidence list. */
 export const RETAINED_CODEX_APP_SERVER_VERSIONS: readonly string[] = [CODEX_APP_SERVER_VERSION, "0.157.0", "0.153.4", "0.150.1"];
 export const CODEX_ADAPTER_VERSION = "0.1.0";
 export const CODEX_HARNESS = "codex-app-server";
@@ -51,7 +55,7 @@ export type CodexTelemetrySignal = "logs" | "traces" | "metrics";
 
 export type CodexAppServerConfiguration = {
   executable: string;
-  version: typeof CODEX_APP_SERVER_VERSION;
+  version: string;
   provider: string;
   model: string;
   effort: CodexReasoningEffort;
@@ -141,6 +145,7 @@ export type CodexCaptureGap = {
 };
 
 export type CodexAppServerCaptureRequest = {
+  runtime?: StudyRuntimeBinding;
   runId: string;
   attemptId: string;
   workspacePath: string;
@@ -157,6 +162,7 @@ export type CodexAppServerCaptureRequest = {
 };
 
 export type CodexAppServerCapture = QualifiedNativeCapture<ProtocolObservation> & {
+  runtime?: RuntimeExecutionSummary;
   threadId?: string;
   turnId?: string;
   terminalStatus?: "completed" | "interrupted" | "failed";
@@ -234,12 +240,25 @@ export function createCodexHarnessAdapter(): HarnessAdapter<CodexAppServerCaptur
 
 /** Drive one owned Codex app-server thread and finish only on its matching turn/completed notification. */
 export async function captureCodexAppServer(request: CodexAppServerCaptureRequest): Promise<CodexAppServerCapture> {
+  return runInStudyRuntime("codex-app-server", request.runtime, async () => ({ ...await captureCodexAppServerOwned(request), runtime: runtimeExecutionSummary() }));
+}
+
+export async function bindCodexRuntime(configuration: CodexAppServerConfiguration): Promise<CodexAppServerConfiguration> {
+  requireStudyRuntime("codex-app-server");
+  const actual = await probeLockedRuntimeExecutable("codex", configuration.executableArgs);
+  return { ...configuration, executable: actual.path, version: actual.version };
+}
+
+/** Internal protocol layer of an already checked launch. */
+export async function captureCodexAppServerOwned(request: CodexAppServerCaptureRequest): Promise<CodexAppServerCapture> {
+  if (!isExactRuntimeVersion(request.configuration.version)) throw new Error("Codex capture requires an exact requested runtime version.");
+  request = { ...request, configuration: await bindCodexRuntime(request.configuration) };
   requireText(request.runId, "Codex run ID");
   requireText(request.attemptId, "Codex attempt ID");
   requireText(request.workspacePath, "Codex workspace path");
   requireText(request.prompt, "Codex prompt");
   requireText(request.configuration.executable, "Codex executable");
-  if (request.configuration.version !== CODEX_APP_SERVER_VERSION) throw new Error(`Codex capture requires pinned runtime ${CODEX_APP_SERVER_VERSION}.`);
+  if (!isExactRuntimeVersion(request.configuration.version)) throw new Error("Codex capture requires an exact requested runtime version.");
   if (request.configuration.networkAccess !== undefined && (typeof request.configuration.networkAccess !== "boolean" || request.configuration.sandbox !== "workspace-write")) {
     throw new Error("Codex networkAccess must be a boolean and requires workspace-write.");
   }
@@ -659,14 +678,13 @@ export async function describeAndValidateCodexDataset(
   capture: QualifiedNativeCapture<ProtocolObservation>,
   runtimeVersion = (capture as Partial<CodexAppServerCapture>).telemetry?.runtime?.version ?? CODEX_APP_SERVER_VERSION,
 ): Promise<{ dataset: NormalizedDataset; coverage: AdapterCoverageReport }> {
-  if (!RETAINED_CODEX_APP_SERVER_VERSIONS.includes(runtimeVersion)) throw new Error(`Unsupported retained Codex runtime ${runtimeVersion}.`);
   const normalization = await normalizeCodexCapture(capture);
   const dataset = describeNormalizedDataset({
     capture,
     normalization,
-    capabilityProfile: runtimeVersion === "0.150.1" ? CODEX_0_150_1_CAPABILITIES
+    capabilityProfile: legacyV1Profile(runtimeVersion === "0.150.1" ? CODEX_0_150_1_CAPABILITIES
       : runtimeVersion === "0.153.4" ? CODEX_0_153_4_CAPABILITIES
-      : runtimeVersion === "0.157.0" ? CODEX_0_157_0_CAPABILITIES : CODEX_APP_SERVER_CAPABILITIES,
+      : runtimeVersion === "0.157.0" ? CODEX_0_157_0_CAPABILITIES : CODEX_APP_SERVER_CAPABILITIES, "codex-app-server", runtimeVersion),
     adapterVersion: CODEX_ADAPTER_VERSION,
     nativeType: codexNativeType,
   });

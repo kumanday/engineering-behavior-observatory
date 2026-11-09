@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, realpathSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -45,13 +45,14 @@ test("a clean source checkout packs an executable ebo binary", () => {
       ["ci"],
       { cwd: sourceRoot, env: npmEnvironment, stdio: "pipe" },
     );
-    const [{ filename }] = JSON.parse(
+    const packed = JSON.parse(
       execFileSync("npm", ["pack", "--json", "--silent"], {
         cwd: sourceRoot,
         encoding: "utf8",
         env: npmEnvironment,
       }),
-    ) as Array<{ filename: string }>;
+    ) as Array<{ filename: string }> | Record<string, { filename: string }>;
+    const {filename} = (Array.isArray(packed) ? packed : Object.values(packed))[0]!;
 
     assert.equal(existsSync(join(sourceRoot, "dist", "src", "cli.js")), true);
     mkdirSync(consumerRoot);
@@ -69,6 +70,8 @@ test("a clean source checkout packs an executable ebo binary", () => {
     );
 
     assert.match(output, /^Usage: ebo \[--help\]/);
+    assert.equal(realpathSync(join(consumerRoot, "node_modules/.bin/ebo")), realpathSync(join(consumerRoot, "node_modules/engineering-behavior-observatory/dist/src/cli.js")));
+    assert.equal(JSON.parse(readFileSync(join(consumerRoot, "node_modules/engineering-behavior-observatory/package.json"), "utf8")).version, JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")).version);
   } finally {
     rmSync(installationRoot, { force: true, recursive: true });
   }

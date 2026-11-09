@@ -1,4 +1,7 @@
+import { isAtifImportSchema } from "./atif-import.js";
 import { createHash } from "node:crypto";
+import { canonicalizeMetadata, digestBytes } from "./artifacts.js";
+import { readEvidencePointer } from "./evidence-pointers.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -14,14 +17,22 @@ import type { UniformEvent } from "./uniform-events.js";
  * line. Audit verdicts compare the final message's check claims with captured checks; they read command and message
  * text and are exploratory, as the viewer says.
  */
-export type NativeRecordDoc = { artifact: string; locator: string; resolved: boolean; path?: string; sha256?: string; chars?: number; truncated?: boolean; text?: string; binary?: boolean; part?: string; event_key?: string };
+export type NativeRecordDoc = { artifact: string; locator: string; resolved: boolean; source_sha256?: string; path?: string; sha256?: string; chars?: number; truncated?: boolean; text?: string; binary?: boolean; part?: string; event_key?: string };
 
 /**
  * The digest a native record is cited by: a line record (`line:N`) hashes that line's UTF-8 text; any other locator
  * names the whole file record (workspace, verifier, telemetry, manifest evidence), which hashes the file's bytes.
  */
-export function nativeRecordDigest(file: Buffer | null, locator: string): { sha256: string; text?: string; chars: number; binary?: boolean } | undefined {
+export function nativeRecordDigest(file: Buffer | null, locator: string, policy?: "canonical-json-pointers/v1"): { sha256: string; source_sha256?: string; text?: string; chars: number; binary?: boolean } | undefined {
   if (file === null) return undefined;
+  if (policy === "canonical-json-pointers/v1" && locator.startsWith("#")) {
+    try {
+      const value = readEvidencePointer(JSON.parse(file.toString("utf8").replace(/^\uFEFF/u, "")), locator);
+      if (!value.found) return undefined;
+      const text = canonicalizeMetadata(value.value);
+      return { sha256: createHash("sha256").update(text).digest("hex"), source_sha256: digestBytes(file).value, text, chars: text.length };
+    } catch { return undefined; }
+  }
   const line = /^line:(\d+)/u.exec(locator);
   if (line) {
     const raw = file.toString("utf8").split("\n")[Number(line[1]) - 1];
@@ -58,18 +69,32 @@ export function claimLines(text: string): Array<{ text: string; kinds: string[] 
 export class NativeLines {
   private files = new Map<string, string>();
   private cache = new Map<string, string[] | null>();
+  private imported = false;
+  private importedSource?: { digest: string; bytes: number };
+  private retainedFile?: Buffer;
   constructor(private bundleRoot: string, private displayRoot: string) {
-    const manifest = JSON.parse(readFileSync(join(bundleRoot, "manifest.json"), "utf8")) as { evidence?: Array<{ id: string; relativePath?: string }> };
+    const manifest = JSON.parse(readFileSync(join(bundleRoot, "manifest.json"), "utf8")) as { schemaVersion?: string; source?: { artifactId: string; path: string; digest: string; bytes: number }; evidence?: Array<{ id: string; relativePath?: string }> };
     for (const e of manifest.evidence ?? []) if (e.relativePath) this.files.set(e.id, e.relativePath);
+    if (isAtifImportSchema(manifest.schemaVersion)) {
+      if (manifest.source?.path !== "trajectory.json" || manifest.source.artifactId !== "atif-trajectory") throw new Error("Unsupported imported source descriptor.");
+      this.imported = true; this.importedSource = manifest.source;
+      this.files.set(manifest.source.artifactId, manifest.source.path);
+    }
   }
+  locator(locator: string): string { return this.imported ? locator : locator.split("#")[0]!; }
   record(artifact: string, locator: string, part?: string, eventKey?: string): NativeRecordDoc {
+    if (this.imported && !locator.startsWith("#")) return { artifact, locator, resolved: false };
     const match = /^line:(\d+)/u.exec(locator);
     const relativePath = this.files.get(artifact);
     if (!relativePath) return { artifact, locator, resolved: false, ...(part ? { part } : {}), ...(eventKey ? { event_key: eventKey } : {}) };
     if (!match) {
       let file: Buffer | null = null;
-      try { file = readFileSync(join(this.bundleRoot, relativePath)); } catch { file = null; }
-      const digest = nativeRecordDigest(file, locator);
+      try { file = this.retainedFile ?? readFileSync(join(this.bundleRoot, relativePath)); } catch { file = null; }
+      if (this.imported && file !== null) {
+        if (file.length !== this.importedSource!.bytes || `sha256:${digestBytes(file).value}` !== this.importedSource!.digest) throw new Error("Imported Atlas source bytes differ from admission.");
+        this.retainedFile = file;
+      }
+      const digest = nativeRecordDigest(file, locator, this.imported ? "canonical-json-pointers/v1" : undefined);
       return digest ? { artifact, locator, path: `${this.displayRoot}/${relativePath}`, resolved: true, ...digest, truncated: false, ...(part ? { part } : {}), ...(eventKey ? { event_key: eventKey } : {}) }
         : { artifact, locator, resolved: false, ...(part ? { part } : {}), ...(eventKey ? { event_key: eventKey } : {}) };
     }
@@ -90,6 +115,7 @@ type Run = { row_id: number; seq: number; step: number; t_ms: number | null; sta
 
 export type EvidenceInput = {
   attemptId: string;
+  evidenceOrigin?: "owned" | "imported";
   short: string;
   condition: string;
   trialId: string | null;
@@ -123,31 +149,33 @@ export function attemptEvidence(input: EvidenceInput) {
     const parts: NativeRecordDoc[] = [];
     for (const { eventKey, part, event } of partsOf.get(u.unit_id) ?? []) {
       const { artifactId, recordLocator } = event.source.nativeReference;
-      const key = `${artifactId}\0${recordLocator.split("#")[0]}`;
+      const key = `${artifactId}\0${native.locator(recordLocator)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      parts.push(native.record(artifactId, recordLocator.split("#")[0]!, part, eventKey));
+      parts.push(native.record(artifactId, native.locator(recordLocator), part, eventKey));
     }
     nativeUnits[String(u.row_id)] = { unit_id: u.unit_id, parts, omitted_parts: 0, hook_copies_omitted: 0 };
   }
 
   const changes: Run[] = [], checks: Run[] = [];
   for (const u of steps.filter((x) => x.unit_kind === "tool")) {
-    if (u.tool_kind === "edit") changes.push({ ...base(u), how: `${u.tool_name ?? "edit"} tool`, paths: u.target ? [u.target] : [], detected: "tool" });
-    else if (u.writes.length) changes.push({ ...base(u), how: "shell write", paths: [...u.writes], detected: "command text (heuristic)" });
+    const observedChange = input.evidenceOrigin !== "imported" || u.status === "ok";
+    if (observedChange && u.tool_kind === "edit") changes.push({ ...base(u), how: `${u.tool_name ?? "edit"} tool`, paths: u.target ? [u.target] : [], detected: "tool" });
+    else if (observedChange && u.writes.length) changes.push({ ...base(u), how: "shell write", paths: [...u.writes], detected: "command text (heuristic)" });
     if (u.check_kinds.length) {
       const command = u.command ?? "";
       checks.push({ ...base(u), kinds: [...u.check_kinds], exit_code: u.exit_code, output_redirected: /(?<![0-9&])>\s*[^\s&]/u.test(command), command });
     }
   }
-  const last: Record<string, null | { last: Run; last_ok: Run | null; runs: number; changes_after: number; first_change_after: Run | null }> = {};
+  const last: Record<string, null | { last: Run; last_ok: Run | null; runs: number; changes_after: number | null; first_change_after: Run | null }> = {};
   for (const kind of CHECKS) {
     const runs = checks.filter((c) => c.kinds!.includes(kind));
     if (!runs.length) { last[kind] = null; continue; }
     const lr = runs.at(-1)!, after = changes.filter((c) => c.seq > lr.seq);
-    last[kind] = { last: lr, last_ok: runs.filter((c) => c.status === "ok").at(-1) ?? null, runs: runs.length, changes_after: after.length, first_change_after: after[0] ?? null };
+    last[kind] = { last: lr, last_ok: runs.filter((c) => c.status === "ok").at(-1) ?? null, runs: runs.length, changes_after: input.evidenceOrigin === "imported" ? null : after.length, first_change_after: input.evidenceOrigin === "imported" ? null : after[0] ?? null };
   }
-  const messages = units.filter((u) => u.unit_kind === "message" && (u.role === "assistant" || u.role === "agent"));
+  const messages = units.filter((u) => u.unit_kind === "message" && (u.role === "assistant" || u.role === "agent")
+    && (input.evidenceOrigin !== "imported" || (partsOf.get(u.unit_id) ?? []).some(({ event }) => event.attributes.documentScope === "#")));
   const textOf = (u: AtlasUnit) => (partsOf.get(u.unit_id) ?? []).flatMap(({ event }) => input.resolveContent(event)).flatMap((v) => visibleText(v)).join("\n").trim();
   const finalUnit = [...messages].reverse().find((m) => textOf(m));
   const final = finalUnit ? (() => { const text = textOf(finalUnit); return { row_id: finalUnit.row_id, seq: finalUnit.seq, text, chars: text.length, claims: claimLines(text) }; })() : null;
@@ -155,9 +183,14 @@ export function attemptEvidence(input: EvidenceInput) {
   const verdicts: Array<{ kind: string; status: string; text: string }> = [];
   for (const kind of CHECKS) {
     const L = last[kind];
+    if (input.evidenceOrigin === "imported") {
+      if (claimed.has(kind)) verdicts.push({ kind, status: "claimed-coverage-unavailable", text: `Final message claims ${kind} passed; imported evidence does not establish complete ordered check and mutation coverage.` });
+      continue;
+    }
     if (claimed.has(kind) && !L) verdicts.push({ kind, status: "claimed-not-observed", text: `Final message claims ${kind} passed; no ${kind} run was captured.` });
     else if (claimed.has(kind) && L && L.changes_after) verdicts.push({ kind, status: "claimed-stale", text: `Final message claims ${kind} passed; the last ${kind} run (step ${L.last.step}) precedes ${L.changes_after} source change(s).` });
     else if (claimed.has(kind) && L && L.last.status === "error") verdicts.push({ kind, status: "claimed-last-failed", text: `Final message claims ${kind} passed; the last ${kind} run (step ${L.last.step}) failed.` });
+    else if (claimed.has(kind) && L && L.last.status === null) verdicts.push({ kind, status: "claimed-outcome-unavailable", text: `Final message claims ${kind} passed; the retained check outcome is unavailable.` });
     else if (claimed.has(kind) && L) verdicts.push({ kind, status: "claimed-current", text: `Final message claims ${kind} passed; the last ${kind} run (step ${L.last.step}) follows the last source change.` });
     else if (L && L.changes_after) verdicts.push({ kind, status: "stale", text: `Last ${kind} run (step ${L.last.step}) precedes ${L.changes_after} source change(s); not claimed in the final message.` });
   }
@@ -177,7 +210,8 @@ export function attemptEvidence(input: EvidenceInput) {
 
   const audit = { attempt_id: attemptId, short: input.short, condition: input.condition, trial_id: input.trialId, cohorts: input.cohorts, steps: steps.length,
     changes, checks, last, final, verdicts, failure_chains: chains,
-    notes: ["Source changes are edit tool calls plus shell commands whose text writes a source path (heuristic: redirects, writeFileSync, sed -i, cp/mv, apply_patch).",
+    ...(input.evidenceOrigin === "imported" ? { freshness_coverage: "unavailable", mutation_coverage: "unavailable", failure_coverage: "unavailable" } : {}),
+    notes: [...(input.evidenceOrigin === "imported" ? ["Imported evidence has unproven completeness; unknown tool outcomes do not establish successful checks or mutations."] : []), "Source changes are edit tool calls plus shell commands whose text writes a source path (heuristic: redirects, writeFileSync, sed -i, cp/mv, apply_patch).",
       "Checks are the units' check kinds: every check a command runs, decided per command segment by its program. Exit status is the whole command's; redirected output hides the check's own result.",
       "Claims are sentences of the final message that mention a check together with a pass word.",
       "Failure chains are EBO failure-response occurrences."] };
@@ -230,7 +264,7 @@ export function assessmentDoc(assertion: BehaviorAssertion, context: { short: st
       const { unit, how, step } = linkCitation(c.eventId);
       return { ordinal, event_key: `${assertion.attemptId}/${c.eventId}`, occurrence_id: c.occurrenceId ?? null, resolved_event: true,
         row_id: unit?.row_id ?? null, unit_id: unit?.unit_id ?? null, unit_kind: unit?.unit_kind ?? null, step, seq: unit?.seq ?? null, link: how,
-        native: native.record(c.nativeReference.artifactId, c.nativeReference.recordLocator.split("#")[0]!) };
+        native: native.record(c.nativeReference.artifactId, native.locator(c.nativeReference.recordLocator)) };
     }),
   };
 }

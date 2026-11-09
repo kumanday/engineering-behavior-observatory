@@ -37,6 +37,23 @@ const SHA_B = `sha256:${"b".repeat(64)}` as const;
 const SHA_C = `sha256:${"c".repeat(64)}` as const;
 const SHA_D = `sha256:${"d".repeat(64)}` as const;
 
+test("concurrent artifact mutations retain every descriptor and finalize after earlier writes", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-bundle-concurrent-"));
+  try {
+    const assembler = await createRunBundleAssembler(definition(root, "concurrent"));
+    const first = assembler.writeJsonArtifact({id: "first", source: "fixture", kind: "diagnostic", mediaType: "application/json", sharingClass: "internal", relativePath: "first.json"}, {first: true});
+    const second = assembler.writeJsonArtifact({id: "second", source: "fixture", kind: "diagnostic", mediaType: "application/json", sharingClass: "internal", relativePath: "second.json"}, {second: true});
+    const final = assembler.finalize({terminal: {state: "failed", failureClass: "infrastructure", stopReason: "none"}});
+    await Promise.all([first, second, final]);
+    const manifest = await final;
+    assert.ok(manifest.evidence.some(evidence => evidence.id === "first"));
+    assert.ok(manifest.evidence.some(evidence => evidence.id === "second"));
+    assert.deepEqual(JSON.parse(readFileSync(join(root, "manifest.json"), "utf8")), manifest);
+    assert.deepEqual(validateRunManifestEvidence("manifest.json", manifest, root), []);
+    await assert.rejects(assembler.registerArtifact({id: "late", source: "fixture", kind: "diagnostic", mediaType: "application/json", sharingClass: "internal", relativePath: "first.json"}), /finaliz/);
+  } finally {rmSync(root, {recursive: true, force: true});}
+});
+
 type OutcomeCase = {
   name: string;
   terminal: RunManifest["terminal"];
@@ -749,3 +766,19 @@ function assertBundleValid(bundleRoot: string): RunManifest {
   }
   return manifest;
 }
+
+test("finalization retries reuse the retained lifecycle diagnostic after a terminal validation failure", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-lifecycle-retry-"));
+  try {
+    const input = definition(root, "retry"), assembler = await createRunBundleAssembler(input);
+    const terminal = {state: "failed", failureClass: "infrastructure", stopReason: "none"} as const;
+    const attemptRecord = {run: {id: input.run.id}, attempt: input.attempt, terminal,
+      lifecycle: {state: "terminal"}, capture: {status: "complete"}, cleanup: {status: "completed"}, harnessTerminationConfirmed: true} as import("../src/lifecycle.js").AttemptRecord;
+    await assert.rejects(assembler.finalize({terminal: {...terminal, workspaceArtifactId: "missing-workspace"}, attemptRecord}), /workspace/i);
+    const bytes = readFileSync(join(root, "runtime/capture-lifecycle.json"));
+    const manifest = await assembler.finalize({terminal, attemptRecord});
+    assert.equal(manifest.evidence.filter(item => item.id === "capture-lifecycle").length, 1);
+    assert.deepEqual(readFileSync(join(root, "runtime/capture-lifecycle.json")), bytes);
+    assert.deepEqual(validateRunManifestEvidence("manifest.json", manifest, root), []);
+  } finally {rmSync(root, {recursive: true, force: true});}
+});

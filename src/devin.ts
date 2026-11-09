@@ -1,3 +1,7 @@
+import {legacyV1Profile} from "./legacy-v1-confidence.js";
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, probeLockedRuntimeExecutable, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
+import {markRetainedVersion} from "./legacy-v1-confidence.js";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -32,11 +36,14 @@ import {
 
 export const DEVIN_CLI_VERSION = "3000.11.3";
 /** Every Devin CLI pin whose retained captures this adapter still reads. */
+/** Historical fixture inventory; not a runtime confidence list. */
 export const RETAINED_DEVIN_CLI_VERSIONS: readonly string[] = [DEVIN_CLI_VERSION];
 export const DEVIN_ADAPTER_VERSION = "0.1.0";
 export const DEVIN_HARNESS = "devin-cli";
 export const DEVIN_DEFAULT_SHUTDOWN_GRACE_MS = 2_000;
 export const DEVIN_DEFAULT_CREDENTIAL_ENV = "WINDSURF_API_KEY";
+const DEVIN_PROCESS_ENV = ["PATH", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "USER", "LOGNAME", "SHELL"] as const;
+const DEVIN_RESERVED_ENV = new Set<string>([...DEVIN_PROCESS_ENV, "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "NO_COLOR"]);
 const DEVIN_CLIENT = "ebo-devin-client";
 const ACP_PROTOCOL_VERSION = 1;
 const PROMPT_USAGE_FIELDS = ["totalTokens", "inputTokens", "outputTokens", "cachedReadTokens", "cachedWriteTokens"] as const;
@@ -49,16 +56,19 @@ export type DevinSessionMode = "accept-edits" | "smart" | "bypass" | "plan" | "a
 /** Unattended answer to every native `session/request_permission`. */
 export type DevinPermissionDecision = "allow-once" | "reject-once";
 export type DevinTelemetrySignal = "logs" | "metrics";
+export type DevinCredentialFormat = "environment-key" | "cli-credentials-toml-base64";
 
 export type DevinCliConfiguration = {
   executable: string;
-  version: typeof DEVIN_CLI_VERSION;
+  version: string;
   /** Native model slug as listed by the ACP `model` config option, e.g. `swe-2-high`. */
   model: string;
   mode: DevinSessionMode;
   permissionDecision: DevinPermissionDecision;
-  /** Environment variable copied into the isolated child for ACP authentication; defaults to WINDSURF_API_KEY. */
+  /** Environment variable supplying ACP authentication; defaults to WINDSURF_API_KEY for an environment key. */
   credentialEnv?: string;
+  /** The native login file stays private in the isolated child's data directory. */
+  credentialFormat?: DevinCredentialFormat;
   /** Extra arguments after `acp`, e.g. `["--agent-type", "review"]`. */
   acpArgs?: readonly string[];
   /** Test-only executable prefix; production uses the pinned executable directly. */
@@ -101,6 +111,7 @@ export type DevinTelemetryEvidence = {
     adapterVersion: string;
     userConfiguration: "isolated";
     credentialEnv: string;
+    credentialFormat?: DevinCredentialFormat;
     agentInfo?: Record<string, unknown>;
     agentCapabilities?: Record<string, unknown>;
   };
@@ -133,6 +144,7 @@ export type DevinTelemetryEvidence = {
 export type DevinCaptureGap = { kind: string; detail: string };
 
 export type DevinCliCaptureRequest = {
+  runtime?: StudyRuntimeBinding;
   runId: string;
   attemptId: string;
   workspacePath: string;
@@ -149,6 +161,7 @@ export type DevinCliCaptureRequest = {
 };
 
 export type DevinCliCapture = QualifiedNativeCapture<ProtocolObservation> & {
+  runtime?: RuntimeExecutionSummary;
   sessionId?: string;
   promptRequestId?: number;
   terminalStatus?: "completed" | "interrupted" | "failed";
@@ -214,22 +227,37 @@ export function createDevinHarnessAdapter(): HarnessAdapter<DevinCliCaptureReque
  * the native attempt; process exit alone never does.
  */
 export async function captureDevinCli(request: DevinCliCaptureRequest): Promise<DevinCliCapture> {
+  return runInStudyRuntime("devin-cli", request.runtime, async () => ({ ...await captureDevinCliOwned(request), runtime: runtimeExecutionSummary() }));
+}
+
+export async function bindDevinRuntime(configuration: DevinCliConfiguration): Promise<DevinCliConfiguration> {
+  requireStudyRuntime("devin-cli");
+  const actual = await probeLockedRuntimeExecutable("devin", configuration.executableArgs);
+  return { ...configuration, executable: actual.path, version: actual.version };
+}
+
+/** Internal protocol layer of an already checked launch. */
+export async function captureDevinCliOwned(request: DevinCliCaptureRequest): Promise<DevinCliCapture> {
+  if (!isExactRuntimeVersion(request.configuration.version)) throw new Error("Devin capture requires an exact requested runtime version.");
+  request = { ...request, configuration: await bindDevinRuntime(request.configuration) };
   requireText(request.runId, "Run ID");
   requireText(request.attemptId, "Attempt ID");
   requireText(request.workspacePath, "Workspace path");
   requireText(request.prompt, "Prompt");
   requireText(request.configuration.executable, "Devin executable");
   requireText(request.configuration.model, "Devin model");
-  if (request.configuration.version !== DEVIN_CLI_VERSION) {
-    throw new Error(`Devin CLI ${DEVIN_CLI_VERSION} is required; configuration declares ${String(request.configuration.version)}.`);
-  }
+  if (!isExactRuntimeVersion(request.configuration.version)) throw new Error("Devin capture requires an exact requested runtime version.");
   if (!["accept-edits", "smart", "bypass", "plan", "ask"].includes(request.configuration.mode)) throw new Error("Devin session mode is invalid.");
   if (!["allow-once", "reject-once"].includes(request.configuration.permissionDecision)) throw new Error("Devin permission decision is invalid.");
   const shutdownGraceMs = request.shutdownGraceMs ?? DEVIN_DEFAULT_SHUTDOWN_GRACE_MS;
   if (!Number.isSafeInteger(shutdownGraceMs) || shutdownGraceMs < 0) throw new Error("Shutdown grace must be a nonnegative integer.");
+  const format = request.configuration.credentialFormat ?? "environment-key";
+  if (format !== "environment-key" && format !== "cli-credentials-toml-base64") throw new Error("Unknown Devin credential format.");
+  if (format === "cli-credentials-toml-base64") assertNativeDevinCredentialEnv(request.configuration.credentialEnv);
   const credentialEnv = request.configuration.credentialEnv ?? DEVIN_DEFAULT_CREDENTIAL_ENV;
-  // Validate the credential before any receiver or temporary home exists so a missing key cannot leak resources.
+  // Validate the credential before any receiver or temporary home exists.
   const credential = requireCredential(credentialEnv);
+  const credentialFile = format === "cli-credentials-toml-base64" ? decodeNativeCredentialFile(credential) : undefined;
 
   let abortRequested = request.signal?.aborted ?? false;
   let abortDeadline: number | undefined;
@@ -244,19 +272,27 @@ export async function captureDevinCli(request: DevinCliCaptureRequest): Promise<
     request.signal?.removeEventListener("abort", abortListener);
     throw error;
   });
-  let isolatedHome: string;
+  const isolatedHome = await mkdtemp(join(tmpdir(), "ebo-devin-home-")).catch(async (error: unknown) => {
+    request.signal?.removeEventListener("abort", abortListener);
+    await telemetry.close();
+    throw error;
+  });
   try {
-    isolatedHome = await mkdtemp(join(tmpdir(), "ebo-devin-home-"));
     const configDirectory = join(isolatedHome, "config", "devin");
     await mkdir(configDirectory, { recursive: true });
     for (const name of ["data", "cache", "state"]) await mkdir(join(isolatedHome, name), { recursive: true });
     await writeFile(join(configDirectory, "config.json"), `${JSON.stringify(telemetry.userConfiguration(request.attemptId))}\n`, { mode: 0o600 });
+    if (credentialFile) {
+      const dataDirectory = join(isolatedHome, "data", "devin");
+      await mkdir(dataDirectory, { mode: 0o700 });
+      await writeFile(join(dataDirectory, "credentials.toml"), credentialFile, { flag: "wx", mode: 0o600 });
+    }
   } catch (error) {
     request.signal?.removeEventListener("abort", abortListener);
-    await telemetry.close();
+    try { await telemetry.close(); } finally { await rm(isolatedHome, { recursive: true, force: true }); }
     throw error;
   }
-  const environment = isolatedEnvironment(isolatedHome, credentialEnv, credential);
+  const environment = isolatedEnvironment(isolatedHome, credentialFile ? undefined : { key: credentialEnv, value: credential });
   const gaps: DevinCaptureGap[] = [];
   const addGap = (gap: DevinCaptureGap): void => recordCaptureGap(gaps, gap);
   let sessionId: string | undefined;
@@ -285,9 +321,10 @@ export async function captureDevinCli(request: DevinCliCaptureRequest): Promise<
     resolveTerminal = resolvePromise;
   });
   let protocolProcess: ProtocolProcess;
+  let startedProtocol: ProtocolProcess | undefined;
   const stderrDecoder = new TextDecoder("utf-8");
   try {
-    protocolProcess = spawnProtocolProcess({
+    protocolProcess = startedProtocol = spawnProtocolProcess({
       command: request.configuration.executable,
       args: [...(request.configuration.executableArgs ?? []), "acp", ...(request.configuration.acpArgs ?? [])],
       cwd: request.workspacePath,
@@ -387,8 +424,8 @@ export async function captureDevinCli(request: DevinCliCaptureRequest): Promise<
     });
   } catch (error) {
     request.signal?.removeEventListener("abort", abortListener);
-    await telemetry.close();
-    await rm(isolatedHome, { recursive: true, force: true });
+    try { await startedProtocol?.shutdown(); }
+    finally { try { await rm(isolatedHome, { recursive: true, force: true }); } finally { await telemetry.close(); } }
     throw error;
   }
 
@@ -485,12 +522,14 @@ export async function captureDevinCli(request: DevinCliCaptureRequest): Promise<
     addGap({ kind: "capture-error", detail: captureError });
   } finally {
     request.signal?.removeEventListener("abort", abortListener);
-    if (abortRequested) await interruptWithinAbortGrace();
-    else await protocolProcess.shutdown();
-    processResult = await protocolProcess.wait();
-    pending.clear();
-    await telemetry.close();
-    await rm(isolatedHome, { recursive: true, force: true });
+    try {
+      if (abortRequested) await interruptWithinAbortGrace();
+      else await protocolProcess.shutdown();
+      processResult = await protocolProcess.wait();
+    } finally {
+      pending.clear();
+      try { await rm(isolatedHome, { recursive: true, force: true }); } finally { await telemetry.close(); }
+    }
   }
 
   const records = processResult.observations;
@@ -515,6 +554,7 @@ export async function captureDevinCli(request: DevinCliCaptureRequest): Promise<
     executable: request.configuration.executable,
     version: request.configuration.version,
     credentialEnv,
+    credentialFormat: request.configuration.credentialFormat,
     model: request.configuration.model,
     mode: request.configuration.mode,
     permissionDecision: request.configuration.permissionDecision,
@@ -572,12 +612,11 @@ export async function describeAndValidateDevinDataset(
   capture: QualifiedNativeCapture<ProtocolObservation>,
   runtimeVersion = (capture as Partial<DevinCliCapture>).telemetry?.runtime?.version ?? DEVIN_CLI_VERSION,
 ): Promise<{ dataset: NormalizedDataset; coverage: AdapterCoverageReport }> {
-  if (!RETAINED_DEVIN_CLI_VERSIONS.includes(runtimeVersion)) throw new Error(`Unsupported retained Devin runtime ${runtimeVersion}.`);
   const normalization = await normalizeDevinCapture(capture);
   const dataset = describeNormalizedDataset({
     capture,
     normalization,
-    capabilityProfile: DEVIN_CLI_CAPABILITIES,
+    capabilityProfile: legacyV1Profile(DEVIN_CLI_CAPABILITIES, "devin-cli", runtimeVersion),
     adapterVersion: DEVIN_ADAPTER_VERSION,
     nativeType: devinNativeType,
   });
@@ -594,12 +633,9 @@ export type RetainedDevinCapture = QualifiedNativeCapture<ProtocolObservation> &
  */
 export function qualifyRetainedDevinCapture(
   capture: QualifiedNativeCapture<ProtocolObservation>,
-  options: { sessionId: string | undefined; expectsCompletion: boolean; harnessVersion: string; runtimeVersions: readonly string[] },
+  options: { sessionId: string | undefined; expectsCompletion: boolean; harnessVersion: string; runtimeVersions: readonly unknown[] },
 ): RetainedDevinCapture {
-  if (!RETAINED_DEVIN_CLI_VERSIONS.includes(options.harnessVersion)) throw new Error(`Unsupported retained Devin runtime ${options.harnessVersion}.`);
-  if (options.runtimeVersions.length === 0 || options.runtimeVersions.some((version) => version !== options.harnessVersion)) {
-    throw new Error("Retained Devin native runtime version differs from the run manifest.");
-  }
+  capture = markRetainedVersion(capture, options.harnessVersion, "devin-cli", options.runtimeVersions.length ? options.runtimeVersions : [undefined]);
   const records = capture.records.map(({ record }) => record);
   for (const record of records) {
     if (record.source !== DEVIN_HARNESS && record.source !== DEVIN_CLIENT) throw new Error(`Retained Devin capture contains a foreign source ${record.source}.`);
@@ -895,6 +931,7 @@ type OtlpReceiver = {
     executable: string;
     version: string;
     credentialEnv: string;
+    credentialFormat?: DevinCredentialFormat;
     model: string;
     mode: DevinSessionMode;
     permissionDecision: DevinPermissionDecision;
@@ -992,6 +1029,7 @@ async function openOtlpReceiver(signals: readonly DevinTelemetrySignal[], now = 
           adapterVersion: DEVIN_ADAPTER_VERSION,
           userConfiguration: "isolated",
           credentialEnv: input.credentialEnv,
+          ...(input.credentialFormat === undefined ? {} : { credentialFormat: input.credentialFormat }),
           ...(input.agentInfo === undefined ? {} : { agentInfo: input.agentInfo }),
           ...(input.agentCapabilities === undefined ? {} : { agentCapabilities: input.agentCapabilities }),
         },
@@ -1110,7 +1148,22 @@ function requireCredential(credentialEnv: string): string {
   return value;
 }
 
-function isolatedEnvironment(home: string, credentialEnv: string, credential: string): NodeJS.ProcessEnv {
+export function assertNativeDevinCredentialEnv(key: unknown): void {
+  if (typeof key !== "string" || !/^[A-Z][A-Z0-9_]*$/u.test(key)) throw new Error("Devin native login requires an explicit credentialEnv name.");
+  if (DEVIN_RESERVED_ENV.has(key)) throw new Error("Devin native login credentialEnv must not be a process environment key.");
+}
+
+function decodeNativeCredentialFile(value: string): Buffer {
+  if (!value || value.length > 24 * 1024) throw new Error("Devin native login requires a bounded canonical base64 credential file.");
+  const bytes = Buffer.from(value, "base64");
+  if (bytes.length > 16 * 1024 || bytes.toString("base64") !== value) throw new Error("Devin native login requires a bounded canonical base64 credential file.");
+  try { new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { throw new Error("Devin native credential file must be UTF-8."); }
+  if (bytes.includes(0)) throw new Error("Devin native credential file must contain text.");
+  return bytes;
+}
+
+function isolatedEnvironment(home: string, credential?: { key: string; value: string }): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {
     HOME: home,
     XDG_CONFIG_HOME: join(home, "config"),
@@ -1119,10 +1172,10 @@ function isolatedEnvironment(home: string, credentialEnv: string, credential: st
     XDG_STATE_HOME: join(home, "state"),
     NO_COLOR: "1",
   };
-  for (const key of ["PATH", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "USER", "LOGNAME", "SHELL"] as const) {
+  for (const key of DEVIN_PROCESS_ENV) {
     if (process.env[key] !== undefined) environment[key] = process.env[key];
   }
-  environment[credentialEnv] = credential;
+  if (credential) environment[credential.key] = credential.value;
   return environment;
 }
 

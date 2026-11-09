@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "ebo.atif-harness-coverage/v1",
+  "upstream": {
+    "package": "harbor",
+    "version": "0.25.0",
+    "publishedAt": "2026-10-25T20:27:25.575608Z",
+    "wheelSha256": "51923ac567fc57b03279e93468b105f689628bcac2cd3d541d4e44aa5c0ec309",
+    "source": "https://pypi.org/pypi/harbor/0.25.0/json",
+    "repositoryTreeSha": "fdba28fc411e47e8765420a1a063b4918fce3def",
+    "converterModules": [
+      "claude_code",
+      "codex",
+      "cursor_cli",
+      "devin",
+      "openhands",
+      "pi"
+    ]
+  },
+  "rows": [
+    {
+      "harness": "claude-agent-sdk",
+      "name": "Claude Agent SDK",
+      "guide": "claude-agent-sdk.md",
+      "upstream": "claude_code / Claude Code",
+      "privateFixture": "retained-conversions/claude-agent-sdk/trajectory.json",
+      "fixtureKind": "Real retained SDK capture converted after unwrapping recorder messages; fictional public counterpart.",
+      "surface": "Harbor consumes Claude Code transcript records. Accepted SDK messages share part of that surface; this does not establish parity between Claude Code and Agent SDK.",
+      "equivalence": "Partial: 202 call-bearing and result-bearing tool identities agree. Native capture also records duplicate observations and 57 progress-only operations whose identities are absent from the converted call population.",
+      "overlay": "None. Core does not infer native failure flags or complete history.",
+      "fixture": "claude-agent-sdk.json",
+      "privateFixtureSha256": "b0902f1a75e028e7f39f13e01a63ae2043a29d0a07ca2218a97945639292f55c"
+    },
+    {
+      "harness": "codex-app-server",
+      "name": "Codex",
+      "guide": "codex-harness.md",
+      "upstream": "codex / Codex rollout",
+      "privateFixture": "retained-conversions/codex-leaderboard/trajectory.json",
+      "fixtureKind": "Real leaderboard rollout converted by Harbor; fictional public counterpart.",
+      "surface": "EBO retains app-server protocol records. Harbor expects rollout response_item records and did not convert the retained app-server sample.",
+      "equivalence": "Known loss in the real leaderboard same-run pair: 45 native calls, 44 converted calls. EBO app-server equivalence is unproven.",
+      "overlay": "Optional Codex overlay qualifies reordered outputs, original arguments and inference groups. It records the omitted-pending-call limitation.",
+      "fixture": "codex-app-server.json",
+      "privateFixtureSha256": "560e2aa6c2c01b3b4576aa29c5ad5cac35d9e9c77ba4f4a9a0416c54629432bd"
+    },
+    {
+      "harness": "devin-cli",
+      "name": "Devin CLI",
+      "guide": "devin-cli.md",
+      "upstream": "devin / Devin chat messages",
+      "privateFixture": null,
+      "fixtureKind": "Authored native chat messages converted by Harbor.",
+      "surface": "No retained Devin chat-message export accepted by the converter was located. EBO’s native boundary is ACP; the converter consumes chat messages.",
+      "equivalence": "Unproven: no real same-run pair.",
+      "overlay": "None. Missing inference counts and tool failure fields remain unknown.",
+      "fixture": "devin-cli.json"
+    },
+    {
+      "harness": "cursor-sdk",
+      "name": "Cursor",
+      "guide": "cursor-sdk.md",
+      "upstream": "cursor_cli / Cursor CLI",
+      "privateFixture": null,
+      "fixtureKind": "Authored CLI events converted by Harbor.",
+      "surface": "The retained SDK stream did not produce CLI steps. Cursor CLI and Cursor SDK are separate source surfaces.",
+      "equivalence": "Unproven: no accepted real same-run pair.",
+      "overlay": "None. A conforming ATIF document remains readable regardless of the Cursor source surface.",
+      "fixture": "cursor-sdk.json"
+    },
+    {
+      "harness": "pi-sdk",
+      "name": "Pi",
+      "guide": "pi-sdk.md",
+      "upstream": "pi / Pi session",
+      "privateFixture": "retained-conversions/pi-qualified/trajectory.json",
+      "fixtureKind": "Qualified retained native session converted by Harbor 0.25.0; fictional public counterpart.",
+      "surface": "The converter accepts the retained pi-session.jsonl and selects its active branch. Inactive branches can be omitted.",
+      "equivalence": "Selected call/result populations checked on the same retained session; complete history and all semantic measures are not established.",
+      "overlay": "Optional Pi overlay interprets error and cache extensions. False error flags and zero-filled usage do not prove success or absent usage.",
+      "fixture": "pi-sdk.json",
+      "privateFixtureSha256": "9aa04ab8b8e323da071cb6df652b8f99b6e87bf897cc39dbf7dd22820fba66ce"
+    },
+    {
+      "harness": "factory-droid",
+      "name": "Factory Droid",
+      "guide": "factory-droid.md",
+      "upstream": null,
+      "privateFixture": "capture-derived-authored/factory-droid.json",
+      "fixtureKind": "Authored ATIF selection of a recorded user message, Create call and result from a retained capture; the empty agent message is a format placeholder. The public counterpart has fictional values.",
+      "surface": "EBO reads the authored ATIF through core.",
+      "equivalence": "Not independent equivalence evidence: the ATIF selection was authored from native content.",
+      "overlay": "None. Native error status is not a standard ATIF field.",
+      "fixture": "factory-droid.json",
+      "privateFixtureSha256": "c7fc51b4f5c8187aa810fa32ba8cccface53b9672305f38af823fcb06622b304",
+      "captureManifestSha256": "0dcdea94e836f9dd0a95cd74f4d8be39b353f2c83be18a6461ec27bb09ec10ec",
+      "captureSessionSha256": "a97b233ed47883c4b2465cc1fb338595b32c29a5ab006bf7139bc16164d3ceba"
+    },
+    {
+      "harness": "openhands-agent-server",
+      "name": "OpenHands",
+      "guide": "openhands-agent-server.md",
+      "upstream": "openhands / OpenHands event export",
+      "privateFixture": null,
+      "fixtureKind": "Authored legacy event records converted by Harbor.",
+      "surface": "Retained Agent Server REST/WebSocket payloads did not convert: hook records violate the converter’s source vocabulary, and selected agent records produced no legacy-format steps.",
+      "equivalence": "Unproven: native Agent Server and the converter’s legacy event export differ.",
+      "overlay": "None. Core preserves recorded observations and declared metrics.",
+      "fixture": "openhands-agent-server.json"
+    },
+    {
+      "harness": "deepseek-harness",
+      "name": "DeepSeek Harness",
+      "guide": "deepseek-harness.md",
+      "upstream": null,
+      "privateFixture": "capture-derived-authored/deepseek-harness.json",
+      "fixtureKind": "Authored ATIF selection of actual messages, bash call and result from a retained native capture; fictional public counterpart.",
+      "surface": "The authored selection parses the native JSON argument string into ATIF’s argument object.",
+      "equivalence": "Not independent equivalence evidence: the ATIF selection was authored from native content.",
+      "overlay": "None. Missing inference and tool failure declarations remain unknown.",
+      "fixture": "deepseek-harness.json",
+      "privateFixtureSha256": "3351ae9bde199d3f6d28fa8be4fe493b9a3cba0ce9a78bb8d2c7ad0d9a216ebf",
+      "captureManifestSha256": "696f1bb365b13b4aef37e3a6f6cfa9bf1fa48e2179984dae3545424817825319",
+      "captureSessionSha256": "9edf6d897008ebdc5321191446d1ad104176ea7a896a5ac1d55620cd49aa46ae"
+    }
+  ]
+}

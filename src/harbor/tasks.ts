@@ -4,7 +4,7 @@ import { dirname, join, resolve, sep } from "node:path";
 
 import { digestBytes, digestMetadata, writeMetadataAtomically } from "../artifacts.js";
 import type { AssessmentMode, Digest } from "../contracts.js";
-import { createHarborAdapter, HarborAdapterError, HARBOR_PACKAGE_PIN, type HarborAdapter, type HarborIdentity, type HarborInstruction, type HarborTaskLockJson } from "./adapter.js";
+import { createHarborAdapter, HarborAdapterError, type HarborAdapter, type HarborIdentity, type HarborInstruction, type HarborTaskLockJson } from "./adapter.js";
 
 /** EBO execution-profile restriction: links are rejected during Harbor ingestion. */
 export const HARBOR_PATH_POLICY_VERSION = "ebo.harbor-path-policy/v2";
@@ -59,6 +59,7 @@ export type HarborTaskSummary = {
 };
 
 export type HarborUnsupportedReasonCode =
+  | "unsupported-imported-trajectory"
   | "unsupported-windows-os"
   | "unsupported-gpu"
   | "unsupported-tpu"
@@ -180,7 +181,14 @@ export function toPrefixedDigest(digest: Digest): string {
  * capabilities exceed the profile (MIGRATION_SPEC.md §7).
  */
 export async function inspectHarborTask(taskDir: string, options: InspectHarborTaskOptions = {}): Promise<HarborTaskInspection> {
+  if (harborTaskHasPriorTrajectory(taskDir)) return {
+    classification: "unsupported", reasonCode: "unsupported-imported-trajectory",
+    reason: "Task-shipped trajectory.json requires seeded-context support outside the current execution profile.",
+    unsupported: ["unsupported-imported-trajectory"], summary: null, identity: null, instructions: null, taskLock: null,
+    harborPackageVersion: "not-invoked",
+  };
   const adapter = options.adapter ?? await createHarborAdapter();
+  const harborPackageVersion = (await adapter.version()).harborVersion;
   const assessmentMode: AssessmentMode = options.assessmentMode ?? "observational";
   const disableVerification = assessmentMode === "observational";
   const unsupported: HarborUnsupportedReasonCode[] = [];
@@ -199,7 +207,7 @@ export async function inspectHarborTask(taskDir: string, options: InspectHarborT
         identity: null,
         instructions: null,
         taskLock: null,
-        harborPackageVersion: HARBOR_PACKAGE_PIN,
+        harborPackageVersion,
       };
     }
     throw error;
@@ -226,7 +234,7 @@ export async function inspectHarborTask(taskDir: string, options: InspectHarborT
       identity: null,
       instructions: null,
       taskLock: null,
-      harborPackageVersion: HARBOR_PACKAGE_PIN,
+      harborPackageVersion,
     };
   }
 
@@ -240,7 +248,7 @@ export async function inspectHarborTask(taskDir: string, options: InspectHarborT
       identity: null,
       instructions: null,
       taskLock: null,
-      harborPackageVersion: HARBOR_PACKAGE_PIN,
+      harborPackageVersion,
     };
   }
 
@@ -259,8 +267,26 @@ export async function inspectHarborTask(taskDir: string, options: InspectHarborT
     identity,
     instructions,
     taskLock: lock.taskLock,
-    harborPackageVersion: HARBOR_PACKAGE_PIN,
+    harborPackageVersion,
   };
+}
+
+/** Detect reserved seed files at task/instruction boundaries without following trajectory symlinks. */
+export function harborTaskHasPriorTrajectory(taskDir: string): boolean {
+  const present = (path: string): boolean => {
+    try { lstatSync(path); return true; }
+    catch (error) { if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false; throw error; }
+  };
+  if (present(join(taskDir, "trajectory.json"))) return true;
+  const steps = join(taskDir, "steps");
+  let directory;
+  try { directory = lstatSync(steps); }
+  catch (error) { if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false; throw error; }
+  if (!directory.isDirectory() || directory.isSymbolicLink()) return false;
+  const entries = readdirSync(steps, { withFileTypes: true });
+  if (entries.length > MAX_HARBOR_SNAPSHOT_FILES) throw new Error("Harbor steps exceed the snapshot file limit.");
+  return entries.some((entry) => entry.isDirectory() && present(join(steps, entry.name, "instruction.md"))
+    && present(join(steps, entry.name, "trajectory.json")));
 }
 
 /** Resolve a valid Harbor task into the typed, relocation-stable resolution EBO admits and freezes. */
@@ -468,6 +494,7 @@ export async function inspectHarborTaskSummary(
 
 function describeUnsupported(reasons: readonly HarborUnsupportedReasonCode[]): string {
   const labels: Record<HarborUnsupportedReasonCode, string> = {
+    "unsupported-imported-trajectory": "Task-shipped prior trajectories require unsupported seeded-context execution",
     "unsupported-windows-os": "Windows task environments are outside the initial execution profile",
     "unsupported-gpu": "GPU resources are outside the initial execution profile",
     "unsupported-tpu": "TPU resources are outside the initial execution profile",

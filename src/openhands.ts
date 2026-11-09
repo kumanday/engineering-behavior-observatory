@@ -1,3 +1,6 @@
+import {legacyV1Profile} from "./legacy-v1-confidence.js";
+import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, recordRuntimeProbe, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
+import { withLockedOpenHandsServer } from "./openhands-runtime.js";
 import type {
   AdapterCapabilityProfile,
   CapturedNativeRecord,
@@ -9,7 +12,8 @@ import type {
 } from "./uniform-events.js";
 
 export const OPENHANDS_AGENT_SERVER_VERSION = "1.54.0";
-/** Agent Server versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
+/** Agent Server versions with checked conformance fixtures; other retained releases carry confidence limitations. */
+/** Historical fixture inventory; not a runtime confidence list. */
 export const RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS: readonly string[] = [OPENHANDS_AGENT_SERVER_VERSION, "1.46.0", "1.44.1"];
 export const OPENHANDS_TYPESCRIPT_CLIENT_VERSION = "1.54.0";
 export const OPENHANDS_DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
@@ -60,10 +64,7 @@ export const OPENHANDS_AGENT_SERVER_CAPABILITIES = {
 
 /** Retained evidence keeps the identity of the runtime that produced it. */
 export function openHandsCapabilityProfile(version: string): AdapterCapabilityProfile {
-  if (!RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS.includes(version)) {
-    throw new Error(`Unsupported retained OpenHands runtime ${version}.`);
-  }
-  return { ...OPENHANDS_AGENT_SERVER_CAPABILITIES, adapterId: `openhands-agent-server-v${version}` };
+  return legacyV1Profile({ ...OPENHANDS_AGENT_SERVER_CAPABILITIES, adapterId: `openhands-agent-server-v${version}` }, "openhands-agent-server", version);
 }
 
 export interface OpenHandsWebSocket {
@@ -84,6 +85,7 @@ export type OpenHandsNativeRecord = {
 };
 
 export type OpenHandsCaptureRequest = {
+  runtime?: StudyRuntimeBinding;
   runId: string;
   attemptId: string;
   baseUrl: string;
@@ -103,6 +105,7 @@ export type OpenHandsCaptureRequest = {
 };
 
 export type OpenHandsCapture = QualifiedNativeCapture<OpenHandsNativeRecord> & {
+  runtime?: RuntimeExecutionSummary;
   conversationId?: string;
   serverInfo: Record<string, unknown>;
   finalConversation?: Record<string, unknown>;
@@ -145,6 +148,16 @@ export function createOpenHandsHarnessAdapter(): HarnessAdapter<OpenHandsCapture
 }
 
 export async function captureOpenHandsAgentServer(request: OpenHandsCaptureRequest): Promise<OpenHandsCapture> {
+  return runInStudyRuntime("openhands-agent-server", request.runtime, async () => ({ ...await captureOpenHandsAgentServerOwned(request), runtime: runtimeExecutionSummary() }));
+}
+
+/** Internal conversation layer of an already checked launch. */
+export async function captureOpenHandsAgentServerOwned(request: OpenHandsCaptureRequest): Promise<OpenHandsCapture> {
+  requireStudyRuntime("openhands-agent-server");
+  return withLockedOpenHandsServer(request, async (server) => captureOpenHandsConversation({...request, baseUrl: server.baseUrl}));
+}
+
+async function captureOpenHandsConversation(request: OpenHandsCaptureRequest): Promise<OpenHandsCapture> {
   if (request.runId.trim() === "" || request.attemptId.trim() === "") {
     throw new Error("OpenHands capture requires non-empty run and attempt identities.");
   }
@@ -193,11 +206,10 @@ export async function captureOpenHandsAgentServer(request: OpenHandsCaptureReque
 
   let serverInfo: Record<string, unknown> = {};
   try {
-    serverInfo = await requestJson(fetch, baseUrl, "/server_info", undefined, request.sessionApiKey, maxResponseBytes, request.signal, request.timeoutMs);
+    serverInfo = await readOpenHandsServerInfo(fetch, baseUrl, request.sessionApiKey, maxResponseBytes, request.signal, request.timeoutMs);
     append("server-info", serverInfo);
-    if (serverInfo.version !== OPENHANDS_AGENT_SERVER_VERSION) {
-      throw new Error(`OpenHands Agent Server ${OPENHANDS_AGENT_SERVER_VERSION} is required; received ${String(serverInfo.version)}.`);
-    }
+    if (typeof serverInfo.version !== "string") throw new Error("RUNTIME_PROBE_INVALID: OpenHands /server_info lacks a version.");
+    await recordRuntimeProbe("openhands", serverInfo.version, "server-info");
   } catch (error) {
     const captureError = errorMessage(error);
     append("capture-error", { error: captureError.slice(0, 512) });
@@ -844,6 +856,19 @@ async function readFinalEvents(
     pageId = typeof page.next_page_id === "string" && page.next_page_id.length > 0 ? page.next_page_id : undefined;
   } while (pageId !== undefined);
   return events;
+}
+
+/** Wait for the owned server's HTTP listener; other failures remain explicit. */
+export async function readOpenHandsServerInfo(fetch: typeof globalThis.fetch, baseUrl: URL | string, sessionApiKey?: string,
+  maxResponseBytes = 1024 * 1024, signal?: AbortSignal, timeoutMs = 120_000): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {return await requestJson(fetch, new URL(baseUrl), "/server_info", undefined, sessionApiKey, maxResponseBytes, signal, Math.max(1, deadline - Date.now()));}
+    catch (error) {
+      if (!(error instanceof TypeError) || (error.cause as {code?: string} | undefined)?.code !== "ECONNREFUSED" || Date.now() >= deadline || signal?.aborted) throw error;
+      await new Promise(resolve => setTimeout(resolve, Math.min(100, Math.max(1, deadline - Date.now()))));
+    }
+  }
 }
 
 async function requestJson(

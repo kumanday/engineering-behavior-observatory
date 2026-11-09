@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
+import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("pi-sdk");
+const liveTest = liveRuntimeTest("pi-sdk");
 import { gzipSync } from "node:zlib";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
@@ -28,6 +31,8 @@ import {
   validateCorpusIndex,
   writeRunQueue,
   PI_HARNESS,
+  PI_ADAPTER_VERSION,
+  PI_NORMALIZATION_ADAPTER_VERSION,
   PINNED_PI_SDK_VERSION,
   type ExperimentConfiguration,
   type ComparisonRequest,
@@ -61,9 +66,9 @@ test("runs a frozen observational Pi entry through capture, export, retained eva
 
     const manifest = readManifest(summary.bundlePath);
     assert.equal(manifest.run.harness.id, PI_HARNESS);
-    assert.equal(manifest.run.harness.version, PINNED_PI_SDK_VERSION);
+    assert.equal(manifest.run.harness.version, JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).dependencies["@earendil-works/pi-coding-agent"]);
     assert.equal(manifest.run.native?.sessionId, SESSION_ID);
-    assert.ok(manifest.run.runtime.some(({ name, version }) => name === "pi-coding-agent" && version === PINNED_PI_SDK_VERSION));
+    assert.ok(manifest.run.runtime.some(({ name, version }) => name === "pi-coding-agent" && version === manifest.run.harness.version));
     assert.equal(manifest.evidence.filter(({ kind }) => kind === "session").length, 3);
     assert.ok(manifest.evidence.some(({ kind }) => kind === "workspace"));
     assert.ok(readJsonl(join(summary.bundlePath, "pi-session.jsonl")).some(({ id }) => id === "entry-shutdown"),
@@ -74,7 +79,10 @@ test("runs a frozen observational Pi entry through capture, export, retained eva
     assert.deepEqual(composition.tools.active, ["read", "bash", "edit", "write"]);
 
     const evidence = await createRetainedBehaviorEvidence(summary.bundlePath);
+    await assertNativeV2RetainedBundle(summary.bundlePath);
     assert.equal(evidence.dataset.adapter.harness, PI_HARNESS);
+    assert.equal(evidence.dataset.adapter.version, PI_NORMALIZATION_ADAPTER_VERSION);
+    assert.equal(manifest.run.runtime.find(({ name }) => name === "pi-sdk-adapter")?.version, PI_ADAPTER_VERSION);
     assert.equal(evidence.dataset.events.filter(({ family }) => family === "tool").length, 2);
     assert.ok(evidence.dataset.unmapped.some(({ reason }) => /Transient message delta/u.test(reason)));
     assert.ok(evidence.dataset.unmapped.some(({ reason }) => /future_event/u.test(reason)));
@@ -364,7 +372,7 @@ test("completed retained Pi evidence rejects an aborted settled terminal", async
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
 });
 
-test("retained Pi readback rejects unsupported versions, identity mismatches, and corrupt native lineage", async () => {
+test("retained Pi readback detects conflicting runtime declarations, identity mismatches, and corrupt native lineage", async () => {
   const fixture = createPiFixture();
   try {
     const summary = await runPiQueueEntry({ ...fixture, createSession: fakePiSessionFactory().createSession });
@@ -373,15 +381,14 @@ test("retained Pi readback rejects unsupported versions, identity mismatches, an
     const unsupported = JSON.parse(before.toString()) as RunManifest;
     unsupported.run.harness.version = "0.0.0";
     writeFileSync(manifestPath, JSON.stringify(unsupported));
-    await assert.rejects(createRetainedBehaviorEvidence(summary.bundlePath), /Unsupported retained Pi runtime/u);
+    assert.ok((await createRetainedBehaviorEvidence(summary.bundlePath)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_UNVERIFIED"));
     writeFileSync(manifestPath, before);
 
     const legacy = JSON.parse(before.toString()) as RunManifest;
     legacy.run.harness.version = "0.85.1";
     legacy.run.runtime = legacy.run.runtime.map((runtime) => ["pi-coding-agent", "pi-sdk"].includes(runtime.name) ? { ...runtime, version: "0.85.1" } : runtime);
     writeFileSync(manifestPath, JSON.stringify(legacy));
-    await assert.rejects(createRetainedBehaviorEvidence(summary.bundlePath), /native composition version differs/u,
-      "a manifest relabeled to another retained version does not match the SDK the capture recorded");
+    assert.ok((await createRetainedBehaviorEvidence(summary.bundlePath)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"));
     // A consistent legacy bundle: the native composition record names the same SDK version as the manifest.
     const eventsDescriptor = legacy.evidence.find(({ relativePath }) => relativePath === "pi-events.jsonl")!;
     const eventsPath = join(summary.bundlePath, eventsDescriptor.relativePath);
@@ -772,7 +779,7 @@ test("recorder close failure prevents a qualified success", async (t) => {
   }
 });
 
-test("approved live Pi SDK smoke", { skip: process.env.EBO_LIVE_PI_SDK_SMOKE !== "1" }, async () => {
+liveTest("approved live Pi SDK smoke", { skip: process.env.EBO_LIVE_PI_SDK_SMOKE !== "1" }, async () => {
   assert.ok(process.env.ZAI_API_KEY, "ZAI_API_KEY is required for the approved live smoke");
   const fixture = createPiFixture({ live: true });
   try {

@@ -1,0 +1,115 @@
+# Retained Harbor trial imports
+
+Use the post-run import path to inspect or retain an existing Harbor trial.
+This path launches no candidate agent, verifier or environment:
+
+```sh
+ebo atif inspect-harbor ./trial --namespace source-collection \
+  --python /path/to/python
+
+ebo atif import-harbor ./trial ./restricted-store \
+  --namespace source-collection \
+  --python /path/to/python
+```
+
+EBO validates the retained trial-result fields it consumes and preserves the
+original JSON. Python is optional for this structural check; supplying it adds
+an installed-Harbor cross-check with its actual version and model digest.
+Explicit source identity and lineage fields remain required. Model defaults do
+not supply an execution UUID or prove that a trial was an original execution.
+Optional converter context can select a fixture-backed overlay; generic ATIF
+reading needs no producer profile. An unversioned `lock.json` does not establish
+the converter version.
+
+## Identity and lineage
+
+The source namespace and original `TrialResult.id` define the execution ID.
+Relocation and byte-identical reuse preserve that ID. Run and attempt IDs derive
+from the namespaced execution identity, so equal trial UUIDs in separate source
+collections remain distinct in combined corpora. Execution identity binds
+the original task checksum, agent/model configuration and declared start. A
+conflicting reuse of the UUID cannot replace the retained execution record.
+
+Capture revisions hash the original execution identity, native agent-file
+inventory and retained ATIF bytes. Document-derived producer metadata and optional converter context also enter
+the stored capture revision. An ATIF backfill or changed native log therefore
+creates a revision of the same execution. Assessment IDs separately bind the
+trial-result bytes, verifier-file inventory and original executor. Regrading or
+rewriting an assessment does not manufacture another agent attempt.
+
+For regrades, supply an explicit local binding file with `--originals`:
+
+```json
+[
+  { "sourceReference": "11111111-1111-4111-8111-111111111111", "directory": "./retained-original" }
+]
+```
+
+A hub derivation uses its `source_trial.trial_id` as the reference; a local
+one uses the exact recorded `source_trial.path`. Source references never trigger
+local-path traversal, hub access or downloads. The retained original must have
+matching agent information and native agent-file hashes. Lineage cycles,
+unresolved executors and conflicting evidence stay inspect-only. EBO native
+adapter trials require an owned binding; this importer rejects their admission.
+
+## Storage and evidence limits
+
+The store separates immutable `sources`, `inspections`, `executions`,
+`captures`, `bindings`, versioned contextual `memberships` and `assessments`. A source snapshot's
+identity depends on its namespace and sorted file descriptors. Contextual
+inspection receipts are separate, so supplying a missing original binding can
+resolve an existing snapshot without replacing its bytes. Repeated identical
+imports verify and reuse the existing capture. Failed admission remains under
+`pending`; a retry preserves that evidence and uses another pending directory.
+
+The source inventory contains named root records plus `agent/` and `verifier/`
+files, plus root `trial.log` and `exception.txt` failure evidence. It admits at most 4,096 entries, 64 MiB per file, 256 MiB in total and
+32 directory levels. File and byte budgets cover the full original-trial lineage.
+Links are rejected. Trial-result validation is bounded to
+4 MiB, 15 seconds and a 64 KiB validator response. Media files remain retained
+source artifacts; references cause no implicit fetch or activation.
+
+Root trial records, agent logs and verifier records retain separate third-party
+authority labels. Reward values and exception types remain source declarations.
+A `finished_at` timestamp does not prove agent completion, and arbitrary numeric
+rewards do not become EBO verifier passes. Imported captures keep their separate
+qualification and complete-attempt measurement limits.
+
+`captures/` is a revision store rather than a selected corpus: several revisions
+may share one execution identity. Select one revision per execution for a
+cohort. The [leaderboard importer](leaderboard-imports.md) owns cohort membership,
+source refresh and benchmark-specific outcome interpretation. Native-companion fidelity checks and
+portable export policy are separate integrations.
+
+`readHarborCapture(store, captureRevision, sourceSnapshotDigest)` reopens an
+explicitly selected revision without Python. It verifies retained source bytes,
+the ATIF admission receipt and the execution, inspection, assessment and revision
+bindings before returning source context. Changed or linked retained evidence
+fails readback. ATIF and trial agent names must identify the same agent. Different version
+declarations are retained as a confidence limitation without blocking reading.
+
+Source and context writes are staged under unique `pending-writes` paths and
+published without replacing existing files. Interrupted staged bytes stay
+retained; retries publish a complete new stage. Capture identity includes
+descendant trajectories and every agent artifact; the root trajectory is hashed
+separately. Context memberships are versioned by inspection digest. If a snapshot
+has several valid contexts, pass the returned `inspectionDigest` as the fourth
+argument to `readHarborCapture`; readback requires explicit selection. The import
+CLI returns the stored `captureRevision` and the separate `sourceCaptureDigest`.
+
+Context inventories, bindings and inspection records use a shared 32 MiB
+write/read limit. Oversized metadata fails admission while retaining source
+bytes; successful admission always fits the context readback limit.
+
+Original-execution resolution is independent of ATIF availability. A proven
+original with matching native agent files can anchor a regrade whose trajectory
+was backfilled later. The regrade still passes its own ATIF admission gate.
+Execution model aliases from Harbor config/result records are bound into the
+capture’s operator-declared blinding metadata and unioned with ATIF aliases on
+retained readback. Regrading preserves the capture manifest and its blinding input.
+
+Expected ATIF structural rejection retains the partial admission and returns inspect-only. Store and I/O failures propagate as errors. A cohort can exclude the rejected source while continuing with valid selected trials.
+
+The library can bind additional operator-declared model aliases from protected source context. That context participates in derived capture-revision identity. Readback verifies the alias union against the admission manifest and execution; an updated alias inventory preserves the existing revision and creates another projection of the same execution.
+
+`inspect-harbor` returns exit code 0 for eligible source context. `import-harbor` returns 0 for an admitted or reused capture. Inspect-only results and errors return 1.

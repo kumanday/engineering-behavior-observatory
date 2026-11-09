@@ -1,0 +1,44 @@
+{
+  "schema_version": "ATIF-v1.7",
+  "session_id": "authored-session",
+  "agent": {
+    "name": "cursor-cli",
+    "version": "unknown",
+    "model_name": "authored/model"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "user",
+      "message": "Read fixture.txt."
+    },
+    {
+      "step_id": 2,
+      "timestamp": "2026-11-07T00:00:00+00:00",
+      "source": "agent",
+      "model_name": "authored/model",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-1",
+          "function_name": "readToolCall",
+          "arguments": {
+            "path": "fixture.txt"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "call-1",
+            "content": "Authored file content."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    }
+  ],
+  "final_metrics": {
+    "total_steps": 2
+  }
+}

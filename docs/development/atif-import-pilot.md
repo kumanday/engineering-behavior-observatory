@@ -1,0 +1,156 @@
+# ATIF import pilot: 2026-11-07
+
+The pilot validates an additive Pi import path with separate qualification and a source-local occurrence-ordering correction. Production Pi admission, Harbor context import and origin-aware Atlas consumers are implemented. Full-corpus semantic evaluation remains a separately scoped study.
+
+## Sample and method
+
+The EBO source base is `86a601079a51243756fe52798365a9cbf69cfe6f` (1.4.0).
+The pilot uses Node 24.19.0, Python 3.13.12, Harbor 0.24.0 and atif-scan 0.8.21.
+It retrieves a purposeful sample of four public trial directories, retains
+source-byte SHA-256/xet receipts, and converts three private Pi sessions twice
+through Harbor's pinned Pi converter. The sample is for mapping fidelity; it
+cannot estimate leaderboard behavior rates.
+
+| Public sample | ATIF | Recorded tool calls | Native companion calls | Finding |
+| --- | --- | --- | --- | --- |
+| Pi | v1.7 | 28 | 28 | Explicit error fields; prompt/cache semantics reconcile |
+| Hermes | v1.2 | 28 | Not implemented in pilot | Inference count is untracked; v1.2 support is necessary |
+| OpenClaw | v1.8 | 0 recorded | Native session unavailable | Partial-history marker; full-attempt tool count stays unknown |
+| Codex pending-call case | v1.7 | 44 | 45 | One unanswered native call is absent from ATIF |
+
+All four pass Harbor's pinned structural model validation. This does not
+establish completeness. The Codex document references images outside the
+retained sample; they remain unavailable and were not automatically fetched.
+The three Pi conversions are byte-identical across their two runs.
+
+The acquisition retains 47 public-source files totaling 2,915,673 bytes. An
+identical replay verifies retained digests and returns a no-op. The receipt
+records source URLs, retrieval time, file hashes, xet hashes and restricted
+sharing class. A changed upstream snapshot requires a new destination; this
+pilot does not implement production revision discovery or reuse selection.
+
+## Same-run Pi checks
+
+The development projector emits pointer-addressed uniform events and validates
+the existing `ebo.normalized-dataset/v1` shape. All members of one step retain
+the same ordinal; no per-tool clock or source-native request ID is invented.
+The current Atlas unit builder also accepts those projections.
+
+| Pair | Native admission | Recorded calls | Five-measure agreement | Operation signatures | Declared inferences / native requests |
+| --- | --- | --- | --- | --- | --- |
+| A | Accepted | 105 | 5/5 | Equal | 77 / 77 |
+| B | Accepted | 45 | 5/5 | Equal | 22 / 22 |
+| C | Rejected | 291 in converted source | Not eligible | Not eligible | 276 / unavailable |
+
+The five measures are tool operations, explicit tool errors, uncached input
+tokens, output tokens and cache-read tokens. Signatures compare original call
+ID, tool name and failure state. These are selected gates on two fixtures,
+not qualification of every Pi producer/version or every EBO extractor.
+
+Pair A's ATIF prompt total is 11,547,486, including 11,053,922 cached input tokens
+and zero recorded cache-write tokens. Subtraction gives 493,564 uncached input
+tokens, matching EBO's native measure. A direct prompt-to-input mapping would
+overstate uncached input by about 23.4 times.
+
+Pair C demonstrates the qualification boundary: Harbor converts the session
+into structurally valid ATIF, while EBO's native loader rejects its evidence.
+The experimental projection is retained for inspection with
+`productionEligible: false`. It is never added to a corpus, capture-qualified
+rate, comparative aggregate or judge batch.
+
+## Ordering and tooling findings
+
+The baseline ordering probe creates a failed operation whose result has source
+ordinal 2 and no timestamp, followed by a timed call at ordinal 3 in the same
+domain. Rules 1.2.0 associate that later call by source order. The frozen 1.1.0
+baseline receipt demonstrates the defect independently of ATIF conversion.
+
+The reader/profile split is necessary: Pi error fields, untracked Hermes
+inference counts, OpenClaw partial markers and Codex pending-call loss have
+different interpretations. ATIF step timestamps cannot supply tool timings.
+`lock.json` exists in all four public samples but establishes no Harbor version
+field; converter version needs another pinned source/configuration receipt.
+
+`atif-scan` loads and scans all four local public inputs. Its root tool-call
+inventory agrees with the pilot reader. Scanner results are review candidates;
+they neither qualify capture nor certify native fidelity. The tool is useful as
+an integrity/ending classifier and differential oracle, while EBO retains its
+own raw bytes, source references and admission rules.
+
+EBO's text secret scanner processed the 47 retained public files and reported
+zero matches. That result makes no claim about token-ID arrays, unknown
+extensions, binary media, or redistribution rights. Raw sample files and private
+Pi pairs remain outside Git.
+
+## Production import qualification
+
+The frozen native inventory contains 144 bundle paths: 66 accepted bundles
+representing 41 distinct normalized datasets, plus 78 rejected bundles. The
+capture-version guard and additive import implementation preserve each recorded
+readback decision and accepted dataset digest.
+
+The production Pi mapping passes all 41 independently converted fixture pairs.
+Across five selected measures, 136 comparisons are known-equal and 69 record
+an explicitly permitted source loss, with zero failures. Tool operation
+signatures pass independently. Missing or zero-filled converter fields remain
+unavailable; these diagnostic agreements do not confer owned capture
+qualification or exact complete-attempt measures on an import.
+
+The importer retains raw bytes first and admits a manifest after validation.
+Readback verifies source, inspection, profile and pointer bindings. Harbor
+source-context tests cover original execution identity, capture backfills,
+regrades, revision membership, model blinding and interrupted writes. Atlas
+browser checks cover imported unknown outcomes, missing tasks, origin-separated
+arms, certification and state restoration.
+
+The frozen original 1.4.0 runtime reproduces all 66 accepted native dataset
+and observation digests. The additive runtime preserves native dataset digests
+and readback decisions. Existing 1.x packet verification passes, including
+regenerated RO-Crate equality. Fixture sources and
+public trial bytes remain in restricted local stores. Public CI uses authored
+synthetic fixtures.
+
+## Compatibility accounting
+
+The inventory inspects two named study roots with explicit directory and 2 MiB
+JSON limits. It parses schema identities and deduplicates canonical content,
+rather than counting strings that resemble assertion names. It is a bounded
+migration input, not a workspace census or an approved re-judge population.
+It found 308 assertion files with 299 distinct canonical content digests across
+38 dataset digests, 306 semantic-judgment files with 298 distinct content
+digests, and 37 distinct structural observation sets. No occurrence-rating files
+matched this selection. Judgment records bind their input digest; resolving
+those inputs to datasets remains part of dependency accounting. These counts
+describe the selected roots and filters; they do not establish affected
+attempt/dimension/evaluator units.
+Its file-level receipts are in `compatibility-inventory.json` under the private
+pilot directory. Full attempt/dimension/evaluator dependency accounting remains
+an implementation gate.
+
+
+The dependency audit reads the same 651 retained records with EBO's canonical
+digest recipe. It identifies 298 distinct declared input/evaluator/configuration judgment
+units. Retained inputs are digest-verified for 224 units; every copy is missing
+for 74. No measured judgment cost is recorded. Six inventory files are source
+test fixtures. A missing evaluator configuration digest retains its own
+unit rather than implying equivalence to a configured judgment. These gaps keep the v2 affected-unit and paid re-judge forecasts
+unavailable until the missing inputs and target projections are resolved.
+
+## Reproduction and limits
+
+The [development tooling README](https://github.com/kumanday/engineering-behavior-observatory/tree/develop/scripts/atif-import-pilot)
+documents acquisition, independent conversion, projection, scanning, inventory
+and focused tests. The eleven synthetic tests cover source pointers, equal
+step order, absent clocks/request identities, deterministic projection, unknown
+failure, baseline ordering, version-label mismatch, partial histories and
+reference confinement, interrupted acquisition retention and emitted evaluation
+schema inventory and unavailable usage totals.
+
+The tooling executes no candidate code and makes zero model calls. The production import and Atlas paths have independent tests and code reviews. The pilot establishes mapping fidelity for the registered Pi profiles; a semantic judge study and a complete workspace migration census require separate inputs and budgets.
+
+Public source cases:
+
+* [Pi trial](https://huggingface.co/buckets/joelniklaus/harness-leaderboard/tree/runs/20261018-191100-glm-5-3-flash-full-low-3c31/terminal-bench-2.1/adaptive-rejection-sampler__E5tQWPd)
+* [Hermes trial](https://huggingface.co/buckets/joelniklaus/harness-leaderboard/tree/runs/20261018-191100-glm-5-3-flash-full-low-3c31/terminal-bench-2.1/adaptive-rejection-sampler__3SLWJee)
+* [OpenClaw trial](https://huggingface.co/buckets/joelniklaus/harness-leaderboard/tree/runs/20261018-191100-glm-5-3-flash-full-low-3c31/terminal-bench-2.1/adaptive-rejection-sampler__3hz5Qds)
+* [Codex trial](https://huggingface.co/buckets/joelniklaus/harness-leaderboard/tree/runs/20261030-015111-deepseek-v4-1-flash-full-low-1200/terminal-bench-2.1/extract-moves-from-video__PQuRNAE)

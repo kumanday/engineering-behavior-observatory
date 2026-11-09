@@ -19,6 +19,7 @@ test("redacts known credential formats and keeps their kind", () => {
     ["export FIREWORKS=fw_SyntheticPlantedKey0123456789", "fw_Synthetic", "fireworks-api-key"],
     ["AKIAIOSFODNN7EXAMPLE", "AKIAIOSFODNN7EXAMPLE", "aws-access-key"],
     ["ghp_abcdefghijklmnopqrstuvwxyz123456", "ghp_abcdef", "github-token"],
+    ["hf_" + "SyntheticToken".repeat(3), "SyntheticToken", "huggingface-token"],
     ["sk-proj-abcdefghijklmnopqrstuvwxyz0123", "sk-proj-abc", "openai-style-api-key"],
     ["xoxb-1234567890-abcdefghij", "xoxb-1234567890", "slack-token"],
     [`key AIza${"A1b2C3d4E5".repeat(3)}abcde`, "AIzaA1b2", "google-api-key"],

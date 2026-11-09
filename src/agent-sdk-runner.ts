@@ -1,3 +1,4 @@
+import { bindActiveQueueEntry, queueEntryMatches, assertActiveRuntimeQueue, currentStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { randomUUID } from "node:crypto";
 import { lstatSync } from "node:fs";
 import { cp, mkdtemp, rm } from "node:fs/promises";
@@ -6,7 +7,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 
 import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact, validateRunManifestEvidence } from "./artifacts.js";
-import { captureClaudeAgentSdkRun } from "./agent-sdk-run.js";
+import { captureClaudeAgentSdkRunOwned } from "./agent-sdk-run.js";
 import { CLAUDE_AGENT_SDK_HARNESS } from "./agent-sdk-normalizer.js";
 import {
   probeClaudeAgentSdkCapabilities,
@@ -82,6 +83,7 @@ export type AgentSdkConfigurationRecord =
 export type AgentSdkConfigurationKind = AgentSdkConfigurationRecord["kind"];
 
 export type RunAgentSdkQueueEntryOptions = {
+  runtime?: StudyRuntimeBinding;
   bundleRoot: string;
   queuePath: string;
   runId: string;
@@ -97,6 +99,7 @@ export type RunAgentSdkQueueEntryOptions = {
 };
 
 export type AgentSdkRunSummary = {
+  runtime?: RuntimeExecutionSummary;
   runId: string;
   attemptId: string;
   bundlePath: string;
@@ -123,9 +126,15 @@ const ATTEMPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
  * existing lifecycle retains complete or partial evidence without retrying.
  */
 export async function runAgentSdkQueueEntry(options: RunAgentSdkQueueEntryOptions): Promise<AgentSdkRunSummary> {
+  const binding = options.runtime ?? (currentStudyRuntime() ? undefined : { studyRoot: options.bundleRoot });
+  return runInStudyRuntime("claude-agent-sdk", binding, () => runAgentSdkQueueEntryOwned(options));
+}
+
+async function runAgentSdkQueueEntryOwned(options: RunAgentSdkQueueEntryOptions): Promise<AgentSdkRunSummary> {
   const bundleRoot = resolve(options.bundleRoot);
   const queue = readRunQueue(options.queuePath, undefined, { bundleRoot });
-  const matches = queue.entries.filter((candidate) => candidate.runId === options.runId);
+  assertActiveRuntimeQueue(queue);
+  const matches = queue.entries.filter((entry) => queueEntryMatches(queue, entry, options.runId)).map((entry) => bindActiveQueueEntry(queue, entry));
   if (matches.length === 0) throw new Error(`Run "${options.runId}" is not in the queue.`);
   if (matches.length > 1) throw new Error(`Run "${options.runId}" matches more than one queue entry.`);
   const entry = matches[0]!;
@@ -188,7 +197,7 @@ export async function runAgentSdkQueueEntry(options: RunAgentSdkQueueEntryOption
     const startingWorkspacePath = join(baselineRoot, "workspace");
     await cp(workspace.path, startingWorkspacePath, { recursive: true, preserveTimestamps: true, force: false });
 
-    const result = await captureClaudeAgentSdkRun({
+    const result = await captureClaudeAgentSdkRunOwned({
       definition,
       startingWorkspacePath,
       workspace: {
@@ -237,6 +246,7 @@ export async function runAgentSdkQueueEntry(options: RunAgentSdkQueueEntryOption
       runId: entry.runId,
       attemptId,
       bundlePath: attemptBundleRoot,
+      runtime: runtimeExecutionSummary(),
       terminal: structuredClone(manifest.terminal),
       classification: result.attempt.classification.kind,
       captureQualification: result.qualification.status,

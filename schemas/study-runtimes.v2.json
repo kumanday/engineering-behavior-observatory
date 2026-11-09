@@ -1,0 +1,403 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:study-runtimes:v2",
+  "$defs": {
+    "lock": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.study-runtime-lock/v2"
+        },
+        "studyId": {
+          "type": "string"
+        },
+        "request": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "studyId": {
+              "type": "string"
+            },
+            "roles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "studyId",
+            "roles"
+          ]
+        },
+        "requestDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "platform": {
+              "type": "string"
+            },
+            "architecture": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform",
+            "architecture"
+          ]
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "roots": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "plan": {
+                "type": "object"
+              },
+              "installation": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "receiptDigest": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "key",
+                  "receiptDigest"
+                ]
+              },
+              "verification": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/snapshot"
+                }
+              },
+              "executionEnvironment": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "role": {
+                    "const": "smol"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "boundary": {
+                    "enum": [
+                      "host-vm",
+                      "task-guest"
+                    ]
+                  },
+                  "coordinatorPlatform": {
+                    "type": "string"
+                  },
+                  "platform": {
+                    "type": "string"
+                  },
+                  "abi": {
+                    "type": "string"
+                  },
+                  "componentDigest": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  "pythonBinaryIntegrity": {
+                    "type": "string"
+                  },
+                  "coordinatorAbi": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "role",
+                  "version",
+                  "boundary",
+                  "coordinatorPlatform",
+                  "platform",
+                  "abi",
+                  "componentDigest",
+                  "pythonBinaryIntegrity",
+                  "coordinatorAbi"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "roles",
+              "roots",
+              "components",
+              "plan",
+              "installation",
+              "verification"
+            ]
+          }
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "components": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "object"
+                  },
+                  "queriedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "results": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "query",
+                  "queriedAt",
+                  "results"
+                ]
+              }
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "components",
+            "warnings"
+          ]
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "artifactInputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pythonWheelhouseDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "pythonWheelhouseDigest"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "studyId",
+        "request",
+        "requestDigest",
+        "createdAt",
+        "target",
+        "groups",
+        "security",
+        "digest"
+      ]
+    },
+    "launch": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.runtime-launch/v2"
+        },
+        "lockDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "role": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "blocked",
+            "probed",
+            "probe-failed"
+          ]
+        },
+        "probes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "componentId": {
+                "type": "string"
+              },
+              "package": {
+                "type": "string"
+              },
+              "expectedVersion": {
+                "type": "string"
+              },
+              "actualVersion": {
+                "type": "string"
+              },
+              "source": {
+                "enum": [
+                  "package-metadata",
+                  "executable",
+                  "server-info"
+                ]
+              }
+            },
+            "required": [
+              "componentId",
+              "package",
+              "expectedVersion",
+              "actualVersion",
+              "source"
+            ]
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "security": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "components": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "query": {
+                        "type": "object"
+                      },
+                      "queriedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "results": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "query",
+                      "queriedAt",
+                      "results"
+                    ]
+                  }
+                },
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "components",
+                "warnings"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verification": {
+          "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/snapshot"
+        },
+        "verificationSubject": {
+          "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/subject"
+        },
+        "contractChecks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "lockDigest",
+        "role"
+      ]
+    }
+  }
+}

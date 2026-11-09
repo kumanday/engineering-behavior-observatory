@@ -1,8 +1,10 @@
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import type { HookInput, SDKMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -13,6 +15,7 @@ import {
   claudeAgentSdkNormalizationAdapter,
   captureClaudeAgentSdkRun,
   createAgentSdkNativeEvidenceResolver,
+  createRetainedBehaviorEvidence,
   digestBytes,
   normalizeClaudeAgentSdkRunBundle,
   probeClaudeAgentSdkCapabilities,
@@ -498,6 +501,7 @@ test(`loads qualified semantic evidence with missing workspace=${missingWorkspac
     writeFileSync(manifestPath, canonicalizeMetadata(manifest));
 
     const normalized = await normalizeClaudeAgentSdkRunBundle(bundleRoot);
+    await assertNativeV2RetainedBundle(bundleRoot);
     assert.equal(normalized.events.every(({ source }) => source.harness === CLAUDE_AGENT_SDK_HARNESS), true);
     assert.equal(normalized.events.some(({ family }) => family === "outcome"), true);
     assert.deepEqual(normalized.events.find(({ source }) => source.nativeType === "assessment-mode")?.attributes,
@@ -521,6 +525,18 @@ test(`loads qualified semantic evidence with missing workspace=${missingWorkspac
     writeFileSync(manifestPath, canonicalizeMetadata(manifest));
 
     await assert.rejects(normalizeClaudeAgentSdkRunBundle(bundleRoot), /persisted unqualified structural/u);
+    Object.assign(report.structuralQualification, { reasons: [{ code: "HOOK_CAPABILITY_VERSION_MISMATCH", dimension: "hooks", detail: "A retained version-only qualification decision." }] });
+    const versionOnlyBytes = Buffer.from(canonicalizeMetadata(report));writeFileSync(reportPath, versionOnlyBytes);
+    reportDescriptor.digest = `sha256:${digestBytes(versionOnlyBytes).value}`;reportDescriptor.sizeBytes = versionOnlyBytes.length;
+    writeFileSync(manifestPath, canonicalizeMetadata(manifest));
+    assert.ok((await createRetainedBehaviorEvidence(bundleRoot)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_UNVERIFIED"));
+    const gap = { code: "HOOK_UNSUPPORTED_BY_PINNED_SDK", dimension: "hooks", detail: "An independent benign capability gap." };
+    const persist = () => { const bytes = Buffer.from(canonicalizeMetadata(report));writeFileSync(reportPath, bytes);reportDescriptor.digest = `sha256:${digestBytes(bytes).value}`;reportDescriptor.sizeBytes = bytes.length;writeFileSync(manifestPath, canonicalizeMetadata(manifest)); };
+    Object.assign(report.structuralQualification, { reasons: [{ code: "HOOK_CAPABILITY_VERSION_MISMATCH", dimension: "hooks", detail: "Unverified version." }, gap] });persist();
+    assert.ok((await createRetainedBehaviorEvidence(bundleRoot)).dataset.events.length > 0);
+    Object.assign(report.structuralQualification, { reasons: [{ code: "HOOK_CAPABILITY_VERSION_MISMATCH", dimension: "hooks", detail: "Unverified version." }, { code: "ARTIFACT_INTEGRITY_INVALID", dimension: "semanticEvidence", detail: "Independent blocking integrity failure." }] });persist();
+    await assert.rejects(createRetainedBehaviorEvidence(bundleRoot), /persisted unqualified structural/u);
+
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

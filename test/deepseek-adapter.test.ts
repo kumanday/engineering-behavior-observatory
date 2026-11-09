@@ -1,9 +1,12 @@
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("deepseek-harness");
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
-import test from "node:test";
+
 import { fileURLToPath } from "node:url";
 import { createDeepSeekHarborExecutor } from "../src/harbor/harnesses.js";
 import { harborStepFixture } from "./harbor-step-helper.js";
@@ -48,6 +51,7 @@ test("Harbor DeepSeek wrapper qualifies official-client session and workspace ev
     assert.equal(result.qualification, "qualified");
     assert.equal(result.nativeSessionId, "harbor-attempt-step-1");
     assert.ok((await createRetainedBehaviorEvidence(input.stepBundleRoot)).dataset.events.length > 0);
+    await assertNativeV2RetainedBundle(input.stepBundleRoot);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -239,8 +243,7 @@ test("packages a verified smoke bundle and qualifies session evidence without in
     relabeled.run.harness.version = "0.1.1-rc.2";
     relabeled.run.runtime = relabeled.run.runtime.map((runtime: { version: string }) => runtime.version === nativeVersion ? { ...runtime, version: "0.1.1-rc.2" } : runtime);
     writeFileSync(manifestPath, JSON.stringify(relabeled));
-    await assert.rejects(createRetainedBehaviorEvidence(bundleRoot), /native client version differs from the run manifest/u,
-      "a retained manifest version must match the native composition's client version");
+    assert.ok((await createRetainedBehaviorEvidence(bundleRoot)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"));
     writeFileSync(manifestPath, manifestBefore);
     assert.equal(qualifiedDeepSeekCapture(definition.run.id, definition.attempt.id,
       { ...execution.evidence as DeepSeekCaptureReport, status: "failed" }).qualification, "qualified",

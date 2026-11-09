@@ -35,7 +35,9 @@ the `ebo` command is installed as described in the quickstart.
 [DeepSeek Harness](harnesses/deepseek-harness.md) ·
 [Factory Droid](harnesses/factory-droid.md)
 
-These guides own runtime pins, configuration, native evidence, and known gaps.
+These guides explain runtime selection, configuration, native evidence and known gaps.
+The [verification guide](reference/harness-verification.md) explains admitted
+probe and capture evidence across all eight harnesses.
 
 ## Evaluate behavior
 
@@ -64,6 +66,15 @@ The [evaluation reading path](evaluation/README.md) explains how the parts fit:
   and release preparation.
 - [Extension contracts](development/extension-contracts.md): adapter, extractor,
   rubric, verifier, and export-policy development.
+- [ATIF admission and EBO v2 design](development/atif-adoption-design.md),
+  [decision record](development/atif-adoption-adr.md), and
+  [measured import pilot](development/atif-import-pilot.md): source import
+  qualification, normalization and compatibility boundaries.
+- [Harbor source imports](reference/harbor-imports.md): execution identity,
+  capture revisions and separate assessments.
+- [ATIF interpretation](development/atif-producer-profiles.md): generic core,
+  optional overlays, [harness coverage](reference/atif-harness-coverage.md) and
+  [limitation definitions](reference/atif-limitations.md).
 - [Documentation sync findings](development/documentation-sync.md): why generated
   change provenance is kept separate from public documentation.
 - [Release records](../release/README.md): versioned verification and limitations.
@@ -71,3 +82,13 @@ The [evaluation reading path](evaluation/README.md) explains how the parts fit:
 For agents: read the repository's `AGENTS.md`, then the relevant guide and
 contract. CLI syntax is in [one grouped reference](reference/cli.md), not
 scattered through release history.
+
+- [Pinned Harness Leaderboard cohorts](reference/leaderboard-imports.md): local
+  snapshot receipts, protected facts, execution reuse and quarantine.
+- [Supplemental evidence companions](reference/evidence-companions.md) bind extra evidence to an existing attempt.
+- [Frozen analysis runtime](development/frozen-analysis-runtime.md) preserves a shipped 1.x reader and its receipts.
+- [EBO v2 analytical contracts](development/normalization-v2.md) define the explicit migration boundary.
+- [Native v2 adapters](development/native-v2-adapters.md) derive typed operations and source facts from qualified native bundles.
+- [Migration accounting](development/migration-accounting.md) inventories retained studies and reconciles dependency changes before re-judging.
+
+- [Typed v2 consumers](development/typed-v2-consumers.md) prepare observations, ledgers, evaluation inputs and local Atlas inspection.

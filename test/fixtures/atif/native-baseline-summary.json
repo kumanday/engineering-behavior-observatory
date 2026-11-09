@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "ebo.native-fixture-baseline-summary/v1",
+  "sourceCommit": "86a601079a51243756fe52798365a9cbf69cfe6f",
+  "counts": {
+    "paths": 144,
+    "acceptedPaths": 66,
+    "rejectedPaths": 78,
+    "distinctSessionDigests": 96,
+    "acceptedDistinctSessionDigests": 41
+  },
+  "sourceManifestSha256": "aead7cc1c67a3867afd8bd7558f5083e1a8df301dbb295bf15a57da2e7f54c7f",
+  "scope": "Explicit report and prior-study roots; private root manifest retained outside Git. Counts include path copies.",
+  "priorReviewCensus": "124 sessions / 47 loadable was not reproduced as the same selection; this snapshot is 144 paths, 66 accepted, 78 rejected, 96 distinct session digests, 41 accepted distinct session digests."
+}

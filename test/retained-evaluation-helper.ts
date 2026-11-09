@@ -1,3 +1,4 @@
+import { withRuntimeFixture } from "./with-runtime-fixture.js";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -35,12 +36,12 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
     const configured = structuredClone(request);
     configured.evaluator.backend = backend;
     configured.evaluator.provider = backend === "claude-agent-sdk" ? "anthropic" : "openai";
-    const result = await runRetainedSemanticJudge({ bundleRoot, observations, request: configured, outputRoot: join(outputRoot, backend),
+    const result = await withRuntimeFixture(backend === "codex-app-server" ? "codex-judge" : "claude-agent-sdk", () => runRetainedSemanticJudge({ bundleRoot, observations, request: configured, outputRoot: join(outputRoot, backend),
       backend: { id: backend, version: backend === "claude-agent-sdk" ? probeClaudeAgentSdkCapabilities().sdkVersion : CODEX_APP_SERVER_VERSION,
         run: async () => ({ status: "completed", raw: { synthetic: true }, response: { judgment: { disposition: "assessed", assessment: "constructive",
           confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" }, reason: null, missingEvidenceCapability: null,
           rationale: "Synthetic fixture only.", alternativeExplanation: "Not a human decision.", citations: [{ eventId: event.id, nativeReference: event.source.nativeReference }],
-          claims: [{ id: "fact-1", text: "The cited event is retained.", citations: [{ eventId: event.id, nativeReference: event.source.nativeReference }], workspace: null }] } } }) } });
+          claims: [{ id: "fact-1", text: "The cited event is retained.", citations: [{ eventId: event.id, nativeReference: event.source.nativeReference }], workspace: null }] } } }) } }));
     assert.equal(result.status, "proposed", JSON.stringify(result));
   }
   const assertion = JSON.parse(readFileSync(join(outputRoot, "claude-agent-sdk/assertion.json"), "utf8")) as BehaviorAssertion;
@@ -188,7 +189,9 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
         }
         writeFileSync(path, bytes);
         writeFileSync(join(bundleRoot, "manifest.json"), JSON.stringify(changed));
-        await assert.rejects(createRetainedBehaviorEvidence(bundleRoot), /native envelope|protocol observation|protocol method|owned identity|request\/response pair|owned terminal evidence|native server version|server-info record|conversation identity|finished conversation|native client version|runtime-reap evidence/u, mutation);
+        if (["server-version", "client-version"].includes(mutation)) {
+          assert.ok((await createRetainedBehaviorEvidence(bundleRoot)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_UNVERIFIED"), mutation);
+        } else await assert.rejects(createRetainedBehaviorEvidence(bundleRoot), /native envelope|protocol observation|protocol method|owned identity|request\/response pair|owned terminal evidence|server-info record|conversation identity|finished conversation|runtime-reap evidence/u, mutation);
       } finally {
         writeFileSync(path, original);
         writeFileSync(reportPath, reportBefore);
@@ -201,7 +204,7 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
     changed.run.harness.version = "unsupported-fixture-version";
     try {
       writeFileSync(join(bundleRoot, "manifest.json"), JSON.stringify(changed));
-      await assert.rejects(createRetainedBehaviorEvidence(bundleRoot), /Unsupported retained (OpenHands|DeepSeek) runtime/u);
+      assert.ok((await createRetainedBehaviorEvidence(bundleRoot)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_UNVERIFIED"));
     } finally { writeFileSync(join(bundleRoot, "manifest.json"), before); }
     assert.deepEqual(readFileSync(join(bundleRoot, "manifest.json")), before);
   }

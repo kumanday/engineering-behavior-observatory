@@ -1,0 +1,292 @@
+import {runtimeTest} from "./with-runtime-fixture.js";
+const judgeTest = runtimeTest("claude-agent-sdk");
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { importLeaderboardCohort, readLeaderboardCohort, type LeaderboardCohortRequest } from "../src/leaderboard-import.js";
+import { LEADERBOARD_BUCKET, metadataHash, rawHash, readLeaderboardSource, scanImportedFiles, type LeaderboardAcquisition } from "../src/leaderboard-source.js";
+import { LEADERBOARD_PUBLIC_POLICY } from "../src/leaderboard-policy.js";
+import { listAtifProducerProfiles } from "../src/atif-profiles.js";
+const python = process.env.EBO_LEADERBOARD_TEST_PYTHON;
+const id = "11111111-1111-4111-8111-111111111111";
+const write = (path: string, value: unknown) => writeFileSync(path, JSON.stringify(value));
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), "ebo-leaderboard-import-")), snapshot = join(root, "snapshot"), trial = join(root, "trial"), store = join(root, "store");
+  mkdirSync(snapshot); mkdirSync(join(trial, "agent/pi/sessions"), { recursive: true }); mkdirSync(join(trial, "verifier"));
+  const config = { task: { path: "tasks/adaptive-rejection-sampler" }, agent: { name: "pi", model_name: "zai-org/GLM-5.3-Flash" }, source_trial: null };
+  const result = { id, task_name: "adaptive-rejection-sampler", trial_name: "trial-0", trial_uri: "file:///synthetic/trial", task_id: { path: "tasks/adaptive-rejection-sampler" }, task_checksum: "a".repeat(64), config,
+    agent_info: { name: "pi", version: "1.2.0", model_info: { name: "zai-org/GLM-5.3-Flash", provider: "synthetic" } },
+    started_at: "2026-11-01T00:00:00Z", finished_at: "2026-11-01T00:01:00Z", verifier_result: { rewards: { reward: 0 } }, exception_info: null };
+  write(join(trial, "result.json"), result); write(join(trial, "config.json"), config);
+  writeFileSync(join(trial, "agent/pi/sessions/session.jsonl"), '{"synthetic":"source"}\n'); writeFileSync(join(trial, "verifier/reward.txt"), "0\n");
+  const trajectory = JSON.parse(readFileSync("test/fixtures/atif/pi/parallel-failure-cache-write.atif.json", "utf8")); trajectory.agent.version = "1.2.0";
+  write(join(trial, "agent/trajectory.json"), trajectory);
+  const run = { run_id: "full", created_at: "2026-11-01T00:00:00Z", model: "zai-org/GLM-5.3-Flash", provider: "zai-org", reasoning_effort: "low", stage: "full", harness_versions: { pi: "1.2.0" }, benchmark_setups: { "terminal-bench-2.1": { commit: "d49e28f1e4ddd13d289e85a5f312a66750951932", network: null } }, price: { input: 0.15, cached_input: 0.03, output: 0.5 } };
+  const fact = { id, trial: "trial-0", task: "adaptive-rejection-sampler", harness: "pi", harness_version: "1.2.0", run_id: "full", benchmark: "terminal-bench-2.1", reused_from: null, reward: 0, exception: null, agent_started: true, meter: { n_calls: 1, last_status: 200 } };
+  const metadata = new Map([["runs/full/run.json", Buffer.from(JSON.stringify(run))], ["runs/full/terminal-bench-2.1/trials-0.jsonl", Buffer.from(JSON.stringify(fact) + "\n")]]);
+  for (const [path, bytes] of metadata) { mkdirSync(join(snapshot, path, ".."), { recursive: true }); writeFileSync(join(snapshot, path), bytes); }
+  const acquisition: LeaderboardAcquisition = { schemaVersion: "ebo.leaderboard-acquisition/v1", source: LEADERBOARD_BUCKET, retrievedAt: "2026-11-07T00:00:00Z", sharing: "restricted", terms: "unstated", attribution: "Synthetic fixtures; source policy by Joël Niklaus / Harness Leaderboard",
+    artifacts: [...metadata].map(([path, bytes]) => ({ remotePath: path, localPath: path, sha256: rawHash(bytes).slice(7), bytes: bytes.length, listedXetHash: null, authority: "protected-leaderboard-record" })) };
+  write(join(snapshot, "acquisition.json"), acquisition);
+  const request: LeaderboardCohortRequest = { schemaVersion: "ebo.leaderboard-cohort-request/v1", policyRevision: LEADERBOARD_PUBLIC_POLICY.revision, snapshotRoot: snapshot, historyCompleteness: "bounded-subset", nativeBindings: [{ factId: id, directory: trial, profileId: listAtifProducerProfiles()[0]!.id }] };
+  return { root, store, snapshot, trial, trajectory, acquisition, request, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+test("protected source records remain distinct from agent-writable logs and preserve relocation identity", () => {
+  const f = fixture();
+  try {
+    const first = readLeaderboardSource(f.snapshot); f.acquisition.artifacts.reverse(); write(join(f.snapshot, "acquisition.json"), f.acquisition);
+    const second = readLeaderboardSource(f.snapshot);
+    assert.equal(first.snapshotDigest, second.snapshotDigest); assert.deepEqual(first.input, second.input);
+    f.acquisition.artifacts[0]!.remotePath = "runs/full/trial/agent/hlb-meter.jsonl"; write(join(f.snapshot, "acquisition.json"), f.acquisition);
+    assert.throws(() => readLeaderboardSource(f.snapshot), /Protected leaderboard sources/u);
+  } finally { f.cleanup(); }
+});
+test("changed or linked acquired source bytes fail the protected readback gate", () => {
+  const f = fixture();
+  try {
+    const path = join(f.snapshot, f.acquisition.artifacts[0]!.localPath), original = readFileSync(path);
+    writeFileSync(path, "{}"); assert.throws(() => readLeaderboardSource(f.snapshot), /source bytes/u);
+    rmSync(path); writeFileSync(join(f.root, "outside.json"), original); symlinkSync(join(f.root, "outside.json"), path);
+    assert.throws(() => readLeaderboardSource(f.snapshot), /traverse links/u);
+  } finally { f.cleanup(); }
+});
+test("HF token patterns are quarantined in text, JSON and binary without retaining matched values in findings", () => {
+  const token = "hf_" + "S".repeat(32);
+  const scan = scanImportedFiles(new Map([["source.json", Buffer.from(JSON.stringify({ notes: token }))], ["media.bin", Buffer.concat([Buffer.from([0, 255]), Buffer.from(token)])]]));
+  assert.equal(scan.status, "quarantined"); assert.equal(scan.findings.length, 2);
+  assert.equal(JSON.stringify(scan).includes(token), false); assert.match(scan.inputDigest, /^sha256:/u);
+});
+test("identical cohort imports reuse byte-identical capture manifests and one execution", { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    const first = await importLeaderboardCohort(f.request, f.store, python), second = await importLeaderboardCohort(f.request, f.store, python);
+    assert.equal(first.status, "imported"); assert.equal(second.status, "imported"); if (first.status !== "imported" || second.status !== "imported") return;
+    assert.equal(first.cohortId, second.cohortId); assert.equal(first.reused, false); assert.equal(second.reused, true); assert.equal(second.admittedExecutions, 1);
+    const read = readLeaderboardCohort(f.store, first.cohortId), member = read.manifest.members[0]!;
+    assert.ok(readFileSync(join(read.root, member.corpusPath, "manifest.json")).equals(readFileSync(join(f.store, "harbor/captures", member.captureRevision.slice(7), "manifest.json"))));
+    f.acquisition.artifacts.reverse(); write(join(f.snapshot, "acquisition.json"), f.acquisition);
+    const reordered = await importLeaderboardCohort(f.request, f.store, python); assert.equal(reordered.status, "imported");
+    if (reordered.status === "imported") assert.equal(reordered.cohortId, first.cohortId);
+  } finally { f.cleanup(); }
+});
+test("ATIF backfills revise capture data while preserving the execution and earlier cohort", { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    const first = await importLeaderboardCohort(f.request, f.store, python); assert.equal(first.status, "imported"); if (first.status !== "imported") return;
+    f.trajectory.steps[0].message = "Synthetic backfill"; write(join(f.trial, "agent/trajectory.json"), f.trajectory);
+    const second = await importLeaderboardCohort({ ...f.request, priorCohortId: first.cohortId }, f.store, python); assert.equal(second.status, "imported"); if (second.status !== "imported") return;
+    const old = readLeaderboardCohort(f.store, first.cohortId), current = readLeaderboardCohort(f.store, second.cohortId);
+    assert.equal(old.manifest.members[0]!.executionId, current.manifest.members[0]!.executionId);
+    assert.notEqual(old.manifest.members[0]!.captureRevision, current.manifest.members[0]!.captureRevision);
+  } finally { f.cleanup(); }
+});
+test("quarantined native revisions retain raw evidence without publishing an import capture", { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    f.trajectory.steps[0].message = "hf_" + "S".repeat(32); write(join(f.trial, "agent/trajectory.json"), f.trajectory);
+    const result = await importLeaderboardCohort(f.request, f.store, python);
+    assert.equal(result.status, "imported"); if (result.status !== "imported") return;
+    assert.equal(result.admittedExecutions, 0); assert.equal(result.cases[0]!.status, "quarantined");
+    assert.equal(existsSync(join(f.store, "harbor/captures")), false); assert.equal(readdirSync(join(f.store, "native-sources")).length, 1);
+  } finally { f.cleanup(); }
+});
+test("missing sources and explicit withdrawals produce new memberships without replacing retained cohorts", { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    const first = await importLeaderboardCohort(f.request, f.store, python); assert.equal(first.status, "imported"); if (first.status !== "imported") return;
+    const withdrawn = await importLeaderboardCohort({ ...f.request, priorCohortId: first.cohortId, withdrawnFactIds: [id] }, f.store, python);
+    assert.equal(withdrawn.status, "imported"); if (withdrawn.status === "imported") { assert.equal(withdrawn.admittedExecutions, 0); assert.equal(withdrawn.cases[0]!.status, "withdrawn"); }
+    rmSync(f.trial, { recursive: true });
+    const missing = await importLeaderboardCohort({ ...f.request, priorCohortId: first.cohortId }, f.store, python);
+    assert.equal(missing.status, "imported"); if (missing.status === "imported") assert.equal(missing.cases[0]!.status, "missing");
+    assert.equal(readLeaderboardCohort(f.store, first.cohortId).manifest.admittedExecutions, 1);
+  } finally { f.cleanup(); }
+});
+
+test("linked regrades occupy one execution and every assessment binds its own scan", { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    const secondId = "22222222-2222-4222-8222-222222222222", regrade = join(f.root, "regrade");
+    const { cpSync } = await import("node:fs"); cpSync(f.trial, regrade, { recursive: true });
+    const result = JSON.parse(readFileSync(join(regrade, "result.json"), "utf8"));
+    result.id = secondId; result.config.source_trial = { type: "hub", action: "regrade", trial_id: id };
+    write(join(regrade, "result.json"), result); write(join(regrade, "config.json"), result.config);
+    const artifact = f.acquisition.artifacts.find(({remotePath}) => remotePath.endsWith(".jsonl"))!;
+    const fact = JSON.parse(readFileSync(join(f.snapshot, artifact.localPath), "utf8")); fact.id = secondId; fact.trial = "regrade-0";
+    const bytes = Buffer.concat([readFileSync(join(f.snapshot, artifact.localPath)), Buffer.from(JSON.stringify(fact) + "\n")]);
+    writeFileSync(join(f.snapshot, artifact.localPath), bytes); artifact.bytes = bytes.length; artifact.sha256 = rawHash(bytes).slice(7); write(join(f.snapshot, "acquisition.json"), f.acquisition);
+    const request = { ...f.request, nativeBindings: [...f.request.nativeBindings, { factId: secondId, directory: regrade, profileId: f.request.nativeBindings[0]!.profileId, originals: [{ sourceReference: id, directory: f.trial }] }] };
+    const imported = await importLeaderboardCohort(request, f.store, python);
+    assert.equal(imported.status, "imported"); if (imported.status !== "imported") return;
+    const retained = readLeaderboardCohort(f.store, imported.cohortId), member = retained.manifest.members[0]!;
+    assert.equal(retained.manifest.admittedExecutions, 1); assert.equal(member.assessments.length, 2);
+    const secondary = member.assessments.find(({factId}) => factId === secondId)!;
+    write(join(f.store, "native-scans", secondary.nativeScanDigest.slice(7), "scan.json"), {});
+    assert.throws(() => readLeaderboardCohort(f.store, imported.cohortId), /native source scan/u);
+  } finally { f.cleanup(); }
+});
+
+test("fact shards reject malformed UTF-8 without replacement-character normalization",()=>{
+ const f=fixture();try{
+  const artifact=f.acquisition.artifacts.find(({remotePath})=>remotePath.endsWith('.jsonl'))!;
+  const bytes=Buffer.concat([Buffer.from('{"run_id":"full","benchmark":"terminal-bench-2.1","task":"'),Buffer.from([255]),Buffer.from('"}\n')]);
+  writeFileSync(join(f.snapshot,artifact.localPath),bytes);artifact.bytes=bytes.length;artifact.sha256=rawHash(bytes).slice(7);write(join(f.snapshot,'acquisition.json'),f.acquisition);
+  assert.throws(()=>readLeaderboardSource(f.snapshot),/encoded data|UTF-8/u);
+ }finally{f.cleanup();}
+});
+test("different operator requests producing one cohort retain independent contexts",{skip:!python},async()=>{
+ const f=fixture();try{
+  const first=await importLeaderboardCohort(f.request,f.store,python),second=await importLeaderboardCohort({...f.request,withdrawnFactIds:['ffffffff-ffff-4fff-8fff-ffffffffffff']},f.store,python);
+  assert.equal(first.status,'imported');assert.equal(second.status,'imported');if(first.status!=='imported'||second.status!=='imported')return;assert.equal(first.cohortId,second.cohortId);
+  assert.equal(readLeaderboardCohort(f.store,first.cohortId).manifest.admittedExecutions,1);
+ }finally{f.cleanup();}
+});
+test("one structurally rejected ATIF source does not abort other selected trials",{skip:!python},async()=>{
+ const f=fixture();try{
+  const {cpSync}=await import('node:fs'),valid=join(f.root,'valid'),secondId='22222222-2222-4222-8222-222222222222';cpSync(f.trial,valid,{recursive:true});
+  const result=JSON.parse(readFileSync(join(valid,'result.json'),'utf8'));result.id=secondId;write(join(valid,'result.json'),result);
+  const artifact=f.acquisition.artifacts.find(({remotePath})=>remotePath.endsWith('.jsonl'))!,fact=JSON.parse(readFileSync(join(f.snapshot,artifact.localPath),'utf8'));fact.id=secondId;fact.trial='valid';
+  const bytes=Buffer.concat([readFileSync(join(f.snapshot,artifact.localPath)),Buffer.from(JSON.stringify(fact)+'\n')]);writeFileSync(join(f.snapshot,artifact.localPath),bytes);artifact.bytes=bytes.length;artifact.sha256=rawHash(bytes).slice(7);write(join(f.snapshot,'acquisition.json'),f.acquisition);
+  f.trajectory.steps='malformed';write(join(f.trial,'agent/trajectory.json'),f.trajectory);
+  const imported=await importLeaderboardCohort({...f.request,nativeBindings:[...f.request.nativeBindings,{...f.request.nativeBindings[0]!,factId:secondId,directory:valid}]},f.store,python);
+  assert.equal(imported.status,'imported');if(imported.status!=='imported')return;assert.equal(imported.admittedExecutions,1);assert.equal(imported.cases.find(({factId})=>factId===id)!.status,'inspect-only');assert.equal(imported.cases.find(({factId})=>factId===secondId)!.status,'imported');
+ }finally{f.cleanup();}
+});
+
+test('metadata key ordering preserves reusable semantic receipts while retaining revised raw sources',{skip:!python},async()=>{
+ const f=fixture();try{
+  const first=await importLeaderboardCohort(f.request,f.store,python);assert.equal(first.status,'imported');if(first.status!=='imported')return;
+  const artifact=f.acquisition.artifacts.find(({remotePath})=>remotePath.endsWith('/run.json'))!,record=JSON.parse(readFileSync(join(f.snapshot,artifact.localPath),'utf8'));
+  const bytes=Buffer.from(JSON.stringify(Object.fromEntries(Object.entries(record).reverse())));writeFileSync(join(f.snapshot,artifact.localPath),bytes);artifact.bytes=bytes.length;artifact.sha256=rawHash(bytes).slice(7);write(join(f.snapshot,'acquisition.json'),f.acquisition);
+  const refreshed=await importLeaderboardCohort(f.request,f.store,python);assert.equal(refreshed.status,'imported');if(refreshed.status!=='imported')return;
+  const a=readLeaderboardCohort(f.store,first.cohortId).manifest,b=readLeaderboardCohort(f.store,refreshed.cohortId).manifest;assert.equal(a.selectionDigest,b.selectionDigest);assert.notEqual(a.sourceSnapshotDigest,b.sourceSnapshotDigest);assert.equal(a.members[0]!.importManifestDigest,b.members[0]!.importManifestDigest);
+ }finally{f.cleanup();}
+});
+
+judgeTest('protected canonical and route aliases reach blinded judges and revise only the derived capture context',{skip:!python},async()=>{
+ const f=fixture();try{
+  const model='zai-org/GLM-5.3-Flash',route=model+':synthetic-provider';
+  const result=JSON.parse(readFileSync(join(f.trial,'result.json'),'utf8'));result.config.agent.model_name='openai/'+model;result.agent_info.model_info.name='openai/'+model;write(join(f.trial,'result.json'),result);write(join(f.trial,'config.json'),result.config);
+  f.trajectory.steps.at(-1).message=`${model} ${route} visible report`;write(join(f.trial,'agent/trajectory.json'),f.trajectory);
+  const artifact=f.acquisition.artifacts.find(({remotePath})=>remotePath.endsWith('/run.json'))!,run=JSON.parse(readFileSync(join(f.snapshot,artifact.localPath),'utf8'));
+  const update=()=>{const bytes=Buffer.from(JSON.stringify(run));writeFileSync(join(f.snapshot,artifact.localPath),bytes);artifact.bytes=bytes.length;artifact.sha256=rawHash(bytes).slice(7);write(join(f.snapshot,'acquisition.json'),f.acquisition);};run.route={model:route};update();
+  const imported=await importLeaderboardCohort(f.request,f.store,python);assert.equal(imported.status,'imported');if(imported.status!=='imported')return;
+  const first=readLeaderboardCohort(f.store,imported.cohortId),member=first.manifest.members[0]!,bundle=join(first.root,member.corpusPath);
+  const {readImportedBehaviorEvidence}=await import('../src/atif-import.js'),{createRetainedStructuralObservationSet}=await import('../src/structural-observations.js'),{runAgentSdkSemanticJudge}=await import('../src/semantic-judge.js'),{probeClaudeAgentSdkCapabilities}=await import('../src/agent-sdk.js');
+  const evidence=await readImportedBehaviorEvidence(bundle),observations=await createRetainedStructuralObservationSet(bundle);assert.ok(evidence.modelAliases!.includes(model));assert.ok(evidence.modelAliases!.includes(route));
+  const event=evidence.dataset.events.findLast(({family,actor})=>family==='message'&&actor.kind==='model')!;let called=false;
+  await runAgentSdkSemanticJudge({bundleRoot:bundle,outputRoot:join(f.root,'judge'),observations,request:{schemaVersion:'ebo.semantic-judge-request/v1',id:'protected-model-alias',behavior:{vocabularyVersion:'1.0.0',categoryId:'verification-completion',dimensionId:'verification-completion'},rubric:{id:'r',version:'1',instructions:'Synthetic blinding check'},evaluator:{provider:'anthropic',model:'synthetic-judge',effort:'low'},selection:{eventIds:[event.id],structuralObservationIds:[],includeOutcomeObservations:false},limits:{maxEvidenceItems:8,maxRecordChars:8000,maxInputChars:32000,maxOutputChars:8192,maxCitations:4,maxWallClockMs:5000,maxTurns:1},blinding:{evaluatedModelIdentity:'redact'}},backend:{id:'claude-agent-sdk',version:probeClaudeAgentSdkCapabilities().sdkVersion,run:async(prompt)=>{called=true;assert.equal(prompt.includes(model),false);assert.match(prompt,/visible report/u);return{status:'failed',kind:'provider',message:'Synthetic backend; no model call',raw:{}};}}});assert.equal(called,true);
+  run.route.model=model+':updated-provider';update();const refreshed=await importLeaderboardCohort(f.request,f.store,python);assert.equal(refreshed.status,'imported');if(refreshed.status!=='imported')return;
+  const next=readLeaderboardCohort(f.store,refreshed.cohortId).manifest.members[0]!;assert.equal(next.executionId,member.executionId);assert.notEqual(next.captureRevision,member.captureRevision);assert.equal(readLeaderboardCohort(f.store,imported.cohortId).manifest.members[0]!.captureRevision,member.captureRevision);
+ }finally{f.cleanup();}
+});
+
+test('UUID case variants cannot bypass withdrawals, selection or duplicate binding checks',{skip:!python},async()=>{
+ const f=fixture();try{
+  const uuid='de3da3ea-edda-41c1-afcf-40f93cb15134';const result=JSON.parse(readFileSync(join(f.trial,'result.json'),'utf8'));result.id=uuid;write(join(f.trial,'result.json'),result);
+  const artifact=f.acquisition.artifacts.find(({remotePath})=>remotePath.endsWith('.jsonl'))!,fact=JSON.parse(readFileSync(join(f.snapshot,artifact.localPath),'utf8'));fact.id=uuid;const bytes=Buffer.from(JSON.stringify(fact)+'\n');writeFileSync(join(f.snapshot,artifact.localPath),bytes);artifact.bytes=bytes.length;artifact.sha256=rawHash(bytes).slice(7);write(join(f.snapshot,'acquisition.json'),f.acquisition);
+  f.request.nativeBindings[0]!.factId=uuid.toUpperCase();const excluded=await importLeaderboardCohort({...f.request,withdrawnFactIds:[uuid.toUpperCase()]},f.store,python);assert.equal(excluded.status,'imported');if(excluded.status!=='imported')return;assert.equal(excluded.admittedExecutions,0);assert.equal(excluded.cases[0]!.status,'withdrawn');
+  const imported=await importLeaderboardCohort(f.request,f.store,python);assert.equal(imported.status,'imported');if(imported.status!=='imported')return;assert.equal(imported.admittedExecutions,1);f.request.nativeBindings[0]!.factId=uuid;const canonical=await importLeaderboardCohort(f.request,f.store,python);assert.equal(canonical.status,'imported');if(canonical.status==='imported')assert.equal(canonical.cohortId,imported.cohortId);
+  await assert.rejects(importLeaderboardCohort({...f.request,nativeBindings:[...f.request.nativeBindings,{...f.request.nativeBindings[0]!,factId:uuid.toUpperCase()}]},f.store,python),/unique bounded trial/u);
+ }finally{f.cleanup();}
+});
+
+test('completed cohorts require intact content-addressed acquisition contexts', { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    const imported = await importLeaderboardCohort(f.request, f.store, python);
+    assert.equal(imported.status, 'imported'); if (imported.status !== 'imported') return;
+    const contexts = join(f.store, 'contexts', imported.cohortId.slice(7));
+    const acquisitionRoot = join(contexts, readdirSync(contexts)[0]!);
+    const context = join(acquisitionRoot, readdirSync(acquisitionRoot)[0]!);
+    for (const path of ['source.json', 'request.json', 'acquisition-scan.json']) {
+      const file = join(context, path), original = readFileSync(file);
+      rmSync(file);
+      assert.throws(() => readLeaderboardCohort(f.store, imported.cohortId));
+      writeFileSync(file, original);
+      const value = JSON.parse(original.toString('utf8'));
+      if (path === 'source.json') value.attribution = 'Changed attribution';
+      else if (path === 'request.json') value.factIds = [];
+      else value.inputDigest = `sha256:${'f'.repeat(64)}`;
+      write(file, value);
+      assert.throws(() => readLeaderboardCohort(f.store, imported.cohortId), /context identity/u);
+      writeFileSync(file, original);
+    }
+    assert.equal(readLeaderboardCohort(f.store, imported.cohortId).manifest.admittedExecutions, 1);
+    rmSync(contexts, { recursive: true });
+    assert.throws(() => readLeaderboardCohort(f.store, imported.cohortId));
+  } finally { f.cleanup(); }
+});
+
+test('a context publication failure leaves no completed cohort', { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    mkdirSync(f.store); writeFileSync(join(f.store, 'contexts'), 'blocked context destination');
+    await assert.rejects(importLeaderboardCohort(f.request, f.store, python));
+    assert.equal(existsSync(join(f.store, 'cohorts')), false);
+  } finally { f.cleanup(); }
+});
+
+test('canonical UUID ordering preserves identity for multiple unselected bindings', { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    const bindings = ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'].map((factId) => ({ ...f.request.nativeBindings[0]!, factId }));
+    const first = await importLeaderboardCohort({ ...f.request, nativeBindings: bindings }, f.store, python);
+    const second = await importLeaderboardCohort({ ...f.request, nativeBindings: [{ ...bindings[0]!, factId: bindings[0]!.factId.toUpperCase() }, bindings[1]!] }, f.store, python);
+    assert.equal(first.status, 'imported'); assert.equal(second.status, 'imported');
+    if (first.status === 'imported' && second.status === 'imported') {
+      assert.equal(first.cohortId, second.cohortId);
+      assert.equal(second.reused, true);
+      assert.deepEqual(second.cases.map(({ factId }) => factId), bindings.map(({ factId }) => factId).sort());
+    }
+  } finally { f.cleanup(); }
+});
+
+
+test('rejected context appends preserve an existing cohort at the retained inventory limit', { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    const request = { ...f.request, nativeBindings: [] };
+    const first = await importLeaderboardCohort(request, f.store, python);
+    assert.equal(first.status, 'imported'); if (first.status !== 'imported') return;
+    const contexts = join(f.store, 'contexts', first.cohortId.slice(7));
+    const acquisitionRoot = join(contexts, readdirSync(contexts)[0]!);
+    const context = join(acquisitionRoot, readdirSync(acquisitionRoot)[0]!);
+    const source = readFileSync(join(context, 'source.json'));
+    const receipt = JSON.parse(readFileSync(join(context, 'request.json'), 'utf8'));
+    const scan = JSON.parse(readFileSync(join(context, 'acquisition-scan.json'), 'utf8'));
+    const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    for (let n = 1; n < 128; n++) {
+      const request = { ...receipt, withdrawnFactIds: [uuid(n)] };
+      const leaf = join(acquisitionRoot, metadataHash({ request, acquisitionScan: scan }).slice(7));
+      mkdirSync(leaf);
+      writeFileSync(join(leaf, 'source.json'), source);
+      write(join(leaf, 'request.json'), request); write(join(leaf, 'acquisition-scan.json'), scan);
+    }
+    readLeaderboardCohort(f.store, first.cohortId);
+    await assert.rejects(importLeaderboardCohort({ ...request, withdrawnFactIds: [uuid(128)] }, f.store, python), /context count exceeds/u);
+    assert.equal(readdirSync(acquisitionRoot).length, 128);
+    readLeaderboardCohort(f.store, first.cohortId);
+    const reused = await importLeaderboardCohort(request, f.store, python);
+    assert.equal(reused.status, 'imported'); if (reused.status === 'imported') assert.equal(reused.reused, true);
+  } finally { f.cleanup(); }
+});
+
+test("a trial version disagreement stays readable without a producer profile", { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    delete f.request.nativeBindings[0]!.profileId;
+    const resultPath = join(f.trial, "result.json"), result = JSON.parse(readFileSync(resultPath, "utf8"));
+    result.agent_info.version = "9.9.9";write(resultPath, result);
+    f.trajectory.agent.version = "9.9.9";write(join(f.trial, "agent/trajectory.json"), f.trajectory);
+    const imported = await importLeaderboardCohort(f.request, f.store, python);
+    assert.equal(imported.status, "imported");if (imported.status !== "imported") return;
+    assert.equal(imported.admittedExecutions, 1);
+    assert.equal(imported.cases[0]!.reason, "HARNESS_VERSION_CONFLICT");
+    const retained = readLeaderboardCohort(f.store, imported.cohortId);
+    const evidence = await (await import("../src/atif-v2.js")).readImportedBehaviorEvidenceV2(join(retained.root, retained.manifest.members[0]!.corpusPath));
+    assert.equal(evidence.dataset.operations.length, 2);assert.equal(evidence.dataset.sources[0]!.producerProfile.status, "unknown");
+  } finally { f.cleanup(); }
+});

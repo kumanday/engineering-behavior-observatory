@@ -1,3 +1,5 @@
+import { currentStudyRuntime, lockedRuntimePython, recordRuntimeProbe } from "../runtime-context.js";
+import { frozenPythonEnvironment } from "../runtime-bootstrap.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, closeSync, mkdtempSync, openSync, statSync, unlinkSync, writeSync } from "node:fs";
@@ -7,9 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { HARBOR_ADAPTER_PROTOCOL_VERSION, HARBOR_ADAPTER_SCRIPT } from "./adapter-script.js";
 
-/** Exact-version pin of the official Harbor package used for task semantics. */
-export const HARBOR_PACKAGE_PIN = "0.24.0";
-/** Task schema version observed at the pinned Harbor release (informational; Harbor validates it). */
+/** Task schema version used by EBO conformance fixtures (informational; Harbor validates it). */
 export const HARBOR_TASK_SCHEMA_VERSION = "1.4";
 /** Environment variable that overrides Python interpreter resolution. */
 export const EBO_HARBOR_PYTHON = "EBO_HARBOR_PYTHON";
@@ -113,7 +113,7 @@ async function defaultPython(arguments_: readonly string[]): Promise<AdapterRunR
   const [command, ...rest] = arguments_;
   if (command === undefined) throw new HarborAdapterError("adapter-protocol", "Python interpreter could not be resolved.");
   return new Promise<AdapterRunResult>((resolvePromise, rejectPromise) => {
-    const child = spawn(command, rest, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, rest, { stdio: ["ignore", "pipe", "pipe"], env: frozenPythonEnvironment() });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => {
@@ -128,6 +128,7 @@ async function defaultPython(arguments_: readonly string[]): Promise<AdapterRunR
 }
 
 function candidateInterpreters(): string[] {
+  if (currentStudyRuntime()?.launch.roots.some((root) => root.id === "harbor" && root.source === "pypi")) return [lockedRuntimePython()];
   const candidates: string[] = [];
   const override = process.env[EBO_HARBOR_PYTHON];
   if (override !== undefined && override !== "") candidates.push(override);
@@ -225,14 +226,8 @@ export async function createHarborAdapter(python: AdapterPython = defaultPython)
         defaultTaskSchemaVersion: String(parsed.defaultTaskSchemaVersion ?? ""),
         pythonVersion: String(parsed.pythonVersion ?? ""),
       };
-      if (info.harborVersion !== HARBOR_PACKAGE_PIN) {
-        throw new HarborAdapterError(
-          "harbor-version-mismatch",
-          `Pinned Harbor ${HARBOR_PACKAGE_PIN} is required; "${candidate}" provides ${info.harborVersion}. ` +
-          'Install it with: python3 -m venv .harbor-venv && ./.harbor-venv/bin/pip install harbor==' + HARBOR_PACKAGE_PIN +
-          ` (or point ${EBO_HARBOR_PYTHON} at an existing interpreter).`,
-        );
-      }
+      if (!info.harborVersion) throw new HarborAdapterError("adapter-protocol", "Harbor version probe returned no package version.");
+      if (currentStudyRuntime()?.launch.roots.some((root) => root.id === "harbor" && root.source === "pypi")) await recordRuntimeProbe("harbor", info.harborVersion, "package-metadata");
       if (Number(parsed.protocol) !== HARBOR_ADAPTER_PROTOCOL_VERSION) {
         throw new HarborAdapterError("adapter-protocol", `Harbor adapter protocol ${String(parsed.protocol)} is not ${HARBOR_ADAPTER_PROTOCOL_VERSION}.`);
       }
@@ -241,14 +236,12 @@ export async function createHarborAdapter(python: AdapterPython = defaultPython)
       break;
     } catch (error) {
       lastError = error;
-      if (error instanceof HarborAdapterError && error.kind === "harbor-version-mismatch") throw error;
     }
   }
   if (interpreter === undefined) {
     throw new HarborAdapterError(
       "harbor-unavailable",
-      `No Python interpreter with harbor==${HARBOR_PACKAGE_PIN} was found. ` +
-      `Install it with: python3 -m venv .harbor-venv && ./.harbor-venv/bin/pip install harbor==${HARBOR_PACKAGE_PIN}. ` +
+      `No usable Harbor Python interpreter was found. Prepare a study runtime or point ${EBO_HARBOR_PYTHON} at an installed Harbor environment. ` +
       `Underlying failure: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
     );
   }

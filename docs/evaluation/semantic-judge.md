@@ -213,3 +213,11 @@ an output survive, while exit codes, paths and other short fields stay intact;
 a structurally oversized record falls back to a marked excerpt. Native captures
 and citation digests are unchanged. A failed Codex judge turn records its
 terminal status and error.
+
+Imported evidence supplies its model aliases through the retained-evidence
+boundary. Pi collects trajectory-agent names, per-step model names and response
+model aliases, including child documents. Blinding replaces the complete known
+alias set together, using literal matching and longest aliases first. It fails
+closed when the alias inventory exceeds its bounds. Source-context importers
+can add their retained run/config/result aliases through the same boundary.
+A native run's primary model identifier keeps its existing blinding behavior.

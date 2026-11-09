@@ -1,0 +1,40 @@
+[
+  {
+    "type": "system",
+    "subtype": "init",
+    "apiKeySource": "env",
+    "cwd": "/workspace",
+    "session_id": "authored-session",
+    "model": "authored/model",
+    "permissionMode": "default"
+  },
+  {
+    "type": "user",
+    "session_id": "authored-session",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Read fixture.txt."
+        }
+      ]
+    }
+  },
+  {
+    "type": "tool_call",
+    "subtype": "completed",
+    "session_id": "authored-session",
+    "call_id": "call-1",
+    "model_call_id": "m1",
+    "timestamp_ms": 1794009600000,
+    "tool_call": {
+      "readToolCall": {
+        "args": {
+          "path": "fixture.txt"
+        },
+        "result": "Authored file content."
+      }
+    }
+  }
+]

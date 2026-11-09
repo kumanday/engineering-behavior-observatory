@@ -1,6 +1,16 @@
 #!/usr/bin/env node
+import type { StudyRuntimeBinding } from "./runtime-context.js";
+import { runRuntimeCommandLine } from "./runtime-cli.js";
+import { runAnalysisV2Command } from "./analysis-v2-cli.js";
 
+import { importLeaderboardCohort, readLeaderboardCohort, type LeaderboardCohortRequest } from "./leaderboard-import.js";
+import { parseImportJson, readClosedImportFile, type Hash as ImportHash } from "./leaderboard-source.js";
+import { redactSecrets } from "./redaction.js";
 import { createHash } from "node:crypto";
+import { readAtifFile } from "./atif-reader.js";
+import { importAtifFile } from "./atif-import.js";
+import { listAtifProfilesV2 } from "./atif-producers-v2.js";
+import { importHarborTrial, inspectHarborTrial, type HarborOriginalBinding } from "./harbor-import.js";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -75,16 +85,25 @@ import {
 } from "./scheduler.js";
 
 const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <command> ...
+       ebo runtime <list|freeze|inspect|check|verify|verification|bind-queue> ...
        ebo matrix compile <experiment.json> <bundle-root> <queue.json> [--freeze-locator <task-id>=<path>]
        ebo queue inspect <queue.json>
        ebo queue validate <queue.json> [experiment.json] [--bundle-root <bundle-root>]
        ebo harbor <inspect|prepare|admit|freeze|status|doctor|compile|convert-legacy|environment|run> ...
-       ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
-       ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
-       ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
-       ebo devin run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
-       ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
-       ebo pi run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
+       ebo v2 inspect <retained-bundle> <new-directory>
+       ebo v2 prepare-judge <retained-bundle> <new-directory> <request.json>
+       ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...
+       ebo atif overlays
+       ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--profile <overlay-context-id>] [--python <executable>]
+       ebo atif import-leaderboard <cohort-request.json> <store> [--python <executable>]
+       ebo atif read-leaderboard <store> <cohort-digest>
+       ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--profile <overlay-context-id>] [--python <executable>]
+       ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
+       ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
+       ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
+       ebo devin run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
+       ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
+       ebo pi run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo export create <run-bundle-root> <policy.json> <export-root>
        ebo corpus build <corpus-root> <index.jsonl>
        ebo corpus query <index.jsonl> [--kind|--run|--attempt|--task|--model|--harness|--assessment-mode|--terminal|--failure-class|--verifier-status|--capture|--export-status|--sharing-class <value>]
@@ -126,8 +145,15 @@ export function main(
   write: (message: string) => void = (message) => {
     process.stdout.write(message);
   },
-  dependencies: { semanticJudgeBackend?: SemanticJudgeBackend } = {},
+  dependencies: { semanticJudgeBackend?: SemanticJudgeBackend; runtime?: StudyRuntimeBinding } = {},
 ): number | Promise<number> {
+  const runtimeFlag = args.indexOf("--runtime-study");
+  if (runtimeFlag !== -1) {
+    const studyRoot = args[runtimeFlag + 1];
+    if (!studyRoot || studyRoot.startsWith("--") || args.lastIndexOf("--runtime-study") !== runtimeFlag) { write("--runtime-study requires one study root.\n"); return 1; }
+    dependencies = {...dependencies, runtime: {studyRoot: resolve(studyRoot)}};
+    args = [...args.slice(0, runtimeFlag), ...args.slice(runtimeFlag + 2)];
+  }
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
     write(usage);
     return 0;
@@ -140,6 +166,12 @@ export function main(
   if (args[0] === "harbor") {
     return runHarborCommand(args.slice(1), write);
   }
+
+  if (args[0] === "runtime") return runRuntimeCommandLine(args.slice(1), write);
+
+  if (args[0] === "v2") return runAnalysisV2Command(args.slice(1), write);
+
+  if (args[0] === "atif") return runAtifInspection(args.slice(1), write);
 
   if ((args[0] === "matrix" && args[1] === "compile") || args[0] === "compile") {
     return compileQueue(args[0] === "matrix" ? args.slice(2) : args.slice(1), write);
@@ -165,24 +197,24 @@ export function main(
   }
 
   if (args[0] === "agent-sdk" && args[1] === "run") {
-    return runAgentSdkCommand(args.slice(2), write);
+    return runAgentSdkCommand(args.slice(2), write, dependencies.runtime);
   }
 
   if (args[0] === "codex" && args[1] === "run") {
-    return runCodexCommand(args.slice(2), write);
+    return runCodexCommand(args.slice(2), write, dependencies.runtime);
   }
 
   if (args[0] === "cursor" && args[1] === "run") {
-    return runCursorSdkCommand(args.slice(2), write);
+    return runCursorSdkCommand(args.slice(2), write, dependencies.runtime);
   }
 
-  if (args[0] === "factory" && args[1] === "run") return runFactoryCommand(args.slice(2), write);
+  if (args[0] === "factory" && args[1] === "run") return runFactoryCommand(args.slice(2), write, dependencies.runtime);
   if (args[0] === "devin" && args[1] === "run") {
-    return runDevinCommand(args.slice(2), write);
+    return runDevinCommand(args.slice(2), write, dependencies.runtime);
   }
 
   if (args[0] === "pi" && args[1] === "run") {
-    return runPiCommand(args.slice(2), write);
+    return runPiCommand(args.slice(2), write, dependencies.runtime);
   }
 
   if (args[0] === "export" && args[1] === "create") {
@@ -299,7 +331,7 @@ export function main(
   }
 
   if (args[0] === "occurrences" && args[1] === "rate") {
-    return runOccurrenceRatingCommand(args.slice(2), write);
+    return runOccurrenceRatingCommand(args.slice(2), write, dependencies.runtime);
   }
 
   if (args[0] === "claims" && args[1] === "check") {
@@ -413,6 +445,7 @@ export function main(
     process.on("SIGTERM", abort);
     try {
       return runAgentSdkSemanticJudge({
+        runtime: dependencies.runtime,
         bundleRoot,
         observations: readJson(observationsPath) as StructuralObservationSet,
         request: readJson(requestPath) as SemanticJudgeRequest,
@@ -462,7 +495,7 @@ export function main(
       }
       const validation = validateArtifact(artifact, document);
       return document !== undefined && typeof document === "object" && document !== null
-        && (document as { schemaVersion?: unknown }).schemaVersion === "run-manifest/v1"
+        && ["run-manifest/v1", "run-manifest/v2"].includes(String((document as { schemaVersion?: unknown }).schemaVersion))
         ? [...validation, ...validateRunManifestEvidence(artifact, document, dirname(artifact))]
         : validation;
     });
@@ -471,7 +504,7 @@ export function main(
           || (document as { schemaVersion?: unknown }).schemaVersion !== "export-manifest/v1") continue;
       const bundleId = (document as { bundleId?: unknown }).bundleId;
       const containingEntry = artifacts.find(({ document: candidate }) => candidate !== undefined && typeof candidate === "object" && candidate !== null
-        && (candidate as { schemaVersion?: unknown }).schemaVersion === "run-manifest/v1"
+        && ["run-manifest/v1", "run-manifest/v2"].includes(String((candidate as { schemaVersion?: unknown }).schemaVersion))
         && (candidate as { bundleId?: unknown }).bundleId === bundleId);
       errors.push(...validateExportManifest(
         artifact,
@@ -493,6 +526,103 @@ export function main(
 
   process.stderr.write(`Unknown argument: ${args[0]}\n`);
   return 1;
+}
+
+async function runAtifInspection(args: string[], write: (message: string) => void): Promise<number> {
+  if (args[0] === "import-leaderboard" || args[0] === "read-leaderboard") {
+    const command = args[0], first = args[1], second = args[2];
+    if (!first || !second || command === "read-leaderboard" && args.length !== 3
+        || command === "import-leaderboard" && !(args.length === 3 || args.length === 5 && args[3] === "--python" && !args[4]!.startsWith("--"))) {
+      write("Usage: ebo atif import-leaderboard <cohort-request.json> <store> [--python <executable>] | read-leaderboard <store> <cohort-digest>\n"); return 1;
+    }
+    try {
+      if (command === "read-leaderboard") { write(`${JSON.stringify(readLeaderboardCohort(first, second as ImportHash).manifest, null, 2)}\n`); return 0; }
+      const path = resolve(first), base = dirname(path);
+      const request = parseImportJson(readClosedImportFile(base, basename(path), 1024 * 1024)) as unknown as LeaderboardCohortRequest;
+      const errors = validateArtifact("Leaderboard cohort request", request);
+      if (errors.length) throw new Error(errors[0]!.message);
+      const resolved: LeaderboardCohortRequest = { ...request, snapshotRoot: resolve(base, request.snapshotRoot), nativeBindings: request.nativeBindings.map((binding) => ({ ...binding,
+        directory: resolve(base, binding.directory), originals: binding.originals?.map((original) => ({ ...original, directory: resolve(base, original.directory) })) })) };
+      const result = await importLeaderboardCohort(resolved, second, args[4]);
+      write(`${JSON.stringify(result, null, 2)}\n`); return result.status === "imported" ? 0 : 1;
+    } catch (error) { write(`Leaderboard import failed: ${redactSecrets(error instanceof Error ? error.message : String(error)).text}\n`); return 1; }
+  }
+  if (args[0] === "import-harbor" || args[0] === "inspect-harbor") {
+    const importing = args[0] === "import-harbor";
+    const directory = args[1], store = importing ? args[2] : undefined;
+    const flags = args.slice(importing ? 3 : 2), values = new Map<string, string>();
+    if (!directory || importing && !store || flags.length % 2) {
+      write("Usage: ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--profile <overlay-context-id>] [--python <executable>] [--originals <bindings.json>]\n"); return 1;
+    }
+    for (let index = 0; index < flags.length; index += 2) {
+      const flag = flags[index]!, value = flags[index + 1]!;
+      if (!["--namespace", "--profile", "--python", "--originals"].includes(flag) || values.has(flag) || value.startsWith("--")) {
+        write("Harbor import options require unique recognized flags and values.\n"); return 1;
+      }
+      values.set(flag, value);
+    }
+    const namespace = values.get("--namespace");
+    const profile = listAtifProfilesV2().find(({ id }) => id === values.get("--profile"));
+    if (!namespace) { write("Harbor import requires --namespace. Producer metadata is read from the document.\n"); return 1; }
+    try {
+      const document = values.has("--originals") ? readJson(values.get("--originals")!) : [];
+      if (!Array.isArray(document) || document.some((value) => value === null || typeof value !== "object"
+          || typeof value.sourceReference !== "string" || typeof value.directory !== "string")) throw new Error("Original bindings require an array of sourceReference/directory records.");
+      const options = { directory, namespace, pythonExecutable: values.get("--python"), originals: document as HarborOriginalBinding[] };
+      const result = importing ? await importHarborTrial({ ...options, store: store!, producer: profile?.producer }) : await inspectHarborTrial(options);
+      const inspection = result.inspection;
+      const status = "status" in result ? result.status : inspection.status;
+      write(`${JSON.stringify({ status, executionId: inspection.execution?.id,
+        sourceCaptureDigest: inspection.captureRevision, ...( "binding" in result && result.binding !== undefined ? { captureRevision: result.binding.captureRevision, inspectionDigest: result.inspectionDigest } : {}), assessmentId: inspection.assessment?.id, snapshotDigest: inspection.snapshotDigest,
+        diagnostics: inspection.diagnostics, ...( "bundleRoot" in result ? { bundleRoot: result.bundleRoot, reused: result.reused } : {}) }, null, 2)}\n`);
+      return status === (importing ? "imported" : "eligible") ? 0 : 1;
+    } catch (error) { write(`Harbor source import failed: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
+  }
+  if (args[0] === "profiles" && args.length === 2 && args[1] === "--v2") {
+    write(`${JSON.stringify(listAtifProfilesV2(), null, 2)}\n`); return 0;
+  }
+  if (["profiles", "overlays"].includes(args[0]!) && args.length === 1) {
+    write(`${JSON.stringify(listAtifProfilesV2(), null, 2)}\n`); return 0;
+  }
+  if (args[0] === "import") {
+    const [_, sourcePath, destination, ...flags] = args;
+    const values = new Map<string, string>();
+    if (!sourcePath || !destination || flags.length % 2) { write("Usage: ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--profile <overlay-context-id>] [--python <executable>]\n"); return 1; }
+    for (let index = 0; index < flags.length; index += 2) {
+      const flag = flags[index]!, value = flags[index + 1]!;
+      if (!["--run", "--attempt", "--profile", "--python"].includes(flag) || values.has(flag) || value.startsWith("--")) {
+        write("ATIF import requires unique, recognized options with values.\n"); return 1;
+      }
+      values.set(flag, value);
+    }
+    const profile = listAtifProfilesV2().find(({ id }) => id === values.get("--profile"));
+    if (!values.has("--run") || !values.has("--attempt")) { write("ATIF import requires --run and --attempt. Producer metadata is read from the document.\n"); return 1; }
+    try {
+      const result = await importAtifFile({ sourcePath, destination, runId: values.get("--run")!, attemptId: values.get("--attempt")!,
+        producer: profile?.producer, pythonExecutable: values.get("--python") });
+      write(`${JSON.stringify({ destination, reused: result.reused, qualification: result.manifest.qualification, mapping: result.evidence.mapping }, null, 2)}\n`);
+      return 0;
+    } catch (error) { write(`ATIF import failed: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
+  }
+  if (args[0] !== "inspect" || args[1] === undefined || args[1].startsWith("--")) {
+    write("Usage: ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...\n");
+    return 1;
+  }
+  let pythonExecutable: string | undefined;
+  const retainedFiles: string[] = [];
+  for (let index = 2; index < args.length; index += 2) {
+    const flag = args[index], value = args[index + 1];
+    if (value === undefined || value.startsWith("--") || !["--python", "--retain"].includes(flag!)) {
+      write("ATIF inspection requires a value for each --python or --retain option.\n"); return 1;
+    }
+    if (flag === "--python") {
+      if (pythonExecutable !== undefined) { write("ATIF inspection accepts one Python executable.\n"); return 1; }
+      pythonExecutable = value;
+    } else retainedFiles.push(value);
+  }
+  const { inspection } = await readAtifFile(args[1], { pythonExecutable, retainedFiles });
+  write(`${JSON.stringify(inspection, null, 2)}\n`);
+  return inspection.structural.status === "valid" && inspection.versionPolicy.status === "supported" ? 0 : 1;
 }
 
 async function runAggregationCommand(args: string[], write: (message: string) => void): Promise<number> {
@@ -786,7 +916,7 @@ async function runClaimCheckCommand(args: string[], write: (message: string) => 
   }
 }
 
-async function runOccurrenceRatingCommand(args: string[], write: (message: string) => void): Promise<number> {
+async function runOccurrenceRatingCommand(args: string[], write: (message: string) => void, runtime?: StudyRuntimeBinding): Promise<number> {
   const usage = "Usage: ebo occurrences rate <run-bundle-root> <observations.json> <output.json> --provider <typesafe|fireworks> [--model <id>] [--choice-confidence <0-1>] [--noul-margin <0-0.5>] [--fallback-model <codex-model> [--fallback-effort <effort>]]\n";
   const [bundleRoot, observationsPath, outputPath, ...flags] = args;
   const options: Record<string, string> = {};
@@ -820,9 +950,13 @@ async function runOccurrenceRatingCommand(args: string[], write: (message: strin
     const ratings = await rateRetainedOccurrences(bundleRoot, observations,
       { provider: provider as DecisionProviderId, ...(options["--model"] === undefined ? {} : { model: options["--model"] }) },
       { policy,
-        ...(options["--fallback-model"] === undefined ? {} : { fallback: { model: options["--fallback-model"], effort: (options["--fallback-effort"] ?? "medium") as CodexReasoningEffort } }),
+        ...(options["--fallback-model"] === undefined ? {} : { fallback: { runtime, model: options["--fallback-model"], effort: (options["--fallback-effort"] ?? "medium") as CodexReasoningEffort } }),
         onDecision: (record, occurrenceId) => appendFileSync(partialPath, `${JSON.stringify({ occurrenceId, record })}\n`, { mode: 0o600 }),
-        onFallback: (record) => appendFileSync(partialPath, `${JSON.stringify({ fallback: record })}\n`, { mode: 0o600 }) });
+        onFallback: (record) => {
+          appendFileSync(partialPath, `${JSON.stringify({ fallback: record })}\n`, { mode: 0o600 });
+          const warnings = record.raw && typeof record.raw === "object" ? (record.raw as {runtime?: {warnings?: unknown}}).runtime?.warnings : undefined;
+          if (Array.isArray(warnings)) for (const warning of warnings) if (typeof warning === "string") write(`Warning: ${warning}\n`);
+        } });
     await writeObservationReport(outputPath, ratings, bundleRoot);
     rmSync(partialPath, { force: true });
     const { coverage } = ratings;
@@ -877,8 +1011,9 @@ function observationFileName(runId: string, attemptId: string): string {
 async function runAgentSdkCommand(
   args: string[],
   write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
 ): Promise<number> {
-  const agentSdkRunUsage = "Usage: ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n";
+  const agentSdkRunUsage = "Usage: ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
   const positional: string[] = [];
   let workspaceRoot: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -899,6 +1034,7 @@ async function runAgentSdkCommand(
   }
   try {
     const summary = await runAgentSdkQueueEntry({
+      runtime,
       bundleRoot,
       queuePath,
       runId,
@@ -916,8 +1052,9 @@ async function runAgentSdkCommand(
 async function runCodexCommand(
   args: string[],
   write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
 ): Promise<number> {
-  const commandUsage = "Usage: ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n";
+  const commandUsage = "Usage: ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
   const positional: string[] = [];
   let workspaceRoot: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -942,6 +1079,7 @@ async function runCodexCommand(
   process.on("SIGTERM", abort);
   try {
     const summary = await runCodexQueueEntry({
+      runtime,
       bundleRoot,
       queuePath,
       runId,
@@ -963,8 +1101,9 @@ async function runCodexCommand(
 async function runFactoryCommand(
   args: string[],
   write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
 ): Promise<number> {
-  const commandUsage = "Usage: ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n";
+  const commandUsage = "Usage: ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
   const positional: string[] = [];
   let workspaceRoot: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -989,6 +1128,7 @@ async function runFactoryCommand(
   process.on("SIGTERM", abort);
   try {
     const summary = await runFactoryQueueEntry({
+      runtime,
       bundleRoot,
       queuePath,
       runId,
@@ -1010,8 +1150,9 @@ async function runFactoryCommand(
 async function runDevinCommand(
   args: string[],
   write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
 ): Promise<number> {
-  const commandUsage = "Usage: ebo devin run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n";
+  const commandUsage = "Usage: ebo devin run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
   const positional: string[] = [];
   let workspaceRoot: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -1036,6 +1177,7 @@ async function runDevinCommand(
   process.on("SIGTERM", abort);
   try {
     const summary = await runDevinQueueEntry({
+      runtime,
       bundleRoot,
       queuePath,
       runId,
@@ -1057,8 +1199,9 @@ async function runDevinCommand(
 async function runCursorSdkCommand(
   args: string[],
   write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
 ): Promise<number> {
-  const commandUsage = "Usage: ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n";
+  const commandUsage = "Usage: ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
   const positional: string[] = [];
   let workspaceRoot: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -1083,6 +1226,7 @@ async function runCursorSdkCommand(
   process.on("SIGTERM", abort);
   try {
     const summary = await runCursorSdkQueueEntry({
+      runtime,
       bundleRoot,
       queuePath,
       runId,
@@ -1104,8 +1248,9 @@ async function runCursorSdkCommand(
 async function runPiCommand(
   args: string[],
   write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
 ): Promise<number> {
-  const commandUsage = "Usage: ebo pi run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n";
+  const commandUsage = "Usage: ebo pi run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
   const positional: string[] = [];
   let workspaceRoot: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -1130,6 +1275,7 @@ async function runPiCommand(
   process.on("SIGTERM", abort);
   try {
     const summary = await runPiQueueEntry({
+      runtime,
       bundleRoot,
       queuePath,
       runId,
@@ -1438,7 +1584,7 @@ async function harborDoctor(write: (message: string) => void): Promise<number> {
     const info = JSON.parse(stdout) as { smol: string; host: string; bundled: boolean; libkrunSha256: string | null };
     write(`Smol SDK: ${info.smol}; host: ${info.host}; bundled libkrun SHA-256: ${info.libkrunSha256 ?? "missing"}; bundled library selected: ${info.bundled}\n`);
     write("This checks installation only. Environment preparation verifies the frozen library/image bindings; live conformance is separate.\n");
-    return info.smol === "1.26.1" && info.host === "Darwin/arm64" && info.bundled && info.libkrunSha256 !== null ? 0 : 1;
+    return info.host === "Darwin/arm64" && info.bundled && info.libkrunSha256 !== null ? 0 : 1;
   } catch (error) {
     write(`${error instanceof Error ? error.message : "Harbor adapter is unavailable."}\n`);
     return 1;

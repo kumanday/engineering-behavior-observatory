@@ -1,11 +1,8 @@
 # DeepSeek Harness adapter
 
-EBO drives DeepSeek Harness out of process through the pinned public package
-roots `@deepseek-ai/dsh-sdk-client@0.2.0-rc.2` and
-`@deepseek-ai/dsh-sdk-protocol@0.2.0-rc.2`. It does not import source modules,
+EBO drives DeepSeek Harness out of process through the official public client and protocol packages. Freeze the `deepseek-harness` role using the [study runtime workflow](../reference/study-runtimes.md); the lock covers the runtime, client and protocol together. It does not import source modules,
 embed the agent loop, or implement JSON-RPC framing, correlation,
-subscriptions, or process teardown. These pins follow upstream's release-candidate
-channel.
+subscriptions, or process teardown. Opt into prereleases explicitly when the selected upstream channel requires them.
 
 The upstream contracts are the official
 [TypeScript client](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sdk/client/README.md),
@@ -139,3 +136,20 @@ compaction, request, validation, and artifact bodies remain behind content
 references. Unknown source events remain explicitly unmapped rather than being
 dropped or forced into a convenience family. Optional telemetry stays a
 separate timing/resource artifact and never replaces semantic session events.
+
+## Retained evidence and ATIF
+
+Retained evidence is read through this adapter's native format contract.
+The study freezes verification receipts for its runtime, capture contract and
+recorded scope. The [verification catalog](../reference/harness-verification.md)
+reports installation probes separately from named capture capabilities. Missing
+or conflicting evidence adds a confidence limitation; version declarations and
+disagreements remain visible as cohort metadata.
+Malformed records and corrupted source bindings receive specific diagnostics.
+[Limitation definitions](../reference/atif-limitations.md) explain version confidence.
+
+Conforming ATIF uses EBO's generic core reader regardless of producer identity
+or version. The [coverage matrix](../reference/atif-harness-coverage.md) identifies
+this harness's upstream converter, source-surface differences, fixture provenance
+and measured equivalence. Imported document measures retain their own scope and
+do not acquire native capture qualification.

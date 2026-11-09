@@ -1,0 +1,7 @@
+{"type":"session","id":"synthetic-openclaw"}
+{"type":"message","timestamp":"2026-11-07T00:00:01.000Z","message":{"role":"user","content":"Run checks."}}
+{"type":"compaction","timestamp":"2026-11-07T00:00:02.000Z","summary":"Synthetic summary.","tokensBefore":100}
+{"type":"message","timestamp":"2026-11-07T00:00:03.000Z","message":{"role":"assistant","provider":"synthetic","content":[{"type":"text","text":"Run both."},{"type":"toolCall","id":"call-a","name":"bash","arguments":{"command":"synthetic-test"}},{"type":"toolCall","id":"call-b","name":"bash","arguments":{"command":"synthetic-lint"}}],"usage":{"input":20,"output":5,"cacheRead":10,"cacheWrite":3}}}
+{"type":"message","message":{"role":"custom","customType":"openclaw.nested-tool.v1","details":{"parentToolCallId":"call-b","toolName":"web_fetch","input":{"url":"https://example.invalid"},"result":"nested failure","isError":true}}}
+{"type":"message","message":{"role":"toolResult","toolCallId":"call-a","isError":true}}
+{"type":"message","message":{"role":"toolResult","toolCallId":"call-b","isError":false,"content":[{"type":"text","text":"Synthetic success."}]}}

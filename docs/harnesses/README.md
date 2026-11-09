@@ -6,7 +6,7 @@ different tools or context policies is a different experimental condition.
 | Harness | Execute through | Distinctive evidence | Important limit |
 | :--- | :--- | :--- | :--- |
 | [Claude Agent SDK](claude-agent-sdk.md) | `ebo agent-sdk run` | SDK stream and passive lifecycle hooks; optional OTLP | Tracing is beta; configured export is not receipt |
-| [Codex](codex-harness.md) | `ebo codex run` | Owned app-server thread/turn/item protocol and history | Requires the pinned runtime; no desktop-daemon attachment |
+| [Codex](codex-harness.md) | `ebo codex run` | Owned app-server thread/turn/item protocol and history | Checks the frozen runtime; owns its app-server child |
 | [Devin CLI](devin-cli.md) | `ebo devin run` | Owned `devin acp` JSON-RPC session, tool-call lifecycle, permissions, usage; optional OTLP protobuf receipt | Cloud-hosted inference and tools; no native timestamps on ACP frames; Cloud API exposes chat only |
 | [Cursor](cursor-sdk.md) | `ebo cursor run` | Stream, callbacks, official JSONL store, terminal and billing readback | Local SDK OTLP unavailable; Enterprise export is a separate, unqualified integration |
 | [Pi](pi-sdk.md) | `ebo pi run` | Native session tree, extension observer, retries/compaction | No verified native OTLP receipt; local SDK is not an OS sandbox |
@@ -21,7 +21,7 @@ and each guide before selecting a route.
 
 ## Before a live run
 
-1. Install the selected runtime and confirm its required version.
+1. [Freeze and check the study’s runtimes](../reference/study-runtimes.md), then bind its queue to that freeze.
 2. Establish an authenticated model route without putting secrets in artifacts.
 3. Review tool permissions and workspace isolation. A disposable directory is
    not a security sandbox.

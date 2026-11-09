@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { studyRunId } from "./runtime-run-id.js";
 import {
   closeSync,
   constants,
@@ -179,7 +180,7 @@ export function validateArtifact(artifact: string, document: unknown): ArtifactV
     ? []
     : (validate.errors ?? []).map((error) => validationError(artifact, schemaVersion, error));
 
-  if (schemaVersion === "run-manifest/v1" && isRecord(document) && Array.isArray(document.evidence)) {
+  if (["run-manifest/v1", "run-manifest/v2"].includes(schemaVersion) && isRecord(document) && Array.isArray(document.evidence)) {
     errors.push(...runManifestIntegrityErrors(artifact, schemaVersion, document));
   }
   if (schemaVersion === "verifier-result/v1" && isRecord(document) && Array.isArray(document.assertions)) {
@@ -218,8 +219,9 @@ export function validateRunManifestEvidence(
   manifest: unknown,
   bundleRoot: string,
 ): ArtifactValidationError[] {
-  if (!isRecord(manifest) || manifest.schemaVersion !== "run-manifest/v1" || !Array.isArray(manifest.evidence)) return [];
+  if (!isRecord(manifest) || !["run-manifest/v1", "run-manifest/v2"].includes(String(manifest.schemaVersion)) || !Array.isArray(manifest.evidence)) return [];
   const errors: ArtifactValidationError[] = [];
+  if (manifest.schemaVersion === "run-manifest/v2") errors.push(...runtimeBindingEvidenceErrors(artifact, manifest, bundleRoot));
   const expectedBundleId = typeof manifest.bundleId === "string" ? manifest.bundleId : undefined;
   const expectedVerifier = isRecord(manifest.run) && isRecord(manifest.run.verifier)
     ? manifest.run.verifier
@@ -738,7 +740,7 @@ export function validateExportManifest(
 ): ArtifactValidationError[] {
   if (!isRecord(exportManifest) || exportManifest.schemaVersion !== "export-manifest/v1"
       || !["ready", "exported"].includes(String(exportManifest.status))) return [];
-  if (!isRecord(containingManifest) || containingManifest.schemaVersion !== "run-manifest/v1" || !Array.isArray(containingManifest.evidence)) {
+  if (!isRecord(containingManifest) || !["run-manifest/v1", "run-manifest/v2"].includes(String(containingManifest.schemaVersion)) || !Array.isArray(containingManifest.evidence)) {
     return [{ artifact, schemaVersion: "export-manifest/v1", field: "/bundleId", message: "Ready exports require their containing run manifest." }];
   }
   if (exportManifest.bundleId !== containingManifest.bundleId) {
@@ -1169,11 +1171,29 @@ function loadValidators(): Map<string, ValidateFunction> {
   missingEvidence.eboUniqueItems = missingEvidence.uniqueItems;
   delete missingEvidence.uniqueItems;
   ajv.addSchema(runBundleSchema);
+  ajv.addSchema(readSchema("run-bundles/v2.json"));
   ajv.addSchema(readSchema("uniform-events/v1.json"));
   ajv.addSchema(readSchema("normalization-integrity.v1.json"));
+  ajv.addSchema(readSchema("normalization.v2.json"));
+  ajv.addSchema(readSchema("analysis.v2.json"));
+  ajv.addSchema(readSchema("consumers.v2.json"));
   ajv.addSchema(readSchema("structural-observations.v1.json"));
+  ajv.addSchema(readSchema("atif-inspection.v1.json"));
+  ajv.addSchema(readSchema("evidence-companion.v1.json"));
+  ajv.addSchema(readSchema("import-manifest.v1.json"));
+  ajv.addSchema(readSchema("import-manifest.v2.json"));
+  ajv.addSchema(readSchema("pi-atif-mapping.v1.json"));
+  ajv.addSchema(readSchema("atif-core-mapping.v1.json"));
+  ajv.addSchema(readSchema("atif-overlay.v1.json"));
+  ajv.addSchema(readSchema("atif-producer-profile.v1.json"));
   ajv.addSchema(readSchema("behavior-assertions.v1.json"));
   ajv.addSchema(readSchema("semantic-judge.v1.json"));
+  ajv.addSchema(readSchema("semantic-judge-runtime.v1.json"));
+  ajv.addSchema(readSchema("study-runtimes.v1.json"));
+  ajv.addSchema(readSchema("study-runtimes.v2.json"));
+  ajv.addSchema(readSchema("harness-verification.v1.json"));
+  ajv.addSchema(readSchema("study-runtime-bindings.v1.json"));
+  ajv.addSchema(readSchema("migration.v1.json"));
   ajv.addSchema(readSchema("human-calibration.v1.json"));
   ajv.addSchema(readSchema("aggregation.v1.json"));
   ajv.addSchema(readSchema("occurrence-ratings.v1.json"));
@@ -1181,22 +1201,62 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("atlas-bundle.v1.json"));
   ajv.addSchema(readSchema("deepseek-runtime-composition.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-admission.v1.schema.json"));
+  ajv.addSchema(readSchema("harbor-import.v1.json"));
+  ajv.addSchema(readSchema("leaderboard-import.v1.json"));
+  ajv.addSchema(readSchema("analysis-runtime-snapshot.v1.json"));
   ajv.addSchema(readSchema("harbor-review.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-freeze.v1.schema.json"));
   ajv.addSchema(readSchema("experiment.v2.schema.json"));
   ajv.addSchema(readSchema("run-queue.v2.schema.json"));
 
   return new Map([
+    ["ebo.harness-verification/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/receipt")],
+    ["ebo.harness-verification-admission/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/admission")],
+    ["ebo.harness-verification-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/snapshot")],
+    ["ebo.harness-verification-candidate/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/candidate")],
+    ["ebo.run-verification/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/run")],
+    ["ebo.capture-lifecycle/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/lifecycle")],
+    ["ebo.leaderboard-request-receipt/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/requestReceipt")],
+    ["ebo.leaderboard-policy-input/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/policyInput")],
+    ["ebo.leaderboard-policy-receipt/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/policyReceipt")],
+    ["ebo.leaderboard-source-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/sourceSnapshot")],
+    ["ebo.leaderboard-cohort-request/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/request")],
+    ["ebo.leaderboard-cohort/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/cohort")],
+    ["ebo.leaderboard-acquisition/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/acquisition")],
+    ["ebo.import-scan/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/scan")],
+    ["ebo.analysis-runtime-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:analysis-runtime-snapshot:v1")],
+    ["ebo.harbor-trial-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/inspection")],
+    ["ebo.harbor-source-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/snapshot")],
+    ["ebo.harbor-execution/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/execution")],
+    ["ebo.harbor-capture-binding/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/binding")],
+    ["ebo.harbor-capture-membership/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/membership")],
+    ["ebo.harbor-assessment/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/assessment")],
+
+    ["ebo.atif-core-mapping/v1", requiredValidator(ajv, "urn:ebo:schema:atif-core-mapping:v1")],
+    ["ebo.atif-overlay/v1", requiredValidator(ajv, "urn:ebo:schema:atif-overlay:v1")],
+    ["ebo.pi-atif-mapping/v1", requiredValidator(ajv, "urn:ebo:schema:pi-atif-mapping:v1")],
+    ["ebo.evidence-companion/v1", requiredValidator(ajv, "urn:ebo:schema:evidence-companion:v1")],
+    ["ebo.import-manifest/v1", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v1")],
+    ["ebo.import-manifest/v2", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v2")],
+    ["ebo.atif-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:atif-inspection:v1")],
+    ["ebo.atif-producer-profile/v1", requiredValidator(ajv, "urn:ebo:schema:atif-producer-profile:v1")],
     ["ebo.task-packet/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet.v1.schema.json")],
     ["ebo.task-packet-freeze/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet-freeze.v1.schema.json")],
     ["ebo.experiment/v1", requiredValidator(ajv, "https://ebo.dev/schemas/experiment.v1.schema.json")],
+    ["ebo.study-freeze/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/freeze")],
+    ["ebo.run-queue/v3", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/queue")],
     ["ebo.run-queue/v1", requiredValidator(ajv, "https://ebo.dev/schemas/run-queue.v1.schema.json")],
     ["run-manifest/v1", requiredValidator(ajv, runBundleSchemaId)],
+    ["run-manifest/v2", requiredValidator(ajv, "urn:ebo:schema:run-bundle:v2")],
     ["verifier-result/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/verifierResult`)],
     ["capture-report/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/captureReport`)],
     ["export-manifest/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/exportManifest`)],
     ["ebo.uniform-event/v1", requiredValidator(ajv, "urn:ebo:schema:uniform-events:v1#/$defs/uniformEvent")],
     ["ebo.adapter-capability-profile/v1", requiredValidator(ajv, "urn:ebo:schema:uniform-events:v1#/$defs/capabilityProfile")],
+    ["ebo.normalized-dataset/v2", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/dataset")],
+    ["ebo.uniform-event/v2", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/event")],
+    ["ebo.operation/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operation")],
+    ["ebo.operation-identity/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operationIdentity")],
     ["ebo.normalized-dataset/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/normalizedDataset")],
     ["ebo.adapter-coverage-report/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/coverageReport")],
     ["ebo.comparison-request/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/comparisonRequest")],
@@ -1214,7 +1274,27 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.atlas-bundle/v1", requiredValidator(ajv, "urn:ebo:schema:atlas-bundle:v1#/$defs/bundle")],
     ["ebo.semantic-judge-request/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/request")],
     ["ebo.semantic-judge-input/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/input")],
+    ["ebo.study-runtime-lock/v2", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v2#/$defs/lock")],
+    ["ebo.runtime-launch/v2", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v2#/$defs/launch")],
+    ["ebo.study-runtime-lock/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/lock")],
+    ["ebo.runtime-launch/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/launch")],
+    ["ebo.semantic-judgment/v3", requiredValidator(ajv, "urn:ebo:schema:semantic-judge-runtime:v1#/$defs/judgment")],
     ["ebo.semantic-judgment/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/judgment")],
+    ["ebo.semantic-judge-answer/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeAnswer")],
+    ["ebo.semantic-judgment/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgment")],
+    ["ebo.atlas-view/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/atlasView")],
+    ["ebo.occurrence/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/occurrence")],
+    ["ebo.occurrence-ledger/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/ledger")],
+    ["ebo.occurrence-rating-input/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/ratingInput")],
+    ["ebo.occurrence-rating/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/rating")],
+    ["ebo.semantic-judge-request/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeRequest")],
+    ["ebo.semantic-judge-input/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeInput")],
+    ["ebo.behavior-assertion/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/assertion")],
+    ["ebo.structural-observation/v2", requiredValidator(ajv, "urn:ebo:schema:analysis:v2#/$defs/observation")],
+    ["ebo.structural-observation-set/v2", requiredValidator(ajv, "urn:ebo:schema:analysis:v2#/$defs/observationSet")],
+    ["ebo.migration-plan/v1", requiredValidator(ajv, "urn:ebo:schema:migration:v1#/$defs/plan")],
+    ["ebo.migration-inventory/v1", requiredValidator(ajv, "urn:ebo:schema:migration:v1#/$defs/inventory")],
+    ["ebo.migration-reconciliation/v1", requiredValidator(ajv, "urn:ebo:schema:migration:v1#/$defs/reconciliation")],
     ["ebo.review-source-set/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sourceSet")],
     ["ebo.review-sample-criteria/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/criteria")],
     ["ebo.review-sample/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sample")],
@@ -1345,7 +1425,6 @@ function runManifestIntegrityErrors(
   const harness = run !== undefined && isRecord(run.harness) ? run.harness : undefined;
   if (run !== undefined && harness !== undefined && Array.isArray(run.runtime)
       && !run.runtime.some((component) => isRecord(component)
-        && component.version === harness.version
         && (component.name === harness.id || component.source === harness.id))) {
     errors.push({ artifact, schemaVersion, field: "/run/runtime", message: "Declared harness is not represented by its runtime composition." });
   }
@@ -1630,4 +1709,28 @@ function isContained(root: string, path: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function runtimeBindingEvidenceErrors(artifact: string, manifest: Record<string, unknown>, bundleRoot: string): ArtifactValidationError[] {
+  try {
+    if (!isRecord(manifest.runtimeLock) || !Array.isArray(manifest.evidence) || !isRecord(manifest.run) || !isRecord(manifest.run.harness)) throw new Error("Runtime binding is malformed.");
+    const binding = manifest.runtimeLock;
+    const read = (id: unknown): Record<string, unknown> => {
+      const descriptor = (manifest.evidence as unknown[]).find((entry) => isRecord(entry) && entry.id === id);
+      if (!isRecord(descriptor) || descriptor.kind !== "diagnostic" || descriptor.source !== "ebo-runtime" || descriptor.sharingClass !== "internal" || typeof descriptor.relativePath !== "string" || typeof descriptor.digest !== "string") throw new Error("Runtime binding must reference an internal retained runtime diagnostic.");
+      const value: unknown = JSON.parse(resolveBundleArtifact(bundleRoot, { locator: descriptor.relativePath, digest: runDigest(descriptor.digest) }).toString("utf8"));
+      if (!isRecord(value)) throw new Error("Runtime diagnostic must be an object.");
+      return value;
+    };
+    const lock = read(binding.lockArtifactId), launch = read(binding.launchArtifactId);
+    const { digest, ...body } = lock;
+    if (!["ebo.study-runtime-lock/v1", "ebo.study-runtime-lock/v2"].includes(String(lock.schemaVersion)) || digest !== binding.lockDigest || digest !== `sha256:${digestMetadata(body).value}`) throw new Error("Runtime lock digest differs from retained lock bytes.");
+    if (!["ebo.runtime-launch/v1", "ebo.runtime-launch/v2"].includes(String(launch.schemaVersion)) || launch.lockDigest !== binding.lockDigest || launch.role !== binding.role) throw new Error("Runtime launch and run identity differ.");
+    if (!Array.isArray(launch.probes) || launch.probes.some((probe) => !isRecord(probe) || typeof probe.actualVersion !== "string" || typeof probe.expectedVersion !== "string")) throw new Error("Runtime manifest lacks a retained actual version probe.");
+    if (binding.studyFreezeArtifactId !== undefined) {
+      const freeze = read(binding.studyFreezeArtifactId), {digest: freezeDigest, ...freezeBody} = freeze;
+      if (validateArtifact("study freeze", freeze).length || freezeDigest !== binding.studyFreezeDigest || freezeDigest !== `sha256:${digestMetadata(freezeBody).value}` || freeze.runtimeLockDigest !== binding.lockDigest || typeof binding.sourceRunId !== "string" || manifest.run.id !== studyRunId(String(freezeDigest), binding.sourceRunId)) throw new Error("Captured run identity differs from the retained study freeze.");
+    }
+    return [];
+  } catch (error) { return [{ artifact, schemaVersion: "run-manifest/v2", field: "/runtimeLock", message: error instanceof Error ? error.message : "Runtime evidence is invalid." }]; }
 }

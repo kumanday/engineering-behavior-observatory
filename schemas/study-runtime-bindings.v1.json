@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:study-runtime-bindings:v1",
+  "$defs": {
+    "freeze": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.study-freeze/v1"
+        },
+        "studyId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtimeLockDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "queueDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "queueSchemaVersion": {
+          "enum": [
+            "ebo.run-queue/v1",
+            "ebo.run-queue/v2"
+          ]
+        },
+        "frozenAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "studyId",
+        "runtimeLockDigest",
+        "queueDigest",
+        "queueSchemaVersion",
+        "frozenAt",
+        "digest"
+      ]
+    },
+    "queue": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.run-queue/v3"
+        },
+        "studyFreeze": {
+          "$ref": "#/$defs/freeze"
+        },
+        "queue": {
+          "oneOf": [
+            {
+              "$ref": "https://ebo.dev/schemas/run-queue.v1.schema.json"
+            },
+            {
+              "$ref": "https://ebo.dev/schemas/run-queue.v2.schema.json"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "studyFreeze",
+        "queue"
+      ]
+    }
+  }
+}

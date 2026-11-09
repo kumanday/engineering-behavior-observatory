@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "ebo.ci-runtime-selection/v1",
+  "purpose": "Frozen Linux conformance snapshot; uses the study resolver release-selection policy, not a harness allowlist.",
+  "target": "linux-x64 / Python 3.14",
+  "roots": [
+    {
+      "name": "harbor",
+      "version": "0.25.0",
+      "publishedAt": "2026-10-25T20:27:25.575608Z",
+      "selectedAt": "2026-11-08T17:00:32.935Z",
+      "cutoff": "2026-11-07T17:00:32.935Z",
+      "policy": {
+        "minReleaseAgeMs": 86400000,
+        "allowPrerelease": false,
+        "override": null
+      }
+    },
+    {
+      "name": "smolmachines",
+      "version": "1.32.4",
+      "publishedAt": "2026-10-28T11:40:25.177619Z",
+      "selectedAt": "2026-11-08T17:00:32.935Z",
+      "cutoff": "2026-11-07T17:00:32.935Z",
+      "policy": {
+        "minReleaseAgeMs": 86400000,
+        "allowPrerelease": false,
+        "override": null
+      }
+    }
+  ],
+  "requirementsSha256": "4e3a24952339ef5b06f7f69e9e0e3cc8d3c1c1aea2a7f7c2bb91e3fbc7cd066b"
+}

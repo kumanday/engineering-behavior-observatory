@@ -2,7 +2,7 @@
  * Embedded Harbor control-plane adapter script.
  *
  * This Python program is materialized to a temporary file and executed by
- * `./adapter.ts` against the pinned `harbor` package. It is deliberately
+ * `./adapter.ts` against the selected `harbor` package. It is deliberately
  * narrow: semantic validation, identity resolution, effective-instruction
  * computation and official lock resolution. Trial lifecycle lives in trial-script.ts. It never captures, normalizes,
  * or assesses agent behavior; that authority stays in EBO's TypeScript

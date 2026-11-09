@@ -9,6 +9,7 @@ import {
   type NativeEvidenceResolution,
   type NativeEvidenceResolver,
   type NormalizationInput,
+  type ImportedNativeEvidence,
   type NormalizationResult,
   type UniformEventFamily,
 } from "./uniform-events.js";
@@ -36,6 +37,9 @@ export type NormalizedDataset = NormalizationResult & {
     harness: string;
   };
   capabilityProfile: AdapterCapabilityProfile;
+  /** Present only for third-party imports. Absence preserves native v1 digest/readback semantics. */
+  origin?: { kind: "imported"; qualification: "imported"; manifestDigest: DigestString;
+    exactAttemptMeasures: "unavailable"; reason: string };
   nativeRecords: readonly NormalizedNativeRecord[];
   contentReferences: readonly NormalizedContentReference[];
 };
@@ -66,6 +70,8 @@ export type NormalizedDatasetInput<NativeRecord> = {
   adapterVersion: string;
   nativeType(record: NativeRecord): string;
   contentDigest?(reference: NativeEvidenceReference): DigestString | undefined;
+  /** Opt in for source JSON pointers; existing native adapters retain containing-record digest semantics. */
+  contentDigestPolicy?: "containing-record/v1" | "canonical-json-pointers/v1";
 };
 
 export type ComparisonCapability = `family:${UniformEventFamily}`
@@ -74,6 +80,7 @@ export type ComparisonCapability = `family:${UniformEventFamily}`
 export type ComparisonCandidate = {
   id: string;
   manifestDigest: DigestString;
+  evidenceOrigin?: { kind: "owned" | "imported"; profileDigest?: DigestString };
   adapterVersion: string;
   task: { id: string; digest: DigestString };
   fixture: { id: string; digest: DigestString };
@@ -99,6 +106,10 @@ export type ComparisonRequest = {
 
 export type ComparisonReason = {
   code:
+    | "evidence-origin-mismatch"
+    | "producer-profile-mismatch"
+    | "capture-completeness-unproven"
+    | "mixed-harness-versions"
     | "task-mismatch"
     | "fixture-mismatch"
     | "material-configuration-mismatch"
@@ -142,6 +153,25 @@ export function describeNormalizedDataset<NativeRecord>(
   if (!(["qualified", "qualified-with-gaps"] as const).includes(input.capture.qualification)) {
     throw new Error("Normalized datasets require capture-qualified evidence.");
   }
+  return describeEvidenceDataset(input);
+}
+
+/** Separate entry point prevents an import from being presented as a qualified capture. */
+export function describeImportedDataset<NativeRecord>(
+  input: Omit<NormalizedDatasetInput<NativeRecord>, "capture"> & {
+    capture: ImportedNativeEvidence<NativeRecord>; origin: NonNullable<NormalizedDataset["origin"]>;
+  },
+): NormalizedDataset {
+  if (input.capture.qualification !== "imported" || input.origin.kind !== "imported" || input.origin.qualification !== "imported"
+      || input.origin.exactAttemptMeasures !== "unavailable") throw new Error("Imported datasets require imported provenance and explicit attempt-measure limits.");
+  const normalization = { ...input.normalization, events: input.normalization.events.map((event) => ({ ...event,
+    attributes: { ...event.attributes, evidenceOrigin: "imported" } })) };
+  return { ...describeEvidenceDataset({ ...input, normalization }), origin: structuredClone(input.origin) };
+}
+
+function describeEvidenceDataset<NativeRecord>(input: Omit<NormalizedDatasetInput<NativeRecord>, "capture"> & {
+  capture: NormalizationInput<NativeRecord> | ImportedNativeEvidence<NativeRecord>;
+}): NormalizedDataset {
   const nativeRecords = input.capture.records.map(({ reference, record }) => ({
     reference: structuredClone(reference),
     nativeType: required(input.nativeType(record), "Native record type"),
@@ -154,9 +184,11 @@ export function describeNormalizedDataset<NativeRecord>(
     for (const { nativeReference: reference } of event.content.value) {
       const key = referenceKey(reference);
       const containing = containingReference(reference);
-      const digest = nativeDigests.get(key)
-        ?? (containing === undefined ? undefined : nativeDigests.get(referenceKey(containing)))
-        ?? input.contentDigest?.(reference);
+      const digest = input.contentDigestPolicy === "canonical-json-pointers/v1" && reference.recordLocator.startsWith("#")
+        ? input.contentDigest?.(reference)
+        : nativeDigests.get(key)
+          ?? (containing === undefined ? undefined : nativeDigests.get(referenceKey(containing)))
+          ?? input.contentDigest?.(reference);
       if (digest === undefined) throw new Error(`Content reference ${formatReference(reference)} requires a trusted digest.`);
       const existing = contentReferences.get(key);
       if (existing !== undefined && existing.digest !== digest) {
@@ -174,7 +206,7 @@ export function describeNormalizedDataset<NativeRecord>(
       version: required(input.adapterVersion, "Adapter version"),
       harness: input.capabilityProfile.harness,
     },
-    capabilityProfile: structuredClone(input.capabilityProfile),
+    capabilityProfile: { ...structuredClone(input.capabilityProfile), ...(input.capture.sourceLimitations?.length ? { limitations: [...new Set([...(input.capabilityProfile.limitations ?? []), ...input.capture.sourceLimitations])] } : {}) },
     nativeRecords,
     contentReferences: [...contentReferences.values()],
     events: structuredClone(input.normalization.events),
@@ -348,6 +380,14 @@ export function assessComparisonEligibility(request: ComparisonRequest): Compari
   assertValidArtifact("comparison request", request);
   const blockers: ComparisonReason[] = [];
   const caveats: ComparisonReason[] = [];
+  const origin = (candidate: ComparisonCandidate) => candidate.evidenceOrigin?.kind === "imported" || candidate.harness.id.startsWith("atif.") ? "imported" : "owned";
+  // This legacy comparison contract describes complete-attempt instruments.
+  // Imported documents retain their own independently available document-scoped observations.
+  if (origin(request.left) !== origin(request.right)) blockers.push({ code: "evidence-origin-mismatch", dimension: "evidence origin",
+    detail: "Complete-attempt comparisons require established capture populations; imported histories retain document scope." });
+  if ([request.left, request.right].some((candidate) => origin(candidate) === "imported")) {
+    blockers.push({ code: "capture-completeness-unproven", dimension: "measurement population", detail: "Imported documents do not establish complete-attempt populations. Their document-scoped measures remain available without a producer overlay." });
+  }
   compareExact(request.left.task, request.right.task, "task", "task-mismatch", blockers);
   compareExact(request.left.fixture, request.right.fixture, "fixture", "fixture-mismatch", blockers);
   for (const [dimension, left, right] of [
@@ -363,14 +403,16 @@ export function assessComparisonEligibility(request: ComparisonRequest): Compari
     });
   }
   compareDeclaredCondition("model", request.left.model, request.right.model, request.policy.declaredDifferences, blockers, caveats);
-  compareDeclaredCondition("harness", request.left.harness, request.right.harness, request.policy.declaredDifferences, blockers, caveats);
+  const mixedVersions = request.left.harness.id === request.right.harness.id && request.left.harness.version !== request.right.harness.version;
+  if (mixedVersions) caveats.push({ code: "mixed-harness-versions", dimension: "harness version", detail: "The recorded harness versions differ; retain separate version cohorts and label this comparison." });
+  compareDeclaredCondition("harness", request.left.harness, mixedVersions ? { ...request.right.harness, version: request.left.harness.version } : request.right.harness, request.policy.declaredDifferences, blockers, caveats);
   if (request.left.harness.id === request.right.harness.id
       && (request.left.capabilityProfile.adapterId !== request.right.capabilityProfile.adapterId
         || request.left.adapterVersion !== request.right.adapterVersion)) {
-    blockers.push({
-      code: "material-configuration-mismatch",
+    (mixedVersions ? caveats : blockers).push({
+      code: mixedVersions ? "mixed-harness-versions" : "material-configuration-mismatch",
       dimension: "normalization adapter",
-      detail: "normalization adapter identity differs for the same harness condition.",
+      detail: "Normalization adapter identity differs; each interpretation retains its source and version.",
     });
   }
   for (const capability of request.policy.requiredCapabilities) {

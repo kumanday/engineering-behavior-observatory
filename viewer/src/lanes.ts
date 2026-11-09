@@ -11,9 +11,9 @@ import { renderTotals, type TotalsState } from "./totals";
 import { describable, provide, register, run, target } from "./registry";
 
 export interface LaneMeta {
-  attempt_id: string; task_id: string; condition: string; trial_id: string; harness_id: string; model_id: string;
-  terminal_state: string; failure_class: string; capture_qualification: string; t_start_ms: number; t_end_ms: number;
-  units: number; tools: number; errors: number; compactions: number; cited_units: number;
+  attempt_id: string; task_id: string | null; condition: string; trial_id: string | null; harness_id: string; model_id: string;
+  terminal_state: string | null; failure_class: string | null; capture_qualification: string; t_start_ms: number | null; t_end_ms: number | null;
+  units: number; tools: number; errors: number | null; compactions: number; cited_units: number;
   usage_semantics: "per-turn" | "per-turn (native)" | "final-only" | "none"; tokens_total: number | null; cost_usd: number | null; context_max: number | null;
 }
 export interface LanesData { attempts: LaneMeta[]; usage: Record<string, [number, number][]>; context?: Record<string, [number, number][]> }
@@ -42,13 +42,16 @@ export const CAT_SQL = `CASE WHEN unit_kind <> 'tool' THEN unit_kind
 // EBO occurrence types (failure-response), and the lab's earlier unit tags for lab bundles.
 const FAILURE_OCC = ["failure-response", "failure-then-same-tool", "failure-then-other-tool", "consecutive-failure", "response-to-failure"];
 
+export const trialLabel = (id: string | null | undefined) => id == null ? "trial unavailable" : `trial ${id}`;
 export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 /** A class-name token from bundle data: anything outside [A-Za-z0-9_-] becomes "_" (bundle content is untrusted). */
 export const cls = (s: unknown) => String(s ?? "").replace(/[^A-Za-z0-9_-]/g, "_");
 /** A number from bundle data for markup; a missing or non-numeric value renders as "—" (unavailable), never 0 or markup. */
 export const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? String(x) : "—");
 const fmtTok = (n: number | null) => n == null ? "" : n >= 1e9 ? (n / 1e9).toFixed(1) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "k" : String(n);
-export const fmtDur = (ms: number) => {
+export const laneDurationMs = (lane: Pick<LaneMeta, "t_start_ms" | "t_end_ms">): number | null => lane.t_start_ms === null || lane.t_end_ms === null ? null : lane.t_end_ms - lane.t_start_ms;
+export const fmtDur = (ms: number | null) => {
+  if (ms === null || !Number.isFinite(ms)) return "—";
   const s = Math.round(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
   return h ? `${h}h${String(m).padStart(2, "0")}m` : `${m}:${String(r).padStart(2, "0")}`;
 };
@@ -58,7 +61,7 @@ const LABEL_W = 300, LANE_H = 64, GROUP_H = 26, AXIS_H = 26;
 const ROW = { msg: [2, 8], tool: [11, 29], ribbon: [31, 42], mark: [44, 54] } as const;
 
 export class SwimlanesPanel {
-  private task: string;
+  private task: string | null;
   private axis: "time" | "step" = "time";
   private zoom = 1;
   private ribbon: "context" | "cumulative" | "off" = "context";
@@ -75,20 +78,20 @@ export class SwimlanesPanel {
   stretch: number | null = null;           // selected divergent stretch in the diff view
   private tip: HTMLDivElement;
   private seq = 0;
-  private tasks: string[];
+  private tasks: (string | null)[];
 
   ev: Evidence | null = null;               // P3 evidence (native records, audits); optional
 
   constructor(private root: HTMLElement, private coordinator: Coordinator, private data: LanesData,
               private onHighlight: (ids: number[] | null) => void) {
     this.tasks = [...new Set(data.attempts.map((a) => a.task_id))].sort();
-    this.task = this.tasks[0];
+    this.task = this.tasks[0] ?? null;
     this.tip = document.createElement("div");
     this.tip.className = "tip"; this.tip.hidden = true;
     document.body.appendChild(this.tip);
     new ResizeObserver(() => { if (this.units.length && this.mode === "lanes") this.drawPlot(); }).observe(root);
     const obj = (properties: Record<string, unknown>, required = Object.keys(properties)) => ({ type: "object", required, properties, additionalProperties: false });
-    register<{ task: string }>({ name: "setLaneTask", description: "Show the swimlanes of one task.", args: obj({ task: { enum: this.tasks } }),
+    register<{ task: string | null }>({ name: "setLaneTask", description: "Show the swimlanes of one task.", args: obj({ task: { enum: this.tasks } }),
       run: async ({ task }) => { this.task = task; this.picked = []; this.mode = "lanes"; if (this.armFilter !== "all" && !this.arms().includes(this.armFilter)) this.armFilter = "all"; await this.load(); return `Swimlanes show task ${task}.`; } });
     register<{ arm: string }>({ name: "setLaneArm", description: "Show one arm's attempts (or all arms).", args: obj({ arm: { type: "string" } }),
       run: ({ arm }) => { this.armFilter = arm; this.render(); return `Swimlanes show ${arm === "all" ? "all arms" : arm}.`; } });
@@ -105,7 +108,7 @@ export class SwimlanesPanel {
     register({ name: "clearLaneClusterFocus", description: "Stop emphasizing a cluster in the swimlanes.", args: obj({}),
       run: () => { this.focus = null; this.render(); return "Cleared the cluster focus."; } });
     register({ name: "exportTrace", description: "Download the task's lanes as a Chrome trace for ui.perfetto.dev.", args: obj({}), readOnly: true,
-      run: () => { downloadTrace(this.task, this.lanes(), this.byLane, this.data.usage, this.data.context); return "Downloaded the trace."; } });
+      run: () => { downloadTrace(this.task ?? "task unavailable", this.lanes(), this.byLane, this.data.usage, this.data.context); return "Downloaded the trace."; } });
     register<{ row: number | null }>({ name: "selectLaneUnit", description: "Select a unit in the swimlanes (highlights it in the cloud and opens its native records); null clears.", args: obj({ row: { type: ["integer", "null"] } }),
       run: async ({ row }) => { await this.selectUnit(row); return row === null ? "Cleared the unit selection." : `Selected unit row ${row}.`; } });
     register<{ attemptId: string }>({ name: "highlightAttempt", description: "Highlight one attempt's units in the cloud.", args: obj({ attemptId: { type: "string" } }),
@@ -118,7 +121,7 @@ export class SwimlanesPanel {
       run: ({ index }) => { this.stretch = index; if (this.mode === "diff") this.render(); return index === null ? "Cleared the stretch." : `Selected stretch ${index + 1}.`; } });
     provide({ key: "lanes", get: () => ({ task: this.task, arm: this.armFilter, axis: this.axis, ribbon: this.ribbon, zoom: this.zoom, mode: this.mode, picked: [...this.picked],
         cluster: this.focus ? { id: this.focus.id, label: this.focus.label } : null, row: this.selectedRow, totals: { ...this.totals }, stretch: this.stretch }),
-      apply: async (st: { task: string; arm: string; axis: "time" | "step"; ribbon: "context" | "cumulative" | "off"; zoom: number; mode: "lanes" | "diff" | "totals"; picked: string[];
+      apply: async (st: { task: string | null; arm: string; axis: "time" | "step"; ribbon: "context" | "cumulative" | "off"; zoom: number; mode: "lanes" | "diff" | "totals"; picked: string[];
         cluster: { id: number; label: string } | null; row: number | null; totals: TotalsState; stretch: number | null }) => {
         const reload = st.task !== this.task || !this.units.length;
         Object.assign(this, { task: st.task, armFilter: st.arm, axis: st.axis, ribbon: st.ribbon, zoom: st.zoom, mode: st.mode, picked: [...st.picked], focus: st.cluster, totals: { ...st.totals }, stretch: st.stretch });
@@ -134,7 +137,7 @@ export class SwimlanesPanel {
     return {
       summary: `${lanes.length} attempts of task ${this.task}${this.armFilter === "all" ? "" : ` in arm ${this.armFilter}`}, ${this.mode} view, ${this.axis} axis${this.focus ? `, cluster ${this.focus.id} emphasized` : ""}.`,
       data: { task: this.task, arm: this.armFilter, mode: this.mode, lanes: lanes.map((l) => ({ attemptId: l.attempt_id, condition: l.condition, trial: l.trial_id, terminal: l.terminal_state,
-        durationMs: l.t_end_ms - l.t_start_ms, tools: l.tools, errors: l.errors, compactions: l.compactions, citedUnits: l.cited_units, failureChains: this.ev?.chainsOf(l.attempt_id).length ?? null,
+        durationMs: laneDurationMs(l), tools: l.tools, errors: l.errors, compactions: l.compactions, citedUnits: l.cited_units, failureChains: this.ev?.chainsOf(l.attempt_id).length ?? null,
         usage: l.usage_semantics, tokens: l.tokens_total })) },
     };
   }
@@ -161,7 +164,7 @@ export class SwimlanesPanel {
              t0_ms, t1_ms, timed, cluster_id, cluster_label, coalesce(cited, false) AS cited,
              coalesce(array_to_string(occurrences, ','), '') AS occ, left(embed_text, 280) AS text,
              duration_seconds, condition, ${CAT_SQL} AS cat
-      FROM units WHERE task_id = '${this.task.replace(/'/g, "''")}' AND unit_kind IN ('tool', 'message', 'compaction', 'episode')
+      FROM units WHERE ${this.task === null ? "task_id IS NULL" : `task_id = '${this.task.replace(/'/g, "''")}'`} AND unit_kind IN ('tool', 'message', 'compaction', 'episode')
       ORDER BY attempt_id, seq`);
     if (seq !== this.seq) return;
     this.units = rowsOf(res) as Unit[];
@@ -178,7 +181,7 @@ export class SwimlanesPanel {
   private async refreshPredicate() {
     const seq = ++this.seq;
     if (this.predicate) {
-      const res = await this.coordinator.query(`SELECT row_id FROM units WHERE task_id = '${this.task.replace(/'/g, "''")}' AND (${this.predicate})`);
+      const res = await this.coordinator.query(`SELECT row_id FROM units WHERE ${this.task === null ? "task_id IS NULL" : `task_id = '${this.task.replace(/'/g, "''")}'`} AND (${this.predicate})`);
       if (seq !== this.seq) return;
       this.predSet = new Set(rowsOf(res).map((r) => r.row_id));
     } else this.predSet = null;
@@ -228,11 +231,11 @@ export class SwimlanesPanel {
       <div class="panel-head">
         <div>
           <h2>Swimlanes</h2>
-          <p class="sub">${this.mode === "totals" ? `Totals: all ${this.data.attempts.filter((a) => a.task_id === this.task).length} attempts in every arm (arm filter and cloud selection not applied)` : `${lanes.length} attempts`} · ${esc(this.task)} · ${this.axis === "time" ? "elapsed time from each attempt's first unit" : "action order"}${this.predicate ? " · dimmed outside the cloud selection" : ""}
+          <p class="sub">${this.mode === "totals" ? `Totals: all ${this.data.attempts.filter((a) => a.task_id === this.task).length} attempts in every arm (arm filter and cloud selection not applied)` : `${lanes.length} attempts`} · ${esc(this.task ?? "task unavailable")} · ${this.axis === "time" ? "elapsed time from each attempt's first unit" : "action order"}${this.predicate ? " · dimmed outside the cloud selection" : ""}
           ${this.focus ? ` · <span class="chip">cluster: ${esc(this.focus.label.replace(/`/g, ""))} (${focusN}) <button class="chip-x" data-unfocus ${target("clearLaneClusterFocus")} aria-label="Clear cluster focus">×</button></span>` : ""}</p>
         </div>
         <div class="controls">
-          <label class="field">Task <select data-task ${target("setLaneTask")}>${this.tasks.map((t) => `<option ${t === this.task ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>
+          <label class="field">Task <select data-task ${target("setLaneTask")}>${this.tasks.map((t) => `<option value="${esc(JSON.stringify(t))}" ${t === this.task ? "selected" : ""}>${esc(t ?? "task unavailable")}</option>`).join("")}</select></label>
           <label class="field">Arm <select data-arm ${target("setLaneArm")}><option value="all">All arms</option>${this.arms().map((a) => `<option ${a === this.armFilter ? "selected" : ""}>${esc(a)}</option>`).join("")}</select></label>
           <div class="seg" role="radiogroup" aria-label="X axis">
             <button role="radio" aria-checked="${this.axis === "time"}" data-axis="time" ${target("setLaneAxis", "time")}>Time</button><button role="radio" aria-checked="${this.axis === "step"}" data-axis="step" ${target("setLaneAxis", "step")}>Steps</button>
@@ -265,7 +268,7 @@ export class SwimlanesPanel {
   private bindHead() {
     const q = <T extends Element>(s: string) => this.root.querySelector<T>(s)!;
     // keep the arm when the new task has it (setLaneTask)
-    q<HTMLSelectElement>("[data-task]").addEventListener("change", (e) => run("setLaneTask", { task: (e.target as HTMLSelectElement).value }));
+    q<HTMLSelectElement>("[data-task]").addEventListener("change", (e) => run("setLaneTask", { task: JSON.parse((e.target as HTMLSelectElement).value) }));
     q<HTMLSelectElement>("[data-ribbon]").addEventListener("change", (e) => run("setLaneRibbon", { ribbon: (e.target as HTMLSelectElement).value }));
     q<HTMLSelectElement>("[data-arm]").addEventListener("change", (e) => run("setLaneArm", { arm: (e.target as HTMLSelectElement).value }));
     this.root.querySelectorAll<HTMLButtonElement>("[data-axis]").forEach((b) => b.addEventListener("click", () => run("setLaneAxis", { axis: b.dataset.axis })));
@@ -316,9 +319,9 @@ export class SwimlanesPanel {
         const tok = esc([typeof l.cost_usd === "number" ? `$${l.cost_usd.toFixed(2)}` : "", typeof l.context_max === "number" && l.context_max ? `ctx ≤${fmtTok(l.context_max)}` : ""].filter(Boolean).join(" · "));
         const tokTitle = `${typeof l.tokens_total === "number" ? fmtTok(l.tokens_total) + " tokens processed" : "no token usage reported"}${typeof l.cost_usd === "number" ? ` · $${l.cost_usd.toFixed(2)}` : ""}${typeof l.context_max === "number" && l.context_max ? ` · largest context of one request ${l.context_max.toLocaleString()}` : ""} · usage source: ${l.usage_semantics}`;
         labels += `<div class="lane-label ${pickedIdx >= 0 ? "picked" : ""}" style="height:${LANE_H}px" data-lane="${esc(l.attempt_id)}">
-          <label class="pick"><input type="checkbox" data-pick="${esc(l.attempt_id)}" ${target("toggleLanePick", l.attempt_id)} ${pickedIdx >= 0 ? "checked" : ""} aria-label="Select trial ${esc(l.trial_id)} for alignment">${pickedIdx >= 0 ? `<b>${"AB"[pickedIdx]}</b>` : ""}</label>
-          <div class="ll-main"><span class="ll-title">trial ${esc(l.trial_id)}${l.terminal_state !== "completed" ? ` <span class="badge">${esc(l.terminal_state)}</span>` : ""} <span class="muted" title="${esc(tokTitle)}">${tok}</span></span>
-          <span class="ll-meta">${fmtDur(l.t_end_ms - l.t_start_ms)} · ${num(l.tools)} tools · ${num(l.errors)} err${l.compactions ? ` · <span title="${num(l.compactions)} compactions">┆${num(l.compactions)}</span>` : ""}</span>
+          <label class="pick"><input type="checkbox" data-pick="${esc(l.attempt_id)}" ${target("toggleLanePick", l.attempt_id)} ${pickedIdx >= 0 ? "checked" : ""} aria-label="Select ${esc(trialLabel(l.trial_id))} for alignment">${pickedIdx >= 0 ? `<b>${"AB"[pickedIdx]}</b>` : ""}</label>
+          <div class="ll-main"><span class="ll-title">${esc(trialLabel(l.trial_id))}${l.terminal_state !== "completed" ? ` <span class="badge">${esc(l.terminal_state ?? "unavailable")}</span>` : ""} <span class="muted" title="${esc(tokTitle)}">${tok}</span></span>
+          <span class="ll-meta">${fmtDur(laneDurationMs(l))} · ${num(l.tools)} ${l.capture_qualification === "imported" ? "projected tools" : "tools"} · ${num(l.errors)} err${l.compactions ? ` · <span title="${num(l.compactions)} compactions">┆${num(l.compactions)}</span>` : ""}</span>
           <span class="ll-id" title="${esc(`${l.attempt_id} · cohorts: ${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).join(", ") || "—"} · token usage source: ${l.usage_semantics === "none" ? "none recorded (not zero)" : l.usage_semantics}`)}"><span class="mono">${esc(l.attempt_id.slice(0, 8))}</span>${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).map((c) => ` <span class="coh">${esc(c)}</span>`).join("")} · ${l.usage_semantics === "none" ? "<span class=\"no-usage\">no usage recorded</span>" : `usage: ${esc(l.usage_semantics)}`}</span></div>
           ${this.ev?.audit && this.ev.chainsOf(l.attempt_id).length ? `<button class="icon-btn fail-btn" data-chains="${esc(l.attempt_id)}" ${target("openChains", l.attempt_id)} title="Failure chains: failed calls and the next call of the same tool">✕ ${this.ev.chainsOf(l.attempt_id).length}</button>` : ""}
           ${this.ev?.audit ? `<button class="icon-btn" data-audit="${esc(l.attempt_id)}" ${target("openAudit", l.attempt_id)} title="Audit: checks vs source changes vs final claims, failure chains, final message">Audit</button>` : ""}
@@ -419,7 +422,7 @@ export class SwimlanesPanel {
     const lane = this.data.attempts.find((a) => a.attempt_id === u.attempt_id);
     const t0 = Math.min(...(this.byLane.get(u.attempt_id) ?? []).filter((x) => x.t0_ms != null).map((x) => x.t0_ms!));
     this.tip.innerHTML = `<div class="tip-title">${esc(unitTitle(u))}</div>
-      <div class="tip-arm">${esc(u.condition)} · trial ${esc(lane?.trial_id ?? "?")} · ${esc(u.attempt_id.slice(0, 8))} · ${(() => { const st = (this.byLane.get(u.attempt_id) ?? []).filter((x) => x.unit_kind === "tool" || x.unit_kind === "compaction"); const i = st.findIndex((x) => x.row_id === u.row_id); return i >= 0 ? `step ${i + 1} · ` : ""; })()}unit #${u.seq}</div>
+      <div class="tip-arm">${esc(u.condition)} · ${esc(trialLabel(lane?.trial_id))} · ${esc(u.attempt_id.slice(0, 8))} · ${(() => { const st = (this.byLane.get(u.attempt_id) ?? []).filter((x) => x.unit_kind === "tool" || x.unit_kind === "compaction"); const i = st.findIndex((x) => x.row_id === u.row_id); return i >= 0 ? `step ${i + 1} · ` : ""; })()}unit #${u.seq}</div>
       <table>
         <tr><td>Kind</td><td>${esc(u.unit_kind)}${u.unit_kind === "tool" ? ` · ${esc(u.cat)}` : ""}${u.status ? ` · ${esc(u.status)}` : ""}</td></tr>
         <tr><td>At</td><td>${u.t0_ms != null ? fmtDur(u.t0_ms - t0) : "—"}${u.timed ? "" : " (untimed; placed after the previous unit)"}${u.duration_seconds ? ` · ${u.duration_seconds.toFixed(1)} s` : ""}</td></tr>
@@ -449,6 +452,6 @@ export class SwimlanesPanel {
   private drawTotals() {
     const view = this.root.querySelector<HTMLElement>(".lanes-view")!;
     const all = this.data.attempts.filter((a) => a.task_id === this.task);
-    renderTotals(view, this.task, all, this.byLane, this.totals, (rows) => this.onHighlight(rows), this.ev);
+    renderTotals(view, this.task ?? "task unavailable", all, this.byLane, this.totals, (rows) => this.onHighlight(rows), this.ev);
   }
 }

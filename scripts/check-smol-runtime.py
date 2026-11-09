@@ -1,6 +1,6 @@
 """Opt-in, no-model Smol/Harbor compatibility gate. Creates only owned local VMs.
 
-Install harbor[smol]==0.24.0 and smolmachines==1.26.1.
+Use the study’s isolated Harbor and Smol interpreter. --versions reports the installed identities without starting a VM.
 Run with that isolated interpreter; an optional argv[1] selects an OCI
 image (prefer a digest for recorded conformance). --direct removes Harbor and
 the OCI workload from the execution path. No Docker daemon or cloud is used.
@@ -54,8 +54,9 @@ async def borrower(parent, image, label):
 
 
 def main():
-    assert importlib.metadata.version("smolmachines") == "1.26.1"
-    assert importlib.metadata.version("harbor") == "0.24.0"
+    print(json.dumps({"harborVersion": importlib.metadata.version("harbor"), "smolVersion": importlib.metadata.version("smolmachines")}), flush=True)
+    if sys.argv[1:2] == ["--versions"]:
+        return
     if sys.argv[1:2] == ["--borrower"]:
         asyncio.run(borrower(*sys.argv[2:]))
         return

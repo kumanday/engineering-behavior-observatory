@@ -6,9 +6,7 @@ Agent SDK remains EBO's primary Anthropic capture path. Codex native protocol
 records remain authoritative, OTLP is separately retained timing/resource
 evidence, and uniform events are a digest-checked projection after capture.
 
-The supported runtime is `codex-cli 0.162.1`. EBO rejects a different executable
-version, starts a new child for each attempt, and never connects to the desktop
-daemon or changes `~/.codex/config.toml`.
+Freeze the `codex-app-server` role using the [study runtime workflow](../reference/study-runtimes.md). EBO starts the frozen executable in a new child for each attempt and checks its reported version against the lock. The generated 0.162.1 contract is a conformance baseline. Capture uses an owned child and leaves desktop sessions and `~/.codex/config.toml` intact.
 
 Each child receives a temporary isolated `CODEX_HOME`, a controlled instruction
 file, and no copied user configuration. When the standard local login file is
@@ -267,3 +265,20 @@ environment values, and hidden reasoning are not approved portable fields.
 Protocol details follow the official [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server).
 Exporter fields follow the official [advanced telemetry guidance](https://learn.chatgpt.com/docs/config-file/config-advanced#observability-and-telemetry)
 and [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+
+## Retained evidence and ATIF
+
+Retained evidence is read through this adapter's native format contract.
+The study freezes verification receipts for its runtime, capture contract and
+recorded scope. The [verification catalog](../reference/harness-verification.md)
+reports installation probes separately from named capture capabilities. Missing
+or conflicting evidence adds a confidence limitation; version declarations and
+disagreements remain visible as cohort metadata.
+Malformed records and corrupted source bindings receive specific diagnostics.
+[Limitation definitions](../reference/atif-limitations.md) explain version confidence.
+
+Conforming ATIF uses EBO's generic core reader regardless of producer identity
+or version. The [coverage matrix](../reference/atif-harness-coverage.md) identifies
+this harness's upstream converter, source-surface differences, fixture provenance
+and measured equivalence. Imported document measures retain their own scope and
+do not acquire native capture qualification.

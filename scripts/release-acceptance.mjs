@@ -1,4 +1,4 @@
-import { maskSourceIdentifierAssignments } from "./release-source-scan.mjs";
+import { maskSourceIdentifierAssignments, maskSourceLogicalRoots } from "./release-source-scan.mjs";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -44,7 +44,7 @@ try {
   run("npm", ["run", "typecheck"]);
   const [{ containsPortableLocalHomePath, containsPortableSecretPattern }, typescript] = await Promise.all([
     import("../dist/src/exports.js"),
-    import("typescript"),
+    import("@typescript/typescript6"),
   ]);
   const tests = readdirSync(join(root, "dist", "test"))
     .filter((name) => name.endsWith(".test.js"))
@@ -81,7 +81,7 @@ try {
     for (const path of viewerSources) {
       const text = readFileSync(join(root, path), "utf8");
       const sourceCode = /\.(?:[cm]?js|[cm]?ts)$/u.test(path);
-      if (containsPortableLocalHomePath(text, "text/plain") || containsPortableSecretPattern(sourceCode ? maskSourceIdentifierAssignments(text, path, typescript) : text, "text/plain")) {
+      if (containsPortableLocalHomePath(sourceCode ? maskSourceLogicalRoots(text, path, typescript) : text, "text/plain") || containsPortableSecretPattern(sourceCode ? maskSourceIdentifierAssignments(text, path, typescript) : text, "text/plain")) {
         throw new Error(`Viewer source ${path} contains a local identifier or secret-like value.`);
       }
     }
@@ -102,7 +102,7 @@ try {
         : path.endsWith(".json") ? "application/json"
           : "text/plain";
       const scannedText = sourceCode ? maskSourceIdentifierAssignments(text, path, typescript) : text;
-      if (containsPortableLocalHomePath(text, mediaType) || containsPortableSecretPattern(scannedText, mediaType)) {
+      if (containsPortableLocalHomePath(sourceCode ? maskSourceLogicalRoots(text, path, typescript) : text, mediaType) || containsPortableSecretPattern(scannedText, mediaType)) {
         throw new Error(`Package file ${path} contains a local identifier or secret-like value.`);
       }
     }

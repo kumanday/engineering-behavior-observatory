@@ -1,0 +1,30 @@
+{
+  "schema_version": "ATIF-v1.8",
+  "agent": {
+    "name": "openclaw",
+    "version": "2026.10.4"
+  },
+  "extra": {
+    "partial": {
+      "missing": [
+        "tool_calls",
+        "tool_results"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "system",
+      "message": "[COMPACTED HISTORY] Not recorded",
+      "extra": {
+        "added_by": "hlb"
+      }
+    },
+    {
+      "step_id": 2,
+      "source": "agent",
+      "message": "Authored final answer with missing intermediate history."
+    }
+  ]
+}

@@ -5,10 +5,12 @@ on:
     paths:
       - 'src/**'
       - 'schemas/**'
+      - 'verification/**'
       - 'test/**'
       - 'package*.json'
       - 'scripts/build-harbor-runtime.mjs'
       - 'scripts/release-*.mjs'
+      - 'scripts/harbor-ci/**'
       - '.github/workflows/harbor.yml'
 permissions:
   contents: read
@@ -25,16 +27,26 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24.19.0'
+          node-version-file: '.nvmrc'
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.14'
+          python-version: '3.14.10'
       - run: npm ci
       - run: npm run build && npm run typecheck
-      - run: python -m venv .harbor-venv && .harbor-venv/bin/pip install 'harbor[smol]==0.24.0' smolmachines==1.26.1 && .harbor-venv/bin/pip check
+      - name: Install hash-locked Harbor and Smol conformance snapshot
+        run: |
+          python -m venv .harbor-venv
+          .harbor-venv/bin/python -m pip install --only-binary=:all: --require-hashes -r scripts/harbor-ci/requirements.lock.txt
+          .harbor-venv/bin/python -m pip check
+          .harbor-venv/bin/python -c "import importlib.metadata; print({name: importlib.metadata.version(name) for name in ['harbor', 'smolmachines']})"
       - name: Native worker and admission regression checks
         run: node --test dist/test/harbor.test.js dist/test/harbor-worker.test.js dist/test/harbor-trial.test.js dist/test/harbor-smol.test.js dist/test/factory-droid.test.js dist/test/release-source-scan.test.js
         env:
           EBO_HARBOR_PYTHON: '${{ github.workspace }}/.harbor-venv/bin/python'
       # Live Smol conformance needs the qualified Apple Silicon host and Smol's
       # bundled libkrun. This job tests contracts, not virtualization availability.
+      - name: Frozen runtime and supply-chain contracts
+        run: node --test --test-concurrency=4 dist/test/runtime-*.test.js dist/test/study-runtime-*.test.js dist/test/sdk-runtime-loading.test.js dist/test/harness-verification*.test.js
+        env:
+          EBO_HARBOR_PYTHON: '${{ github.workspace }}/.harbor-venv/bin/python'
+          PYTHONDONTWRITEBYTECODE: '1'

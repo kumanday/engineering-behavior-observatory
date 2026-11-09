@@ -1,3 +1,5 @@
+import { v1OperationAlias } from "./v1-consumer-compatibility.js";
+import { visibleEvidence } from "./evidence-projection.js";
 import { canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
 import { runCodexStructuredTurn, type CodexTurnSettings } from "./codex-judge.js";
 import type { SemanticJudgeBackendResult } from "./semantic-judge.js";
@@ -6,6 +8,7 @@ import { findCommand, type Occurrence, type OccurrenceType } from "./occurrences
 import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
 import { createStructuralObservationSet, nativeContentResolver, type StructuralObservationSet } from "./structural-observations.js";
 import type { NativeEvidenceReference, UniformEvent } from "./uniform-events.js";
+import { nativeEventPrecedence as eventOrder } from "./event-order.js";
 
 /**
  * Occurrence ratings: one bounded, typed question set per occurrence, answered by a System One decision model.
@@ -56,6 +59,7 @@ export type FallbackRecord = {
 
 /** The reasoning model for deferred ratings. `run` replaces the Codex app-server turn (tests). */
 export type RatingFallback = {
+  runtime?: import("./runtime-context.js").StudyRuntimeBinding;
   model: string;
   effort: CodexTurnSettings["evaluator"]["effort"];
   executable?: string;
@@ -247,6 +251,19 @@ export function occurrenceState(
     groups.set(key, [...groups.get(key) ?? [], event]);
   }
   const calls = [...groups.values()];
+  const boundResponse = (events: UniformEvent[]) => events.some(({ id }) => id === occurrence.attributes.responseEventId);
+  const currentFollowUp = occurrence.type === "failure-response" && occurrence.rule.version === "1.2.0";
+  if (currentFollowUp) {
+    const terminal = eventsById.get(String(occurrence.attributes.lastFailureEventId));
+    const domain = terminal?.nativeOrder.status === "known" ? terminal.nativeOrder.domain : undefined;
+    const start = (events: UniformEvent[]) => events.filter(({ nativeOrder, phase }) => phase !== "after"
+      && nativeOrder.status === "known" && nativeOrder.domain === domain).sort((a, b) => eventOrder(a, b) ?? 0)[0];
+    calls.sort((a, b) => {
+      if (boundResponse(a) !== boundResponse(b)) return boundResponse(a) ? 1 : -1;
+      const first = start(a), second = start(b);
+      return first === undefined || second === undefined ? 0 : eventOrder(first, second) ?? 0;
+    });
+  }
   let omitted = 0;
   const bound = (value: string | undefined, limit: number) => {
     if (value === undefined || value.length <= limit) return value;
@@ -254,6 +271,7 @@ export function occurrenceState(
     const half = Math.floor(limit / 2);
     return `${value.slice(0, half)}\n…[${String(value.length - limit)} characters omitted from this request]…\n${value.slice(-half)}`;
   };
+  let failureOrdinal = 0;
   const rendered: Call[] = calls.map((events, index) => {
     const before = events.filter(({ phase }) => phase !== "after");
     const after = events.filter(({ phase }) => phase === "after");
@@ -264,7 +282,8 @@ export function occurrenceState(
     const passed = events.some(({ attributes }) => attributes.isError === false || attributes.status === "completed" || attributes.exitCode === 0 || attributes.hook === "PostToolUse");
     const tool = events.map(({ attributes }) => attributes.toolName).find((value): value is string => typeof value === "string");
     return {
-      position: occurrence.type === "failure-response" ? (failed ? `failure ${String(index + 1)}` : "response") : "call",
+      position: currentFollowUp ? boundResponse(events) ? "response" : `failure ${String(++failureOrdinal)}`
+        : occurrence.type === "failure-response" ? (failed ? `failure ${String(index + 1)}` : "response") : "call",
       ...(tool === undefined ? {} : { tool }),
       ...(input === undefined ? {} : { input }),
       ...(output === undefined ? {} : { output }),
@@ -280,20 +299,23 @@ export function occurrenceState(
 }
 
 function callKey(event: UniformEvent): string {
-  for (const key of ["toolUseId", "toolCallId", "callId", "itemId"]) {
-    const value = event.attributes[key];
-    if (typeof value === "string" && value !== "") return value;
-  }
+  const alias = v1OperationAlias(event, "rating");
+  if (alias !== undefined) return alias;
   return event.scope.kind === "operation" && typeof event.scope.id === "string" ? event.scope.id : event.id;
 }
 
 function firstText(events: readonly UniformEvent[], resolveContent: (reference: NativeEvidenceReference) => unknown, kind: "input" | "output"): string | undefined {
   for (const event of events) {
     if (event.content.status !== "known") continue;
-    for (const { nativeReference } of event.content.value) {
+    for (const { nativeReference, role } of event.content.value) {
       const value = resolveContent(nativeReference);
       if (value === undefined) continue;
-      const text = kind === "input" ? findCommand(value) ?? inputText(value) : outputText(value);
+      const pointedContent = nativeReference.recordLocator.startsWith("#/") && (role === "tool-input" || role === "tool-result");
+      const visible = pointedContent ? visibleEvidence(value) : value;
+      const text = kind === "input" ? findCommand(visible) ?? inputText(visible)
+        ?? (pointedContent && role === "tool-input" ? typeof visible === "string" ? visible : canonicalizeMetadata(visible) : undefined)
+        : pointedContent && typeof visible === "string" ? visible : outputText(visible)
+          ?? (pointedContent && role === "tool-result" ? canonicalizeMetadata(visible) : undefined);
       if (text !== undefined && text.trim() !== "") return text;
     }
   }
@@ -341,6 +363,22 @@ const RULE_RATINGS = {
   silentSuccess: { occurrenceType: "validation-run", questionId: "outcome", label: "all-passed", rule: "native success with empty output" },
 } as const;
 
+const FOLLOW_UP_RULE = "no source-ordered follow-up call of the tool outside the same inference";
+function ratingRule(key: keyof typeof RULE_RATINGS, occurrence: Occurrence): string {
+  return key === "noResponse" && occurrence.rule.version === "1.2.0" ? FOLLOW_UP_RULE : RULE_RATINGS[key].rule;
+}
+
+/** Retained 1.0/1.1 rating inputs keep their original time fallback for digest verification. */
+function legacyEventOrder(left: UniformEvent, right: UniformEvent): number | undefined {
+  if (left.id === right.id) return 0;
+  if (left.nativeOrder.status === "known" && right.nativeOrder.status === "known" && left.nativeOrder.domain === right.nativeOrder.domain) {
+    return Math.sign(left.nativeOrder.value - right.nativeOrder.value) || undefined;
+  }
+  const a = left.nativeTime.status === "known" ? Date.parse(left.nativeTime.value) : Number.NaN;
+  const b = right.nativeTime.status === "known" ? Date.parse(right.nativeTime.value) : Number.NaN;
+  return Number.isFinite(a) && Number.isFinite(b) && a !== b ? Math.sign(a - b) : undefined;
+}
+
 /** Output that carries nothing: empty, or a harness's own no-output marker. */
 const EMPTY_OUTPUT = /^\s*(?:\(?\s*(?:no output|bash completed with no output)\s*\)?)?\s*$/iu;
 
@@ -355,25 +393,33 @@ export function occurrenceRequest(
   resolveContent: (reference: NativeEvidenceReference) => unknown,
 ): { rules: Array<keyof typeof RULE_RATINGS>; state?: Record<string, unknown>; questions: Record<string, DecisionQuestion> } {
   const questions = { ...occurrenceQuestions(occurrence.type) ?? {} };
-  if (occurrence.type === "failure-response" && occurrence.attributes.nextOutcome === "none") return { rules: ["noResponse"], questions: {} };
+  const precedence = occurrence.rule.version === "1.2.0" ? eventOrder : legacyEventOrder;
+  const imported = occurrence.attributes.evidenceOrigin === "imported" || occurrence.attributes.sourceCompleteness === "unproven";
+  if (occurrence.type === "failure-response" && occurrence.attributes.nextOutcome === "none") return { rules: imported ? [] : ["noResponse"], questions: {} };
   // Supporting facts use every source change, whichever types are rated. Changes strictly between two events are
-  // ordered natively within one order domain and by time otherwise; "unknown" when no order can be established.
-  const changes = allOccurrences.filter(({ type }) => type === "source-change").map(({ eventIds }) => eventsById.get(eventIds[0]!));
+  // ordered natively within one order domain; "unknown" when source order cannot be established.
+  const changes = allOccurrences.filter(({ type }) => type === "source-change").map(({ eventIds }) => eventIds.flatMap((id) => eventsById.get(id) ?? []));
   const between = (fromId: unknown, toId: unknown): number | "unknown" => {
+    if (imported) return "unknown";
     const from = eventsById.get(String(fromId));
     const to = eventsById.get(String(toId));
     if (from === undefined || to === undefined) return "unknown";
     let count = 0;
-    for (const change of changes) {
-      const after = change === undefined ? undefined : eventOrder(from, change);
-      const before = change === undefined ? undefined : eventOrder(change, to);
+    for (const views of changes) {
+      const change = occurrence.rule.version !== "1.2.0" ? views[0]
+        : from.nativeOrder.status !== "known" || to.nativeOrder.status !== "known" || from.nativeOrder.domain !== to.nativeOrder.domain
+          ? undefined : views.filter(({ nativeOrder }) => nativeOrder.status === "known" && from.nativeOrder.status === "known" && nativeOrder.domain === from.nativeOrder.domain)
+            .sort((a, b) => eventOrder(a, b) ?? 0)[0];
+      const after = change === undefined ? undefined : precedence(from, change);
+      const before = change === undefined ? undefined : precedence(change, to);
       if (after === undefined || before === undefined) return "unknown";
       if (after < 0 && before < 0) count += 1;
     }
     return count;
   };
   const facts: Record<string, unknown> = {};
-  if (occurrence.type === "repeated-operation") facts.sourceChangesBetween = between(occurrence.attributes.firstEventId, occurrence.eventIds[0]);
+  if (occurrence.type === "repeated-operation") facts.sourceChangesBetween = between(occurrence.attributes.firstEventId,
+    occurrence.rule.version === "1.2.0" ? occurrence.attributes.repeatedEventId ?? occurrence.eventIds[0] : occurrence.eventIds[0]);
   if (occurrence.type === "failure-response") {
     facts.sourceChangesBetween = occurrence.attributes.lastFailureEventId === undefined ? "unknown"
       : between(occurrence.attributes.lastFailureEventId, occurrence.attributes.responseEventId);
@@ -388,19 +434,13 @@ export function occurrenceRequest(
       delete questions.outcome;
     }
   }
+  if (imported) {
+    state.sourceEvidence = { qualification: "imported", completeness: "unproven", sourceChangesBetween: "unknown" };
+    for (const [id, question] of Object.entries(questions)) questions[id] = { ...question,
+      instructions: `This is selected imported evidence with unproven completeness and mutation outcomes. Missing records do not establish absence, no repair, no response or complete success. Judge only the cited local behavior; abstain when the requested distinction is unproven. ${question.instructions}` };
+  }
   if (omittedCharacters > 0) state.omittedCharacters = omittedCharacters;
   return Object.keys(questions).length === 0 ? { rules, questions } : { rules, state, questions };
-}
-
-/** -1 when `left` precedes `right`, 1 when it follows, 0 for the same event; undefined when the order is unknown. */
-function eventOrder(left: UniformEvent, right: UniformEvent): number | undefined {
-  if (left.id === right.id) return 0;
-  if (left.nativeOrder.status === "known" && right.nativeOrder.status === "known" && left.nativeOrder.domain === right.nativeOrder.domain) {
-    return Math.sign(left.nativeOrder.value - right.nativeOrder.value) || undefined;
-  }
-  const leftTime = left.nativeTime.status === "known" ? Date.parse(left.nativeTime.value) : Number.NaN;
-  const rightTime = right.nativeTime.status === "known" ? Date.parse(right.nativeTime.value) : Number.NaN;
-  return Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime ? Math.sign(leftTime - rightTime) : undefined;
 }
 
 /** A single check call that succeeded natively and printed nothing. */
@@ -433,7 +473,7 @@ export function verifyRatingRules(
   const expected = new Set<string>();
   if (legacy) {
     for (const occurrence of population) {
-      if (occurrence.type === "failure-response" && occurrence.attributes.nextOutcome === "none") expected.add(ruleKey({ occurrenceId: occurrence.id, rule: RULE_RATINGS.noResponse.rule }));
+      if (occurrence.type === "failure-response" && occurrence.attributes.nextOutcome === "none") expected.add(ruleKey({ occurrenceId: occurrence.id, rule: ratingRule("noResponse", occurrence) }));
     }
   } else {
     if (ratings.coverage.occurrences !== population.length) throw new Error("Occurrence ratings coverage differs from the rated population.");
@@ -441,7 +481,7 @@ export function verifyRatingRules(
     for (const occurrence of population) {
       // Rebuild exactly what the occurrence should have been asked; its one decision must match it.
       const request = occurrenceRequest(occurrence, observations.occurrences ?? [], eventsById, resolveContent);
-      for (const key of request.rules) expected.add(ruleKey({ occurrenceId: occurrence.id, rule: RULE_RATINGS[key].rule }));
+      for (const key of request.rules) expected.add(ruleKey({ occurrenceId: occurrence.id, rule: ratingRule(key, occurrence) }));
       const index = owners.indexOf(occurrence.id);
       const decision = index < 0 ? undefined : ratings.decisions[index];
       if ((request.state === undefined) !== (decision === undefined) || (decision !== undefined
@@ -515,7 +555,7 @@ export async function rateOccurrences(
   for (const occurrence of occurrences) {
     const request = occurrenceRequest(occurrence, rebuilt.occurrences ?? [], eventsById, resolveContent);
     for (const key of request.rules) {
-      ratings.push({ occurrenceId: occurrence.id, occurrenceType: occurrence.type, questionId: RULE_RATINGS[key].questionId, source: "rule", label: RULE_RATINGS[key].label, accepted: true, rule: RULE_RATINGS[key].rule });
+      ratings.push({ occurrenceId: occurrence.id, occurrenceType: occurrence.type, questionId: RULE_RATINGS[key].questionId, source: "rule", label: RULE_RATINGS[key].label, accepted: true, rule: ratingRule(key, occurrence) });
     }
     if (request.state === undefined) continue;
     const { state, questions: asked } = request;
@@ -615,7 +655,7 @@ export function validateOccurrenceRatings(document: OccurrenceRatings): void {
       if (!rating.accepted) deferred.set(key, rating.decision!);
     } else if (rating.source === "rule") {
       const known = Object.values(RULE_RATINGS).some((rule) => rule.occurrenceType === rating.occurrenceType && rule.questionId === rating.questionId
-        && rule.label === rating.label && rule.rule === rating.rule);
+        && rule.label === rating.label && (rule.rule === rating.rule || rule === RULE_RATINGS.noResponse && rating.rule === FOLLOW_UP_RULE));
       if (!known || rating.answer !== undefined || rating.decision !== undefined || rating.accepted !== true) {
         throw new Error(`Rule rating for "${rating.occurrenceId}" is not a known rule.`);
       }
@@ -732,6 +772,7 @@ async function askFallback(
       const startedAt = new Date();
       const started = performance.now();
       const result = await (fallback.run ?? ((text: string, schema: Record<string, unknown>) => runCodexStructuredTurn(text, {
+        runtime: fallback.runtime,
         evaluator: { model: fallback.model, effort: fallback.effort, ...(fallback.executable === undefined ? {} : { executable: fallback.executable }) },
         limits: { maxWallClockMs: fallback.maxWallClockMs ?? 300_000, maxInputChars: prompt.length, maxOutputChars: 4_000 + pairs.length * 1_200 },
       }, schema, FALLBACK_INSTRUCTIONS)))(prompt, outputSchema);

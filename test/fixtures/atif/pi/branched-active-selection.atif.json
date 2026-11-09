@@ -1,0 +1,60 @@
+{
+  "schema_version": "ATIF-v1.7",
+  "session_id": "synthetic-pi-fixture",
+  "agent": {
+    "name": "pi",
+    "version": "unknown",
+    "model_name": "synthetic-model"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "timestamp": "2026-11-07T00:00:01.000Z",
+      "source": "user",
+      "message": "Run the synthetic checks.",
+      "extra": {
+        "pi_event_id": "u1",
+        "pi_parent_id": null
+      }
+    },
+    {
+      "step_id": 2,
+      "timestamp": "2026-11-07T00:00:07.000Z",
+      "source": "agent",
+      "model_name": "synthetic-model",
+      "message": "Synthetic selected branch with no tool calls.",
+      "metrics": {
+        "prompt_tokens": 18,
+        "completion_tokens": 2,
+        "cached_tokens": 10,
+        "extra": {
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "pi_total_tokens": 20
+        }
+      },
+      "llm_call_count": 1,
+      "extra": {
+        "pi_event_id": "selected-leaf",
+        "pi_parent_id": "u1",
+        "provider": "synthetic",
+        "api": "openai-completions",
+        "response_id": null,
+        "response_model": null,
+        "stop_reason": "stop",
+        "raw_stop_reason": null
+      }
+    }
+  ],
+  "final_metrics": {
+    "total_prompt_tokens": 18,
+    "total_completion_tokens": 2,
+    "total_cached_tokens": 10,
+    "total_steps": 2,
+    "extra": {
+      "cache_write_tokens": 0,
+      "reasoning_tokens": 0,
+      "pi_total_tokens": 20
+    }
+  }
+}

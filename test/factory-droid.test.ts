@@ -2,13 +2,16 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { FACTORY_BYOK_MODEL_ID, type FactoryModelRoute } from "../src/factory-model.js";
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
-import test from "node:test";
+import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("factory-droid");
+const liveTest = liveRuntimeTest("factory-droid");
 import { captureFactoryDroid, FACTORY_CLI_VERSION, FACTORY_SDK_VERSION, qualifyFactoryCapture,
   describeAndValidateFactoryDataset, type FactoryDroidConfiguration, type FactoryCapture } from "../src/factory-droid.js";
 import { FACTORY_CONTRACT_DIGEST, captureFactoryDroidRun, runFactoryQueueEntry } from "../src/factory-run.js";
@@ -40,10 +43,24 @@ async function runFake(root: string, mode = "success", overrides: Partial<Factor
   const workspacePath = join(root, "workspace"); await mkdir(workspacePath, { recursive: true });
   return captureFactoryDroid({ runId: "factory-run", attemptId: "factory-attempt", workspacePath, prompt: "Create a result file.",
     configuration: { ...config(mode), ...overrides }, evidencePath: join(root, "session.jsonl"),
-    shutdownGraceMs: 100, maxInMemoryObservations: 2, maxLineBytes: mode === "oversized" ? 4096 : undefined, signal });
+    shutdownGraceMs: mode === "delayed-interrupt" || mode === "hang" ? 2000 : 100, maxInMemoryObservations: 2, maxLineBytes: mode === "oversized" ? 4096 : undefined, signal });
 }
 const retainedOptions = (capture: FactoryCapture, expectsCompletion = true) => ({ sessionId: capture.sessionId, expectsCompletion,
   cliVersion: FACTORY_CLI_VERSION, sdkVersion: FACTORY_SDK_VERSION });
+
+test("Factory records the loaded study SDK protocol declaration in both native configuration and telemetry", async () => {
+  const {withStudyRuntime} = await import("../src/runtime-context.js");
+  const {createConformanceRuntimeFixture} = await import("./with-runtime-fixture.js");
+  const binding = await createConformanceRuntimeFixture("factory-droid", false, undefined, 'export const FACTORY_PROTOCOL_VERSION = "fixture-future-protocol";');
+  const root = await temporaryRoot();
+  try {
+    const capture = await withStudyRuntime({...binding, role: "factory-droid"}, async () => runFake(root));
+    assert.equal(capture.telemetry.runtime.protocolVersion, "fixture-future-protocol");
+    const text = await readFile(join(root, "session.jsonl"), "utf8");
+    const configuration = text.trim().split("\n").map(line => JSON.parse(line)).find(row => row.kind === "capability" && row.capability === "runtime-composition");
+    assert.equal(configuration.evidence.protocolVersion, "fixture-future-protocol");
+  } finally {await rm(binding.studyRoot, {recursive: true, force: true}); await rm(root, {recursive: true, force: true});}
+});
 
 test("Factory real SDK records native frames before filtering and completes only the owned session/turn", async () => {
   const root = await temporaryRoot();
@@ -128,7 +145,8 @@ test("Factory retained qualification rejects foreign identities, runtime mismatc
   try {
     const capture = await runFake(root);
     assert.throws(() => qualifyFactoryCapture(capture, { ...retainedOptions(capture), sessionId: "foreign" }), /identity differs/);
-    assert.throws(() => qualifyFactoryCapture(capture, { ...retainedOptions(capture), sdkVersion: "unknown" }), /Unsupported/);
+    assert.ok(qualifyFactoryCapture(capture, { ...retainedOptions(capture), sdkVersion: "unknown" }).sourceLimitations?.includes("HARNESS_VERSION_UNVERIFIED"));
+    assert.ok(qualifyFactoryCapture(capture, { ...retainedOptions(capture), adapterVersion: "unknown" }).sourceLimitations?.includes("HARNESS_VERSION_UNVERIFIED"));
     const altered = structuredClone(capture);
     const terminal = altered.records.find(({ record }) => { const f = record.payload as any; return f?.params?.notification?.turnId === capture.turnId && f.params.sessionId === capture.sessionId; })!;
     (terminal.record.payload as any).params.notification.turnId = "foreign";
@@ -164,6 +182,7 @@ test("Factory declined permissions retain an interrupted run bundle and native p
     assert.equal(result.manifest.terminal.state, "interrupted");
     assert.equal(result.capture?.terminal?.reason, "permission_rejected");
     const retained = await createRetainedBehaviorEvidence(bundle);
+    await assertNativeV2RetainedBundle(bundle);
     assert.equal(retained.dataset.events.find(e => e.family === "outcome")?.attributes.reason, "permission_rejected");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -493,7 +512,7 @@ test("pinned native Factory BYOK uses Chat Completions through EBO without Facto
 // Opt-in live check: credentials are supplied through the process environment.
 // EBO_LIVE_FACTORY_EXECUTABLE must be the absolute pinned binary path.
 // EBO_LIVE_FACTORY_MODEL and EBO_LIVE_FACTORY_EFFORT select the authorized condition.
-test("live Factory CLI tool capture and retained readback", { skip: process.env.EBO_LIVE_FACTORY_CAPTURE_SMOKE !== "1", timeout: 180_000 }, async t => {
+liveTest("live Factory CLI tool capture and retained readback", { skip: process.env.EBO_LIVE_FACTORY_CAPTURE_SMOKE !== "1", timeout: 180_000 }, async t => {
   const byok = process.env.EBO_LIVE_FACTORY_ROUTE === "byok";
   const credentialEnv = byok ? "FIREWORKS_API_KEY" : "FACTORY_API_KEY";
   assert.ok(process.env[credentialEnv]);
