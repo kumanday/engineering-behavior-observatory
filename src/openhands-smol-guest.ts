@@ -3,6 +3,7 @@ import {spawn} from "node:child_process";
 import {createServer} from "node:net";
 import {access, mkdir, readFile, rmdir, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
+import {setTimeout as delay} from "node:timers/promises";
 import {join} from "node:path";
 import type {OpenHandsSmolRequest, OpenHandsSmolServer} from "./openhands-smol.js";
 import {RuntimePolicyError} from "./runtime-resolution.js";
@@ -35,9 +36,12 @@ export async function startOpenHandsInSmolGuest(request: OpenHandsSmolRequest, b
   // Joining before exec makes detached tmux and setsid tool children inherit the
   // same cgroup. Process-group membership alone cannot establish quiescence.
   const child = spawn("/bin/sh", ["-eu", "-c", 'printf "%s" "$$" > "$1/cgroup.procs"; shift; exec "$@"', "ebo-owned-server", cgroup, "/usr/sbin/chroot", `--userspec=${uid}:${gid}`, `--groups=${gid}`, "/", ...command],
-    {cwd: request.workdir, env: {...request.imageEnvironment, HOME: "/tmp", ...(request.sessionApiKey ? {SESSION_API_KEY: request.sessionApiKey} : {})}, detached: true, stdio: "ignore"});
+    {cwd: request.workdir, env: {...request.imageEnvironment, HOME: "/tmp", ...(request.sessionApiKey ? {SESSION_API_KEY: request.sessionApiKey} : {})}, detached: true,
+      stdio: ["ignore", "ignore", "pipe"]});
+  let stderr = "";
+  child.stderr.on("data", chunk => {stderr = (stderr + String(chunk)).slice(-2048);});
   let stopped = false, stopPromise: Promise<void> | undefined;
-  const exited = new Promise<void>((resolve, reject) => {child.once("error", reject); child.once("close", () => resolve());});
+  const exited = new Promise<void>((resolve, reject) => {child.once("error", reject); child.once("exit", () => resolve());});
   void exited.catch(() => {});
   const kill = (signal: NodeJS.Signals) => {if (!child.pid) return; try {process.kill(-child.pid, signal);} catch (error) {if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;}};
   const stop = (): Promise<void> => stopPromise ??= (async () => {
@@ -51,14 +55,34 @@ export async function startOpenHandsInSmolGuest(request: OpenHandsSmolRequest, b
         await new Promise(resolve => setTimeout(resolve, 10));
       }
       if (!stopped) throw new RuntimePolicyError("RUNTIME_SMOL_CLEANUP_FAILED", "OpenHands server cgroup is still populated; workspace termination is unproven.");
-      await exited.catch(() => {}); await rmdir(cgroup);
+      await exited.catch(() => {}); child.stderr.destroy(); await rmdir(cgroup);
     } finally {if (timer) clearTimeout(timer); request.signal?.removeEventListener("abort", abort);}
   })();
   const abort = () => {void stop().catch(() => {});};
   request.onStarting?.(stop); request.signal?.addEventListener("abort", abort, {once: true});
   if (request.signal?.aborted) {await stop(); request.signal.throwIfAborted();}
-  try {await new Promise<void>((resolve, reject) => {child.once("spawn", resolve); child.once("error", reject);});}
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    await new Promise<void>((resolve, reject) => {child.once("spawn", resolve); child.once("error", reject);});
+    const deadline = AbortSignal.timeout(30_000);
+    const signal = request.signal ? AbortSignal.any([request.signal, deadline]) : deadline;
+    let ready = false;
+    while (!signal.aborted && child.exitCode === null && child.signalCode === null) {
+      const response = await fetch(baseUrl + "/server_info", {
+        ...(request.sessionApiKey ? {headers: {"X-Session-API-Key": request.sessionApiKey}} : {}),
+        redirect: "manual",
+        signal: AbortSignal.any([signal, AbortSignal.timeout(1_000)]),
+      }).catch(() => undefined);
+      await response?.body?.cancel().catch(() => {});
+      if (response?.ok) {ready = true; break;}
+      if (response && (response.status === 401 || response.status === 403 || response.status >= 300 && response.status < 400)) break;
+      await delay(100, undefined, {signal}).catch(() => {});
+    }
+    request.signal?.throwIfAborted();
+    if (!ready) throw new RuntimePolicyError("RUNTIME_SMOL_FAILED", "OpenHands Agent Server did not become ready. " +
+      (request.sessionApiKey ? stderr.replaceAll(request.sessionApiKey, "[REDACTED_SECRET]") : stderr).trim());
+  }
   catch (error) {await stop().catch(() => {}); throw error;}
 
-  return {baseUrl: `http://127.0.0.1:${port}`, binding: {kind: "smol-guest-server", target: "local", ...binding, imageConfigDigest: binding.imageConfigDigest, platform: request.platform, serverPid: child.pid, actualUser: `${uid}:${gid}`, cgroup}, stop, isStopped: () => stopped};
+  return {baseUrl, binding: {kind: "smol-guest-server", target: "local", ...binding, imageConfigDigest: binding.imageConfigDigest, platform: request.platform, serverPid: child.pid, actualUser: `${uid}:${gid}`, cgroup}, stop, isStopped: () => stopped};
 }

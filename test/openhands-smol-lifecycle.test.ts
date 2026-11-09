@@ -29,15 +29,30 @@ test("an OpenHands worker starts only its HTTP child inside the existing Smol gu
   let server: Awaited<ReturnType<typeof startOpenHandsInSmolGuest>> | undefined;
   try {
     const executable = join(root, "server.mjs");
-    await writeFile(executable, `import http from 'node:http';import {spawn} from 'node:child_process';const args=process.argv;const port=Number(args[args.indexOf('--port')+1]);const tool=spawn(process.execPath,['-e',${JSON.stringify("const fs=require('node:fs');fs.writeFileSync(" + JSON.stringify(join(root, 'detached-tool-ready')) + ", 'ready');const timer=setInterval(()=>{if(fs.existsSync(" + JSON.stringify(join(root, 'release-tool')) + ")){fs.writeFileSync(" + JSON.stringify(join(root, 'late-tool-write')) + ", 'must not happen');clearInterval(timer)}},10)")}],{detached:true,stdio:'ignore'});tool.unref();http.createServer((req,res)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify({version:'fixture',toolPid:tool.pid,uid:process.getuid(),gid:process.getgid()}));}).listen(port,'127.0.0.1');\n`);
+    const release = join(root, "release-tool");
+    const detachedTool = `const fs=require('node:fs');
+      fs.writeFileSync(${JSON.stringify(join(root, "detached-tool-ready"))}, 'ready');
+      const timer=setInterval(()=>{
+        if(fs.existsSync(${JSON.stringify(release)})){
+          clearInterval(timer);
+          setTimeout(()=>fs.writeFileSync(${JSON.stringify(join(root, "late-tool-write"))}, 'must not happen'), 250);
+        }
+      },10);`;
+    await writeFile(executable, `import http from 'node:http';import {spawn} from 'node:child_process';import {writeFileSync} from 'node:fs';
+      const args=process.argv;const port=Number(args[args.indexOf('--port')+1]);
+      const tool=spawn(process.execPath,['-e',${JSON.stringify(detachedTool)}],{detached:true,stdio:['ignore','ignore','inherit']});tool.unref();
+      process.on('SIGTERM',()=>{writeFileSync(${JSON.stringify(release)},'server exited');process.exit(0);});
+      setTimeout(()=>http.createServer((req,res)=>{
+        res.setHeader('Content-Type','application/json');
+        res.end(JSON.stringify({version:'fixture',toolPid:tool.pid,uid:process.getuid(),gid:process.getgid()}));
+      }).listen(port,'127.0.0.1'),150);`);
     const user = process.getuid!() === 0 ? '1001:1001' : `${process.getuid!()}:${process.getgid!()}`;
     if (process.getuid!() === 0) await chown(root, 1001, 1001);
     const input = {...request(root), workspaceUser: user, python: "/must-not-launch-a-nested-smol-interpreter", command: [process.execPath, executable, "--host", "0.0.0.0", "--port", "8000"]};
     const binding = {schemaVersion: "ebo.smol-owned-task/v1" as const, image: input.image, imageConfigDigest: input.configDigest, machine: "owned-task-vm", bootId: (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim(), engineVersion: input.engineVersion, libkrunSha256: "b".repeat(64), serverCgroupRoot: process.env.EBO_TEST_SMOL_CGROUP_ROOT};
     server = await startOpenHandsInSmolGuest(input, binding);
-    let response: Response | undefined;
-    for (let i = 0; i < 200; i++) {try {response = await fetch(server.baseUrl + "/server_info"); break;} catch {await new Promise(resolve => setTimeout(resolve, 10));}}
-    const identity = await response!.json() as {version: string; toolPid: number; uid: number; gid: number};
+    const response = await fetch(server.baseUrl + "/server_info");
+    const identity = await response.json() as {version: string; toolPid: number; uid: number; gid: number};
     assert.equal(identity.version, "fixture");
     assert.equal(`${identity.uid}:${identity.gid}`, user);
     assert.equal(server.binding.actualUser, user);

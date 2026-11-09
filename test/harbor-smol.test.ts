@@ -176,7 +176,7 @@ async def check():
     machine = SimpleNamespace(exec=AsyncMock(return_value=SimpleNamespace(exit_code=0, stdout='prepared', stderr='')))
     setup_record = root/'setup-result.json'
     with patch.object(agent, 'upload_dir', new_callable=AsyncMock) as upload:
-        await e.prepare_local_context(agent, machine, {**image, 'localSetup':'setup.sh'}, setup_record, 30)
+        await e.prepare_local_context(agent, machine, {**image, 'localSetup':'setup.sh','localSetupUser':'root'}, setup_record, 30)
         upload.assert_awaited_once_with(context.resolve(), '/tmp/ebo-parent-setup')
         assert machine.exec.await_args_list[0].args[1].env is None
         assert machine.exec.await_args_list[0].args[1].user == '0'
@@ -187,6 +187,7 @@ async def check():
         except RuntimeError as exc: assert 'setup failed' in str(exc)
         else: raise AssertionError('Failed setup must not produce a parent')
         assert json.loads(setup_record.read_text())['exitCode'] == 7
+        assert machine.exec.await_args.args[1].user is None
         assert agent._machine is None
         (context/'escape.sh').symlink_to(root/'ebo_runtime.py')
         try: await e.prepare_local_context(agent, machine, {**image, 'localSetup':'escape.sh'}, setup_record, 30)
@@ -198,6 +199,11 @@ async def check():
         try: e.validate_environment_manifest(bad)
         except ValueError: pass
         else: raise AssertionError('Invalid setup path accepted')
+    for invalid in ({'localSetupUser':'root'},{'localSetup':'setup.sh','localSetupUser':'arbitrary'}, {'parentStartup':'other'}):
+        bad = {**manifest, 'tasks': {'task': {'agent': {**image, **invalid}}}}
+        try: e.validate_environment_manifest(bad)
+        except ValueError: pass
+        else: raise AssertionError('Invalid startup or setup user accepted')
     try: await agent.start(False)
     except RuntimeError as exc: assert 'inspection' in str(exc)
     else: raise AssertionError('Preparation must not execute')

@@ -253,10 +253,12 @@ pin their revisions explicitly.
 uploads that context locally and runs the script with `sh -eu`, with the
 uploaded context as its working directory. It creates the declared task workdir
 first. Setup runs once per parent, before any attempt branches; failure prevents
-that parent from becoming ready. The parent runs an idle command, so an image
-entrypoint such as Agent Server does not start early. The owner runs the
-reviewed setup as guest root to install the worker and prepare the workspace.
-The temporary context is removed after success.
+that parent from becoming ready. The binding uses the image's startup and user
+by default. For an OpenHands task image, set `parentStartup: "idle"` to defer
+Agent Server startup and `localSetupUser: "root"` to install the worker during
+trusted setup. Assign the prepared workspace to the image's non-root user so
+Agent Server can run there with that user's permissions. Both choices are
+frozen in the image binding. The temporary context is removed after success.
 The setup exit code, output and script digest are retained as local evidence.
 No Dockerfile instructions are interpreted or translated into shell commands.
 When switching from a task-built image, explicitly move its installation/copy

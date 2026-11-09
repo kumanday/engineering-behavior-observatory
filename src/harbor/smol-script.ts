@@ -89,6 +89,13 @@ def validate_environment_manifest(manifest):
             if setup is not None and (not isinstance(setup, str) or not setup or
                     Path(setup).is_absolute() or '..' in Path(setup).parts):
                 raise ValueError('localSetup must be a relative script inside the frozen environment context')
+            if 'parentStartup' in image and image['parentStartup'] != 'idle':
+                raise ValueError('parentStartup must be idle when specified')
+            if 'localSetupUser' in image and (image['localSetupUser'] != 'root' or setup is None):
+                raise ValueError('localSetupUser must be root and requires a localSetup script')
+
+def local_setup_user(binding):
+    return '0' if binding.get('localSetupUser') == 'root' else None
 
 async def prepare_local_context(env, machine, binding, evidence, timeout_seconds):
     setup = binding.get('localSetup')
@@ -103,11 +110,11 @@ async def prepare_local_context(env, machine, binding, evidence, timeout_seconds
     try:
         await env.upload_dir(context, guest)
         result = await machine.exec(['sh', '-eu', guest + '/' + setup],
-            ExecOptions(workdir=guest, timeout=max(1, int(timeout_seconds)), user='0'))
+            ExecOptions(workdir=guest, timeout=max(1, int(timeout_seconds)), user=local_setup_user(binding)))
         json_write(evidence, {'script': setup, 'scriptDigest': hashlib.sha256(script.read_bytes()).hexdigest(),
             'exitCode': result.exit_code, 'stdout': result.stdout, 'stderr': result.stderr})
         if result.exit_code: raise RuntimeError('Local parent setup failed; see ' + str(evidence))
-        result = await machine.exec(['rm', '-rf', guest], ExecOptions(user='0'))
+        result = await machine.exec(['rm', '-rf', guest], ExecOptions(user=local_setup_user(binding)))
         if result.exit_code: raise RuntimeError('Cannot remove local preparation context')
     finally:
         env._machine = None
@@ -305,14 +312,14 @@ async def serve_parents(request):
                     if stop.is_set(): raise RuntimeError('Preparation interrupted')
                     # Boot a task-free image, then prepare private files locally.
                     start = time.monotonic()
+                    startup = {'command': ['sleep', 'infinity'], 'wait_for_ports': False} if binding.get('parentStartup') == 'idle' else {}
                     machine = await AsyncMachine.create(MachineConfig(
                         name='ebo-parent-' + session[:8] + '-' + key[:10],
-                        image=env.task_env_config.docker_image, command=['sleep', 'infinity'],
-                        branchable=True, persistent=True, wait_for_ports=False,
+                        image=env.task_env_config.docker_image, branchable=True, persistent=True,
                         resources=env._resource_spec(), workdir='/',
-                        ready_timeout_seconds=90), ConnectOptions(target='local'))
+                        ready_timeout_seconds=90, **startup), ConnectOptions(target='local'))
                     machines.append(machine)
-                    result = await machine.exec(['mkdir', '-p', env.task_env_config.workdir], ExecOptions(user='0'))
+                    result = await machine.exec(['mkdir', '-p', env.task_env_config.workdir], ExecOptions(user=local_setup_user(binding)))
                     if result.exit_code: raise RuntimeError('Cannot create task workdir')
                     setup_evidence = work / (key + '-setup.json')
                     await prepare_local_context(env, machine, binding, setup_evidence, request['budgetMs'] / 1000)
