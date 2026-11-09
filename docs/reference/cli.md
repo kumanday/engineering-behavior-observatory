@@ -208,8 +208,11 @@ ebo v2 inspect <retained-bundle> <new-directory>
 ebo v2 prepare-judge <retained-bundle> <new-directory> <request.json>
 ```
 
-Prepare typed datasets, observations, ledgers, rating inputs and a restricted
-local Atlas page. `prepare-judge` also writes a digest-bound judge input.
+Prepare typed datasets, observations, ledgers and a restricted local Atlas page.
+`inspect` writes rating inputs when it can blind the evaluated model. When an
+ATIF source omits model names, inspection still works and reports that ratings
+are unavailable. `prepare-judge` requires model aliases for blinding and writes
+a digest-bound judge input.
 Both commands use registered source readers and dispatch no inference. See
 [typed v2 analysis](../development/typed-v2-consumers.md) for request contracts,
 coverage and compatibility semantics.
