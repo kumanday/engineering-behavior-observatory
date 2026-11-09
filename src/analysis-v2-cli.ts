@@ -19,7 +19,8 @@ export async function runAnalysisV2Command(args: string[], write: (text: string)
   }
   try {
     const evidence = await loadRetainedAnalysisV2(resolve(bundleRoot)), view = await buildAtlasViewV2(evidence);
-    const ratingInputs = await prepareOccurrenceRatingInputsV2(evidence, view.ledger);
+    const ratingsUnavailable = command === "inspect" && view.ledger.occurrences.length > 0 && !evidence.modelAliases?.length;
+    const ratingInputs = ratingsUnavailable ? [] : await prepareOccurrenceRatingInputsV2(evidence, view.ledger);
     let judgeInput;
     if (command === "prepare-judge") {
       const text = readBoundedFile(resolve(requestPath!), "V2 judge request", undefined, 1024 * 1024).toString("utf8"); assertNoDuplicateJsonKeys(text);
@@ -33,6 +34,8 @@ export async function runAnalysisV2Command(args: string[], write: (text: string)
     mkdirSync(join(target, "rating-inputs"), { mode: 0o700 });
     ratingInputs.forEach((input, index) => retain(`rating-inputs/${index + 1}.json`, input));
     if (judgeInput) retain("judge-input.json", judgeInput);
-    write(`Prepared ${view.units.length} v2 units and ${ratingInputs.length} rating inputs in ${target}. No inference dispatched.\n`); return 0;
+    write(`Prepared ${view.units.length} v2 units and ${ratingInputs.length} rating inputs in ${target}. No inference dispatched.\n`);
+    if (ratingsUnavailable) write("Rating inputs are unavailable because model aliases for blinding are missing.\n");
+    return 0;
   } catch (error) { write(`${error instanceof Error ? error.message : "V2 analysis failed"}\n`); return 1; }
 }

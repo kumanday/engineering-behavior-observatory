@@ -110,6 +110,34 @@ test("typed CLI creates reviewable local outputs and preserves the source bundle
     assert.equal(await main(["v2", "inspect", bundle, join(root, "analysis")], () => {}), 1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+test("typed CLI inspects an imported trajectory without a model and keeps ratings blinded", async () => {
+  const { main } = await import("../src/cli.js");
+  const { mkdtempSync, readFileSync, readdirSync, rmSync, existsSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os"), { join, resolve } = await import("node:path");
+  const root = mkdtempSync(join(tmpdir(), "ebo-v2-atif-without-model-"));
+  const bundle = join(root, "import"), analysis = join(root, "analysis");
+  const source = resolve("test/fixtures/atif/harnesses/factory-droid.json");
+  const requestPath = join(root, "judge-request.json"), judge = join(root, "judge");
+  let output = "";
+  const write = (text: string) => { output += text; };
+  try {
+    assert.equal(await main(["atif", "import", source, bundle, "--run", "factory", "--attempt", "a"], write), 0, output);
+    output = "";
+    assert.equal(await main(["v2", "inspect", bundle, analysis], write), 0, output);
+    assert.match(output, /model aliases.*blinding/u);
+    assert.ok(existsSync(join(analysis, "index.html")));
+    assert.ok(existsSync(join(analysis, "observations.json")));
+    const ledger = JSON.parse(readFileSync(join(analysis, "ledger.json"), "utf8"));
+    assert.ok(ledger.occurrences.length > 0);
+    assert.deepEqual(readdirSync(join(analysis, "rating-inputs")), []);
+
+    writeFileSync(requestPath, JSON.stringify(request));
+    output = "";
+    assert.equal(await main(["v2", "prepare-judge", bundle, judge, requestPath], write), 1);
+    assert.match(output, /model aliases.*blinding/u);
+    assert.equal(existsSync(join(judge, "judge-input.json")), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 test("rating acceptance and assertion evidence cannot be forged by changing dependency receipts", async () => {
   const evidence = await atifFixtureV2("parallel-failure-cache-write", (source) => { ((source.steps as AtifObject[])[1]!.tool_calls as AtifObject[])[0]!.arguments = { command: "npm test" }; });
   const ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver), input = (await prepareOccurrenceRatingInputsV2(evidence, ledger))[0]!;
