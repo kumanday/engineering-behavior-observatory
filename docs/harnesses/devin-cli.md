@@ -11,10 +11,11 @@ Freeze the `devin-cli` role using the [study runtime workflow](../reference/stud
 
 Each child receives a temporary isolated `HOME` and `XDG_{CONFIG,DATA,CACHE,STATE}_HOME`
 so the user's `~/.config/devin`, `~/.local/share/devin/cli/sessions.db`, and
-login state are neither read nor modified. The child environment is an allowlist
-of basic process/locale keys plus one credential variable (`credentialEnv`,
-default `WINDSURF_API_KEY`) copied by name. Retained evidence records the key
-names, never their values. The temporary home is removed after capture.
+login state stay outside the capture. The child environment allows basic
+process and locale keys. The environment-key route adds one named credential
+variable (`WINDSURF_API_KEY` by default). The native login route uses a file
+inside the temporary home. Retained configuration records the credential mode
+and variable name. EBO removes the temporary home after capture.
 
 ## Protocol ownership and terminal semantics
 
@@ -74,6 +75,13 @@ matching option kind the agent offered. Requests for other sessions are answered
   `ask`); a `mode-mismatch` gap is recorded when the applied mode differs.
 - `arguments` on the harness record are placed after `acp`
   (for example `["--agent-type", "review"]`).
+- To use a Devin CLI login, set `credentialFormat` to
+  `"cli-credentials-toml-base64"` and name a private environment variable in
+  `credentialEnv`. Supply the existing CLI `credentials.toml` as a single
+  base64 value in that variable. EBO writes it only in the isolated CLI data
+  directory for the attempt, with owner-only permissions. Keep the value out of
+  the study and use the CLI's authenticated model catalog to check access before
+  capture.
 - `telemetrySignals` is off by default. When set, EBO opens a loopback OTLP/HTTP
   receiver and writes an isolated `config.json` `otel` block pointing at it.
 
