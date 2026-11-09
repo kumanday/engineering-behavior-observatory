@@ -19,7 +19,7 @@ record of an open-ended engineering task.
 
 ## Install
 
-Requires Node.js **24.19.0** and npm. The package is
+Requires Node.js **26.13.0**. The repository uses npm **12.2.2**. The package is
 `engineering-behavior-observatory`; its executable is `ebo`.
 
 ```sh

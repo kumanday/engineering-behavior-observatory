@@ -555,7 +555,7 @@ liveTest("approved live semantic judge smoke", { skip: process.env.EBO_LIVE_SEMA
     "Apply the rubric to this tiny fixture: no validation evidence is supplied, so abstain. Return no citations.",
     request,
   );
-  assert.equal(result.status, "completed", result.status === "failed" ? result.message : undefined);
+  assert.equal(result.status, "completed", result.status === "failed" ? result.message : "Expected a completed judge attempt.");
   if (result.status === "completed") {
     assert.equal((result.response as { judgment?: { disposition?: unknown } }).judgment?.disposition, "abstained");
   }

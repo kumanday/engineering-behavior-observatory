@@ -40,22 +40,36 @@ test("worker packaging uses local Smol and retains the immutable image and study
     await assert.rejects(buildHarborRuntime({destination: output, study, nodeImage: "node:latest"}, () => {invoked = true;}), /immutable/);
     assert.equal(invoked, false);
     const image = `docker.io/library/node@sha256:${"d".repeat(64)}`;
-    const nodeVersion = JSON.parse(await readFile("package.json", "utf8")).engines.node;
-    const build = await buildHarborRuntime({destination: output, study, nodeImage: image}, async (request: any) => {
+    const {engines, packageManager} = JSON.parse(await readFile("package.json", "utf8"));
+    const npmVersion = packageManager.slice("npm@".length);
+    const prepare = async (request: any) => {
       invoked = true;
       assert.equal(request.image, image);
       assert.deepEqual(request.mounts.map((mount: any) => [mount.target, mount.readOnly]), [["/source", true], ["/study", true], ["/output", false]]);
       const stage = join(root, "stage"); await mkdir(join(stage, "study"), {recursive: true});
       await cp(join(study, "runtimes"), join(stage, "study/runtimes"), {recursive: true});
-      await exec("tar", ["-czf", join(output, "worker.tgz"), "-C", stage, "."]);
-      await writeFile(join(output, "node-version.txt"), `v${nodeVersion}`);
+      const stagedOutput = request.mounts.find((mount: any) => mount.target === "/output").source;
+      await exec("tar", ["-czf", join(stagedOutput, "worker.tgz"), "-C", stage, "."]);
+      await writeFile(join(stagedOutput, "node-version.txt"), `v${engines.node}`);
+      await writeFile(join(stagedOutput, "npm-version.txt"), npmVersion);
       return {backend: "smolvm", target: "local", image, imageConfigDigest: "authored-config", machine: "authored-build-vm"};
-    });
+    };
+    const build = await buildHarborRuntime({destination: output, study, nodeImage: image}, prepare);
     assert.equal(invoked, true); assert.equal(build.execution.backend, "smolvm");
+    assert.equal(build.npmVersion, npmVersion);
     const runtime = JSON.parse(await readFile(join(output, "worker.json"), "utf8"));
     assert.equal(runtime.schemaVersion, "ebo.harbor-worker-runtime/v2"); assert.equal(runtime.studyLockDigest, lock.digest);
     const metadata = await exec("tar", ["-xOf", join(output, "worker.tgz"), `./study/runtimes/cache/${lock.groups[0]!.installation.key}/node_modules/@earendil-works/pi-coding-agent/package.json`]);
     assert.equal(JSON.parse(metadata.stdout).version, "9.9.9");
+    const validArchive = await readFile(join(output, "worker.tgz"));
+    await assert.rejects(buildHarborRuntime({destination: output, study, nodeImage: image}, async (request: any) => {
+      const result = await prepare(request);
+      const stagedOutput = request.mounts.find((mount: any) => mount.target === "/output").source;
+      await writeFile(join(stagedOutput, "npm-version.txt"), "0.0.0");
+      await writeFile(join(stagedOutput, "worker.tgz"), "different worker archive");
+      return result;
+    }), /Worker npm probe disagrees/);
+    assert.deepEqual(await readFile(join(output, "worker.tgz")), validArchive);
     await assert.rejects(buildHarborRuntime({destination: output, study, nodeImage: image}, async () => ({backend: "docker", target: "local", image, imageConfigDigest: "authored-config"})), /local Smol/);
   } finally {await rm(root, {recursive: true, force: true});}
 });

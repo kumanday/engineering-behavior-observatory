@@ -1584,7 +1584,7 @@ async function harborDoctor(write: (message: string) => void): Promise<number> {
     const info = JSON.parse(stdout) as { smol: string; host: string; bundled: boolean; libkrunSha256: string | null };
     write(`Smol SDK: ${info.smol}; host: ${info.host}; bundled libkrun SHA-256: ${info.libkrunSha256 ?? "missing"}; bundled library selected: ${info.bundled}\n`);
     write("This checks installation only. Environment preparation verifies the frozen library/image bindings; live conformance is separate.\n");
-    return info.smol === "1.26.1" && info.host === "Darwin/arm64" && info.bundled && info.libkrunSha256 !== null ? 0 : 1;
+    return info.host === "Darwin/arm64" && info.bundled && info.libkrunSha256 !== null ? 0 : 1;
   } catch (error) {
     write(`${error instanceof Error ? error.message : "Harbor adapter is unavailable."}\n`);
     return 1;

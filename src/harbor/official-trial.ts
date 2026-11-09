@@ -46,6 +46,8 @@ export type OfficialHarborTrialInput = {
   entry: RunQueueV2["entries"][number]; attemptId: string; adapter: HarborAdapter; signal?: AbortSignal;
   invoke?: typeof invokeTrial;
 };
+export const MAX_HARBOR_RUNTIME_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024;
+
 export async function runOfficialHarborTrial(input: OfficialHarborTrialInput): Promise<HarborRunSummary> {
   const current = currentStudyRuntime();
   const binding = input.studyRoot && (!current || resolve(current.studyRoot) !== resolve(input.studyRoot)) ? {studyRoot: input.studyRoot} : undefined;
@@ -61,7 +63,7 @@ async function runOfficialHarborTrialOwned(input: OfficialHarborTrialInput): Pro
   const runtimeLock = await readStudyRuntimeLock(input.studyRoot);
   assertWorkerStudyRuntime(runtime, runtimeLock.digest);
   if (runtimeLock.digest !== host.launch.lockDigest) throw new Error("RUNTIME_LOCK_INTEGRITY: Harbor host context differs from the selected study lock.");
-  const archive = resolveBundleConfiguration(input.studyRoot, runtime.archive, 2 * 1024 * 1024 * 1024);
+  const archive = resolveBundleConfiguration(input.studyRoot, runtime.archive, MAX_HARBOR_RUNTIME_ARCHIVE_BYTES);
   const root = prepared.evidence.attemptRoot;
   await mkdir(prepared.evidence.harborDir, { recursive: true, mode: 0o700 });
   try {
