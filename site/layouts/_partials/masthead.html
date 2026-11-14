@@ -1,0 +1,22 @@
+{{- $home := relURL "" -}}
+  <header class="masthead">
+    <div class="wrap masthead-inner">
+      <a class="wordmark" href="{{ if .IsHome }}#top{{ else }}{{ $home }}{{ end }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.2" fill="var(--primary)"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="wm-short">EBO</span><span class="wm-long">Engineering Behavior Observatory</span>
+      </a>
+      <nav aria-label="Primary">
+        {{- $anchor := cond .IsHome "" $home }}
+        <a href="{{ $anchor }}#method">Method</a>
+        <a href="{{ $anchor }}#claims">Claims</a>
+        <a href="{{ $anchor }}#harnesses">Harnesses</a>
+        <a href="{{ $anchor }}#packets">Packets</a>
+        <a href="{{ $anchor }}#tour">Tour</a>
+        <a class="docs-link" href="{{ relURL "docs/" }}"{{ if eq .Section "docs" }} aria-current="page"{{ end }}>Docs</a>
+        <a class="gh" href="{{ site.Params.repo }}">GitHub</a>
+        <button class="theme" type="button" aria-label="Switch between light and dark theme">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>
+        </button>
+      </nav>
+    </div>
+  </header>

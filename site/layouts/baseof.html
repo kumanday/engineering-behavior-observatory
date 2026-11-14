@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+  {{- partial "head.html" . }}
+</head>
+<body{{ with .Section }} class="is-{{ . }}"{{ end }}>
+  <a class="skip" href="#main">Skip to content</a>
+  {{- partial "masthead.html" . }}
+  {{- block "main" . }}{{ end }}
+  {{- partial "colophon.html" . }}
+  <script src="{{ relURL "site.js" }}" defer></script>
+  {{- block "scripts" . }}{{ end }}
+</body>
+</html>

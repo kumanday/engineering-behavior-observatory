@@ -1,0 +1,62 @@
+# EBO project site: the landing page and the docs/ tree rendered as browsable pages.
+# The Pages workflow passes the deployed base URL with --baseURL; this value serves local builds.
+baseURL = "https://ebo.kumanday.ai/"
+languageCode = "en"
+title = "Engineering Behavior Observatory"
+disableKinds = ["taxonomy", "term", "RSS", "sitemap"]
+enableRobotsTXT = false
+
+[params]
+  description = "EBO captures an engineering agent's native trajectory and workspace changes across eight harnesses, and ties every behavioral finding to cited native lines that re-hash and numbers that recompute."
+  repo = "https://github.com/kumanday/engineering-behavior-observatory"
+  deepwiki = "https://deepwiki.com/kumanday/engineering-behavior-observatory"
+  # Set by the Pages workflow through HUGO_PARAMS_BUILD (version and commit).
+  build = "local preview"
+
+# Sidebar: sections in this order; pages listed here come first in the given order, the rest by title.
+[params.docs]
+  sections = ["guides", "harnesses", "evaluation", "reference", "development"]
+  [params.docs.order]
+    guides = ["quickstart", "operator-guide", "harbor-tasks", "evidence-and-sharing", "telemetry", "atlas", "behavioral-evaluation", "run-monitor"]
+    evaluation = ["uniform-events", "normalization-integrity", "structural-observations", "occurrence-ratings", "behavior-assertions", "semantic-judge", "human-calibration", "aggregation", "atlas-bundles", "evidence-packets"]
+    reference = ["cli", "contracts", "run-bundle-contract", "run-lifecycle", "agent-sdk-operational-runner"]
+
+[markup.goldmark.parser]
+  autoHeadingIDType = "github"
+[markup.tableOfContents]
+  startLevel = 2
+  endLevel = 3
+
+# docs/ stays the single source: README.md files become section pages, the rest mount as-is.
+[[module.mounts]]
+  source = "content"
+  target = "content"
+[[module.mounts]]
+  source = "../docs"
+  target = "content/docs"
+  files = ["! README.md", "! */README.md", "! assets/**"]
+[[module.mounts]]
+  source = "../docs/README.md"
+  target = "content/docs/_index.md"
+[[module.mounts]]
+  source = "../docs/harnesses/README.md"
+  target = "content/docs/harnesses/_index.md"
+[[module.mounts]]
+  source = "../docs/evaluation/README.md"
+  target = "content/docs/evaluation/_index.md"
+[[module.mounts]]
+  source = "../docs/reference/README.md"
+  target = "content/docs/reference/_index.md"
+[[module.mounts]]
+  source = "../docs/development/README.md"
+  target = "content/docs/development/_index.md"
+[[module.mounts]]
+  source = "../docs/assets"
+  target = "static/assets"
+  files = ["ebo-atlas.png", "ebo-promo.mp4", "ebo-promo-poster.jpg"]
+[[module.mounts]]
+  source = "static"
+  target = "static"
+[[module.mounts]]
+  source = "layouts"
+  target = "layouts"

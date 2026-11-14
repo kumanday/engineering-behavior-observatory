@@ -1,0 +1,8 @@
+{{- /* Repository path of a page's Markdown source, or "" for pages that exist only in site/content. */ -}}
+{{- $p := "" -}}
+{{- with .File -}}
+  {{- if not (strings.Contains .Filename "/site/content/") -}}
+    {{- with findRESubmatch `(?:^|/)(docs/.+)$` .Filename 1 }}{{ $p = index (index . 0) 1 }}{{ end -}}
+  {{- end -}}
+{{- end -}}
+{{- return $p -}}

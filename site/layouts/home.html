@@ -1,47 +1,4 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Engineering Behavior Observatory</title>
-  <meta name="description" content="EBO captures an engineering agent's native trajectory and workspace changes across eight harnesses, and ties every behavioral finding to cited native lines that re-hash and numbers that recompute.">
-  <meta property="og:title" content="Engineering Behavior Observatory">
-  <meta property="og:description" content="Every finding traced to the native line behind it.">
-  <meta property="og:image" content="https://kumanday.github.io/engineering-behavior-observatory/assets/ebo-promo-poster.jpg">
-  <meta property="og:type" content="website">
-  <meta name="twitter:card" content="summary_large_image">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2318130e'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23eb9431' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23eb9431'/%3E%3C/svg%3E">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Chivo+Mono:wght@400;500&display=swap">
-  <script>try { const t = localStorage.getItem("ebo-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}</script>
-  <link rel="stylesheet" href="tokens.css">
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <a class="skip" href="#main">Skip to content</a>
-
-  <header class="masthead">
-    <div class="wrap masthead-inner">
-      <a class="wordmark" href="#top">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.2" fill="var(--primary)"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4" stroke="currentColor" stroke-width="1.6"/></svg>
-        <span class="wm-short">EBO</span><span class="wm-long">Engineering Behavior Observatory</span>
-      </a>
-      <nav aria-label="Primary">
-        <a href="#method">Method</a>
-        <a href="#claims">Claims</a>
-        <a href="#harnesses">Harnesses</a>
-        <a href="#packets">Packets</a>
-        <a href="#tour">Tour</a>
-        <a href="https://github.com/kumanday/engineering-behavior-observatory/blob/main/docs/README.md">Docs</a>
-        <a class="gh" href="https://github.com/kumanday/engineering-behavior-observatory">GitHub</a>
-        <button class="theme" type="button" aria-label="Switch between light and dark theme">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>
-        </button>
-      </nav>
-    </div>
-  </header>
-
+{{ define "main" }}
   <main id="main">
     <section class="hero" id="top">
       <div class="wrap hero-grid">
@@ -53,7 +10,7 @@
               <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4.5 2.6v10.8L13 8z"/></svg>
               Watch the tour <span class="dur">3:50</span>
             </a>
-            <a class="btn" href="https://github.com/kumanday/engineering-behavior-observatory/blob/main/docs/guides/quickstart.md">Quickstart</a>
+            <a class="btn" href="{{ relURL "docs/guides/quickstart/" }}">Quickstart</a>
           </div>
           <div class="install">
             <code><span class="prompt" aria-hidden="true">$</span>npm install -g engineering-behavior-observatory</code>
@@ -78,7 +35,7 @@
       <figure class="plate wrap" aria-labelledby="plate-1-cap">
         <div class="plate-mat">
           <div class="plate-image">
-            <img src="assets/ebo-atlas.png" width="3024" height="1964" alt="The EBO Atlas viewer: an embedding cloud of agent actions coloured by study arm with one unit's fields open, facet panels on the right, and per-trial swimlanes of tool calls and errors below.">
+            <img src="{{ relURL "assets/" }}ebo-atlas.png" width="3024" height="1964" alt="The EBO Atlas viewer: an embedding cloud of agent actions coloured by study arm with one unit's fields open, facet panels on the right, and per-trial swimlanes of tool calls and errors below.">
             <button type="button" class="mark" style="--x:21%;--y:5.6%;--n:0" data-key="k1" aria-describedby="k1">1</button>
             <button type="button" class="mark" style="--x:15%;--y:37%;--n:1" data-key="k2" aria-describedby="k2">2</button>
             <button type="button" class="mark" style="--x:52.5%;--y:38.5%;--n:2" data-key="k3" aria-describedby="k3">3</button>
@@ -152,7 +109,7 @@
         <header class="sec-head">
           <h2 id="claims-h">Anatomy of a claim</h2>
           <p>What a partner receives for each finding. Validation fails if one number no longer recomputes or one cited line no longer hashes to its recorded SHA-256; partner and restricted packets are built only when every claim validates.</p>
-          <p><a class="link" href="https://github.com/kumanday/engineering-behavior-observatory/blob/main/docs/evaluation/atlas-bundles.md">Atlas bundle contract</a></p>
+          <p><a class="link" href="{{ relURL "docs/evaluation/atlas-bundles/" }}">Atlas bundle contract</a></p>
         </header>
         <div class="specimen" role="group" aria-label="Fields of a validated claim">
           <p class="specimen-head"><span>claim</span><span>checked at every build</span></p>
@@ -221,7 +178,7 @@
         <header class="sec-head">
           <h2 id="harnesses-h">Harnesses</h2>
           <p>Each adapter keeps its harness's own methods, identities, lifecycle and completion semantics. Coverage is capability-specific: not every harness exposes the same hooks, histories or telemetry.</p>
-          <p><a class="link" href="https://github.com/kumanday/engineering-behavior-observatory/blob/main/docs/harnesses/README.md">Prerequisites and known gaps</a></p>
+          <p><a class="link" href="{{ relURL "docs/harnesses/" }}">Prerequisites and known gaps</a></p>
         </header>
         <div class="table-wrap">
           <table class="ruled harness-table">
@@ -246,7 +203,7 @@
         <header class="sec-head">
           <h2 id="packets-h">Evidence packets</h2>
           <p>One folder a partner can open from disk: narrative, claims, evaluations, metrics and qualified evidence, cross-referenced, with the interactive viewer when the folder is served over HTTP.</p>
-          <p><a class="link" href="https://github.com/kumanday/engineering-behavior-observatory/blob/main/docs/evaluation/evidence-packets.md">Packet contract</a></p>
+          <p><a class="link" href="{{ relURL "docs/evaluation/evidence-packets/" }}">Packet contract</a></p>
         </header>
         <div class="packets">
           <div class="table-wrap">
@@ -269,9 +226,9 @@ ebo packet verify &lt;packet-dir&gt;    <span class="c"># or open verify.html</s
     <section class="film" id="tour" aria-labelledby="tour-h">
       <div class="wrap film-grid">
         <div class="film-screen">
-          <video id="film" controls preload="metadata" playsinline poster="assets/ebo-promo-poster.jpg" width="1920" height="1080">
-            <source src="assets/ebo-promo.mp4" type="video/mp4">
-            <a href="assets/ebo-promo.mp4">Download the tour (MP4, 77 MB)</a>
+          <video id="film" controls preload="metadata" playsinline poster="{{ relURL "assets/" }}ebo-promo-poster.jpg" width="1920" height="1080">
+            <source src="{{ relURL "assets/" }}ebo-promo.mp4" type="video/mp4">
+            <a href="{{ relURL "assets/" }}ebo-promo.mp4">Download the tour (MP4, 77 MB)</a>
           </video>
         </div>
         <div class="film-side">
@@ -313,8 +270,8 @@ ebo packet verify &lt;packet-dir&gt;    <span class="c"># or open verify.html</s
           <h2 id="start-h">First report</h2>
           <p>The bundled synthetic demo makes no model calls and needs no credentials. It shows evidence drilldown, review states, missing evidence and comparison caveats. Requires Node.js 24.19.0, Git and npm.</p>
           <div class="actions">
-            <a class="btn primary" href="https://github.com/kumanday/engineering-behavior-observatory/blob/main/docs/guides/quickstart.md">Quickstart</a>
-            <a class="btn" href="https://github.com/kumanday/engineering-behavior-observatory/blob/main/docs/reference/cli.md">CLI reference</a>
+            <a class="btn primary" href="{{ relURL "docs/guides/quickstart/" }}">Quickstart</a>
+            <a class="btn" href="{{ relURL "docs/reference/cli/" }}">CLI reference</a>
           </div>
         </header>
         <pre class="readout terminal" aria-label="Quickstart commands"><code><span class="c"># from a source checkout</span>
@@ -330,19 +287,4 @@ ebo atlas build .ebo/first-look/atlas.json .ebo/first-report
       </div>
     </section>
   </main>
-
-  <footer class="colophon">
-    <div class="wrap colophon-inner">
-      <p><span class="wm-foot">Engineering Behavior Observatory</span> Apache-2.0 · site <span id="build">local preview</span></p>
-      <p class="links">
-        <a href="https://github.com/kumanday/engineering-behavior-observatory">GitHub</a>
-        <a href="https://github.com/kumanday/engineering-behavior-observatory/releases">Releases</a>
-        <a href="https://www.npmjs.com/package/engineering-behavior-observatory">npm</a>
-        <a href="https://github.com/kumanday/engineering-behavior-observatory/blob/main/LICENSE">License</a>
-      </p>
-    </div>
-  </footer>
-
-  <script src="site.js" defer></script>
-</body>
-</html>
+{{ end }}

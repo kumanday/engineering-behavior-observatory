@@ -33,3 +33,8 @@ credentials/
 
 # Uncompressed media masters (web encodes are committed)
 docs/assets/*.master.*
+
+# Hugo project site
+site/.hugo_build.lock
+site/public/
+site/resources/

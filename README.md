@@ -7,10 +7,13 @@ behavioral assessments to the evidence behind them. Use it to investigate a
 refactor, compare repeated trials, examine failures, or share a reviewable
 record of an open-ended engineering task.
 
-[Quickstart](docs/guides/quickstart.md) · [Documentation](docs/README.md) ·
+[Quickstart](docs/guides/quickstart.md) · [Documentation](https://ebo.kumanday.ai/docs/) ·
 [CLI reference](docs/reference/cli.md) ·
 [Releases](https://github.com/kumanday/engineering-behavior-observatory/releases) ·
-[Website](https://kumanday.github.io/engineering-behavior-observatory/)
+[Website](https://ebo.kumanday.ai/)
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kumanday/engineering-behavior-observatory)
+(AI-generated overview; the [documentation](docs/README.md) is the reference.)
 
 [![The Behavior Atlas: an embedding cloud of agent actions above per-trial swimlanes](https://raw.githubusercontent.com/kumanday/engineering-behavior-observatory/main/docs/assets/ebo-atlas.png)](https://github.com/kumanday/engineering-behavior-observatory/blob/main/docs/assets/ebo-promo.mp4)
 
