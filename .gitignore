@@ -42,3 +42,8 @@ docs/assets/*.master.*
 !compatibility/ebo-v1.4.0-86a6010/dist/
 !compatibility/ebo-v1.4.0-86a6010/dist/src/
 !compatibility/ebo-v1.4.0-86a6010/dist/src/reader.mjs
+
+# Hugo project site
+site/.hugo_build.lock
+site/public/
+site/resources/

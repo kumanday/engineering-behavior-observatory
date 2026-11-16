@@ -1,0 +1,38 @@
+{{- $content := .Content -}}
+{{- /* The title renders in the page header; drop the source's own first-level heading. */ -}}
+{{- $content = replaceRE `^\s*<h1[^>]*>[\s\S]*?</h1>` "" $content 1 -}}
+{{- $source := partial "source-path.html" . -}}
+<main id="main" class="docs wrap">
+  <aside class="docs-side">
+    <div id="search" class="docs-search" data-bundle="{{ relURL "pagefind/" }}"></div>
+    <details class="docs-menu" open>
+      <summary>Contents</summary>
+      {{ partial "docs-nav.html" . }}
+    </details>
+  </aside>
+  <article class="docs-article" data-pagefind-body>
+    {{- with .Parent }}{{ if and (ne .Kind "home") (ne $.Path "/docs") }}
+    <p class="docs-crumb"><a href="{{ .RelPermalink }}">{{ partial "title.html" . }}</a></p>
+    {{- end }}{{ end }}
+    <h1>{{ partial "title.html" . }}</h1>
+    <div class="prose">
+      {{ $content | safeHTML }}
+      {{- if and .IsSection (lt (len .RawContent) 400) }}
+      <ul class="docs-children">
+        {{- range .RegularPages.ByTitle }}
+        <li><a href="{{ .RelPermalink }}">{{ partial "title.html" . }}</a></li>
+        {{- end }}
+      </ul>
+      {{- end }}
+    </div>
+    {{- with $source }}
+    <p class="docs-source" data-pagefind-ignore><a href="{{ site.Params.repo }}/blob/main/{{ . }}">View this page's source on GitHub</a> · <a href="{{ site.Params.repo }}/edit/main/{{ . }}">Edit</a></p>
+    {{- end }}
+  </article>
+  {{- if gt (len (findRE `<h2` $content)) 2 }}
+  <nav class="docs-toc" aria-label="On this page">
+    <p>On this page</p>
+    {{ .TableOfContents }}
+  </nav>
+  {{- end }}
+</main>

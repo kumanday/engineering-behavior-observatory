@@ -240,7 +240,7 @@ tables. White paper and dark ink carry the page; one amber `primary` (the red-li
 room) marks annotations, focus and the active chapter. The film is shown in a dark projection room in both themes.
 
 Light values use the plain token name; dark-mode values use the same name with `-dark`. `viewer/design/build-tokens.mjs`
-writes them to `site/tokens.css` (`node viewer/design/build-tokens.mjs site/DESIGN.md site/tokens.css`).
+writes them to `site/static/tokens.css` (`node viewer/design/build-tokens.mjs site/DESIGN.md site/static/tokens.css`).
 
 ## Colors
 

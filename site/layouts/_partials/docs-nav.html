@@ -1,0 +1,27 @@
+{{- $current := . -}}
+{{- $docs := site.GetPage "/docs" -}}
+<nav class="docs-nav" aria-label="Documentation">
+  <ul>
+    <li><a href="{{ $docs.RelPermalink }}"{{ if eq $current $docs }} aria-current="page"{{ end }}>Overview</a></li>
+  </ul>
+  {{- range site.Params.docs.sections }}
+    {{- with site.GetPage (printf "/docs/%s" .) }}
+      {{- $section := . -}}
+      {{- $order := index site.Params.docs.order (path.Base $section.Path) | default slice -}}
+      {{- $first := slice -}}
+      {{- range $order }}{{ with $section.GetPage . }}{{ $first = $first | append . }}{{ end }}{{ end -}}
+      {{- $rest := slice -}}
+      {{- range $section.RegularPages }}{{ if not (in $first .) }}{{ $rest = $rest | append (dict "title" (partial "title.html" .) "page" .) }}{{ end }}{{ end -}}
+  <h2><a href="{{ $section.RelPermalink }}"{{ if eq $current $section }} aria-current="page"{{ end }}>{{ partial "title.html" $section }}</a></h2>
+  <ul>
+    {{- range $first }}
+    <li><a href="{{ .RelPermalink }}"{{ if eq $current . }} aria-current="page"{{ end }}>{{ partial "title.html" . }}</a></li>
+    {{- end }}
+    {{- range sort $rest "title" }}
+    <li><a href="{{ .page.RelPermalink }}"{{ if eq $current .page }} aria-current="page"{{ end }}>{{ .title }}</a></li>
+    {{- end }}
+  </ul>
+    {{- end }}
+  {{- end }}
+  <p class="docs-aside"><a href="{{ site.Params.deepwiki }}">Ask DeepWiki</a> <span>AI-generated overview of the repository; these pages are the reference.</span></p>
+</nav>

@@ -1,0 +1,18 @@
+{{- /* Docs link to each other with relative .md paths, as on GitHub. Resolve those to site pages;
+       send other repository paths (schemas, release notes, the root README) to GitHub. */ -}}
+{{- $href := .Destination -}}
+{{- $u := urls.Parse .Destination -}}
+{{- if and (not $u.IsAbs) $u.Path .Page.File -}}
+  {{- $rel := path.Join (path.Dir (partial "source-path.html" .Page | default .Page.File.Path)) $u.Path -}}
+  {{- $target := "" -}}
+  {{- if and (hasPrefix $rel "docs/") (hasSuffix $rel ".md") -}}
+    {{- $p := strings.TrimSuffix ".md" $rel -}}
+    {{- if eq (path.Base $p) "README" }}{{ $p = path.Dir $p }}{{ end -}}
+    {{- with site.GetPage (printf "/%s" $p) }}{{ $target = .RelPermalink }}{{ else }}{{ warnf "%s: no page for link %q" $.Page.File.Path $.Destination }}{{ end -}}
+  {{- end -}}
+  {{- if not $target }}{{ $target = printf "%s/blob/main/%s" site.Params.repo $rel }}{{ end -}}
+  {{- with $u.Fragment }}{{ $target = printf "%s#%s" $target . }}{{ end -}}
+  {{- $href = $target -}}
+{{- end -}}
+<a href="{{ $href | safeURL }}"{{ with .Title }} title="{{ . }}"{{ end }}>{{ .Text | safeHTML }}</a>
+{{- /* trim */ -}}

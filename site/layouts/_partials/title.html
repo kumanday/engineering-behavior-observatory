@@ -1,0 +1,6 @@
+{{- /* Docs pages carry no front matter: the title is the Markdown file's first-level heading. */ -}}
+{{- $t := .Title -}}
+{{- if and (not .Params.title) .File -}}
+  {{- with findRESubmatch `(?m)^# (.+)$` .RawContent 1 }}{{ $t = index (index . 0) 1 }}{{ end -}}
+{{- end -}}
+{{- return ($t | plainify | strings.TrimSpace) -}}
