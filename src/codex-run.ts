@@ -1,3 +1,6 @@
+import {coordinatorRuntimeEnvironment} from "./runtime-environment.js";
+import { bindActiveQueueEntry, queueEntryMatches, assertActiveRuntimeQueue, currentStudyRuntime, requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, lockedRuntimeExecutable, recordRuntimeProbe, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
+import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { cp, lstat, mkdtemp, realpath, rm, stat } from "node:fs/promises";
@@ -8,8 +11,9 @@ import { promisify } from "node:util";
 import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact, validateRunManifestEvidence } from "./artifacts.js";
 import {
   captureCodexAppServer,
+  captureCodexAppServerOwned,
+  bindCodexRuntime,
   CODEX_ADAPTER_VERSION,
-  CODEX_APP_SERVER_VERSION,
   CODEX_DEFAULT_SHUTDOWN_GRACE_MS,
   CODEX_HARNESS,
   describeAndValidateCodexDataset,
@@ -77,7 +81,7 @@ export type CodexHarnessConfiguration = {
   kind: "harness";
   adapter: typeof CODEX_HARNESS;
   executable: string;
-  version: typeof CODEX_APP_SERVER_VERSION;
+  version: string;
   contractDigest: `sha256:${string}`;
   /** Codex app-server config overrides, e.g. `["-c", "features.multi_agent=false"]`. */
   arguments?: readonly string[];
@@ -120,6 +124,7 @@ export type CaptureCodexAppServerVerifier = (
 ) => VerifierResult | Promise<VerifierResult>;
 
 export type CaptureCodexAppServerRunOptions = {
+  runtime?: StudyRuntimeBinding;
   definition: RunBundleDefinition;
   startingWorkspacePath: string;
   workspace: WorkspaceCoordinator;
@@ -136,6 +141,7 @@ export type CaptureCodexAppServerRunOptions = {
 };
 
 export type CaptureCodexAppServerRunResult = {
+  runtime?: RuntimeExecutionSummary;
   attempt: RunAttemptResult;
   manifest: RunManifest;
   qualification: CaptureQualificationReport;
@@ -148,6 +154,13 @@ export type CaptureCodexAppServerRunResult = {
 export async function captureCodexAppServerRun(
   options: CaptureCodexAppServerRunOptions,
 ): Promise<CaptureCodexAppServerRunResult> {
+  return runInStudyRuntime("codex-app-server", options.runtime, () => captureCodexAppServerRunOwned(options));
+}
+
+/** Internal run layer of an already checked launch. */
+export async function captureCodexAppServerRunOwned(options: CaptureCodexAppServerRunOptions): Promise<CaptureCodexAppServerRunResult> {
+  requireStudyRuntime("codex-app-server");
+  options = { ...options, configuration: await bindCodexRuntime(options.configuration) };
   if (options.definition.run.harness.id !== CODEX_HARNESS) {
     throw new Error(`Codex run harness must be ${CODEX_HARNESS}.`);
   }
@@ -162,6 +175,7 @@ export async function captureCodexAppServerRun(
   let verifierResult: VerifierResult | undefined;
   let capture: CodexAppServerCapture | undefined;
   let nativeEvidenceRegistered = false;
+  let nativeEvidenceRegistration: Promise<void> | undefined;
 
   const captureWorkspace = async (context?: VerifierExecutionContext): Promise<CapturedWorkspaceOutcome> => {
     if (workspaceOutcome !== undefined) return workspaceOutcome;
@@ -191,26 +205,29 @@ export async function captureCodexAppServerRun(
 
   const registerNativeEvidence = async (): Promise<void> => {
     if (nativeEvidenceRegistered || capture === undefined) return;
-    if (await nonempty(`${assembler.bundleRoot}/session.jsonl`)) {
-      await assembler.registerArtifact({
-        id: "session",
+    const recordedCapture = capture;
+    return nativeEvidenceRegistration ??= (async () => {
+      if (await nonempty(`${assembler.bundleRoot}/session.jsonl`)) {
+        await assembler.registerArtifact({
+          id: "session",
+          source: CODEX_HARNESS,
+          kind: "session",
+          mediaType: "application/x-ndjson",
+          sharingClass: "restricted",
+          relativePath: "session.jsonl",
+          ...(recordedCapture.threadId === undefined ? {} : { nativeReference: { type: "session", id: recordedCapture.threadId } }),
+        });
+      }
+      await assembler.writeJsonArtifact({
+        id: "telemetry",
         source: CODEX_HARNESS,
-        kind: "session",
-        mediaType: "application/x-ndjson",
+        kind: "telemetry",
+        mediaType: "application/json",
         sharingClass: "restricted",
-        relativePath: "session.jsonl",
-        ...(capture.threadId === undefined ? {} : { nativeReference: { type: "session", id: capture.threadId } }),
-      });
-    }
-    await assembler.writeJsonArtifact({
-      id: "telemetry",
-      source: CODEX_HARNESS,
-      kind: "telemetry",
-      mediaType: "application/json",
-      sharingClass: "restricted",
-      relativePath: "telemetry/codex.json",
-    }, capture.telemetry);
-    nativeEvidenceRegistered = true;
+        relativePath: "telemetry/codex.json",
+      }, recordedCapture.telemetry);
+      nativeEvidenceRegistered = true;
+    })();
   };
 
   const coordinatedWorkspace: WorkspaceCoordinator = {
@@ -238,7 +255,7 @@ export async function captureCodexAppServerRun(
     options.definition.attempt.id,
     options.definition.attempt.retryOf,
   );
-  const performCapture = options.capture ?? captureCodexAppServer;
+  const performCapture = options.capture ?? captureCodexAppServerOwned;
   const attempt = await executeRunAttempt({
     run,
     assessmentMode: options.definition.run.assessmentMode,
@@ -332,14 +349,15 @@ export async function captureCodexAppServerRun(
   };
   const terminal = structuredClone(attempt.terminal);
   if (workspaceOutcome === undefined) delete terminal.workspaceArtifactId;
-  const manifest = await assembler.finalize({ terminal, missingEvidence, qualification: qualificationOptions });
+  const manifest = await assembler.finalize({ terminal, attemptRecord: attempt.record, missingEvidence, qualification: qualificationOptions });
   const qualification = await qualifyRunBundle(assembler.bundleRoot, qualificationOptions);
-  if (capture === undefined || capture.threadId === undefined) return { attempt, manifest, qualification, capture };
+  if (capture === undefined || capture.threadId === undefined) return { runtime: runtimeExecutionSummary(), attempt, manifest, qualification, capture };
   const { dataset, coverage } = await describeAndValidateCodexDataset(capture);
-  return { attempt, manifest, qualification, capture, normalized: dataset, coverage };
+  return { runtime: runtimeExecutionSummary(), attempt, manifest, qualification, capture, normalized: dataset, coverage };
 }
 
 export type RunCodexQueueEntryOptions = {
+  runtime?: StudyRuntimeBinding;
   bundleRoot: string;
   queuePath: string;
   runId: string;
@@ -354,6 +372,7 @@ export type RunCodexQueueEntryOptions = {
 };
 
 export type CodexRunSummary = {
+  runtime?: RuntimeExecutionSummary;
   runId: string;
   attemptId: string;
   bundlePath: string;
@@ -370,9 +389,15 @@ export type CodexRunSummary = {
 
 /** Execute exactly one persisted frozen queue entry through the pinned Codex app-server adapter. */
 export async function runCodexQueueEntry(options: RunCodexQueueEntryOptions): Promise<CodexRunSummary> {
+  const binding = options.runtime ?? (currentStudyRuntime() ? undefined : { studyRoot: options.bundleRoot });
+  return runInStudyRuntime("codex-app-server", binding, () => runCodexQueueEntryOwned(options));
+}
+
+async function runCodexQueueEntryOwned(options: RunCodexQueueEntryOptions): Promise<CodexRunSummary> {
   const bundleRoot = resolve(options.bundleRoot);
   const queue = readRunQueue(options.queuePath, undefined, { bundleRoot });
-  const matches = queue.entries.filter((entry) => entry.runId === options.runId);
+  assertActiveRuntimeQueue(queue);
+  const matches = queue.entries.filter((entry) => queueEntryMatches(queue, entry, options.runId)).map((entry) => bindActiveQueueEntry(queue, entry));
   if (matches.length !== 1) throw new Error(matches.length === 0
     ? `Run "${options.runId}" is not in the queue.` : `Run "${options.runId}" matches more than one queue entry.`);
   const entry = matches[0]!;
@@ -381,11 +406,9 @@ export async function runCodexQueueEntry(options: RunCodexQueueEntryOptions): Pr
   const limits = resolveCodexConfigurationRecord(bundleRoot, entry.configuration.nativeLimits, "native-limits");
   const toolPolicy = resolveCodexConfigurationRecord(bundleRoot, entry.configuration.nativeToolPolicy, "native-tool-policy");
   const captureProfile = resolveCodexConfigurationRecord(bundleRoot, queue.captureProfile, "capture-profile");
-  if (entry.harness.id !== CODEX_HARNESS) throw new Error(`Queue harness must be ${CODEX_HARNESS}.`);
-  const runtime = await (options.probeRuntime ?? probeCodexRuntime)(harness.executable);
-  if (runtime.version !== `codex-cli ${harness.version}`) {
-    throw new Error(`Codex ${harness.version} is required; received ${runtime.version}.`);
-  }
+  const locked = lockedRuntimeExecutable("codex");
+  const runtime = await (options.probeRuntime ?? probeCodexRuntime)(locked.path);
+  await recordRuntimeProbe("codex", runtime.version.replace(/^codex-cli\s+/u, ""), "executable");
 
   const inspection = assertTaskPacketAdmitted(bundleRoot, entry.task.packetRef.locator);
   const packet = inspection.packet as TaskPacket;
@@ -419,7 +442,7 @@ export async function runCodexQueueEntry(options: RunCodexQueueEntryOptions): Pr
     const verifierReference = packet.assessmentMode === "verified" ? packet.restricted.verifier : undefined;
     const verifierFormat = verifierReference?.locator.toLowerCase().endsWith(".mjs") ? "module" : "commonjs";
     const definition = buildDefinition(queue.captureProfile, entry, packet, destination, attemptId, model, harness, verifierFormat);
-    const result = await captureCodexAppServerRun({
+    const result = await captureCodexAppServerRunOwned({
       definition,
       startingWorkspacePath,
       workspace: {
@@ -430,7 +453,7 @@ export async function runCodexQueueEntry(options: RunCodexQueueEntryOptions): Pr
         cleanup: () => cleanupWorkspace(workspace),
       },
       configuration: {
-        executable: runtime.path,
+        executable: locked.path,
         ...(options.executableArgs === undefined ? {} : { executableArgs: options.executableArgs }),
         version: harness.version,
         provider: model.provider,
@@ -476,6 +499,7 @@ export async function runCodexQueueEntry(options: RunCodexQueueEntryOptions): Pr
     });
     const manifest = reopenManifest(destination);
     return {
+      runtime: runtimeExecutionSummary(),
       runId: entry.runId,
       attemptId,
       bundlePath: destination,
@@ -521,7 +545,7 @@ export function resolveCodexConfigurationRecord<Kind extends CodexConfigurationK
 export async function probeCodexRuntime(executable: string): Promise<{ path: string; version: string }> {
   if (!isAbsolute(executable)) throw new Error("Codex harness executable must be an absolute path.");
   const path = await realpath(executable);
-  const { stdout } = await execFileAsync(path, ["--version"], { encoding: "utf8", timeout: 5_000 });
+  const { stdout } = await execFileAsync(path, ["--version"], { encoding: "utf8", timeout: 5_000, env: coordinatorRuntimeEnvironment(process.env) });
   return { path, version: stdout.trim() };
 }
 
@@ -535,7 +559,7 @@ function validateConfiguration(record: Record<string, unknown>, kind: CodexConfi
     if (record.credentialEnv !== undefined && (typeof record.credentialEnv !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(record.credentialEnv))) throw configError(reference, "credentialEnv must be an environment variable name");
   } else if (kind === "harness") {
     keys(record, ["schemaVersion", "kind", "adapter", "executable", "version", "contractDigest", "arguments"], ["adapter", "executable", "version", "contractDigest"], reference);
-    if (record.adapter !== CODEX_HARNESS || record.version !== CODEX_APP_SERVER_VERSION) throw configError(reference, "adapter or version is not pinned");
+    if (record.adapter !== CODEX_HARNESS || !isExactRuntimeVersion(record.version)) throw configError(reference, "adapter and exact runtime versions are required");
     requiredText(record.executable, "executable", reference);
     if (!isAbsolute(record.executable as string)) throw configError(reference, "executable must be absolute");
     if (record.contractDigest !== CODEX_CONTRACT_DIGEST) throw configError(reference, `contractDigest must be ${CODEX_CONTRACT_DIGEST}`);
@@ -618,9 +642,9 @@ function withPinnedRuntime(definition: RunBundleDefinition): RunBundleDefinition
     ...structuredClone(definition),
     run: {
       ...structuredClone(definition.run),
-      harness: { ...structuredClone(definition.run.harness), id: CODEX_HARNESS, version: CODEX_APP_SERVER_VERSION },
+      harness: { ...structuredClone(definition.run.harness), id: CODEX_HARNESS, version: lockedRuntimeExecutable("codex").version },
       runtime: definition.run.runtime.filter(({ name }) => !["codex-app-server", "codex-adapter"].includes(name)).concat([
-        { source: "OpenAI", name: "codex-app-server", version: CODEX_APP_SERVER_VERSION },
+        { source: "OpenAI", name: "codex-app-server", version: lockedRuntimeExecutable("codex").version },
         { source: "EBO", name: "codex-adapter", version: CODEX_ADAPTER_VERSION },
       ]),
     },

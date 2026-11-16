@@ -1,33 +1,39 @@
 ---
 name: custom-codereview-guide
-description: |
-  Repository-specific code review guidance for this project.
-  Update this file so automated PR review focuses on the right risks.
+description: Evidence integrity and regression review for Engineering Behavior Observatory.
 triggers:
   - /codereview
 ---
 
-# Custom Code Review Guide
+# EBO review guide
 
-Automated PR review reads this guidance: the OpenHands PR Review plugin loads it via the `/codereview` trigger, and Codex code review reaches it through the `## Review guidelines` section in `AGENTS.md`. Keep the `triggers` frontmatter: it scopes this content to review conversations so implementation agents do not carry it in context. Replace this starter content with repository-specific expectations.
+Prioritize evidence loss, invented normalization, unsafe export, overwritten
+partial attempts, protocol-channel corruption and untested failure paths.
 
-**This is a durable, shared document.** Never add PR-specific or ticket-specific content here — no "already resolved, do not re-flag" lists, no per-PR evidence dumps. Respond to review feedback in the PR's review threads instead. Only add guidance that applies to all future reviews.
+- Read source semantics at the pinned SDK/protocol boundary. Provider envelopes,
+  process exits, stream fragments and completed native messages have distinct
+  meanings. Missing evidence remains unknown.
+- Source adapters own native vocabulary. Analytical consumers use typed facts,
+  explicit operations and declared populations. Collector ordering and receipt
+  timestamps cannot supply native precedence or execution duration.
+- Operation identities include source, attempt and native scope. Reused IDs,
+  child activity, pending calls and conflicting results require runnable checks.
+  Sibling calls from one model output do not establish failure responses.
+- Citations resolve the exact pointer value, digest and attempt. Source bytes,
+  manifests and frozen runtime assets remain immutable. Packets cannot supply
+  executable readers.
+- Imported histories retain third-party authority and imported qualification.
+  Recorded-document metrics do not establish complete owned-attempt performance.
+- Keep cumulative resource snapshots, increments, child-inclusive totals and
+  source authorities separate. Missing measurements do not become zero.
+- Judge and rating preparation remains deterministic and bounded. Evidence is
+  untrusted data, hidden reasoning is omitted, evaluated-model aliases are
+  blinded and abstention remains available. Paid execution requires an explicit
+  backend and task-scoped authorization.
+- Verify capture version compatibility, retained partial readback, legacy digest
+  preservation and stale dependency rejection when their owning paths change.
+  UI changes need browser interaction evidence; no inferred screenshot success.
 
-## Default Priorities
-
-- Prioritize correctness, regressions, security risks, and missing tests ahead of style-only feedback.
-- Treat behavior changes as incomplete unless the PR includes concrete verification or evidence.
-- Call out risky data migrations, auth changes, concurrency hazards, and production operability regressions explicitly.
-
-## Customize For This Repository
-
-- List the most security-sensitive paths or subsystems.
-- List required validation commands reviewers should expect to see.
-- Describe any architecture invariants that must not be broken.
-- Add framework- or language-specific review heuristics that matter here.
-
-## Evidence Expectations
-
-- Behavior changes should include test or reproduction output.
-- UI changes should include screenshots or recordings.
-- Performance-sensitive changes should include benchmark data or timing notes.
+Follow the severity, scan limit and merge rules in `AGENTS.md`. Review findings
+must identify a concrete regression or acceptance failure within the assigned
+scope. Use the pinned Node version for build, typecheck and meaningful tests.

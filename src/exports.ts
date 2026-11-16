@@ -113,6 +113,8 @@ type PortableDiagnosticOutput = { artifact: PortableExportArtifact; truncated: b
 
 const MAX_SOURCE_ARTIFACT_BYTES = 64 * 1024 * 1024;
 const HIDDEN_FIELDS = new Set([
+  "prompttokenids",
+  "completiontokenids",
   "chainofthought",
   "extendedthinking",
   "hiddenreasoning",

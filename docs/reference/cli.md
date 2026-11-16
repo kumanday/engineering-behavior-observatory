@@ -180,3 +180,63 @@ Factory's `ebo factory run` accepts managed and BYOK conditions through the
 [frozen model record](../harnesses/factory-droid.md#freeze-the-condition).
 Select the Fireworks endpoint and credential variable in that record; credentials
 remain environment inputs rather than CLI arguments.
+# ATIF inspection
+
+Use `ebo atif inspect <trajectory.json> [--python <executable>]
+[--retain <relative-path>]...` for offline inspection. See [ATIF source
+inspection](atif.md) for version, validation and reference limits.
+
+### Retain an ATIF trajectory
+
+Use `ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id>
+[--profile <overlay-context-id>] [--python <executable>]`.
+`ebo atif overlays` lists optional Pi and Codex converter-context examples.
+The [ATIF reference](atif.md) defines document-scoped measures, imported
+qualification, validation, repeatability and interpretation receipts.
+
+Use `ebo atif import-leaderboard COHORT_REQUEST STORE --python EXECUTABLE` to
+retain a bounded local snapshot, evaluate its pinned public board selection and
+admit explicitly selected native trials. `ebo atif read-leaderboard STORE DIGEST`
+verifies the resulting corpus and source bindings without Python. See the
+[leaderboard import guide](leaderboard-imports.md) for the request, runtime pins
+and refresh workflow.
+
+## Opt-in typed v2 analysis
+
+```sh
+ebo v2 inspect <retained-bundle> <new-directory>
+ebo v2 prepare-judge <retained-bundle> <new-directory> <request.json>
+```
+
+Prepare typed datasets, observations, ledgers and a restricted local Atlas page.
+`inspect` writes rating inputs when it can blind the evaluated model. When an
+ATIF source omits model names, inspection still works and reports that ratings
+are unavailable. `prepare-judge` requires model aliases for blinding and writes
+a digest-bound judge input.
+Both commands use registered source readers and dispatch no inference. See
+[typed v2 analysis](../development/typed-v2-consumers.md) for request contracts,
+coverage and compatibility semantics.
+
+
+## Study runtimes
+
+`ebo runtime list` lists execution roles and their software components.
+`ebo runtime freeze <study-root> <request.json> [--verification-catalog <path>]` resolves and installs a study
+composition. `ebo runtime inspect <study-root>` reads the retained selection.
+`ebo runtime check <study-root> <role>` verifies installation, withdrawal status,
+security results and the selected SDK API without an agent turn.
+`ebo runtime bind-queue <study-root> <queue.json> <output.json>` binds a queue
+to the freeze. Add `--configuration-root <bundle-root>` when its source references
+live elsewhere. Native run commands and operational judge commands accept
+`--runtime-study <study-root>` to select that freeze.
+See [Study runtime locks](study-runtimes.md) for request fields and receipts.
+
+### Harness verification commands
+
+`ebo runtime verify <request.json> <candidate.json>` prepares a private probe or
+owned-capture verification candidate without submitting model turns.
+`ebo runtime verification admit <catalog> <candidate.json> <operator.json>`
+validates and admits reviewed evidence. `verification inspect <catalog>` reads
+the catalog; `verification withdraw <catalog> <withdrawal.json>` records an
+explicit withdrawal. See [harness verification](harness-verification.md) for
+request fields, claim definitions and immutable study snapshots.

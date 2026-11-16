@@ -1,0 +1,687 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:harbor-import:v1",
+  "$defs": {
+    "sourceFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "digest",
+        "bytes",
+        "authority"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "authority": {
+          "enum": [
+            "third-party-trial-record",
+            "third-party-agent-log",
+            "third-party-verifier-record"
+          ]
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "originalTrialId",
+        "runId",
+        "attemptId",
+        "identityDigest",
+        "taskName",
+        "taskChecksum",
+        "modelAliases"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.harbor-execution/v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^harbor:[a-f0-9]{64}$"
+        },
+        "originalTrialId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "identityDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "taskName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "taskChecksum": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$"
+        },
+        "modelAliases": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        }
+      }
+    },
+    "assessmentCore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "trialId",
+        "originalTrialId",
+        "kind",
+        "resultDigest",
+        "taskChecksum",
+        "rewards",
+        "exceptionType",
+        "startedAt",
+        "finishedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "trialId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "originalTrialId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "enum": [
+            "original",
+            "regrade"
+          ]
+        },
+        "resultDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "taskChecksum": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "rewards": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "exceptionType": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "startedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "finishedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        }
+      }
+    },
+    "structural": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "version",
+        "policyDigest",
+        "diagnostics"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "valid",
+            "invalid",
+            "unavailable"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "modelDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "policyDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "pointer"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "pointer": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            }
+          }
+        },
+        "validator": {
+          "const": "ebo"
+        },
+        "harborCrossCheck": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "version",
+            "policyDigest",
+            "diagnostics"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "valid",
+                "invalid",
+                "unavailable"
+              ]
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "modelDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "policyDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "diagnostics": {
+              "type": "array",
+              "maxItems": 4096,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "code",
+                  "pointer"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "pointer": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "inspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceAuthority",
+        "status",
+        "diagnostics",
+        "namespace",
+        "snapshotDigest",
+        "files",
+        "modelAliases",
+        "originalBindings"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.harbor-trial-inspection/v1"
+        },
+        "sourceAuthority": {
+          "const": "third-party"
+        },
+        "status": {
+          "enum": [
+            "eligible",
+            "inspect-only"
+          ]
+        },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "structural": {
+          "$ref": "#/$defs/structural"
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "trialId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "execution": {
+          "$ref": "#/$defs/execution"
+        },
+        "captureRevision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "assessment": {
+          "$ref": "#/$defs/assessmentCore"
+        },
+        "snapshotDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "files": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/sourceFile"
+          }
+        },
+        "modelAliases": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "originalBindings": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sourceReference",
+              "snapshotDigest",
+              "trialId",
+              "inspectionDigest"
+            ],
+            "properties": {
+              "sourceReference": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "snapshotDigest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "trialId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "inspectionDigest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "eligible"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "execution",
+              "captureRevision",
+              "assessment",
+              "structural"
+            ],
+            "properties": {
+              "structural": {
+                "properties": {
+                  "status": {
+                    "const": "valid"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "namespace",
+        "snapshotDigest",
+        "files"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.harbor-source-snapshot/v1"
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "snapshotDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "files": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/sourceFile"
+          }
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "execution",
+        "captureRevision",
+        "sourceCaptureDigest",
+        "importManifestDigest",
+        "nativeArtifacts",
+        "modelAliases"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.harbor-capture-binding/v1"
+        },
+        "execution": {
+          "$ref": "#/$defs/execution"
+        },
+        "captureRevision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "sourceCaptureDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "importManifestDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "nativeArtifacts": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "digest"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            }
+          }
+        },
+        "modelAliases": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "blindingContext": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "authority",
+            "modelAliases"
+          ],
+          "properties": {
+            "authority": {
+              "const": "operator-declared"
+            },
+            "modelAliases": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 256,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
+            }
+          }
+        }
+      }
+    },
+    "membership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "captureRevision",
+        "sourceSnapshotDigest",
+        "assessmentId",
+        "inspectionDigest",
+        "bindingDigest",
+        "modelAliases"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.harbor-capture-membership/v1"
+        },
+        "captureRevision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "sourceSnapshotDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "assessmentId": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "inspectionDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "bindingDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "modelAliases": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        }
+      }
+    },
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "authority",
+        "executionId",
+        "id",
+        "trialId",
+        "originalTrialId",
+        "kind",
+        "resultDigest",
+        "taskChecksum",
+        "rewards",
+        "exceptionType",
+        "startedAt",
+        "finishedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.harbor-assessment/v1"
+        },
+        "authority": {
+          "const": "third-party"
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "trialId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "originalTrialId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "enum": [
+            "original",
+            "regrade"
+          ]
+        },
+        "resultDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "taskChecksum": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "rewards": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "exceptionType": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "startedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "finishedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        }
+      }
+    }
+  }
+}

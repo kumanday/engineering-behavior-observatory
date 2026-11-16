@@ -167,6 +167,7 @@
       "required": ["schemaVersion", "promptVersion", "runId", "attemptId", "dataset", "behavior", "rubric", "selection", "blinding", "limits", "evidence"],
       "properties": {
         "schemaVersion": { "const": "ebo.semantic-judge-input/v1" },
+        "sourceEvidence": { "type": "object", "additionalProperties": false, "required": ["qualification", "scope", "completeness", "limitations"], "properties": { "qualification": { "const": "imported" }, "scope": { "const": "retained-source" }, "completeness": { "const": "unproven" }, "limitations": { "type": "array", "items": { "type": "string" } } } },
         "promptVersion": { "$ref": "#/$defs/identifier" },
         "runId": { "$ref": "#/$defs/identifier" },
         "attemptId": { "$ref": "#/$defs/identifier" },

@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "ebo.atif-producer-fixtures/v1",
+  "harborVersion": "0.24.0",
+  "converterDigests": {
+    "harbor.agents.installed.codex": "1fbd52746468b9734cc3af963c9398a21f6fda6f7173b84fa0ac3ae0fe623c66",
+    "harbor.agents.installed.hermes": "561549f4c3449e3c4a7cbc3e6929c8b1b02b754567a551feec02df6b7196087e",
+    "hlb.harbor_ext.trajectories": "c64c9a8e47c731d4f18337d3e05469044c470d73a57e8e10333c1c8bf004f894"
+  },
+  "fixtures": [
+    {
+      "id": "codex-empty-response",
+      "native": "codex-empty-response.native.jsonl",
+      "trajectory": "codex-empty-response.atif.json",
+      "nativeSha256": "8c23f5734c961a52ae7efc50805f9e3e6123ace191b8c7bf5645f2a6de5c847f",
+      "trajectorySha256": "cb4606e3b5e06f78fdad338af5d2f40868d0dd95e38e1bf962b7b51ad465dc41"
+    },
+    {
+      "id": "codex-identical-input",
+      "native": "codex-identical-input.native.jsonl",
+      "trajectory": "codex-identical-input.atif.json",
+      "nativeSha256": "282b86a76a4486debd86e68aaf323ba7f7525bb2419422294a8120f4c4a8fcd2",
+      "trajectorySha256": "9fa9bd6e84bd06c9461a8cf0fc8846d2134de0584fbaa5d333215c66fcdd46b3"
+    },
+    {
+      "id": "codex-input-distinction",
+      "native": "codex-input-distinction.native.jsonl",
+      "trajectory": "codex-input-distinction.atif.json",
+      "nativeSha256": "c8e86930c048e37ef31f1a640af1fbc62073ebf225ef645d1b0be0fcc36b371b",
+      "trajectorySha256": "d6afc049d81f1171292d4fa27ae28bd3ff43fcd82c4f3bb448e941541a17a7a3"
+    },
+    {
+      "id": "codex-interleaved",
+      "native": "codex-interleaved.native.jsonl",
+      "trajectory": "codex-interleaved.atif.json",
+      "nativeSha256": "b5b24373be735c00e24aea10c0e02c34929907d218d950ef5b666b0079a09fe5",
+      "trajectorySha256": "ced427dbf043597d71a7a6039e0ba2075600cc84fb3bf35883dbafa275db7221"
+    },
+    {
+      "id": "codex-orphan-results",
+      "native": "codex-orphan-results.native.jsonl",
+      "trajectory": "codex-orphan-results.atif.json",
+      "nativeSha256": "91f0c8a9a7885d273e7364ff1a0cde61547ac3d5102e532a8f3ff0df2d8af51d",
+      "trajectorySha256": "0c3a0b1da178cf57aa46a110b2e8f323f1b350a95bb1124448dd4abc73883d51"
+    },
+    {
+      "id": "codex-split-inference",
+      "native": "codex-split-inference.native.jsonl",
+      "trajectory": "codex-split-inference.atif.json",
+      "nativeSha256": "7a124f61f45c2cd654c6d4f55e374e51ea3175a74a981bf997547f63cddaa221",
+      "trajectorySha256": "bbf53837599a68514344c3e2c1993decb74fac811373f4b6642e947098f5d96e"
+    },
+    {
+      "id": "codex-web-search",
+      "native": "codex-web-search.native.jsonl",
+      "trajectory": "codex-web-search.atif.json",
+      "nativeSha256": "3762d7106109c13818e7e207b8e319389de5c18a091fb2cea76530096bec385a",
+      "trajectorySha256": "637e6037c4ce60931619e19d525fa10432d016071920c1875086bc5e1eda8991"
+    },
+    {
+      "id": "codex-zero-cost",
+      "native": "codex-zero-cost.native.jsonl",
+      "trajectory": "codex-zero-cost.atif.json",
+      "nativeSha256": "cdcf9bad4ab3cf44fcad65b5ec4ac51c8c5f860807f3da5db7ee791e2dbb2f45",
+      "trajectorySha256": "da05927e2379b0c7621ba8b0361beb68949d30ac0fde6477919fb16319137bb1"
+    },
+    {
+      "id": "codex",
+      "native": "codex.native.jsonl",
+      "trajectory": "codex.atif.json",
+      "nativeSha256": "20e734f922585edb58a332566b814699bb052a839b6501495576a55b38103dc1",
+      "trajectorySha256": "b4643b8abf07e4ed911aaac7290f18b582a96e46cf899ed184342971bed3d6ce"
+    },
+    {
+      "id": "hermes-blank-names",
+      "native": "hermes-blank-names.native.json",
+      "trajectory": "hermes-blank-names.atif.json",
+      "nativeSha256": "375cff76fd8839297804a7f4217a37aca60ab40bc71ff845c974d0e7a202f42f",
+      "trajectorySha256": "b78bfb3cfefb0ca077501be51dd3a651f93de1c38d44e8121bb35c5741c6b151"
+    },
+    {
+      "id": "hermes-empty",
+      "native": "hermes-empty.native.json",
+      "trajectory": "hermes-empty.atif.json",
+      "nativeSha256": "e7da903e5379842eeab62aeb75feb127aa48127e0b77dac5be0631032920aba7",
+      "trajectorySha256": "433d01847f51d60b1cde8d1eab841ea48037d579e5891aa116d62a5b5b607f23"
+    },
+    {
+      "id": "hermes-missing-arguments",
+      "native": "hermes-missing-arguments.native.json",
+      "trajectory": "hermes-missing-arguments.atif.json",
+      "nativeSha256": "257621722e6386532cdf628ae1f7ec3c993d452fdfbd5160eccfd1099132cd2b",
+      "trajectorySha256": "ae6d02cb0af13a2f7f3e2b13f7b2bce670c14f6aa2770f6f20e34d5e2a591379"
+    },
+    {
+      "id": "hermes-missing-names",
+      "native": "hermes-missing-names.native.json",
+      "trajectory": "hermes-missing-names.atif.json",
+      "nativeSha256": "8f48dc9d7c6ded68da2364bb3f6bada0fbe3d53d230e88f97570dc579b776d8e",
+      "trajectorySha256": "97bfaaedef5a717a454bf3a7f9116285384a81dbf2680bb8ffe4a3504e84596d"
+    },
+    {
+      "id": "hermes",
+      "native": "hermes.native.json",
+      "trajectory": "hermes.atif.json",
+      "nativeSha256": "69f6fb71c26b6dc5831b7180d024520b519a8d9f46de16b8910aae1e924a0aff",
+      "trajectorySha256": "cba7e5416861e8051d18a302c90c0319551d070235f78200f2e278c7032ea710"
+    },
+    {
+      "id": "openclaw-empty",
+      "native": "openclaw-empty.native.jsonl",
+      "trajectory": "openclaw-empty.atif.json",
+      "nativeSha256": "70c137999dea1bdc41833f70de33c97d67520e4d137cb414710533ea9b879c01",
+      "trajectorySha256": "455950cbfc6144fe7815af7a94eabda270c5b29ac365469355ddb0220a149251"
+    },
+    {
+      "id": "openclaw-late-results",
+      "native": "openclaw-late-results.native.jsonl",
+      "trajectory": "openclaw-late-results.atif.json",
+      "nativeSha256": "15ee0e5c32509213d8c9f8da219c76199308486380b5267c682ee3fa3b05adc8",
+      "trajectorySha256": "07f9572aac5108ac6be6be209fbb90f48ab4a6f0b19cfb4c669c16187dbeb9ae"
+    },
+    {
+      "id": "openclaw-missing-names",
+      "native": "openclaw-missing-names.native.jsonl",
+      "trajectory": "openclaw-missing-names.atif.json",
+      "nativeSha256": "72b2ecb747c147cfb742573b75792ebe3acb9457c7c5e5d8b84f775abe281306",
+      "trajectorySha256": "d850d2731cee7ffe3d3186619be80d34c187b167286027246bb8de954574be79"
+    },
+    {
+      "id": "openclaw",
+      "native": "openclaw.native.jsonl",
+      "trajectory": "openclaw.atif.json",
+      "nativeSha256": "c22166867efb1bc5f678018153f94e711be7ca99c4a7455d9177350f6a0608ee",
+      "trajectorySha256": "777b2a6c8b1b856198f47c54c926dec85e549875c0d29c1df37b87d33c6aacfe"
+    }
+  ]
+}

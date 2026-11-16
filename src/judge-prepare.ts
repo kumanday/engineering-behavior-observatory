@@ -69,7 +69,9 @@ export function prepareJudgeRequest(
   const messages = events.filter(({ family }) => family === "message");
   const firstUser = messages.find(({ actor }) => actor.kind === "user");
   const modelMessages = messages.filter(({ actor }) => actor.kind === "model");
-  for (const event of [firstUser, ...modelMessages.slice(-2)]) if (event !== undefined) take([event.id]);
+  const importedDocuments = messages.some(({ attributes }) => typeof attributes.documentScope === "string");
+  const reports = importedDocuments ? modelMessages.filter(({ attributes }) => attributes.documentScope === "#") : modelMessages;
+  for (const event of [firstUser, ...reports.slice(-2)]) if (event !== undefined) take([event.id]);
 
   // Tier 2: failures and what ratings mark as adverse or uncertain.
   // The effective rating per question: a fallback answer replaces the deferred model answer it resolves.
@@ -111,7 +113,7 @@ export function prepareJudgeRequest(
       includeOutcomeObservations: spec.includeOutcomeObservations ?? false,
       occurrences: { types, ...(ratingsDigest === undefined ? {} : { ratingsDigest }) },
       frame: {
-        method: JUDGE_PREPARE_METHOD,
+        method: importedDocuments ? `${JUDGE_PREPARE_METHOD} Imported final reports are selected from the root document; child traversal is not chronology.` : JUDGE_PREPARE_METHOD,
         strata: types.map((type) => {
           const members = population.filter((occurrence) => occurrence.type === type);
           const reason = unavailable.get(type);

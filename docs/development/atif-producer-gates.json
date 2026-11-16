@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "ebo.atif-producer-gates/v2",
+  "scope": "Generic core conformance and bounded retained-source comparisons",
+  "coverageMatrix": "../reference/atif-harness-coverage.md",
+  "coverageReceipt": "../../test/fixtures/atif/harnesses/coverage.json",
+  "core": {
+    "producerSelection": "none",
+    "schemaVersions": "known v1.2-v1.8; compatible v1 minors with limitations; unsupported majors diagnosed",
+    "qualification": "imported",
+    "measureScope": "recorded-document",
+    "extensions": "opaque"
+  },
+  "overlays": [
+    "ebo.pi-harbor",
+    "ebo.codex-harbor"
+  ],
+  "genericFixtures": {
+    "hermes": "Missing inference count remains unknown; no dedicated interpretation.",
+    "openclawPartial": "Literal history marker; no compaction or complete-attempt claim.",
+    "openclawPositive": {
+      "agentVersion": "2026.11.1",
+      "steps": 68,
+      "calls": 65,
+      "results": 65,
+      "sourceSha256": "9bc85e815bba3b807294df10e78e2a1622c81529242071e3d83bc4481036a298",
+      "sharing": "restricted",
+      "terms": "unstated",
+      "publicCounterpart": "../../test/fixtures/atif/core/openclaw-positive.json"
+    },
+    "acme": "Unseen synthetic producer, without optional context."
+  },
+  "crossOriginCompleteAttemptPooling": "unproven",
+  "agentRuns": 0
+}

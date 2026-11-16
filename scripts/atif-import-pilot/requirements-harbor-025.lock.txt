@@ -1,0 +1,2 @@
+# Independent converter/validator fixture lane. Dependencies use the CI lock's environment.
+harbor==0.25.0 --hash=sha256:51923ac567fc57b03279e93468b105f689628bcac2cd3d541d4e44aa5c0ec309

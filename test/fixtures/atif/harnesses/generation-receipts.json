@@ -1,0 +1,88 @@
+{
+  "fixtures": [
+    {
+      "harness": "claude-agent-sdk",
+      "authored": true,
+      "purpose": "Public fictional counterpart; real retained conversions and rejected input surfaces are recorded privately.",
+      "harborVersion": "0.25.0",
+      "converter": "ClaudeCode",
+      "converterMethod": "_convert_events_to_trajectory",
+      "converterModuleSha256": "e224f5e0ebca0cb96960eb8907ef2bf06b0bc6a54254b4e9bff9e10e7323142c",
+      "nativeSha256": "2c3745eb64301e7797c88a6274e92e552b945ac491ae661d29a1fd8c12d80695",
+      "trajectorySha256": "a28defd573549631399d84b82aee2144d84cb4faaf04abd418a027839714085c"
+    },
+    {
+      "harness": "codex-app-server",
+      "authored": true,
+      "purpose": "Public fictional counterpart; real retained conversions and rejected input surfaces are recorded privately.",
+      "harborVersion": "0.25.0",
+      "converter": "Codex",
+      "converterMethod": "_convert_events_to_trajectory",
+      "converterModuleSha256": "3697e51e7b44447e965c83c56dec9197ae1021ea7087f804ca9451d568fbafa5",
+      "nativeSha256": "ef34ac007ea699fe1490a0c96a1d9cb7a6ef00af65a870bf5fbec8ee111c7c47",
+      "trajectorySha256": "f2b79f3b6c23dc630192f748c2c07456f5e237884d72fcaecdb3111280d45017"
+    },
+    {
+      "harness": "pi-sdk",
+      "authored": true,
+      "purpose": "Public fictional counterpart; real retained conversions and rejected input surfaces are recorded privately.",
+      "harborVersion": "0.25.0",
+      "converter": "Pi",
+      "converterMethod": "populate_context_post_run (active branch)",
+      "converterModuleSha256": "a952b42f3e93a4ac44701ec8e69eab01deb500185cd0abc76f92dc34462e471d",
+      "nativeSha256": "0b3a97705f7b27e2b8d700f8348d4d3eb04a6320d4edea66811b23363292ac6d",
+      "trajectorySha256": "54ffef4dd2f8438fd34842be7ccceea3eeacd84574f487e3a2055dc397011b0e"
+    },
+    {
+      "harness": "cursor-sdk",
+      "authored": true,
+      "purpose": "Public fictional counterpart; real retained conversions and rejected input surfaces are recorded privately.",
+      "harborVersion": "0.25.0",
+      "converter": "CursorCli",
+      "converterMethod": "_convert_events_to_trajectory",
+      "converterModuleSha256": "831bee38a49c215480a503499b61dcb4fc4268f4fd659699bf7d86c5ef8601de",
+      "nativeSha256": "d414562012bb64964f38f2928726fca054c2d78a3b05328eeb6c818724e7e799",
+      "trajectorySha256": "9b8b593f88d99aa64a8fcdb2387ae6a8952b1c9b6fcac8ce430f6240a709c2e4"
+    },
+    {
+      "harness": "devin-cli",
+      "authored": true,
+      "purpose": "Public fictional counterpart; real retained conversions and rejected input surfaces are recorded privately.",
+      "harborVersion": "0.25.0",
+      "converter": "Devin",
+      "converterMethod": "_messages_to_trajectory",
+      "converterModuleSha256": "9c91c202fc2b5f385f04ce4a7ea3a437347d7a90b86e541bbd713de18258eba6",
+      "nativeSha256": "2be7726ffb01b5b7081bd282a3b6db2100387e18e80be4ba7a25b3c8f5a9d44d",
+      "trajectorySha256": "74da4d831135fccf7cad4588367119b747f004c269f9999689a463058b04d471"
+    },
+    {
+      "harness": "openhands-agent-server",
+      "authored": true,
+      "purpose": "Public fictional counterpart; real retained conversions and rejected input surfaces are recorded privately.",
+      "harborVersion": "0.25.0",
+      "converter": "OpenHands",
+      "converterMethod": "_convert_events_to_trajectory",
+      "converterModuleSha256": "fe8bc630b669551e3bf54a981385b66eea42521efa906ee63e6c7cb214ed860a",
+      "nativeSha256": "5ba4d8144bf19572db90528a1513d283088406db4a7dd744db1263d4bfcd2e45",
+      "trajectorySha256": "99e9d3f14655ced92ac8bcf8939b8b8aa4c96e17d2355f413ca93c56fc08b1bf"
+    },
+    {
+      "harness": "factory-droid",
+      "authored": true,
+      "purpose": "Authored public counterpart of a private ATIF selection from a real retained native capture. Messages and argument values are fictional; the native tool name and argument object shape come from that capture. No upstream ATIF converter exists in the inspected Harbor release.",
+      "captureManifestSha256": "0dcdea94e836f9dd0a95cd74f4d8be39b353f2c83be18a6461ec27bb09ec10ec",
+      "captureSessionSha256": "a97b233ed47883c4b2465cc1fb338595b32c29a5ab006bf7139bc16164d3ceba",
+      "privateAuthoredTrajectorySha256": "c7fc51b4f5c8187aa810fa32ba8cccface53b9672305f38af823fcb06622b304",
+      "trajectorySha256": "049eda2100847adc0790464678ecd6e23d2b1c73468a5525b0fa84bf3baee928"
+    },
+    {
+      "harness": "deepseek-harness",
+      "authored": true,
+      "purpose": "Authored public counterpart of a private ATIF selection from a real retained native capture. Messages and argument values are fictional; the native tool name and argument object shape come from that capture. No upstream ATIF converter exists in the inspected Harbor release.",
+      "captureManifestSha256": "696f1bb365b13b4aef37e3a6f6cfa9bf1fa48e2179984dae3545424817825319",
+      "captureSessionSha256": "9edf6d897008ebdc5321191446d1ad104176ea7a896a5ac1d55620cd49aa46ae",
+      "privateAuthoredTrajectorySha256": "3351ae9bde199d3f6d28fa8be4fe493b9a3cba0ce9a78bb8d2c7ad0d9a216ebf",
+      "trajectorySha256": "402c79c5528a59a9cbc62bc0ded251401e644a18471670fc154f9835ec104eae"
+    }
+  ]
+}

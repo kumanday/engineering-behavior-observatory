@@ -2,6 +2,53 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:ebo:schema:atlas-bundle:v1",
   "$defs": {
+  "analysisRuntimeReference": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "id",
+      "manifestDigest"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "manifestDigest": {
+        "$ref": "#/$defs/digest"
+      }
+    }
+  },
+  "analysisRuntimeIdentity": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "id",
+      "manifestDigest",
+      "sourceCommit",
+      "nodeVersion"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "manifestDigest": {
+        "$ref": "#/$defs/digest"
+      },
+      "sourceCommit": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{40}$"
+      },
+      "nodeVersion": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      }
+    }
+  },
     "identifier": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
     "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
     "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
@@ -17,7 +64,7 @@
           "type": "array", "minItems": 1, "maxItems": 100,
           "items": {
             "type": "object", "additionalProperties": false, "required": ["id", "atlasRequest"],
-            "properties": { "id": { "$ref": "#/$defs/identifier" }, "atlasRequest": { "$ref": "#/$defs/path" } }
+            "properties": { "id": { "$ref": "#/$defs/identifier" }, "atlasRequest": { "$ref": "#/$defs/path" }, "analysisRuntime": { "$ref": "#/$defs/analysisRuntimeReference" } }
           }
         },
         "condition": {
@@ -82,7 +129,8 @@
               "cohortDigest": { "$ref": "#/$defs/digest" },
               "attempts": { "type": "integer", "minimum": 0 },
               "assertions": { "type": "integer", "minimum": 0 },
-              "report": { "$ref": "#/$defs/path" }
+              "report": { "$ref": "#/$defs/path" },
+              "analysisRuntime": { "$ref": "#/$defs/analysisRuntimeIdentity" }
             }
           }
         },

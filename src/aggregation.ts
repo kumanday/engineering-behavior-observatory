@@ -15,7 +15,8 @@ import { assessComparisonEligibility, type ComparisonCapability, type Comparison
 import { readBoundedFile } from "./scheduler.js";
 import { createRetainedStructuralObservationSet, type StructuralObservationSet } from "./structural-observations.js";
 
-export type AggregationDimension = "task" | "model" | "harness" | "trial" | "capture-qualification";
+export type AggregationDimension = "task" | "model" | "harness" | "trial" | "capture-qualification" | "evidence-origin";
+export type EvidenceOriginSelection = "owned" | "imported" | "separate";
 export type AttemptSelectionPolicy = "all-attempts" | "latest-attempt-per-run";
 
 export type AggregationRequest = {
@@ -28,6 +29,7 @@ export type AggregationRequest = {
     calibrations: ReadonlyArray<{ selection: string; history: string }>;
   };
   groupBy: readonly AggregationDimension[];
+  evidenceOrigins?: EvidenceOriginSelection;
   selectedAttemptPolicy: AttemptSelectionPolicy;
   recurrence: { minimumOccurrences: number };
   comparisons: ReadonlyArray<{
@@ -92,6 +94,7 @@ export type AggregationReport = {
   schemaVersion: "ebo.aggregation-report/v1";
   policy: {
     groupBy: readonly AggregationDimension[];
+    evidenceOrigins?: EvidenceOriginSelection;
     selectedAttemptPolicy: AttemptSelectionPolicy;
     recurrence: { minimumOccurrences: number; establishesCausality: false; establishesStatisticalSignificance: false };
   };
@@ -137,24 +140,30 @@ type ReviewOutcome = { outcome: ReturnType<typeof effectiveReviewOutcome>; dispu
 
 export function aggregateEvaluation(
   input: AggregationInput,
-  policy: Pick<AggregationRequest, "groupBy" | "selectedAttemptPolicy" | "recurrence">,
+  policy: Pick<AggregationRequest, "groupBy" | "selectedAttemptPolicy" | "recurrence" | "evidenceOrigins">,
 ): Promise<AggregationReport> {
   return aggregateValidatedEvaluation(input, policy);
 }
 
-export function selectAggregationAttempts(entries: readonly CorpusIndexEntry[], policy: AttemptSelectionPolicy): CorpusIndexEntry[] {
+export function selectAggregationAttempts(entries: readonly CorpusIndexEntry[], policy: AttemptSelectionPolicy, origins: EvidenceOriginSelection = "owned"): CorpusIndexEntry[] {
+  if (!["owned", "imported", "separate"].includes(origins)) throw new Error("Invalid evidence-origin selection.");
   if (!["all-attempts", "latest-attempt-per-run"].includes(policy)) throw new Error("Invalid attempt selection policy.");
-  return selectAttempts(uniqueAttempts(entries).attempts, policy);
+  return selectAttempts(uniqueAttempts(entries, origins).attempts, policy);
 }
 
 async function aggregateValidatedEvaluation(
   input: AggregationInput,
-  policy: Pick<AggregationRequest, "groupBy" | "selectedAttemptPolicy" | "recurrence">,
+  policy: Pick<AggregationRequest, "groupBy" | "selectedAttemptPolicy" | "recurrence" | "evidenceOrigins">,
 ): Promise<AggregationReport> {
   assertPolicy(policy);
-  const { attempts, duplicates } = uniqueAttempts(input.corpusEntries);
+  const { attempts, duplicates } = uniqueAttempts(input.corpusEntries, policy.evidenceOrigins ?? "owned");
   const selected = selectAttempts(attempts, policy.selectedAttemptPolicy);
-  const observationSources = uniqueBy(input.observationSets, ({ document }) => `${document.runId}\0${document.attemptId}`, "observation set");
+  const includedOriginIds = new Set(attempts.map(attemptKey));
+  const excludedOriginIds = new Set(input.corpusEntries.filter((entry) => ["run", "import"].includes(entry.manifestKind)
+    && entry.runId !== undefined && entry.attemptId !== undefined && !includedOriginIds.has(attemptKey(entry as Attempt))).map((entry) => attemptKey(entry as Attempt)));
+  // Unknown sources still reach the existing binding check; only indexed, excluded origins are omitted.
+  const includedSource = ({ document }: { document: { runId: string; attemptId: string } }) => !excludedOriginIds.has(attemptKey(document));
+  const observationSources = uniqueBy(input.observationSets.filter(includedSource), ({ document }) => `${document.runId}\0${document.attemptId}`, "observation set");
   const observations = new Map<string, StructuralObservationSet>();
   for (const { bundleRoot, document } of observationSources.values()) {
     assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
@@ -166,7 +175,7 @@ async function aggregateValidatedEvaluation(
     if (canonicalizeMetadata(comparable) !== canonicalizeMetadata(document)) throw new Error(`Structural observation set for attempt "${document.attemptId}" is stale.`);
     observations.set(`${document.runId}\0${document.attemptId}`, rebuilt);
   }
-  const assertionSources = uniqueBy(input.assertions, ({ document }) => assertionKey(document), "behavior assertion");
+  const assertionSources = uniqueBy(input.assertions.filter(includedSource), ({ document }) => assertionKey(document), "behavior assertion");
   const assertions = new Map<string, BehaviorAssertion>();
   for (const { bundleRoot, document } of assertionSources.values()) {
     assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
@@ -176,7 +185,9 @@ async function aggregateValidatedEvaluation(
   for (const { selection } of input.calibrations) await revalidateReviewSample(selection);
   const reviewOutcomes = reviewOutcomeIndex(input.calibrations);
   const selectedIds = new Set(selected.map(attemptKey));
-  const groups = groupAttempts(attempts, policy.groupBy).map(([dimensions, allMembers]) => {
+  const groupBy = attempts.some((attempt) => evidenceOrigin(attempt) === "imported") && !policy.groupBy.includes("evidence-origin")
+    ? [...policy.groupBy, "evidence-origin" as const] : [...policy.groupBy];
+  const groups = groupAttempts(attempts, groupBy).map(([dimensions, allMembers]) => {
     const members = allMembers.filter((attempt) => selectedIds.has(attemptKey(attempt)));
     return {
       dimensions,
@@ -191,7 +202,8 @@ async function aggregateValidatedEvaluation(
   const report: AggregationReport = {
     schemaVersion: "ebo.aggregation-report/v1",
     policy: {
-      groupBy: [...policy.groupBy],
+      groupBy,
+      ...(policy.evidenceOrigins === undefined ? {} : { evidenceOrigins: policy.evidenceOrigins }),
       selectedAttemptPolicy: policy.selectedAttemptPolicy,
       recurrence: {
         minimumOccurrences: policy.recurrence.minimumOccurrences,
@@ -288,14 +300,16 @@ function groupMetrics(
   const selectedIds = new Set(selected.map(attemptKey));
   const relatedAll = all.filter((attempt) => matches(attempt, dimensions));
   const selectionExclusions = exclusionCounts(relatedAll.filter((attempt) => !selectedIds.has(attemptKey(attempt))).map(() => "not-selected-by-attempt-policy"), "attempt");
+  const infrastructureEligible = selected.filter((attempt) => evidenceOrigin(attempt) === "owned" || attempt.failureClass !== undefined);
+  const terminalEligible = selected.filter((attempt) => evidenceOrigin(attempt) === "owned" || attempt.terminalState !== undefined);
   const metrics: AggregateMetric[] = [
     metric("attempt-count", "attempt", selected.length, relatedAll.length, "attempt", "attempt", selectionExclusions),
-    rateMetric("infrastructure-failure-rate", "attempt", selected.filter(({ failureClass }) => failureClass === "infrastructure").length, selected.length, "attempt", []),
+    rateMetric("infrastructure-failure-rate", "attempt", infrastructureEligible.filter(({ failureClass }) => failureClass === "infrastructure").length, infrastructureEligible.length, "attempt", exclusionCounts(selected.filter((attempt) => evidenceOrigin(attempt) === "imported" && attempt.failureClass === undefined).map(() => "imported-failure-class-unavailable"), "attempt")),
     rateMetric("capture-qualified-rate", "attempt",
       selected.filter(({ captureQualification }) => captureQualification === "qualified" || captureQualification === "qualified-with-gaps").length,
       selected.filter(({ captureQualification }) => captureQualification !== undefined && captureQualification !== "unavailable").length,
       "attempt", exclusionCounts(selected.flatMap(({ captureQualification }) => captureQualification === undefined || captureQualification === "unavailable" ? ["capture-qualification-unavailable"] : []), "attempt")),
-    rateMetric("terminal-completed-rate", "attempt", selected.filter(({ terminalState }) => terminalState === "completed").length, selected.length, "attempt", []),
+    rateMetric("terminal-completed-rate", "attempt", terminalEligible.filter(({ terminalState }) => terminalState === "completed").length, terminalEligible.length, "attempt", exclusionCounts(selected.filter((attempt) => evidenceOrigin(attempt) === "imported" && attempt.terminalState === undefined).map(() => "imported-terminal-state-unavailable"), "attempt")),
   ];
   const verified = selected.filter(({ assessmentMode, verifierStatuses }) => assessmentMode === "verified"
     && verifierStatuses.length === 1 && ["passed", "failed"].includes(verifierStatuses[0]!));
@@ -476,7 +490,8 @@ function candidateMatchesAttempt(
   attempt: Attempt,
   observations: ReadonlyMap<string, StructuralObservationSet>,
 ): boolean {
-  const exact = candidate.id === attempt.runId
+  const exact = (candidate.evidenceOrigin?.kind ?? (candidate.harness.id.startsWith("atif.") ? "imported" : "owned")) === evidenceOrigin(attempt)
+    && candidate.id === attempt.runId
     && candidate.manifestDigest === attempt.manifestDigest
     && candidate.task.id === attempt.taskId
     && candidate.task.digest === attempt.taskDigest
@@ -523,6 +538,7 @@ function candidatePairKey(
 }
 
 function measureValue(attempt: Attempt, measure: string, observations: ReadonlyMap<string, StructuralObservationSet>): { value: number; unit: string } | undefined {
+  if (measure === "attempt:infrastructure-failure" && evidenceOrigin(attempt) === "imported" && attempt.failureClass === undefined) return undefined;
   if (measure === "attempt:infrastructure-failure") return { value: attempt.failureClass === "infrastructure" ? 1 : 0, unit: "attempt" };
   if (measure === "attempt:terminal-completed") return attempt.terminalState === undefined ? undefined : { value: attempt.terminalState === "completed" ? 1 : 0, unit: "attempt" };
   if (measure === "verified:verifier-passed") return attempt.assessmentMode !== "verified" || attempt.verifierStatuses.length !== 1
@@ -555,11 +571,12 @@ function reviewOutcomeIndex(calibrations: AggregationInput["calibrations"]): Map
   return outcomes;
 }
 
-function uniqueAttempts(entries: readonly CorpusIndexEntry[]): { attempts: Attempt[]; duplicates: number } {
+function uniqueAttempts(entries: readonly CorpusIndexEntry[], origins: EvidenceOriginSelection = "owned"): { attempts: Attempt[]; duplicates: number } {
   const attempts = new Map<string, Attempt>();
   let duplicates = 0;
   for (const entry of entries) {
-    if (entry.manifestKind !== "run" || entry.runId === undefined || entry.attemptId === undefined) continue;
+    if (!["run", "import"].includes(entry.manifestKind) || entry.runId === undefined || entry.attemptId === undefined) continue;
+    if (origins !== "separate" && evidenceOrigin(entry) !== origins) continue;
     const key = attemptKey(entry as Attempt);
     const current = attempts.get(key);
     if (current === undefined) attempts.set(key, structuredClone(entry) as Attempt);
@@ -610,6 +627,7 @@ function dimensionValue(attempt: Attempt, dimension: AggregationDimension): stri
     harness: attempt.harnessId,
     trial: attempt.trialId,
     "capture-qualification": attempt.captureQualification,
+    "evidence-origin": evidenceOrigin(attempt),
   })[dimension];
 }
 
@@ -677,7 +695,8 @@ function uniqueBy<Value>(values: readonly Value[], key: (value: Value) => string
   return result;
 }
 
-function assertPolicy(policy: Pick<AggregationRequest, "groupBy" | "selectedAttemptPolicy" | "recurrence">): void {
+function assertPolicy(policy: Pick<AggregationRequest, "groupBy" | "selectedAttemptPolicy" | "recurrence" | "evidenceOrigins">): void {
+  if (policy.evidenceOrigins !== undefined && !["owned", "imported", "separate"].includes(policy.evidenceOrigins)) throw new Error("Invalid evidence-origin selection.");
   if (new Set(policy.groupBy).size !== policy.groupBy.length) throw new Error("Aggregate grouping dimensions must be unique.");
   if (!Number.isSafeInteger(policy.recurrence.minimumOccurrences) || policy.recurrence.minimumOccurrences < 2) {
     throw new Error("Aggregate recurrence minimum must be an integer of at least two.");
@@ -707,4 +726,9 @@ function bindingKey(id: string, digest: string): string {
 
 function metadataDigest(value: unknown): `sha256:${string}` {
   return `sha256:${digestMetadata(value).value}`;
+}
+
+/** Native v1 entries omit origin; import manifests remain a distinct measurement instrument. */
+export function evidenceOrigin(entry: Pick<CorpusIndexEntry, "manifestKind" | "captureQualification" | "evidenceOrigin">): "owned" | "imported" {
+  return entry.manifestKind === "import" || entry.captureQualification === "imported" || entry.evidenceOrigin === "imported" ? "imported" : "owned";
 }

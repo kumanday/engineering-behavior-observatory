@@ -1,3 +1,4 @@
+import {coordinatorRuntimeEnvironment} from "./runtime-environment.js";
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { closeSync, constants, fsyncSync, mkdirSync, openSync, readSync, realpathSync, statSync, unlinkSync, writeSync } from "node:fs";
@@ -702,7 +703,7 @@ export class ProtocolProcess {
       detached: this.detached,
     };
     try {
-      this.child = spawn(options.command, this.args, spawnOptions);
+      this.child = spawn(options.command, this.args, {...spawnOptions, env: coordinatorRuntimeEnvironment(spawnOptions.env ?? process.env)});
     } catch (error) {
       this.writer.releaseClaim(INTERNAL_RECORDER_TOKEN);
       throw error;

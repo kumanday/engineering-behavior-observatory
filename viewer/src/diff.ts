@@ -1,7 +1,7 @@
 // Aligned diff of two attempts: LCS over their action signatures (tool category + command head, plus the target
 // for reads and edits; compactions included, free-text messages excluded). Divergent runs are where one attempt did
 // something the other did not at that point in the shared sequence.
-import { CATS, cls, esc, fmtDur, num, unitTitle, type LaneMeta, type SwimlanesPanel, type Unit } from "./lanes";
+import { CATS, cls, esc, trialLabel, fmtDur, laneDurationMs, num, unitTitle, type LaneMeta, type SwimlanesPanel, type Unit } from "./lanes";
 import { run, target } from "./registry";
 
 export type Op = { t: "=" | "-" | "+"; a?: Unit; b?: Unit };
@@ -75,8 +75,8 @@ export function renderDiff(view: HTMLElement, A: LaneMeta, B: LaneMeta, r: Align
     <div class="diff">
      <div class="diff-head">
       <div class="diff-summary">
-        <div><span class="diff-tag">A</span> ${esc(A.condition)} · trial ${esc(A.trial_id)} · ${r.nA} actions · ${fmtDur(A.t_end_ms - A.t_start_ms)}</div>
-        <div><span class="diff-tag b">B</span> ${esc(B.condition)} · trial ${esc(B.trial_id)} · ${r.nB} actions · ${fmtDur(B.t_end_ms - B.t_start_ms)}</div>
+        <div><span class="diff-tag">A</span> ${esc(A.condition)} · ${esc(trialLabel(A.trial_id))} · ${r.nA} actions · ${fmtDur(laneDurationMs(A))}</div>
+        <div><span class="diff-tag b">B</span> ${esc(B.condition)} · ${esc(trialLabel(B.trial_id))} · ${r.nB} actions · ${fmtDur(laneDurationMs(B))}</div>
         <div class="diff-sim"><b>${(sim * 100).toFixed(0)}%</b> of actions align (${r.matched} shared in order) · ${r.segments.length} divergent stretches ≥ 3 actions, listed in sequence order; the largest are bold</div>
       </div>
       <div class="diff-cats">

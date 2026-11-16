@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:import-manifest:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "importer",
+    "identity",
+    "qualification",
+    "sharing",
+    "createdAt",
+    "source",
+    "inspection",
+    "producer",
+    "producerAuthority",
+    "profile"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "ebo.import-manifest/v1"
+    },
+    "importer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "const": "ebo.atif"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "attemptId",
+        "authority"
+      ],
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "authority": {
+          "const": "operator-declared"
+        }
+      }
+    },
+    "qualification": {
+      "const": "imported"
+    },
+    "sharing": {
+      "const": "restricted"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId",
+        "path",
+        "digest",
+        "bytes"
+      ],
+      "properties": {
+        "artifactId": {
+          "const": "atif-trajectory"
+        },
+        "path": {
+          "const": "trajectory.json"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        }
+      }
+    },
+    "inspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "digest"
+      ],
+      "properties": {
+        "path": {
+          "const": "inspection.json"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    },
+    "producer": {
+      "$ref": "urn:ebo:schema:atif-producer-profile:v1#/properties/producer"
+    },
+    "producerAuthority": {
+      "const": "operator-declared"
+    },
+    "profile": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "id",
+            "digest"
+          ],
+          "properties": {
+            "status": {
+              "const": "supported"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "const": "unsupported"
+            },
+            "reason": {
+              "const": "PRODUCER_PROFILE_UNREGISTERED"
+            }
+          }
+        }
+      ]
+    },
+    "blinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority",
+        "modelAliases"
+      ],
+      "properties": {
+        "authority": {
+          "const": "operator-declared"
+        },
+        "modelAliases": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        }
+      }
+    }
+  }
+}

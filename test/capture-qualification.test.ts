@@ -1,10 +1,12 @@
+import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("claude-agent-sdk");
+const liveTest = liveRuntimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
 import {
   type HookEvent,
   type HookInput,
@@ -403,7 +405,7 @@ test("passive capture leaves prompt and tool policy exactly unchanged", async ()
   }
 });
 
-test("approved live Agent SDK smoke records sanitized collector receipt", {
+liveTest("approved live Agent SDK smoke records sanitized collector receipt", {
   skip: process.env.EBO_LIVE_AGENT_SDK_SMOKE !== "1",
   timeout: 120_000,
 }, async () => {

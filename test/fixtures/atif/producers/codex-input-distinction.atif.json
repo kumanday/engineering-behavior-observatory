@@ -1,0 +1,97 @@
+{
+  "schema_version": "ATIF-v1.7",
+  "session_id": "synthetic-codex",
+  "agent": {
+    "name": "codex",
+    "version": "0.162.1",
+    "model_name": "synthetic-model"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "timestamp": "2026-11-07T00:00:02.000Z",
+      "source": "user",
+      "message": "Run checks."
+    },
+    {
+      "step_id": 2,
+      "timestamp": "2026-11-07T00:00:03.000Z",
+      "source": "agent",
+      "model_name": "synthetic-model",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "a",
+          "function_name": "bash",
+          "arguments": {
+            "input": "echo hello"
+          }
+        },
+        {
+          "tool_call_id": "b",
+          "function_name": "bash",
+          "arguments": {
+            "input": "echo hello"
+          }
+        },
+        {
+          "tool_call_id": "c",
+          "function_name": "bash",
+          "arguments": {
+            "input": "echo hello"
+          }
+        },
+        {
+          "tool_call_id": "d",
+          "function_name": "bash",
+          "arguments": {
+            "input": "echo hello"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "a",
+            "content": "Synthetic output."
+          },
+          {
+            "source_call_id": "b",
+            "content": "Synthetic output."
+          },
+          {
+            "source_call_id": "c",
+            "content": "Synthetic output."
+          },
+          {
+            "source_call_id": "d",
+            "content": "Synthetic output."
+          }
+        ]
+      },
+      "llm_call_count": 1,
+      "extra": {
+        "api_call_id": "api_call_1",
+        "codex_turn_id": "synthetic-turn",
+        "tool_call_details": {
+          "a": {
+            "raw_arguments": "echo hello",
+            "item_type": "function_call"
+          },
+          "b": {
+            "raw_arguments": "{\"input\":\"echo hello\"}",
+            "item_type": "function_call"
+          },
+          "c": {
+            "raw_arguments": "echo hello",
+            "item_type": "custom_tool_call"
+          },
+          "d": {
+            "raw_arguments": "{\"input\":\"echo hello\"}",
+            "item_type": "custom_tool_call"
+          }
+        }
+      }
+    }
+  ]
+}

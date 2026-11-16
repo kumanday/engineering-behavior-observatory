@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:atif-producer-profile:v1",
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "nullableDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }
+  },
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "id", "version", "harness", "producer", "rules", "limitations", "sources"],
+  "properties": {
+    "schemaVersion": { "const": "ebo.atif-producer-profile/v1" },
+    "id": { "type": "string", "minLength": 1, "maxLength": 512 }, "version": { "type": "string", "minLength": 1 },
+    "harness": { "type": "string", "pattern": "^atif\\." },
+    "producer": { "type": "object", "additionalProperties": false, "required": ["formatVersion", "agent", "converter", "context"], "properties": {
+      "formatVersion": { "type": "string", "minLength": 1 },
+      "agent": { "type": "object", "additionalProperties": false, "required": ["name", "version"], "properties": {
+        "name": { "type": "string", "minLength": 1 }, "version": { "type": ["string", "null"] }
+      } },
+      "converter": { "type": "object", "additionalProperties": false, "required": ["id", "packageVersion", "sourceDigest"], "properties": {
+        "id": { "type": "string", "minLength": 1 }, "packageVersion": { "type": "string", "minLength": 1 }, "sourceDigest": { "$ref": "#/$defs/nullableDigest" }
+      } },
+      "context": { "type": "object", "additionalProperties": false, "required": ["kind", "revision", "wrapperDigest"], "properties": {
+        "kind": { "enum": ["harbor", "harness-leaderboard", "unknown"] }, "revision": { "type": ["string", "null"] },
+        "wrapperDigest": { "$ref": "#/$defs/nullableDigest" }
+      } }
+    } },
+    "rules": { "type": "object", "additionalProperties": false,
+      "required": ["operationIdentity", "resultFailure", "inputTokens", "usageAuthority", "inferenceCount", "nativeRequests", "copiedContext", "gaps", "context", "branchSelection", "termination"],
+      "properties": {
+        "operationIdentity": { "const": "document-scoped-native-tool-call-id" }, "resultFailure": { "const": "pi-result-extra-is-error" },
+        "inputTokens": { "const": "inclusive-prompt-minus-cache-read-and-write" }, "usageAuthority": { "const": "step-metrics-reconciled-with-root-final" },
+        "inferenceCount": { "const": "declared-llm-call-count" }, "nativeRequests": { "const": "unavailable" },
+        "copiedContext": { "const": "exclude-new-behavior" }, "gaps": { "const": "withhold-exact-attempt-measures" },
+        "context": { "const": "pi-event-type-and-explicit-transformations" }, "branchSelection": { "const": "active-root-to-leaf" },
+        "termination": { "const": "source-declared-not-owned" }
+      }
+    },
+    "limitations": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "sources": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "uri" } }
+  }
+}

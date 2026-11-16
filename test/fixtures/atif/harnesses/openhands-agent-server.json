@@ -1,0 +1,39 @@
+{
+  "schema_version": "ATIF-v1.5",
+  "session_id": "authored-session",
+  "agent": {
+    "name": "openhands",
+    "version": "unknown"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "timestamp": "2026-11-07T00:00:00Z",
+      "source": "user",
+      "message": "Read fixture.txt."
+    },
+    {
+      "step_id": 2,
+      "timestamp": "2026-11-07T00:00:00Z",
+      "source": "agent",
+      "message": "Inspecting the fixture.",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-1",
+          "function_name": "execute_bash",
+          "arguments": {
+            "command": "cat fixture.txt"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "call-1",
+            "content": "Authored file content."
+          }
+        ]
+      }
+    }
+  ]
+}

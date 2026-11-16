@@ -1,0 +1,753 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:harness-verification:v1",
+  "$defs": {
+    "hash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "harness": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "platform": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "contractDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "integrity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "version",
+              "integrity"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 10000
+        },
+        "abi": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "harness",
+        "platform",
+        "contractDigest",
+        "components",
+        "abi"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "captureProfileDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "routeDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "captureProfileDigest",
+        "routeDigest"
+      ]
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "probe",
+            "owned-capture"
+          ]
+        },
+        "lockDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "launchDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "case": {
+          "enum": [
+            "success",
+            "failure-recovery",
+            "interruption"
+          ]
+        },
+        "manifestDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "datasetDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "runVerificationDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "kind",
+        "lockDigest",
+        "launchDigest"
+      ]
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "installation": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        },
+        "runtime-probe": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        },
+        "module-api": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        },
+        "readback": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        },
+        "session-identity": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        },
+        "tool-call-result": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        },
+        "workspace": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        },
+        "usage": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        },
+        "failure-follow-up": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        },
+        "interruption": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        },
+        "hooks": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        },
+        "terminal": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        },
+        "teardown": {
+          "enum": [
+            "checked",
+            "failed",
+            "unavailable"
+          ]
+        }
+      },
+      "required": [],
+      "minProperties": 1
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.harness-verification/v1"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "subject": {
+          "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/subject"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/scope"
+            }
+          ]
+        },
+        "claims": {
+          "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/claims"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/proof"
+          },
+          "minItems": 1,
+          "maxItems": 100
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "createdAt",
+        "subject",
+        "scope",
+        "claims",
+        "evidence",
+        "digest"
+      ]
+    },
+    "admission": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.harness-verification-admission/v1"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "action": {
+          "enum": [
+            "admit",
+            "withdraw"
+          ]
+        },
+        "receiptDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "subjectDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "supersedes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "uniqueItems": true
+        },
+        "operator": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          },
+          "required": [
+            "id",
+            "reason"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "action",
+        "receiptDigest",
+        "subjectDigest",
+        "supersedes",
+        "operator",
+        "createdAt",
+        "digest"
+      ]
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.harness-verification-snapshot/v1"
+        },
+        "subject": {
+          "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/subject"
+        },
+        "catalogDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "receipts": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/receipt"
+          },
+          "maxItems": 10000
+        },
+        "admissions": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/admission"
+          },
+          "maxItems": 10000
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "subject",
+        "catalogDigest",
+        "receipts",
+        "admissions",
+        "digest"
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "unverified",
+            "probe-checked",
+            "capture-checked"
+          ]
+        },
+        "claims": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "installation": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "runtime-probe": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "module-api": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "readback": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "session-identity": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "tool-call-result": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "workspace": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "usage": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "failure-follow-up": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "interruption": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "hooks": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "terminal": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "teardown": {
+              "enum": [
+                "checked",
+                "unverified",
+                "conflict"
+              ]
+            }
+          },
+          "required": [
+            "installation",
+            "runtime-probe",
+            "module-api",
+            "readback",
+            "session-identity",
+            "tool-call-result",
+            "workspace",
+            "usage",
+            "failure-follow-up",
+            "interruption",
+            "hooks",
+            "terminal",
+            "teardown"
+          ]
+        },
+        "receiptDigests": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        },
+        "admissionDigests": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        },
+        "snapshotDigest": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "state",
+        "claims",
+        "receiptDigests",
+        "admissionDigests",
+        "snapshotDigest",
+        "limitations"
+      ]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "studyRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "owned-capture"
+              },
+              "case": {
+                "enum": [
+                  "success",
+                  "failure-recovery",
+                  "interruption"
+                ]
+              },
+              "bundleRoot": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            },
+            "required": [
+              "kind",
+              "case",
+              "bundleRoot"
+            ]
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "studyRoot",
+        "role"
+      ]
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.harness-verification-candidate/v1"
+        },
+        "request": {
+          "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/request"
+        },
+        "receipt": {
+          "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/receipt"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "request",
+        "receipt",
+        "digest"
+      ]
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.run-verification/v1"
+        },
+        "subject": {
+          "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/subject"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/scope"
+            }
+          ]
+        },
+        "snapshot": {
+          "anyOf": [
+            {
+              "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/snapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result": {
+          "$ref": "urn:ebo:schema:harness-verification:v1#/$defs/result"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "subject",
+        "scope",
+        "snapshot",
+        "result",
+        "digest"
+      ]
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.capture-lifecycle/v1"
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "lifecycle": {
+          "type": "object"
+        },
+        "terminal": {
+          "type": "object"
+        },
+        "capture": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "cleanup": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "harnessTerminationConfirmed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "runId",
+        "attemptId",
+        "lifecycle",
+        "terminal",
+        "capture",
+        "cleanup",
+        "harnessTerminationConfirmed"
+      ]
+    }
+  }
+}

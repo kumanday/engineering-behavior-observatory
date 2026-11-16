@@ -178,9 +178,15 @@ test("a failure with no later call is rated by rule without asking the model", a
   const fake = provider();
   const ratings = await rateOccurrences(observationSet, lone.events, () => undefined, { provider: "typesafe" }, { fetch: fake.fetch, env });
   assert.equal(fake.calls.length, 0);
-  assert.deepEqual(ratings.ratings.map(({ source, label, rule }) => [source, label, rule]), [["rule", "no-response", "no later call of the tool in the same session"]]);
+  assert.deepEqual(ratings.ratings.map(({ source, label, rule }) => [source, label, rule]), [["rule", "no-response", "no source-ordered follow-up call of the tool outside the same inference"]]);
   validateOccurrenceRatings(ratings);
   verifyRatingRules(ratings, observationSet, lone.events, () => undefined);
+  const legacySet = structuredClone(observationSet);
+  legacySet.occurrences![0]!.rule.version = "1.1.0";
+  const legacyRatings = await rateOccurrences(legacySet, lone.events, () => undefined, { provider: "typesafe" }, { fetch: fake.fetch, env });
+  assert.equal(legacyRatings.ratings[0]!.rule, "no later call of the tool in the same session");
+  validateOccurrenceRatings(legacyRatings);
+  verifyRatingRules(legacyRatings, legacySet, lone.events, () => undefined);
   const lost = structuredClone(ratings);
   lost.ratings = [];
   lost.coverage.byRule = 0;

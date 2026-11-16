@@ -12,10 +12,18 @@ import {
   RETAINED_PI_SDK_VERSIONS,
   RETAINED_FACTORY_CLI_VERSIONS,
   RETAINED_FACTORY_SDK_VERSIONS,
+  RETAINED_PI_ADAPTER_VERSIONS,
+  RETAINED_FACTORY_ADAPTER_VERSIONS,
 } from "../src/index.js";
 
-// A pin bump appends to the retained list: captures made by any released pin stay readable.
-test("every harness version pinned by a release stays readable as retained evidence", () => {
+test("historical capture adapter identities remain in the fixture inventory", () => {
+  // These are capture provenance values already stored by released EBO versions.
+  assert.ok(RETAINED_PI_ADAPTER_VERSIONS.includes("1.0.0"), "Pi captures from EBO 1.2 retain adapter 1.0.0");
+  assert.ok(RETAINED_FACTORY_ADAPTER_VERSIONS.includes("0.1.0"), "Factory captures from EBO 1.3 retain adapter 0.1.0");
+});
+
+// Release inventories describe historical fixtures; runtime confidence comes from admitted catalog evidence.
+test("historical runtime fixture inventories account for the shipped release pins", () => {
   const retained: Record<string, readonly string[]> = {
     piSdk: RETAINED_PI_SDK_VERSIONS,
     factoryCli: RETAINED_FACTORY_CLI_VERSIONS,
@@ -34,7 +42,7 @@ test("every harness version pinned by a release stays readable as retained evide
     const runtime = (JSON.parse(readFileSync(path, "utf8")) as { runtime?: Record<string, string> }).runtime ?? {};
     for (const [key, versions] of Object.entries(retained)) {
       if (runtime[key] === undefined) continue;
-      assert.ok(versions.includes(runtime[key]), `release ${release} pinned ${key} ${runtime[key]}, which retained readback rejects`);
+      assert.ok(versions.includes(runtime[key]), `release ${release} pinned ${key} ${runtime[key]}, which is absent from the historical fixture inventory`);
       checked += 1;
     }
   }

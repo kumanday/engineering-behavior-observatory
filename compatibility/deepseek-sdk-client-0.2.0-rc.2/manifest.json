@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "ebo.frozen-sdk-dependency/v1",
+  "name": "@deepseek-ai/dsh-sdk-client",
+  "version": "0.2.0-rc.2",
+  "builder": {
+    "version": "0.28.2",
+    "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz",
+    "integrity": "sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA=="
+  },
+  "sources": [
+    {
+      "name": "@deepseek-ai/dsh-sdk-client",
+      "version": "0.2.0-rc.2",
+      "resolved": "https://registry.npmjs.org/@deepseek-ai/dsh-sdk-client/-/dsh-sdk-client-0.2.0-rc.2.tgz",
+      "integrity": "sha512-woZfQkq5SMAJa/FYIKfeova97kNO3f8nN7+EpovmB+JKhMP87AHXjuhCdIDkt29J2MxqTZ3OI4xQ8BQTU2iwow==",
+      "files": [
+        {
+          "path": "source/dsh-sdk-client/package.json",
+          "bytes": 1244,
+          "sha256": "48b76e6e65655b60f1c12b9a077138d85b31e3f5b856b6b9400d90cf9a9b9dd6"
+        },
+        {
+          "path": "source/dsh-sdk-client/LICENSE",
+          "bytes": 1065,
+          "sha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be"
+        },
+        {
+          "path": "source/dsh-sdk-client/lib/index.js",
+          "bytes": 32528,
+          "sha256": "3e936345f36c1845ad07a66084a126cd0a9b511aa192501932874d7e09b9e7b8"
+        }
+      ]
+    },
+    {
+      "name": "@deepseek-ai/dsh-sdk-protocol",
+      "version": "0.2.0-rc.2",
+      "resolved": "https://registry.npmjs.org/@deepseek-ai/dsh-sdk-protocol/-/dsh-sdk-protocol-0.2.0-rc.2.tgz",
+      "integrity": "sha512-hs4Kl2x17wAuhSMUWuNpeHvv1mOm+F+A2EQnYu1QmxVux50PR3xHthee7IX/PylpgZybcfBn1JAigKvOFs5GPA==",
+      "files": [
+        {
+          "path": "source/dsh-sdk-protocol/package.json",
+          "bytes": 1220,
+          "sha256": "41c92886f1877b0e2a390d7bcd16e4f7df6093e376df182f9e755b01dd6a9237"
+        },
+        {
+          "path": "source/dsh-sdk-protocol/LICENSE",
+          "bytes": 1065,
+          "sha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be"
+        },
+        {
+          "path": "source/dsh-sdk-protocol/lib/index.js",
+          "bytes": 7336,
+          "sha256": "371c38ca3514797d86df5f4bb78a56c40a2637294b83aababe8145bec6a20253"
+        }
+      ]
+    }
+  ],
+  "entry": "sdk.mjs",
+  "bytes": 34693,
+  "sha256": "da9e626449494eb94c6709bf8ea4e91269a569eabd224dbfbfdcb0d385a2ab93",
+  "exports": [
+    "DeepSeekHarness",
+    "HarnessClient",
+    "HarnessSession",
+    "JsonRpcResponseError",
+    "RequestTimeoutError",
+    "SdkProtocolError",
+    "TransportClosedError"
+  ],
+  "scope": "Static dependency of the two shipped frozen readers. Deferred capture helpers are unqualified."
+}

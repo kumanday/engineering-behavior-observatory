@@ -1,0 +1,72 @@
+{
+  "schema_version": "ATIF-v1.7",
+  "session_id": "authored-fixture",
+  "agent": {
+    "name": "acme-agent",
+    "version": "9.9.9"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "system",
+      "message": "Authored public conformance fixture."
+    },
+    {
+      "step_id": 2,
+      "source": "user",
+      "message": "Read the fixture entries."
+    },
+    {
+      "step_id": 3,
+      "source": "agent",
+      "message": "Read fixture entry 0.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-0",
+          "function_name": "read",
+          "arguments": {
+            "entry": 0
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-0",
+            "content": "Fixture value 0."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 4,
+      "source": "agent",
+      "message": "Read fixture entry 1.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-1",
+          "function_name": "read",
+          "arguments": {
+            "entry": 1
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-1",
+            "content": "Fixture value 1."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 5,
+      "source": "agent",
+      "message": "Fixture inspection complete.",
+      "llm_call_count": 1
+    }
+  ]
+}

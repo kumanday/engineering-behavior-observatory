@@ -1,0 +1,466 @@
+[
+  {
+    "id": "pending-call",
+    "trajectory": {
+      "schema_version": "ATIF-v1.7",
+      "session_id": "synthetic-session",
+      "agent": {
+        "name": "synthetic",
+        "version": "fixture-1"
+      },
+      "steps": [
+        {
+          "step_id": 1,
+          "source": "agent",
+          "message": "Synthetic message.",
+          "llm_call_count": 1,
+          "tool_calls": [
+            {
+              "tool_call_id": "pending",
+              "function_name": "bash",
+              "arguments": {
+                "command": "synthetic-check"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "recordedCalls": 1,
+      "linkedResults": 0,
+      "complete": false
+    }
+  },
+  {
+    "id": "unlinked-shared-result",
+    "trajectory": {
+      "schema_version": "ATIF-v1.7",
+      "session_id": "synthetic-session",
+      "agent": {
+        "name": "synthetic",
+        "version": "fixture-1"
+      },
+      "steps": [
+        {
+          "step_id": 1,
+          "source": "agent",
+          "message": "Synthetic message.",
+          "llm_call_count": null,
+          "tool_calls": [
+            {
+              "tool_call_id": "a",
+              "function_name": "bash",
+              "arguments": {
+                "command": "synthetic-check"
+              }
+            },
+            {
+              "tool_call_id": "b",
+              "function_name": "bash",
+              "arguments": {
+                "command": "synthetic-check"
+              }
+            }
+          ],
+          "observation": {
+            "results": [
+              {
+                "content": "Synthetic shared result."
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "expected": {
+      "recordedCalls": 2,
+      "linkedResults": 0,
+      "declaredInferenceCount": null
+    }
+  },
+  {
+    "id": "copied-continuation",
+    "trajectory": {
+      "schema_version": "ATIF-v1.7",
+      "session_id": "synthetic-session",
+      "agent": {
+        "name": "synthetic",
+        "version": "fixture-1"
+      },
+      "steps": [
+        {
+          "step_id": 1,
+          "source": "agent",
+          "message": "Synthetic message.",
+          "is_copied_context": true,
+          "llm_call_count": 1,
+          "tool_calls": [
+            {
+              "tool_call_id": "old",
+              "function_name": "bash",
+              "arguments": {
+                "command": "synthetic-check"
+              }
+            }
+          ]
+        },
+        {
+          "step_id": 2,
+          "source": "agent",
+          "message": "Synthetic message.",
+          "llm_call_count": 1,
+          "tool_calls": [
+            {
+              "tool_call_id": "new",
+              "function_name": "bash",
+              "arguments": {
+                "command": "synthetic-check"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "recordedNewCalls": 1,
+      "declaredInferenceCount": 1
+    }
+  },
+  {
+    "id": "partial-gap",
+    "trajectory": {
+      "schema_version": "ATIF-v1.7",
+      "session_id": "synthetic-session",
+      "agent": {
+        "name": "synthetic",
+        "version": "fixture-1"
+      },
+      "steps": [
+        {
+          "step_id": 1,
+          "source": "system",
+          "message": "[COMPACTED HISTORY] Not recorded: intermediate history.",
+          "extra": {
+            "added_by": "hlb",
+            "reason": "synthetic missing export"
+          }
+        },
+        {
+          "step_id": 2,
+          "source": "agent",
+          "message": "Synthetic message."
+        }
+      ],
+      "extra": {
+        "partial": {
+          "missing": [
+            "tool_calls",
+            "tool_results"
+          ]
+        }
+      }
+    },
+    "expected": {
+      "fullAttemptToolCount": null,
+      "compactions": 0
+    }
+  },
+  {
+    "id": "compaction-without-boundary",
+    "trajectory": {
+      "schema_version": "ATIF-v1.7",
+      "session_id": "synthetic-session",
+      "agent": {
+        "name": "synthetic",
+        "version": "fixture-1"
+      },
+      "steps": [
+        {
+          "step_id": 1,
+          "source": "system",
+          "message": "Synthetic compaction.",
+          "extra": {
+            "context_management": {
+              "type": "compaction"
+            }
+          }
+        }
+      ]
+    },
+    "expected": {
+      "compactions": 1,
+      "effectiveContextAvailable": false
+    }
+  },
+  {
+    "id": "summarizer-is-context",
+    "trajectory": {
+      "schema_version": "ATIF-v1.7",
+      "session_id": "synthetic-session",
+      "agent": {
+        "name": "synthetic",
+        "version": "fixture-1"
+      },
+      "steps": [
+        {
+          "step_id": 1,
+          "source": "system",
+          "message": "Synthetic context replacement.",
+          "extra": {
+            "context_management": {
+              "type": "compaction",
+              "boundary": "replace"
+            }
+          },
+          "observation": {
+            "results": [
+              {
+                "content": "Synthetic summary.",
+                "subagent_trajectory_ref": [
+                  {
+                    "trajectory_id": "summary"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "subagent_trajectories": [
+        {
+          "schema_version": "ATIF-v1.7",
+          "session_id": "synthetic-session",
+          "agent": {
+            "name": "synthetic",
+            "version": "fixture-1"
+          },
+          "steps": [
+            {
+              "step_id": 1,
+              "source": "agent",
+              "message": "Synthetic message.",
+              "llm_call_count": 1
+            }
+          ],
+          "trajectory_id": "summary"
+        }
+      ]
+    },
+    "expected": {
+      "compactions": 1,
+      "delegations": 0,
+      "summarizers": 1
+    }
+  },
+  {
+    "id": "delegated-child",
+    "trajectory": {
+      "schema_version": "ATIF-v1.7",
+      "session_id": "synthetic-session",
+      "agent": {
+        "name": "synthetic",
+        "version": "fixture-1"
+      },
+      "steps": [
+        {
+          "step_id": 1,
+          "source": "agent",
+          "message": "Synthetic message.",
+          "llm_call_count": 1,
+          "tool_calls": [
+            {
+              "tool_call_id": "delegate",
+              "function_name": "agent",
+              "arguments": {
+                "task": "synthetic"
+              }
+            }
+          ],
+          "observation": {
+            "results": [
+              {
+                "source_call_id": "delegate",
+                "subagent_trajectory_ref": [
+                  {
+                    "trajectory_id": "child"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "subagent_trajectories": [
+        {
+          "schema_version": "ATIF-v1.7",
+          "session_id": "synthetic-session",
+          "agent": {
+            "name": "synthetic",
+            "version": "fixture-1"
+          },
+          "steps": [
+            {
+              "step_id": 1,
+              "source": "agent",
+              "message": "Synthetic message.",
+              "llm_call_count": 1,
+              "tool_calls": [
+                {
+                  "tool_call_id": "child-call",
+                  "function_name": "bash",
+                  "arguments": {
+                    "command": "synthetic-check"
+                  }
+                }
+              ]
+            }
+          ],
+          "trajectory_id": "child"
+        }
+      ]
+    },
+    "expected": {
+      "delegations": 1,
+      "recordedCallsIncludingChildren": 2
+    }
+  },
+  {
+    "id": "unknown-termination",
+    "trajectory": {
+      "schema_version": "ATIF-v1.7",
+      "session_id": "synthetic-session",
+      "agent": {
+        "name": "synthetic",
+        "version": "fixture-1"
+      },
+      "steps": [
+        {
+          "step_id": 1,
+          "source": "agent",
+          "message": "Synthetic message.",
+          "llm_call_count": 1
+        }
+      ]
+    },
+    "expected": {
+      "terminalState": null,
+      "complete": false
+    }
+  },
+  {
+    "id": "copied-delegation",
+    "trajectory": {
+      "schema_version": "ATIF-v1.7",
+      "session_id": "synthetic-session",
+      "agent": {
+        "name": "synthetic",
+        "version": "fixture-1"
+      },
+      "steps": [
+        {
+          "step_id": 1,
+          "source": "agent",
+          "message": "Synthetic message.",
+          "llm_call_count": 1,
+          "tool_calls": [
+            {
+              "tool_call_id": "delegate",
+              "function_name": "agent",
+              "arguments": {
+                "task": "synthetic"
+              }
+            }
+          ],
+          "observation": {
+            "results": [
+              {
+                "source_call_id": "delegate",
+                "subagent_trajectory_ref": [
+                  {
+                    "trajectory_id": "child"
+                  }
+                ]
+              }
+            ]
+          },
+          "is_copied_context": true
+        }
+      ],
+      "subagent_trajectories": [
+        {
+          "schema_version": "ATIF-v1.7",
+          "session_id": "synthetic-session",
+          "agent": {
+            "name": "synthetic",
+            "version": "fixture-1"
+          },
+          "steps": [
+            {
+              "step_id": 1,
+              "source": "agent",
+              "message": "Synthetic message.",
+              "llm_call_count": 1,
+              "tool_calls": [
+                {
+                  "tool_call_id": "child-call",
+                  "function_name": "bash",
+                  "arguments": {
+                    "command": "synthetic-check"
+                  }
+                }
+              ]
+            }
+          ],
+          "trajectory_id": "child"
+        }
+      ]
+    },
+    "expected": {
+      "delegations": 0,
+      "recordedCallsIncludingChildren": 0
+    }
+  },
+  {
+    "id": "timeout-partial",
+    "trajectory": {
+      "schema_version": "ATIF-v1.7",
+      "session_id": "synthetic-session",
+      "agent": {
+        "name": "synthetic",
+        "version": "fixture-1"
+      },
+      "steps": [
+        {
+          "step_id": 1,
+          "source": "agent",
+          "message": "Synthetic message.",
+          "llm_call_count": 1,
+          "tool_calls": [
+            {
+              "tool_call_id": "pending",
+              "function_name": "bash",
+              "arguments": {
+                "command": "synthetic-check"
+              }
+            }
+          ]
+        }
+      ],
+      "extra": {
+        "partial": {
+          "reason": "timeout",
+          "missing": [
+            "remaining_history"
+          ]
+        }
+      }
+    },
+    "expected": {
+      "recordedCalls": 1,
+      "fullAttemptToolCount": null,
+      "complete": false,
+      "terminalState": null
+    }
+  }
+]

@@ -1,0 +1,335 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:run-bundle:v2",
+  "title": "EBO run manifest with frozen runtime evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "bundleId",
+    "run",
+    "attempt",
+    "configuration",
+    "terminal",
+    "evidence",
+    "runtimeLock"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "run-manifest/v2"
+    },
+    "bundleId": {
+      "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/identifier"
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "task",
+        "fixture",
+        "model",
+        "harness",
+        "runtime"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/identifier"
+        },
+        "trial": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "index"
+          ],
+          "properties": {
+            "index": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        "assessmentMode": {
+          "enum": [
+            "observational",
+            "verified"
+          ]
+        },
+        "task": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/identifier"
+            },
+            "digest": {
+              "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/digest"
+            }
+          }
+        },
+        "fixture": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "digest"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/identifier"
+            },
+            "digest": {
+              "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/digest"
+            }
+          }
+        },
+        "model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "id"
+          ],
+          "properties": {
+            "provider": {
+              "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/identifier"
+            },
+            "id": {
+              "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/identifier"
+            },
+            "configurationDigest": {
+              "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/digest"
+            }
+          }
+        },
+        "harness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/identifier"
+            },
+            "version": {
+              "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/identifier"
+            },
+            "configurationDigest": {
+              "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/digest"
+            }
+          }
+        },
+        "runtime": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/runtimeComponent"
+          }
+        },
+        "verifier": {
+          "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/verifierReference"
+        },
+        "native": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sessionId": {
+              "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/identifier"
+            },
+            "traceId": {
+              "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/identifier"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "assessmentMode": {
+                "const": "observational"
+              }
+            },
+            "required": [
+              "assessmentMode"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "verifier"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "number"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/identifier"
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "retryOf": {
+          "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/identifier"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "retryOf"
+            ]
+          },
+          "then": {
+            "properties": {
+              "number": {
+                "minimum": 2
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "number": {
+                "minimum": 2
+              }
+            },
+            "required": [
+              "number"
+            ]
+          },
+          "then": {
+            "required": [
+              "retryOf"
+            ]
+          }
+        }
+      ]
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "budgetDigest",
+        "toolPolicyDigest"
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/digest"
+        },
+        "captureProfileDigest": {
+          "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/digest"
+        },
+        "budgetDigest": {
+          "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/digest"
+        },
+        "toolPolicyDigest": {
+          "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/digest"
+        }
+      }
+    },
+    "terminal": {
+      "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/terminal"
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/evidenceDescriptor"
+      },
+      "contains": {
+        "properties": {
+          "kind": {
+            "const": "capture-report"
+          },
+          "sharingClass": {
+            "not": {
+              "enum": [
+                "partner",
+                "public"
+              ]
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "sharingClass"
+        ]
+      },
+      "minContains": 1,
+      "maxContains": 1
+    },
+    "runtimeLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lockDigest",
+        "role",
+        "lockArtifactId",
+        "launchArtifactId"
+      ],
+      "properties": {
+        "lockDigest": {
+          "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/digest"
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lockArtifactId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "launchArtifactId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "studyFreezeArtifactId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "studyFreezeDigest": {
+          "$ref": "urn:ebo:schema:run-bundle:v1#/$defs/digest"
+        },
+        "sourceRunId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "dependentRequired": {
+        "studyFreezeArtifactId": [
+          "studyFreezeDigest",
+          "sourceRunId"
+        ],
+        "studyFreezeDigest": [
+          "studyFreezeArtifactId",
+          "sourceRunId"
+        ],
+        "sourceRunId": [
+          "studyFreezeArtifactId",
+          "studyFreezeDigest"
+        ]
+      }
+    }
+  }
+}

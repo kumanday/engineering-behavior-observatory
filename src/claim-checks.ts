@@ -3,7 +3,7 @@ import { validateBehaviorAssertion, type BehaviorAssertion } from "./behavior-as
 import { decide, verifyDecisionRecord, resolveDecisionModel, type DecideOptions, type DecisionAnswer, type DecisionProviderConfig, type DecisionQuestion, type DecisionRecord } from "./decision-models.js";
 import { boundedEvidence } from "./evidence-projection.js";
 import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
-import type { NormalizationInput } from "./uniform-events.js";
+import type { RetainedNormalizationInput } from "./uniform-events.js";
 
 /**
  * Claim checks: a decision model reads each atomic claim of a judge assertion next to the native records it cites
@@ -50,7 +50,7 @@ export type ClaimChecks = {
 };
 
 /** The state for one claim: its text, workspace and the visible, bounded native records it cites. */
-export function claimState(claim: NonNullable<BehaviorAssertion["judgment"]["claims"]>[number], capture: NormalizationInput<unknown>): Record<string, unknown> {
+export function claimState(claim: NonNullable<BehaviorAssertion["judgment"]["claims"]>[number], capture: RetainedNormalizationInput<unknown>): Record<string, unknown> {
   return {
     claim: { text: claim.text, workspace: claim.workspace },
     citedRecords: claim.citations.map(({ eventId, nativeReference }) => {
@@ -62,7 +62,7 @@ export function claimState(claim: NonNullable<BehaviorAssertion["judgment"]["cla
 
 export async function checkClaims(
   assertion: BehaviorAssertion,
-  capture: NormalizationInput<unknown>,
+  capture: RetainedNormalizationInput<unknown>,
   config: DecisionProviderConfig,
   options: DecideOptions & { policy?: { choiceConfidence: number }; concurrency?: number; onDecision?: (record: DecisionRecord, claimId: string) => void } = {},
 ): Promise<ClaimChecks> {
@@ -127,7 +127,7 @@ export async function checkRetainedClaims(
  * Schema validation plus bindings: the assertion digest, each decision's claim, labels derived from answers and the
  * policy. With the native capture, each decision's state must equal the one rebuilt from the cited records.
  */
-export function validateClaimChecks(document: ClaimChecks, assertion?: BehaviorAssertion, capture?: NormalizationInput<unknown>): void {
+export function validateClaimChecks(document: ClaimChecks, assertion?: BehaviorAssertion, capture?: RetainedNormalizationInput<unknown>): void {
   const errors = validateArtifact("claim checks", document);
   if (errors.length > 0) throw new Error(errors.map(({ field, message }) => `${field}: ${message}`).join("\n"));
   for (const decision of document.decisions) {

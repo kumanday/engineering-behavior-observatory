@@ -1,8 +1,12 @@
+import {cp} from "node:fs/promises";
+import {readStudyRuntimeLock} from "../src/study-runtimes.js";
+import {bindStudyRuntimeQueue} from "../src/study-runtime-bindings.js";
+import {liveRuntimeTest} from "./with-runtime-fixture.js";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, copyFileSync, constants } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import test from "node:test";
+const test = liveRuntimeTest("harbor");
 import { spawn } from "node:child_process";
 import { buildCorpusIndex, createHarborAdapter, prepareHarborAdmission, preAdmissionDigestOf, admitHarborTask, freezeHarborTask, compileHarborRunQueue, runHarborBackedQueueEntry, digestBytes, createRetainedBehaviorEvidence, createPortableRunBundleExport, readPortableRunBundleExport, PINNED_PI_SDK_VERSION } from "../src/index.js";
 
@@ -15,6 +19,8 @@ test("official Harbor Smol Trial runs native Pi capture, fresh steps and verifie
       const root = mkdtempSync(join(tmpdir(), "ebo-harbor-smol-"));
       t.diagnostic("Retained conformance evidence: " + root);
       const study = join(root, "study"), task = join(root, "task");
+      await cp(join(process.env.EBO_LIVE_RUNTIME_STUDY!, "runtimes"), join(study, "runtimes"), {recursive: true, force: false, errorOnExist: true});
+      const lock = await readStudyRuntimeLock(study);
       const put = (path: string, bytes: string | Buffer) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, bytes); };
       const ref = (name: string, value: unknown) => {
         const bytes = Buffer.isBuffer(value) ? value : Buffer.from(JSON.stringify(value));
@@ -58,7 +64,7 @@ name = "two"
       const archive = { locator: "config/worker.tgz", digest: digestBytes(readFileSync(runtimeArchive!)) };
       mkdirSync(join(study, "config"), { recursive: true });
       copyFileSync(runtimeArchive!, join(study, archive.locator), constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL);
-      const workerRef = ref("worker.json", { schemaVersion: "ebo.harbor-worker-runtime/v1", archive, node: "node", entrypoint: "dist/test/harbor-provider-worker.js", environmentKeys: [] });
+      const workerRef = ref("worker.json", { schemaVersion: "ebo.harbor-worker-runtime/v2", studyLockDigest: lock.digest, archive, node: "node", entrypoint: "dist/test/harbor-provider-worker.js", environmentKeys: [] });
       const build = JSON.parse(readFileSync(join(dirname(runtimeArchive!), "image-build.json"), "utf8"));
       const binding = { image, recipeDigest: build.recipeDigest, baseImageDigest: build.baseImageDigest };
       const environmentRef = ref("environments.json", { schemaVersion: "ebo.smol-environments/v1", platform: "linux/arm64",
@@ -69,7 +75,7 @@ name = "two"
         harnessSet: { "pi-sdk": { configurationRef: ref("harness.json", configs.harness), nativeLimitsRef: ref("limits.json", configs.limits), nativeToolPolicyRef: ref("tools.json", configs.tools) } },
         captureProfile: ref("capture.json", configs.capture), trialCount: mode === "observational" ? 2 : 1, coordinatorBudget: { maxWallClockMs: 120_000 }, ordering: { strategy: "sequential", seed: "conformance" }, execution: { environmentProfile: "smol", contextPolicy: "fresh", workerRef, environmentRef },
       }, { studyRoot: study, adapter });
-      const queuePath = join(root, "queue.json"); put(queuePath, JSON.stringify(queue));
+      const queuePath = join(root, "queue.json"); put(queuePath, JSON.stringify(await bindStudyRuntimeQueue(study, queue)));
       const owner = spawn(process.execPath, [resolve('dist/src/cli.js'), 'harbor', 'environment', 'serve', study, queuePath], { stdio: ['ignore', 'pipe', 'pipe'] });
       const exited = new Promise<number | null>(done => owner.once('close', done));
       let diagnostics = '';

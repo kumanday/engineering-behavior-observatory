@@ -7,6 +7,7 @@ an exact contract.
 | :--- | :--- |
 | [CLI](cli.md) | Commands grouped by preparation, capture, evidence, evaluation, and reports |
 | [Task packets and experiments](contracts.md) | Archive rules, admission, freeze, configuration digests, run matrices |
+| [Study runtime locks](study-runtimes.md) | Release selection, isolated installs, study freezes and launch security checks |
 | [Run bundles](run-bundle-contract.md) | Evidence descriptors, terminal states, qualification, workspace and export contracts |
 | [Run lifecycle](run-lifecycle.md) | Attempt ownership, interruption, retries, process boundary |
 | [Agent SDK configuration](agent-sdk-operational-runner.md) | Five source-specific queue records and runner behavior |

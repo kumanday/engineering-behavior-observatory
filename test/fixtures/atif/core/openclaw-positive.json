@@ -1,0 +1,1521 @@
+{
+  "schema_version": "ATIF-v1.8",
+  "session_id": "authored-fixture",
+  "agent": {
+    "name": "openclaw",
+    "version": "2026.11.1"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "system",
+      "message": "Authored public conformance fixture."
+    },
+    {
+      "step_id": 2,
+      "source": "user",
+      "message": "Read the fixture entries."
+    },
+    {
+      "step_id": 3,
+      "source": "agent",
+      "message": "Read fixture entry 0.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-0",
+          "function_name": "read",
+          "arguments": {
+            "entry": 0
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-0",
+            "content": "Fixture value 0."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 4,
+      "source": "agent",
+      "message": "Read fixture entry 1.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-1",
+          "function_name": "read",
+          "arguments": {
+            "entry": 1
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-1",
+            "content": "Fixture value 1."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 5,
+      "source": "agent",
+      "message": "Read fixture entry 2.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-2",
+          "function_name": "read",
+          "arguments": {
+            "entry": 2
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-2",
+            "content": "Fixture value 2."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 6,
+      "source": "agent",
+      "message": "Read fixture entry 3.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-3",
+          "function_name": "read",
+          "arguments": {
+            "entry": 3
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-3",
+            "content": "Fixture value 3."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 7,
+      "source": "agent",
+      "message": "Read fixture entry 4.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-4",
+          "function_name": "read",
+          "arguments": {
+            "entry": 4
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-4",
+            "content": "Fixture value 4."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 8,
+      "source": "agent",
+      "message": "Read fixture entry 5.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-5",
+          "function_name": "read",
+          "arguments": {
+            "entry": 5
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-5",
+            "content": "Fixture value 5."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 9,
+      "source": "agent",
+      "message": "Read fixture entry 6.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-6",
+          "function_name": "read",
+          "arguments": {
+            "entry": 6
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-6",
+            "content": "Fixture value 6."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 10,
+      "source": "agent",
+      "message": "Read fixture entry 7.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-7",
+          "function_name": "read",
+          "arguments": {
+            "entry": 7
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-7",
+            "content": "Fixture value 7."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 11,
+      "source": "agent",
+      "message": "Read fixture entry 8.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-8",
+          "function_name": "read",
+          "arguments": {
+            "entry": 8
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-8",
+            "content": "Fixture value 8."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 12,
+      "source": "agent",
+      "message": "Read fixture entry 9.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-9",
+          "function_name": "read",
+          "arguments": {
+            "entry": 9
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-9",
+            "content": "Fixture value 9."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 13,
+      "source": "agent",
+      "message": "Read fixture entry 10.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-10",
+          "function_name": "read",
+          "arguments": {
+            "entry": 10
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-10",
+            "content": "Fixture value 10."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 14,
+      "source": "agent",
+      "message": "Read fixture entry 11.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-11",
+          "function_name": "read",
+          "arguments": {
+            "entry": 11
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-11",
+            "content": "Fixture value 11."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 15,
+      "source": "agent",
+      "message": "Read fixture entry 12.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-12",
+          "function_name": "read",
+          "arguments": {
+            "entry": 12
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-12",
+            "content": "Fixture value 12."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 16,
+      "source": "agent",
+      "message": "Read fixture entry 13.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-13",
+          "function_name": "read",
+          "arguments": {
+            "entry": 13
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-13",
+            "content": "Fixture value 13."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 17,
+      "source": "agent",
+      "message": "Read fixture entry 14.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-14",
+          "function_name": "read",
+          "arguments": {
+            "entry": 14
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-14",
+            "content": "Fixture value 14."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 18,
+      "source": "agent",
+      "message": "Read fixture entry 15.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-15",
+          "function_name": "read",
+          "arguments": {
+            "entry": 15
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-15",
+            "content": "Fixture value 15."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 19,
+      "source": "agent",
+      "message": "Read fixture entry 16.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-16",
+          "function_name": "read",
+          "arguments": {
+            "entry": 16
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-16",
+            "content": "Fixture value 16."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 20,
+      "source": "agent",
+      "message": "Read fixture entry 17.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-17",
+          "function_name": "read",
+          "arguments": {
+            "entry": 17
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-17",
+            "content": "Fixture value 17."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 21,
+      "source": "agent",
+      "message": "Read fixture entry 18.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-18",
+          "function_name": "read",
+          "arguments": {
+            "entry": 18
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-18",
+            "content": "Fixture value 18."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 22,
+      "source": "agent",
+      "message": "Read fixture entry 19.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-19",
+          "function_name": "read",
+          "arguments": {
+            "entry": 19
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-19",
+            "content": "Fixture value 19."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 23,
+      "source": "agent",
+      "message": "Read fixture entry 20.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-20",
+          "function_name": "read",
+          "arguments": {
+            "entry": 20
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-20",
+            "content": "Fixture value 20."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 24,
+      "source": "agent",
+      "message": "Read fixture entry 21.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-21",
+          "function_name": "read",
+          "arguments": {
+            "entry": 21
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-21",
+            "content": "Fixture value 21."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 25,
+      "source": "agent",
+      "message": "Read fixture entry 22.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-22",
+          "function_name": "read",
+          "arguments": {
+            "entry": 22
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-22",
+            "content": "Fixture value 22."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 26,
+      "source": "agent",
+      "message": "Read fixture entry 23.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-23",
+          "function_name": "read",
+          "arguments": {
+            "entry": 23
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-23",
+            "content": "Fixture value 23."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 27,
+      "source": "agent",
+      "message": "Read fixture entry 24.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-24",
+          "function_name": "read",
+          "arguments": {
+            "entry": 24
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-24",
+            "content": "Fixture value 24."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 28,
+      "source": "agent",
+      "message": "Read fixture entry 25.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-25",
+          "function_name": "read",
+          "arguments": {
+            "entry": 25
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-25",
+            "content": "Fixture value 25."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 29,
+      "source": "agent",
+      "message": "Read fixture entry 26.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-26",
+          "function_name": "read",
+          "arguments": {
+            "entry": 26
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-26",
+            "content": "Fixture value 26."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 30,
+      "source": "agent",
+      "message": "Read fixture entry 27.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-27",
+          "function_name": "read",
+          "arguments": {
+            "entry": 27
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-27",
+            "content": "Fixture value 27."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 31,
+      "source": "agent",
+      "message": "Read fixture entry 28.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-28",
+          "function_name": "read",
+          "arguments": {
+            "entry": 28
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-28",
+            "content": "Fixture value 28."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 32,
+      "source": "agent",
+      "message": "Read fixture entry 29.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-29",
+          "function_name": "read",
+          "arguments": {
+            "entry": 29
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-29",
+            "content": "Fixture value 29."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 33,
+      "source": "agent",
+      "message": "Read fixture entry 30.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-30",
+          "function_name": "read",
+          "arguments": {
+            "entry": 30
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-30",
+            "content": "Fixture value 30."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 34,
+      "source": "agent",
+      "message": "Read fixture entry 31.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-31",
+          "function_name": "read",
+          "arguments": {
+            "entry": 31
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-31",
+            "content": "Fixture value 31."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 35,
+      "source": "agent",
+      "message": "Read fixture entry 32.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-32",
+          "function_name": "read",
+          "arguments": {
+            "entry": 32
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-32",
+            "content": "Fixture value 32."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 36,
+      "source": "agent",
+      "message": "Read fixture entry 33.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-33",
+          "function_name": "read",
+          "arguments": {
+            "entry": 33
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-33",
+            "content": "Fixture value 33."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 37,
+      "source": "agent",
+      "message": "Read fixture entry 34.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-34",
+          "function_name": "read",
+          "arguments": {
+            "entry": 34
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-34",
+            "content": "Fixture value 34."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 38,
+      "source": "agent",
+      "message": "Read fixture entry 35.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-35",
+          "function_name": "read",
+          "arguments": {
+            "entry": 35
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-35",
+            "content": "Fixture value 35."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 39,
+      "source": "agent",
+      "message": "Read fixture entry 36.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-36",
+          "function_name": "read",
+          "arguments": {
+            "entry": 36
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-36",
+            "content": "Fixture value 36."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 40,
+      "source": "agent",
+      "message": "Read fixture entry 37.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-37",
+          "function_name": "read",
+          "arguments": {
+            "entry": 37
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-37",
+            "content": "Fixture value 37."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 41,
+      "source": "agent",
+      "message": "Read fixture entry 38.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-38",
+          "function_name": "read",
+          "arguments": {
+            "entry": 38
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-38",
+            "content": "Fixture value 38."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 42,
+      "source": "agent",
+      "message": "Read fixture entry 39.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-39",
+          "function_name": "read",
+          "arguments": {
+            "entry": 39
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-39",
+            "content": "Fixture value 39."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 43,
+      "source": "agent",
+      "message": "Read fixture entry 40.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-40",
+          "function_name": "read",
+          "arguments": {
+            "entry": 40
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-40",
+            "content": "Fixture value 40."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 44,
+      "source": "agent",
+      "message": "Read fixture entry 41.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-41",
+          "function_name": "read",
+          "arguments": {
+            "entry": 41
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-41",
+            "content": "Fixture value 41."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 45,
+      "source": "agent",
+      "message": "Read fixture entry 42.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-42",
+          "function_name": "read",
+          "arguments": {
+            "entry": 42
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-42",
+            "content": "Fixture value 42."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 46,
+      "source": "agent",
+      "message": "Read fixture entry 43.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-43",
+          "function_name": "read",
+          "arguments": {
+            "entry": 43
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-43",
+            "content": "Fixture value 43."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 47,
+      "source": "agent",
+      "message": "Read fixture entry 44.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-44",
+          "function_name": "read",
+          "arguments": {
+            "entry": 44
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-44",
+            "content": "Fixture value 44."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 48,
+      "source": "agent",
+      "message": "Read fixture entry 45.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-45",
+          "function_name": "read",
+          "arguments": {
+            "entry": 45
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-45",
+            "content": "Fixture value 45."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 49,
+      "source": "agent",
+      "message": "Read fixture entry 46.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-46",
+          "function_name": "read",
+          "arguments": {
+            "entry": 46
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-46",
+            "content": "Fixture value 46."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 50,
+      "source": "agent",
+      "message": "Read fixture entry 47.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-47",
+          "function_name": "read",
+          "arguments": {
+            "entry": 47
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-47",
+            "content": "Fixture value 47."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 51,
+      "source": "agent",
+      "message": "Read fixture entry 48.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-48",
+          "function_name": "read",
+          "arguments": {
+            "entry": 48
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-48",
+            "content": "Fixture value 48."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 52,
+      "source": "agent",
+      "message": "Read fixture entry 49.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-49",
+          "function_name": "read",
+          "arguments": {
+            "entry": 49
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-49",
+            "content": "Fixture value 49."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 53,
+      "source": "agent",
+      "message": "Read fixture entry 50.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-50",
+          "function_name": "read",
+          "arguments": {
+            "entry": 50
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-50",
+            "content": "Fixture value 50."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 54,
+      "source": "agent",
+      "message": "Read fixture entry 51.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-51",
+          "function_name": "read",
+          "arguments": {
+            "entry": 51
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-51",
+            "content": "Fixture value 51."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 55,
+      "source": "agent",
+      "message": "Read fixture entry 52.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-52",
+          "function_name": "read",
+          "arguments": {
+            "entry": 52
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-52",
+            "content": "Fixture value 52."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 56,
+      "source": "agent",
+      "message": "Read fixture entry 53.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-53",
+          "function_name": "read",
+          "arguments": {
+            "entry": 53
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-53",
+            "content": "Fixture value 53."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 57,
+      "source": "agent",
+      "message": "Read fixture entry 54.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-54",
+          "function_name": "read",
+          "arguments": {
+            "entry": 54
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-54",
+            "content": "Fixture value 54."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 58,
+      "source": "agent",
+      "message": "Read fixture entry 55.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-55",
+          "function_name": "read",
+          "arguments": {
+            "entry": 55
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-55",
+            "content": "Fixture value 55."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 59,
+      "source": "agent",
+      "message": "Read fixture entry 56.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-56",
+          "function_name": "read",
+          "arguments": {
+            "entry": 56
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-56",
+            "content": "Fixture value 56."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 60,
+      "source": "agent",
+      "message": "Read fixture entry 57.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-57",
+          "function_name": "read",
+          "arguments": {
+            "entry": 57
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-57",
+            "content": "Fixture value 57."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 61,
+      "source": "agent",
+      "message": "Read fixture entry 58.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-58",
+          "function_name": "read",
+          "arguments": {
+            "entry": 58
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-58",
+            "content": "Fixture value 58."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 62,
+      "source": "agent",
+      "message": "Read fixture entry 59.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-59",
+          "function_name": "read",
+          "arguments": {
+            "entry": 59
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-59",
+            "content": "Fixture value 59."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 63,
+      "source": "agent",
+      "message": "Read fixture entry 60.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-60",
+          "function_name": "read",
+          "arguments": {
+            "entry": 60
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-60",
+            "content": "Fixture value 60."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 64,
+      "source": "agent",
+      "message": "Read fixture entry 61.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-61",
+          "function_name": "read",
+          "arguments": {
+            "entry": 61
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-61",
+            "content": "Fixture value 61."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 65,
+      "source": "agent",
+      "message": "Read fixture entry 62.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-62",
+          "function_name": "read",
+          "arguments": {
+            "entry": 62
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-62",
+            "content": "Fixture value 62."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 66,
+      "source": "agent",
+      "message": "Read fixture entry 63.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-63",
+          "function_name": "read",
+          "arguments": {
+            "entry": 63
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-63",
+            "content": "Fixture value 63."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 67,
+      "source": "agent",
+      "message": "Read fixture entry 64.",
+      "tool_calls": [
+        {
+          "tool_call_id": "fixture-64",
+          "function_name": "read",
+          "arguments": {
+            "entry": 64
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "fixture-64",
+            "content": "Fixture value 64."
+          }
+        ]
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 68,
+      "source": "agent",
+      "message": "Fixture inspection complete.",
+      "llm_call_count": 1
+    }
+  ]
+}

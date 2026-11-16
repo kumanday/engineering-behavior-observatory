@@ -1,0 +1,9 @@
+{
+  "source": "newly-authored-synthetic-trial",
+  "termination": "timeout",
+  "history": "partial",
+  "pendingCallIds": [
+    "call-b"
+  ],
+  "captureQualification": "imported"
+}

@@ -1,0 +1,57 @@
+{
+  "schema_version": "ATIF-v1.7",
+  "session_id": "authored-session",
+  "agent": {
+    "name": "claude-code",
+    "version": "unknown",
+    "model_name": "authored/model"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "timestamp": "2026-11-07T00:00:00Z",
+      "source": "user",
+      "message": "Read fixture.txt.",
+      "extra": {
+        "is_sidechain": false
+      }
+    },
+    {
+      "step_id": 2,
+      "timestamp": "2026-11-07T00:00:00Z",
+      "source": "agent",
+      "model_name": "authored/model",
+      "message": "Inspecting the fixture.",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-1",
+          "function_name": "Read",
+          "arguments": {
+            "file_path": "fixture.txt"
+          },
+          "extra": {
+            "raw_arguments": {
+              "file_path": "fixture.txt"
+            },
+            "tool_use_name": "Read"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "call-1",
+            "content": "Authored file content."
+          }
+        ]
+      },
+      "llm_call_count": 1,
+      "extra": {
+        "is_sidechain": false
+      }
+    }
+  ],
+  "final_metrics": {
+    "total_steps": 2
+  }
+}

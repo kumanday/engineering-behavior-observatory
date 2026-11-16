@@ -7,7 +7,7 @@ such as `example-task` below are examples, not product defaults.
 
 ## Prerequisites and safety defaults
 
-- Use Node.js `24.19.0`, pinned by `.nvmrc` and `package.json`.
+- Use Node.js `26.13.0` and npm `12.2.2`, pinned by `.nvmrc` and `package.json`.
 - Follow the [installation instructions](quickstart.md) first. Source examples
   run from the repository root with the checkout's `ebo` command linked.
 - Keep bundle inputs and native run bundles restricted. Create partner/public

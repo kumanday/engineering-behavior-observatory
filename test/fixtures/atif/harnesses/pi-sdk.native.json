@@ -1,0 +1,79 @@
+[
+  {
+    "type": "session",
+    "id": "authored-session",
+    "version": 3,
+    "timestamp": "2026-11-07T00:00:00Z",
+    "cwd": "/workspace"
+  },
+  {
+    "type": "message",
+    "id": "u",
+    "parentId": null,
+    "timestamp": "2026-11-07T00:00:00Z",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Read fixture.txt."
+        }
+      ],
+      "timestamp": 1794009600000
+    }
+  },
+  {
+    "type": "message",
+    "id": "a",
+    "parentId": "u",
+    "timestamp": "2026-11-07T00:00:00Z",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Inspecting the fixture."
+        },
+        {
+          "type": "toolCall",
+          "id": "call-1",
+          "name": "read",
+          "arguments": {
+            "path": "fixture.txt"
+          }
+        }
+      ],
+      "api": "authored",
+      "provider": "authored",
+      "model": "model",
+      "stopReason": "toolUse",
+      "usage": {
+        "input": 5,
+        "output": 2,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 7
+      },
+      "timestamp": 1794009600000
+    }
+  },
+  {
+    "type": "message",
+    "id": "r",
+    "parentId": "a",
+    "timestamp": "2026-11-07T00:00:00Z",
+    "message": {
+      "role": "toolResult",
+      "toolCallId": "call-1",
+      "toolName": "read",
+      "content": [
+        {
+          "type": "text",
+          "text": "Authored file content."
+        }
+      ],
+      "isError": false,
+      "timestamp": 1794009600000
+    }
+  }
+]

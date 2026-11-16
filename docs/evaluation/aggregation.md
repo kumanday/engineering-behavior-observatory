@@ -109,3 +109,35 @@ The caller supplies the recurrence threshold. A divergent matched unit below
 that threshold is a `case-study`; reaching it yields only a
 `recurring-description`. Neither state establishes causality or statistical
 significance, and the report never emits a composite model ranking.
+
+## Evidence origins
+
+Aggregation defaults to owned run manifests. Set `evidenceOrigins` to `imported`
+for imported evidence or `separate` to include both instruments. Any included
+imported attempts add `evidence-origin` to the effective grouping dimensions,
+so an operator cannot pool them by omitting that dimension. The selected mode
+and effective grouping are recorded in the report. Legacy requests keep their
+owned-only behavior and output shape.
+
+Imported qualification never contributes to the capture-qualified numerator.
+Missing imported failure classes and terminal states are excluded from those
+rates with explicit reasons; they are not observed zeroes. Exact structural
+attempt measures retain the importer's coverage limits.
+
+Comparison candidates bind imported origin to their indexed manifest and
+observation set. Admission overlay digests remain audit metadata rather than
+comparison eligibility keys. Complete-attempt measures require complete-attempt
+evidence; imported document counts do not establish that population. Task,
+fixture, budget and tool-policy requirements remain independent. Mixed retained
+harness versions are labelled as a comparison caveat, and exact replicate
+selection retains exact version matching.
+
+Atlas exposes an origin facet and an imported-evidence label with source format
+and producer digest. Its existing capture-qualification column carries
+`imported`; its event and native drawers preserve canonical JSON pointers.
+Standalone imports have no trial outcome until source-context records bind one.
+
+Atlas viewer arms include their evidence origin whenever imported attempts are
+present, including arms produced by a condition pattern. Certified matrix cells
+retain that separation. The task selector treats an unavailable task as a distinct
+value and labels it explicitly.

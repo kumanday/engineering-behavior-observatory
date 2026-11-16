@@ -12,7 +12,7 @@ review lineage and comparison gates. It never runs a judge or edits reviews.
 
 ## Rebuild and explore
 
-Use Node 24.19.0 and `npm ci && npm run build`. Put this request beside the
+Use Node 26.13.0 and `npm ci && npm run build`. Put this request beside the
 aggregation request. Paths are relative to their containing request.
 
 ```json

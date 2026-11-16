@@ -1,10 +1,14 @@
+import { liveRuntimeTest, runtimeTest, prepareRuntimeCliFixture } from "./with-runtime-fixture.js";
+const test = runtimeTest("devin-cli");
+const liveTest = liveRuntimeTest("devin-cli");
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import test from "node:test";
+
 import { pathToFileURL } from "node:url";
 import { gunzipSync, gzipSync } from "node:zlib";
 
@@ -118,8 +122,8 @@ test("Devin ACP success turn ends on the native session/prompt response and norm
     const retainedOptions = { sessionId: "fixture-session", expectsCompletion: true, harnessVersion: DEVIN_CLI_VERSION, runtimeVersions: [DEVIN_CLI_VERSION] };
     assert.equal(qualifyRetainedDevinCapture(capture, retainedOptions).promptRequestId, capture.promptRequestId);
     assert.throws(() => qualifyRetainedDevinCapture(capture, { ...retainedOptions, sessionId: "foreign-session" }), /session identity differs/u);
-    assert.throws(() => qualifyRetainedDevinCapture(capture, { ...retainedOptions, runtimeVersions: [DEVIN_CLI_VERSION, "3000.10.0"] }), /runtime version differs/u);
-    assert.throws(() => qualifyRetainedDevinCapture(capture, { ...retainedOptions, harnessVersion: "3000.10.0" }), /Unsupported retained Devin runtime/u);
+    assert.ok(qualifyRetainedDevinCapture(capture, { ...retainedOptions, runtimeVersions: [DEVIN_CLI_VERSION, "3000.10.0"] }).sourceLimitations?.includes("HARNESS_VERSION_CONFLICT"));
+    assert.ok(qualifyRetainedDevinCapture(capture, { ...retainedOptions, harnessVersion: "3000.10.0" }).sourceLimitations?.includes("HARNESS_VERSION_UNVERIFIED"));
     const { dataset, coverage } = await describeAndValidateDevinDataset(capture);
     const families = dataset.events.map(({ family }) => family);
     assert.deepEqual([...new Set(families)].sort(), ["message", "outcome", "runtime", "tool"]);
@@ -379,6 +383,54 @@ test("Devin mode and model mismatches are gaps, and unauthenticated children fai
   }
 });
 
+test("Devin authenticates with its native login file in the isolated child and removes it after capture", async () => {
+  const root = await temporaryRoot();
+  const key = "EBO_FAKE_DEVIN_NATIVE";
+  const original = process.env[key];
+  const oldTmp = process.env.TMPDIR, isolatedTmp = join(root, "tmp");
+  try {
+    await mkdir(isolatedTmp);
+    process.env.TMPDIR = isolatedTmp;
+    const value = Buffer.from('windsurf_api_key = "fixture-native-login"\n').toString("base64");
+    process.env[key] = value;
+    const configuration = { ...fakeConfiguration("native-credential-file"), credentialEnv: key,
+      credentialFormat: "cli-credentials-toml-base64" as const };
+    const request = {
+      runId: "run-native-login", attemptId: "attempt-native-login", workspacePath: root, prompt: "Perform one small task.",
+      configuration, evidencePath: join(root, "session.jsonl"), shutdownGraceMs: 500,
+    };
+    const result = await captureDevinCli(request);
+    assert.equal(result.terminalStatus, "completed");
+    assert.equal(result.telemetry.runtime.credentialFormat, configuration.credentialFormat);
+    assert.ok(!result.telemetry.effectiveConfiguration.environmentKeys.includes(key));
+    const evidence = await readFile(request.evidencePath, "utf8");
+    assert.ok(!evidence.includes(value) && !evidence.includes("fixture-native-login"));
+    const removedHome = await readFile(join(root, "fixture-auth-home.txt"), "utf8");
+    await assert.rejects(readFile(join(removedHome, "data/devin/credentials.toml")), {code: "ENOENT"});
+    // The exclusive evidence file forces a startup error after the credential is staged.
+    await assert.rejects(captureDevinCli(request), /EEXIST/u);
+    assert.ok(!(await readdir(isolatedTmp)).some(name => name.startsWith("ebo-devin-home-")));
+    await assert.rejects(captureDevinCli({...request, configuration:{...configuration, credentialEnv:"USER"}}), /process environment key/u);
+    const controller = new AbortController();
+    const interruptedPath = join(root, "interrupt.jsonl");
+    const pending = captureDevinCli({...request, evidencePath:interruptedPath, signal:controller.signal, shutdownGraceMs:2000,
+      configuration:{...fakeConfiguration("native-credential-file-interrupt"), credentialEnv:key, credentialFormat:configuration.credentialFormat}});
+    try {
+      await waitForRecord(interruptedPath, record => record.kind === "notification"
+        && isRecord(record.payload?.update) && record.payload.update.sessionUpdate === "tool_call_update");
+    } finally { controller.abort(); }
+    assert.equal((await pending).terminalStatus, "interrupted");
+    const interruptedHome = await readFile(join(root, "fixture-auth-home.txt"), "utf8");
+    await assert.rejects(readFile(join(interruptedHome, "data/devin/credentials.toml")), {code: "ENOENT"});
+    process.env[key] = "not canonical base64!";
+    await assert.rejects(captureDevinCli({...request, evidencePath: join(root, "invalid.jsonl")}), /canonical base64/u);
+  } finally {
+    if (oldTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = oldTmp;
+    if (original === undefined) delete process.env[key]; else process.env[key] = original;
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
 test("captureDevinCli rejects a missing credential before allocating the OTLP receiver and exits cleanly", async () => {
   const root = await temporaryRoot();
   try {
@@ -386,12 +438,16 @@ test("captureDevinCli rejects a missing credential before allocating the OTLP re
     await assert.rejects(runFake(root, "success", ["logs"], undefined, "allow-once", "swe-2-high", "accept-edits", "EBO_DEVIN_UNSET_CREDENTIAL"), /EBO_DEVIN_UNSET_CREDENTIAL is not set/u);
     const script = `
       import { captureDevinCli } from ${JSON.stringify(pathToFileURL(resolve("dist/src/devin.js")).href)};
+      import { createConformanceRuntimeFixture } from ${JSON.stringify(pathToFileURL(resolve("dist/test/with-runtime-fixture.js")).href)};
+      import {rm} from "node:fs/promises";
+      const runtime = await createConformanceRuntimeFixture("devin-cli");
       try {
-        await captureDevinCli({ runId: "r", attemptId: "a", workspacePath: ${JSON.stringify(root)}, prompt: "x", evidencePath: ${JSON.stringify(join(root, "s.jsonl"))},
+        await captureDevinCli({ runtime, runId: "r", attemptId: "a", workspacePath: ${JSON.stringify(root)}, prompt: "x", evidencePath: ${JSON.stringify(join(root, "s.jsonl"))},
           configuration: { executable: process.execPath, executableArgs: [${JSON.stringify(fixture)}, "--mode=success"], version: ${JSON.stringify(DEVIN_CLI_VERSION)},
             model: "swe-2-high", mode: "accept-edits", permissionDecision: "allow-once",
             credentialEnv: "EBO_DEVIN_UNSET_CREDENTIAL", telemetry: { signals: ["logs", "metrics"] } } });
       } catch (error) { console.log(error.message); }
+      finally { await rm(runtime.studyRoot, {recursive: true, force: true}); }
     `;
     const child = spawn(process.execPath, ["--input-type=module", "-e", script], { env: { ...process.env, EBO_DEVIN_UNSET_CREDENTIAL: undefined }, stdio: ["ignore", "pipe", "inherit"] });
     let output = "";
@@ -433,7 +489,7 @@ test("OTLP protobuf decoder rejects truncated input and projects nested attribut
   assert.deepEqual(decoded.resourceLogs[0]!.resource.attributes, [{ key: "k", value: { stringValue: "v" } }]);
 });
 
-test("Devin configuration records validate pins, modes, and permission decisions", async () => {
+test("Devin configuration records validate exact versions, modes, and permission decisions", async () => {
   const root = await temporaryRoot();
   try {
     const write = (name: string, value: unknown) => {
@@ -447,8 +503,10 @@ test("Devin configuration records validate pins, modes, and permission decisions
     assert.deepEqual(resolveDevinConfigurationRecord(root, harness, "harness").arguments, ["--agent-type", "review"]);
     const wrongDigest = write("harness-digest", { schemaVersion: "ebo.devin-config/v1", kind: "harness", adapter: "devin-cli", executable: "/usr/local/bin/devin", version: DEVIN_CLI_VERSION, contractDigest: `sha256:${"0".repeat(64)}` });
     assert.throws(() => resolveDevinConfigurationRecord(root, wrongDigest, "harness"), /contractDigest/u);
-    const wrongVersion = write("harness-version", { schemaVersion: "ebo.devin-config/v1", kind: "harness", adapter: "devin-cli", executable: "/usr/local/bin/devin", version: "3000.12.0", contractDigest: DEVIN_CONTRACT_DIGEST });
-    assert.throws(() => resolveDevinConfigurationRecord(root, wrongVersion, "harness"), /not pinned/u);
+    const newVersion = write("harness-version", { schemaVersion: "ebo.devin-config/v1", kind: "harness", adapter: "devin-cli", executable: "/usr/local/bin/devin", version: "3000.12.0", contractDigest: DEVIN_CONTRACT_DIGEST });
+    assert.equal(resolveDevinConfigurationRecord(root, newVersion, "harness").version, "3000.12.0");
+    const mutableVersion = write("harness-dist-tag", { schemaVersion: "ebo.devin-config/v1", kind: "harness", adapter: "devin-cli", executable: "/usr/local/bin/devin", version: "latest", contractDigest: DEVIN_CONTRACT_DIGEST });
+    assert.throws(() => resolveDevinConfigurationRecord(root, mutableVersion, "harness"), /exact runtime versions/u);
     const badMode = write("tools", { schemaVersion: "ebo.devin-config/v1", kind: "native-tool-policy", mode: "dangerous", permissionDecision: "allow-once" });
     assert.throws(() => resolveDevinConfigurationRecord(root, badMode, "native-tool-policy"), /mode is invalid/u);
     const badDecision = write("tools-2", { schemaVersion: "ebo.devin-config/v1", kind: "native-tool-policy", mode: "ask", permissionDecision: "allow-always" });
@@ -489,6 +547,7 @@ test("captureDevinCliRun retains a crashed child as a valid failed partial bundl
     assert.equal(result.qualification.status, "qualified-with-gaps");
     assert.equal((await qualifyRunBundle(bundleRoot, { startingWorkspacePath: startingWorkspace, semanticEvidenceKinds: ["session"], relatedSessionIds: [] })).status, "qualified-with-gaps");
     const evidence = await createRetainedBehaviorEvidence(bundleRoot);
+    await assertNativeV2RetainedBundle(bundleRoot);
     assert.equal(evidence.capture.qualification, "qualified-with-gaps");
     assert.equal(evidence.dataset.events.some(({ family }) => family === "outcome"), false, "no invented terminal without an owned prompt response");
     await createRetainedStructuralObservationSet(bundleRoot);
@@ -616,7 +675,8 @@ test("runDevinQueueEntry executes a frozen queue entry and produces a normalized
       await writeFile(telemetryPath, telemetry);
       await writeFile(join(summary.bundlePath, "manifest.json"), JSON.stringify(manifest));
       await mutate();
-      await assert.rejects(createRetainedBehaviorEvidence(summary.bundlePath), expected, name);
+      if (name === "telemetry-version") assert.ok((await createRetainedBehaviorEvidence(summary.bundlePath)).dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"));
+      else await assert.rejects(createRetainedBehaviorEvidence(summary.bundlePath), expected, name);
     }
     await writeFile(sessionPath, originalSession);
     await writeFile(telemetryPath, telemetry);
@@ -630,7 +690,7 @@ test("runDevinQueueEntry executes a frozen queue entry and produces a normalized
       workspaceRoot: join(root, "workspaces"),
       probeRuntime: async () => ({ path: process.execPath, version: "3000.12.0" }),
       executableArgs: [fixture, "--mode=success"],
-    }), /3000\.11\.3 is required/u);
+    }), /RUNTIME_PROBE_MISMATCH.*expected 3000\.11\.3; actual 3000\.12\.0/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -749,9 +809,10 @@ test("CLI signals cancel and finalize the detached Devin child", async () => {
     const executable = join(root, "fake-devin.mjs");
     writeFileSync(executable, `#!/usr/bin/env node\nif (process.argv.includes("--version")) console.log("devin ${DEVIN_CLI_VERSION} (fixture)");\nelse { process.argv.push("--mode=hang"); await import(${JSON.stringify(pathToFileURL(fixture).href)}); }\n`, { mode: 0o700 });
     const queueFixture = createQueueFixture(root, executable);
+    const preload = await prepareRuntimeCliFixture(queueFixture.bundleRoot, "devin-cli", executable);
     const outputRoot = join(root, "cli-runs");
     const child = spawn(process.execPath, [
-      resolve("dist/src/cli.js"),
+      "--import", preload, resolve("dist/src/cli.js"),
       "devin", "run",
       queueFixture.bundleRoot,
       queueFixture.queuePath,
@@ -987,7 +1048,7 @@ async function temporaryRoot(): Promise<string> {
   return mkdtemp(join(tmpdir(), "ebo-devin-test-"));
 }
 
-test("approved existing-auth live Devin ACP capture smoke", { skip: process.env.EBO_LIVE_DEVIN_CAPTURE_SMOKE !== "1" }, async (context) => {
+liveTest("approved existing-auth live Devin ACP capture smoke", { skip: process.env.EBO_LIVE_DEVIN_CAPTURE_SMOKE !== "1" }, async (context) => {
   assert.ok(process.env.WINDSURF_API_KEY, "Supply WINDSURF_API_KEY for the live Devin CLI route.");
   const executable = process.env.EBO_LIVE_DEVIN_EXECUTABLE ?? "devin";
   const model = process.env.EBO_LIVE_DEVIN_MODEL ?? "swe-2-high";
@@ -1018,4 +1079,19 @@ test("approved existing-auth live Devin ACP capture smoke", { skip: process.env.
     context.diagnostic(JSON.stringify({ runtime: capture.telemetry.runtime.version, terminal: capture.terminalStatus, events: dataset.events.length,
       receipt: capture.telemetry.telemetry.receipt, gaps: capture.gaps }));
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("Devin Harbor worker dispatch captures the maintained ACP harness using the study runtime", async () => {
+  const {harborStepFixture} = await import("./harbor-step-helper.js");
+  const {runHarborWorker} = await import("../src/harbor/worker.js");
+  const root = await mkdtemp(join(tmpdir(), "ebo-devin-harbor-"));
+  try {
+    const q = createQueueFixture(root, process.execPath);
+    const queue = JSON.parse(await readFile(q.queuePath, "utf8"));
+    const input = harborStepFixture(root, "devin-cli");
+    const result = await runHarborWorker({prepared: input.prepared, configuration: {...queue.entries[0].configuration, captureProfile: queue.captureProfile}, configurationRoot: q.bundleRoot,
+      instruction: input.step.effectiveInstruction, stepIndex: 1, workspacePath: input.workspacePath, outputRoot: join(root, "worker"), maxWallClockMs: 10000});
+    assert.equal(result.terminal.state, "completed", JSON.stringify(result));
+    await createRetainedBehaviorEvidence(join(root, "worker/bundle"));
+  } finally {await rm(root, {recursive: true, force: true});}
 });

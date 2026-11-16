@@ -1,0 +1,57 @@
+{
+  "schema_version": "ATIF-v1.2",
+  "session_id": "synthetic-hermes",
+  "agent": {
+    "name": "hermes",
+    "version": "v0.22.1",
+    "model_name": "synthetic-model"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "user",
+      "message": "Run checks."
+    },
+    {
+      "step_id": 2,
+      "source": "agent",
+      "message": "[tool call]",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-a",
+          "function_name": "terminal",
+          "arguments": {
+            "command": "synthetic-test"
+          }
+        },
+        {
+          "tool_call_id": "call-b",
+          "function_name": "terminal",
+          "arguments": {
+            "command": "synthetic-lint"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "call-a",
+            "content": "{\"exit_code\":1,\"error\":\"synthetic\"}"
+          },
+          {
+            "source_call_id": "call-b",
+            "content": "{\"exit_code\":0}"
+          }
+        ]
+      }
+    },
+    {
+      "step_id": 3,
+      "source": "agent",
+      "message": "Checks finished."
+    }
+  ],
+  "final_metrics": {
+    "total_steps": 3
+  }
+}

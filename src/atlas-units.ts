@@ -1,3 +1,4 @@
+import { v1MessageRole as messageRole } from "./v1-consumer-compatibility.js";
 import { checkKindsOf, findCommand, shellWrites, unwrap, type Occurrence } from "./occurrences.js";
 import { toolOperations, type ToolOperation } from "./structural-observations.js";
 import type { NativeEvidenceReference, UniformEvent } from "./uniform-events.js";
@@ -158,42 +159,21 @@ const nativeEventType = (event: UniformEvent) => {
   return [a.eventType, a.itemType, a.method].find((v): v is string => typeof v === "string") ?? event.source.nativeType;
 };
 
-/**
- * The record that carries one completed message, per harness: streaming chunks, start records and duplicate stream
- * copies are not messages. Returns the message role, or undefined when the event is not a message record.
- */
-function messageRole(event: UniformEvent): string | undefined {
-  const type = nativeEventType(event);
-  const role = typeof event.attributes.role === "string" ? event.attributes.role : undefined;
-  switch (event.source.harness) {
-    case "factory-droid": return type === "droid.add_user_message" ? "user" : type === "create_message" ? "assistant" : undefined;
-    case "codex-app-server": return type === "agentMessage" ? "agent" : type === "userMessage" ? "user" : undefined;
-    case "deepseek-harness": return type === "assistant/message" ? "assistant" : type === "user/message" ? "user" : undefined;
-    case "pi-sdk": return event.source.nativeType === "history:message" && (role === "user" || role === "assistant") ? role : undefined;
-    case "claude-agent-sdk":
-      if (type === "assistant" && event.actor.kind === "model") return "assistant";
-      if (type === "user" && event.actor.kind === "harness") return "harness";
-      return type === "UserPromptSubmit" ? "user" : undefined;
-    case "devin-cli": return event.attributes.sessionUpdate === "agent_message_chunk" ? "assistant" : event.attributes.sessionUpdate === "user_message_chunk" || type === "session/prompt" ? "user" : undefined;
-    default:
-      if (event.phase === "before" || event.phase === "during" || /chunk|delta|start/u.test(type)) return undefined;
-      return role === "user" || role === "assistant" || role === "agent" ? role : event.actor.kind === "user" ? "user" : event.actor.kind === "model" || event.actor.kind === "agent" ? "assistant" : undefined;
-  }
-}
-
 const time = (event: UniformEvent) => (event.nativeTime.status === "known" ? event.nativeTime.value : null);
 const seconds = (a: string | null, b: string | null) => (a && b && Number.isFinite(Date.parse(a)) && Number.isFinite(Date.parse(b)) ? (Date.parse(b) - Date.parse(a)) / 1000 : null);
 const EXIT_TEXT = /(?:Exit code|Process exited with code|exit status|exited with code|command failed)\s*[:=]?\s*(-?\d+)/iu;
 
 export type UnitInput = {
   attemptId: string;
+  evidenceOrigin?: "owned" | "imported";
   events: readonly UniformEvent[];
   occurrences: readonly Occurrence[];
   resolveContent: (reference: NativeEvidenceReference) => unknown;
 };
 
 /** Derive one attempt's units and their event links. */
-export function deriveUnits({ attemptId, events, occurrences, resolveContent }: UnitInput): { units: AtlasUnit[]; links: AtlasUnitEvent[] } {
+export function deriveUnits({ attemptId, events, occurrences, resolveContent, evidenceOrigin }: UnitInput): { units: AtlasUnit[]; links: AtlasUnitEvent[] } {
+  const imported = evidenceOrigin === "imported" || events.some(({ attributes }) => attributes.evidenceOrigin === "imported");
   const index = new Map(events.map((event, i) => [event.id, i]));
   const contentOf = (event: UniformEvent) => (event.content.status === "known" ? event.content.value.map(({ nativeReference }) => resolveContent(nativeReference)).filter((v) => v !== undefined) : []);
   const occurrenceTags = new Map<string, Set<string>>();
@@ -256,9 +236,11 @@ export function deriveUnits({ attemptId, events, occurrences, resolveContent }: 
     }
     const exitCodes = ordered.flatMap(({ attributes }) => (typeof attributes.exitCode === "number" ? [attributes.exitCode] : []));
     const exitText = EXIT_TEXT.exec(outputText.slice(0, 1500));
-    unit.exit_code = exitCodes.at(-1) ?? (exitText ? Number(exitText[1]) : null);
+    unit.exit_code = exitCodes.at(-1) ?? (imported ? null : exitText ? Number(exitText[1]) : null);
     const failed = operation.failed || (unit.exit_code !== null && unit.exit_code !== 0);
-    unit.status = results.length || operation.failed ? (failed ? "error" : "ok") : null;
+    const explicitSuccess = ordered.some(({ attributes }) => attributes.isError === false || attributes.status === "completed"
+      || attributes.exitCode === 0 || attributes.hook === "PostToolUse") || unit.exit_code === 0;
+    unit.status = failed ? "error" : imported ? explicitSuccess ? "ok" : null : results.length ? "ok" : null;
     unit.error_signature = failed ? errorSignature(outputText) : null;
     unit.input_chars = input.length ? JSON.stringify(input).length : null;
     // Output size only when the result content resolved; an unresolved result is unavailable, not empty.
@@ -338,7 +320,7 @@ export function deriveUnits({ attemptId, events, occurrences, resolveContent }: 
     if (checks.length) parts.push(`checks: ${checks.map(([k]) => k).join(", ")}`);
     if (errors.length) parts.push(`hit failures${errors[0]!.error_signature ? `: ${errors[0]!.error_signature}` : ""}`);
     const draft: Draft = { ...lead, unit_id: `${attemptId}/episode/${lead.eventParts[0]![0]}`, unit_kind: "episode", t_end: tools.at(-1)!.t_end ?? tools.at(-1)!.t_start,
-      status: errors.length ? "error" : "ok", tool_count: tools.length, error_count: errors.length, eventParts: members.flatMap((m) => m.eventParts) };
+      status: errors.length ? "error" : imported && tools.some((tool) => tool.status === null) ? null : "ok", tool_count: tools.length, error_count: imported && tools.some((tool) => tool.status === null) ? null : errors.length, eventParts: members.flatMap((m) => m.eventParts) };
     for (const m of members) episodeOf.set(m, draft.unit_id);
     texts.set(draft, texts.get(lead) ?? "");
     episodeUnits.push({ draft, summary: parts.join("; "), members });

@@ -21,9 +21,10 @@ package = Path.cwd() / 'fixture-smol'
 package.mkdir()
 library = package / 'libkrun.dylib'
 library.write_bytes(b'fixture library, never loaded')
+frozen_versions = {name: e.importlib.metadata.version(name) for name in ('smolmachines', 'harbor')}
 manifest = {'libkrunSha256': hashlib.sha256(library.read_bytes()).hexdigest()}
 def rejects(message):
-    try: e.runtime_provenance(manifest)
+    try: e.runtime_provenance(manifest, frozen_versions)
     except ValueError as exc: assert message in str(exc), str(exc)
     else: raise AssertionError('Expected runtime rejection: ' + message)
 
@@ -31,10 +32,12 @@ with patch.object(smol, '__file__', str(package / '__init__.py')), \
      patch.dict(os.environ, {'SMOLVM_LIB_DIR': str(package)}), \
      patch.object(e.platform, 'system', return_value='Darwin'), \
      patch.object(e.platform, 'machine', return_value='arm64'):
-    assert e.runtime_provenance(manifest)['libkrunSha256'] == manifest['libkrunSha256']
+    assert e.runtime_provenance(manifest, frozen_versions)['libkrunSha256'] == manifest['libkrunSha256']
     with patch.dict(os.environ):
         del os.environ['SMOLVM_LIB_DIR']
-        assert e.runtime_provenance(manifest)['libkrunSha256'] == manifest['libkrunSha256']
+        assert e.runtime_provenance(manifest, frozen_versions)['libkrunSha256'] == manifest['libkrunSha256']
+    with patch.object(e.importlib.metadata, 'version', return_value='99.9.9'):
+        rejects('RUNTIME_PROBE_MISMATCH')
     with patch.object(e.platform, 'system', return_value='Linux'):
         rejects('only on Apple Silicon macOS')
     with patch.object(e.platform, 'machine', return_value='x86_64'):
@@ -111,7 +114,8 @@ async def check():
     runner.index = 0
     runner.deadline = e.time.monotonic() + 60
     runner.request = {'workerInput': {'prepared': {'steps': [{'index': 1}], 'task': {}, 'evidence': {}}},
-        'runtime': {'node': 'node', 'entrypoint': 'worker.js', 'environmentKeys': []}, 'nativeRoot': str(root/'native')}
+        'runtime': {'node': 'node', 'entrypoint': 'worker.js', 'environmentKeys': []}, 'nativeRoot': str(root/'native'),
+        'environmentManifest': manifest}
     async def execute(command, **kwargs):
         if command.startswith('/opt/ebo/node'):
             assert kwargs['env']['TMPDIR'] == '/var/tmp/ebo-scratch'
@@ -120,7 +124,15 @@ async def check():
     async def download(source, target):
         assert source == '/var/tmp/ebo-evidence/1'
         (target/'worker-finished.json').write_text(json.dumps({'terminal': {'state': 'completed'}, 'bundleLocator': 'bundle/manifest.json'}))
-    environment = SimpleNamespace(exec=AsyncMock(side_effect=execute), upload_file=AsyncMock(), download_dir=AsyncMock(side_effect=download))
+    async def upload(source, target):
+        assert target == '/var/tmp/ebo-evidence/1/input.json'
+        owned = json.loads(source.read_text())['ownedSmolEnvironment']
+        assert owned['image'] == image['image'] and owned['imageConfigDigest'] == 'sha256:'+'f'*64
+        assert owned['machine'] == 'fixture-child' and owned['bootId'] == 'fixture-boot'
+        assert owned['libkrunSha256'] == manifest['libkrunSha256']
+    environment = SimpleNamespace(exec=AsyncMock(side_effect=execute), upload_file=AsyncMock(side_effect=upload), download_dir=AsyncMock(side_effect=download),
+        ebo_image_identity={'reference':image['image'],'configDigest':'sha256:'+'f'*64},
+        _machine=SimpleNamespace(name='fixture-child',exec=AsyncMock(return_value=SimpleNamespace(exit_code=0,stdout='fixture-boot'))))
     await runner.run('fixture', environment, SimpleNamespace())
     assert environment.exec.await_count >= 3
     history = []
@@ -164,9 +176,10 @@ async def check():
     machine = SimpleNamespace(exec=AsyncMock(return_value=SimpleNamespace(exit_code=0, stdout='prepared', stderr='')))
     setup_record = root/'setup-result.json'
     with patch.object(agent, 'upload_dir', new_callable=AsyncMock) as upload:
-        await e.prepare_local_context(agent, machine, {**image, 'localSetup':'setup.sh'}, setup_record, 30)
+        await e.prepare_local_context(agent, machine, {**image, 'localSetup':'setup.sh','localSetupUser':'root'}, setup_record, 30)
         upload.assert_awaited_once_with(context.resolve(), '/tmp/ebo-parent-setup')
         assert machine.exec.await_args_list[0].args[1].env is None
+        assert machine.exec.await_args_list[0].args[1].user == '0'
         assert json.loads(setup_record.read_text())['exitCode'] == 0
         assert agent._machine is None
         machine.exec.return_value.exit_code = 7
@@ -174,6 +187,7 @@ async def check():
         except RuntimeError as exc: assert 'setup failed' in str(exc)
         else: raise AssertionError('Failed setup must not produce a parent')
         assert json.loads(setup_record.read_text())['exitCode'] == 7
+        assert machine.exec.await_args.args[1].user is None
         assert agent._machine is None
         (context/'escape.sh').symlink_to(root/'ebo_runtime.py')
         try: await e.prepare_local_context(agent, machine, {**image, 'localSetup':'escape.sh'}, setup_record, 30)
@@ -185,6 +199,11 @@ async def check():
         try: e.validate_environment_manifest(bad)
         except ValueError: pass
         else: raise AssertionError('Invalid setup path accepted')
+    for invalid in ({'localSetupUser':'root'},{'localSetup':'setup.sh','localSetupUser':'arbitrary'}, {'parentStartup':'other'}):
+        bad = {**manifest, 'tasks': {'task': {'agent': {**image, **invalid}}}}
+        try: e.validate_environment_manifest(bad)
+        except ValueError: pass
+        else: raise AssertionError('Invalid startup or setup user accepted')
     try: await agent.start(False)
     except RuntimeError as exc: assert 'inspection' in str(exc)
     else: raise AssertionError('Preparation must not execute')
@@ -220,7 +239,8 @@ async def check():
             boot.return_value = SimpleNamespace(exit_code=0, stdout='boot-one')
             async def branch(instance, force):
                 assert instance._resolve_checkpoint().machine == 'owned-parent'
-                instance._machine = SimpleNamespace(name='owned-child')
+                instance._machine = SimpleNamespace(name='owned-child',
+                    pull_image=AsyncMock(return_value=SimpleNamespace(reference=image['image'],digest='sha256:'+'f'*64)))
             with patch.object(e.SmolEnvironment, 'start', branch):
                 await agent.start(False)
             agent.ebo_transfer_failed = True
@@ -230,6 +250,8 @@ async def check():
         events = [json.loads(line) for line in (root/'children.jsonl').read_text().splitlines()]
         assert events[-1]['state'] == 'cleanup-pending'
         assert events[-1]['child'] == 'owned-child'
+        ready = next(event for event in events if event['state']=='branch-ready')
+        assert ready['imageConfigDigest'] == 'sha256:'+'f'*64
         agent.ebo_transfer_failed = False
         with patch.object(e.SmolEnvironment, 'stop', new_callable=AsyncMock) as stop, patch.object(e.asyncio, 'sleep', new_callable=AsyncMock):
             stop.side_effect = [RuntimeError('still alive'), None]
@@ -245,7 +267,7 @@ async def check():
     except ValueError as exc: assert 'never broadened' in str(exc)
     else: raise AssertionError('Unsupported policy must fail')
 asyncio.run(check())
-print(f'Harbor {e.HARBOR_VERSION} model/Smol {e.SMOL_VERSION} boundary: passed')
+print('Harbor ' + e.importlib.metadata.version('harbor') + ' model/Smol ' + e.importlib.metadata.version('smolmachines') + ' boundary: passed')
 `], { cwd: root, encoding: "utf8", timeout: 30_000 });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /boundary: passed/);

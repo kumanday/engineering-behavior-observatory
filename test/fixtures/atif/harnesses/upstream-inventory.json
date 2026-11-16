@@ -1,0 +1,51 @@
+{
+  "source": "https://api.github.com/repos/harbor-framework/harbor/git/trees/v0.25.0?recursive=1",
+  "treeSha": "fdba28fc411e47e8765420a1a063b4918fce3def",
+  "fixtures": {
+    "claude": [
+      "tests/unit/agents/installed/test_claude_code_atif_to_native.py",
+      "tests/unit/agents/installed/test_claude_code_auth.py",
+      "tests/unit/agents/installed/test_claude_code_bedrock.py",
+      "tests/unit/agents/installed/test_claude_code_config.py",
+      "tests/unit/agents/installed/test_claude_code_effort.py",
+      "tests/unit/agents/installed/test_claude_code_handoff.py",
+      "tests/unit/agents/installed/test_claude_code_install.py",
+      "tests/unit/agents/installed/test_claude_code_instruction_handoff.py",
+      "tests/unit/agents/installed/test_claude_code_load_trajectory.py",
+      "tests/unit/agents/installed/test_claude_code_mcp.py",
+      "tests/unit/agents/installed/test_claude_code_memory.py",
+      "tests/unit/agents/installed/test_claude_code_metrics.py",
+      "tests/unit/agents/installed/test_claude_code_model_aliases.py",
+      "tests/unit/agents/installed/test_claude_code_skills.py",
+      "tests/unit/agents/installed/test_claude_code_thinking_display.py",
+      "tests/unit/agents/installed/test_claude_code_trajectory.py"
+    ],
+    "codex": [
+      "tests/unit/agents/installed/test_codex_acp.py",
+      "tests/unit/agents/installed/test_codex_atif_to_native.py",
+      "tests/unit/agents/installed/test_codex_auth.py",
+      "tests/unit/agents/installed/test_codex_config.py",
+      "tests/unit/agents/installed/test_codex_install.py",
+      "tests/unit/agents/installed/test_codex_load_trajectory.py",
+      "tests/unit/agents/installed/test_codex_mcp.py",
+      "tests/unit/agents/installed/test_codex_trajectory.py"
+    ],
+    "cursor": [
+      "tests/unit/agents/installed/test_cursor_cli_effort.py",
+      "tests/unit/agents/installed/test_cursor_cli_mcp.py",
+      "tests/unit/agents/installed/test_cursor_cli_trajectory.py"
+    ],
+    "devin": [
+      "tests/unit/agents/installed/test_devin.py"
+    ],
+    "openhands": [
+      "tests/unit/agents/installed/test_openhands_mcp.py",
+      "tests/unit/agents/installed/test_openhands_nemo_protocol_override.py",
+      "tests/unit/test_openhands_sdk_agent.py"
+    ],
+    "pi": [
+      "tests/unit/agents/installed/test_pi.py"
+    ]
+  },
+  "inventoryMethod": "Exact installed module/test family path identity; this is a candidate inventory, not proof of a golden fixture or conversion coverage."
+}

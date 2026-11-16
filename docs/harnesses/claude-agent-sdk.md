@@ -12,10 +12,7 @@ After [preparing and freezing a queue](../guides/operator-guide.md):
 ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root>
 ```
 
-The adapter uses `@anthropic-ai/claude-agent-sdk@0.3.296`. It probes the
-installed SDK/CLI and records version-specific capabilities rather than
-assuming every hook is available. Runtime pins are implementation conditions,
-not assurances that a provider model route is accessible.
+Freeze the `claude-agent-sdk` role using the [study runtime workflow](../reference/study-runtimes.md). EBO loads that study’s SDK and probes its installed SDK/CLI. The selected release and observed hooks determine capture capabilities; authentication determines model access.
 
 Supply an approved Agent SDK authentication route through the environment.
 The opt-in OAuth proofs use `CLAUDE_CODE_OAUTH_TOKEN` with
@@ -74,3 +71,20 @@ called qualified completion. See [failure recovery](../guides/operator-guide.md#
 Library operators can call `runAgentSdkQueueEntry` for queue execution or
 `captureClaudeAgentSdkRun` for an already-resolved attempt. The latter
 requires explicit workspace/lifecycle composition; it is not a task preparer.
+
+## Retained evidence and ATIF
+
+Retained evidence is read through this adapter's native format contract.
+The study freezes verification receipts for its runtime, capture contract and
+recorded scope. The [verification catalog](../reference/harness-verification.md)
+reports installation probes separately from named capture capabilities. Missing
+or conflicting evidence adds a confidence limitation; version declarations and
+disagreements remain visible as cohort metadata.
+Malformed records and corrupted source bindings receive specific diagnostics.
+[Limitation definitions](../reference/atif-limitations.md) explain version confidence.
+
+Conforming ATIF uses EBO's generic core reader regardless of producer identity
+or version. The [coverage matrix](../reference/atif-harness-coverage.md) identifies
+this harness's upstream converter, source-surface differences, fixture provenance
+and measured equivalence. Imported document measures retain their own scope and
+do not acquire native capture qualification.

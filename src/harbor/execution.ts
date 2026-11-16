@@ -2,7 +2,7 @@ import { join, resolve } from "node:path";
 
 import type { AssessmentMode, Digest } from "../contracts.js";
 import { createHarborAdapter, type HarborAdapter } from "./adapter.js";
-import { resolveHarborTask, type HarborTaskResolution } from "./tasks.js";
+import { harborTaskHasPriorTrajectory, resolveHarborTask, type HarborTaskResolution } from "./tasks.js";
 import { harborStudyPaths, statusHarborTask } from "./study.js";
 import type { HarborExecutionProfile, RunQueueV2 } from "./queue.js";
 
@@ -97,6 +97,9 @@ export async function prepareHarborExecution(options: PrepareHarborExecutionOpti
   }
 
   const paths = harborStudyPaths(options.studyRoot);
+  if (harborTaskHasPriorTrajectory(join(paths.snapshotsRoot, entry.task.taskSourceId))) {
+    throw new HarborPreflightError("unsupported-imported-trajectory", "Task-shipped trajectory.json requires seeded-context support.");
+  }
   const status = await statusHarborTask(options.studyRoot, entry.task.taskSourceId, { adapter });
   if (status.status !== "frozen") {
     throw new HarborPreflightError("task-not-frozen", `Harbor task "${entry.task.taskSourceId}" is ${status.status}; runs require the frozen state.`);

@@ -388,10 +388,11 @@ export async function executeRunAttempt(options: RunAttemptOptions): Promise<Run
       record.persistence = { status: "incomplete", error: persistenceError };
     }
   };
+  let pendingEvidenceFlush: Promise<void> | undefined;
   const flush = async (): Promise<void> => {
     try {
       if (evidenceFlush !== undefined) {
-        const evidenceFlushPromise = Promise.resolve(evidenceFlush.call(evidenceSink));
+        const evidenceFlushPromise = pendingEvidenceFlush ??= Promise.resolve().then(() => evidenceFlush.call(evidenceSink)).finally(() => {pendingEvidenceFlush = undefined;});
         const outcome = await Promise.race([
           evidenceFlushPromise.then(() => "complete" as const),
           abortPromise.then(() => "aborted" as const),

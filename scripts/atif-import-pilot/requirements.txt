@@ -1,0 +1,2 @@
+harbor==0.24.0
+atif-scan==0.8.21

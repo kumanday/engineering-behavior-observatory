@@ -574,6 +574,8 @@ export {
   resolvePiConfigurationRecord,
   runPiQueueEntry,
   PI_ADAPTER_VERSION,
+  PI_NORMALIZATION_ADAPTER_VERSION,
+  RETAINED_PI_ADAPTER_VERSIONS,
   PI_CONFIG_SCHEMA_VERSION,
   PI_HARNESS,
   PINNED_PI_SDK_VERSION,
@@ -674,3 +676,65 @@ export * from "./factory-droid.js";
 export * from "./factory-run.js";
 
 export { FACTORY_BYOK_MODEL_ID, type FactoryModelRoute } from "./factory-model.js";
+export { createPointerEvidenceResolver, readEvidencePointer, type PointedEvidence, type PointerValue } from "./evidence-pointers.js";
+export * from "./atif-reader.js";
+export * from "./atif-profiles.js";
+
+export * from "./atif-import.js";
+export * from "./atif-pi.js";
+export * from "./atif-core.js";
+export * from "./atif-normalizer.js";
+export * from "./atif-overlays.js";
+export type { ImportedNativeEvidence, RetainedNormalizationInput } from "./uniform-events.js";
+export { describeImportedDataset } from "./normalization-integrity.js";
+export type { OutcomeEvidenceInput, ImportedOutcomeRecord } from "./outcome-evidence.js";
+
+export * from "./harbor-import.js";
+export * from "./harbor-record-reader.js";
+export * from "./leaderboard-facts.js";
+export * from "./leaderboard-policy.js";
+export * from "./leaderboard-source.js";
+export * from "./leaderboard-import.js";
+
+export { AtifAdmissionError } from "./atif-import.js";
+export { writeEvidenceCompanion, readEvidenceCompanion, companionArtifactId, EVIDENCE_COMPANION_LIMITS, type EvidenceCompanion, type EvidenceCompanionRequest, type CompanionRange } from "./evidence-companions.js";
+
+export { listAnalysisRuntimes, loadAnalysisRuntime, type AnalysisRuntimeIdentity, type AnalysisRuntimeSnapshot, type FrozenAnalysisRuntime } from "./analysis-runtime.js";
+export { NORMALIZATION_V2_VERSION, precedes, executionDurationMs, operationId, datasetV2Digest, validateNormalizedDatasetV2,
+  type ClockValue, type ClockEvidence, type ClockPosition, type OrderPosition, type Precedence, type SourceIdentityV2, type OperationIdentity, type Operation,
+  type EventFactsV2, type UniformEventV2, type MeasurementV2, type RecordCoverageV2, type NormalizedDatasetV2 } from "./normalization-v2.js";
+export { inventoryMigrationStudy, migrationDependencies, reconcileMigration, planMigrationV2, createMigrationTargetV2, type MigrationStudy, type MigrationDependencies,
+  type MigrationUnit, type MigrationAssertion, type MigrationInventory, type MigrationTarget, type MigrationTargetV2, type MigrationReconciliation, type MigrationPlanV2 } from "./migration-accounting.js";
+export { createRetainedBehaviorEvidenceV2, projectNativeEvidenceV2, createSourceEvidenceResolverV2, listNativeV2Profiles,
+  type RetainedBehaviorEvidenceV2, type SourceEvidenceResolverV2 } from "./native-v2.js";
+export { ANALYSIS_V2_VERSION, analysisDigestV2, createStructuralObservationSetV2, validateStructuralObservationSetV2, citeEventV2,
+  validateCitationV2, operationScopeV2, operationEventsV2, operationContentV2,
+  type HashV2, type EvidenceCitationV2, type ObservationV2, type ObservationSetV2 } from "./analysis-v2.js";
+
+export { projectAtifV2, projectPiAtifV2, readImportedBehaviorEvidenceV2 } from "./atif-v2.js";
+
+export * from "./occurrences-v2.js";
+export * from "./ratings-v2.js";
+export * from "./semantic-judge-v2.js";
+export * from "./atlas-v2.js";
+export { loadRetainedAnalysisV2 } from "./analysis-v2-cli.js";
+
+export { prepareMigrationTargetV2 } from "./migration-targets-v2.js";
+export { ratingAnswerSchemaV2, semanticJudgeAnswerSchemaV2 } from "./model-contracts-v2.js";
+
+export { listAdditionalAtifProfilesV2, listAtifProfilesV2, selectAdditionalAtifProfileV2, type AdditionalAtifProfileV2 } from "./atif-producers-v2.js";
+
+export { freezeStudyRuntimes, readStudyRuntimeLock, prepareRuntimeLaunch } from "./study-runtimes.js";
+export type { StudyRuntimeLock, StudyRuntimeRequest, StudyRuntimeOptions, RuntimeLaunch } from "./study-runtimes.js";
+export { withStudyRuntime, currentStudyRuntime, lockedRuntimeExecutable, studyRuntimeVersion } from "./runtime-context.js";
+export type { StudyRuntimeContext, RuntimeProbe, StudyRuntimeBinding, RuntimeExecutionSummary } from "./runtime-context.js";
+export { listRuntimeRecipes } from "./runtime-catalog.js";
+export { selectRuntimeRelease, RuntimePolicyError } from "./runtime-resolution.js";
+export type { RuntimePolicy, RuntimeRelease, RuntimeSelection } from "./runtime-resolution.js";
+
+export {bindStudyRuntimeQueue, queueRunId, type StudyFreeze, type RuntimeBoundQueue} from "./study-runtime-bindings.js";
+
+export {prepareHarnessVerification, validateHarnessVerificationCandidate, admitHarnessVerification, withdrawHarnessVerification} from "./harness-verification-candidate.js";
+export type {VerificationRequest, VerificationCase, VerificationCandidate} from "./harness-verification-candidate.js";
+export {readVerificationCatalog, snapshotVerification, evaluateVerification, assertVerificationReceipt, assertVerificationSnapshot, harnessCaptureContract, VerificationError} from "./harness-verification.js";
+export type {HarnessVerificationReceipt, VerificationAdmission, VerificationCatalog, VerificationSubject, VerificationScope, VerificationSnapshot, VerificationResult, VerificationClaim, VerificationClaimResult} from "./harness-verification.js";

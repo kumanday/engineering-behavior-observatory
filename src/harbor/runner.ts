@@ -1,3 +1,4 @@
+import { bindActiveQueueEntry, queueEntryMatches, assertActiveRuntimeQueue, currentStudyRuntime, runInStudyRuntime } from "../runtime-context.js";
 import { randomUUID } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
@@ -32,6 +33,7 @@ export type HarborStepExecutorInput = {
 export type HarborHarnessStepExecutor = (input: HarborStepExecutorInput) => Promise<HarborStepExecution>;
 
 export type HarborRunSummary = {
+  runtime?: import("../runtime-context.js").RuntimeExecutionSummary;
   runId: string;
   attemptId: string;
   bundlePath: string;
@@ -58,10 +60,16 @@ export type RunHarborQueueEntryOptions = {
 };
 
 export async function runHarborBackedQueueEntry(options: RunHarborQueueEntryOptions): Promise<HarborRunSummary> {
+  const current = currentStudyRuntime();
+  const binding = options.studyRoot ? {studyRoot: options.studyRoot, ...(current && resolve(current.studyRoot) === resolve(options.studyRoot) ? {options: current.options} : {})} : undefined;
+  return runInStudyRuntime("harbor", binding, () => runHarborBackedQueueEntryOwned(options));
+}
+async function runHarborBackedQueueEntryOwned(options: RunHarborQueueEntryOptions): Promise<HarborRunSummary> {
   const queue = await readHarborRunQueue(options.queuePath, options.adapter === undefined
     ? { studyRoot: options.studyRoot }
     : { studyRoot: options.studyRoot, adapter: options.adapter });
-  const matches = queue.entries.filter((entry) => entry.runId === options.runId);
+  assertActiveRuntimeQueue(queue);
+  const matches = queue.entries.filter((entry) => queueEntryMatches(queue, entry, options.runId)).map((entry) => bindActiveQueueEntry(queue, entry));
   if (matches.length === 0) throw new Error(`Run "${options.runId}" is not in the queue.`);
   if (matches.length > 1) throw new Error(`Run "${options.runId}" matches more than one queue entry.`);
   const entry = matches[0]!;

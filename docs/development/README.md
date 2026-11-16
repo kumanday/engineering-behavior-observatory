@@ -39,6 +39,14 @@ native composition record names (Pi `session_created`, DeepSeek composition, Fac
 only with a migration for its retained bundles. `test/retained-versions.test.ts`
 fails if any version pinned in `release/*/reproducibility.json` is rejected.
 
+Capture adapter identity and normalization version are separate pins. Pi uses
+`PI_ADAPTER_VERSION` for new capture provenance and
+`PI_NORMALIZATION_ADAPTER_VERSION` for derived datasets; Factory has the matching
+`FACTORY_*` constants. Append released capture versions to their
+`RETAINED_*_ADAPTER_VERSIONS` lists. Retained Factory composition and telemetry
+must agree with the version in the source manifest, while normalization keeps
+its own version. A normalizer update never relabels an old capture.
+
 Use [extension contracts](extension-contracts.md) when adding an adapter,
 structural extractor, rubric, verifier, or export policy. Preserve native
 records and qualified partial attempts before adding derived views.
@@ -89,4 +97,11 @@ A new release candidate needs its own package/lockfile version and
 compares the current checkout to that version's manifest. Preserve published
 manifests and tags when development changes their pinned files. Source scanning
 accepts reference-only Bearer header construction and keeps credential literals
-visible to the shared export scanner.
+visible to the shared export scanner. The source home-path scan recognizes the
+generic root segment in statically namespaced session/document identifiers.
+Filesystem home paths and credential literals retain their release checks.
+
+The ATIF conformance workflow runs the typed v2 native projection, consumer and
+migration-accounting regressions on authored fixtures. It uses the pinned Node
+and Python runtimes and does not dispatch model inference. Private paired-source
+checks and optional live capture checks remain separate verification lanes.

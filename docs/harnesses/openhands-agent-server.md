@@ -1,32 +1,25 @@
 # OpenHands Agent Server adapter
 
-The OpenHands adapter executes one EBO attempt through a pinned Agent Server
-REST/WebSocket boundary. It preserves the source records before projecting any
-uniform events. It does not import the OpenHands Python SDK or embed the agent
-loop.
+The OpenHands adapter executes one EBO attempt through an owned Agent Server in a local Smol VM and its REST/WebSocket boundary. It preserves source records before projecting uniform events.
 
-## Pinned boundary
+## Freeze the server
 
-The runtime pin is Agent Server `1.54.0`. The matching release OpenAPI digest,
-server commit, image, WebSocket route, and
-authentication mode are recorded in the
-[contract manifest](../../contracts/openhands-agent-server-v1.54.0.json).
+Freeze `openhands-agent-server` and `smol` through the [study runtime
+workflow](../reference/study-runtimes.md). EBO resolves an age-eligible stable
+OCI image and binds its platform manifest digest to the study's Smol engine.
+Capture checks the owned VM's image identity and `/server_info.version`, then
+uses its loopback REST/WebSocket endpoint.
 
-The pinned OpenAPI retains EBO's conversation paths and event-search parameters.
-Retained 1.44.1 and 1.46.0 captures keep their original runtime and adapter
-identities. Their contract snapshots and fixtures remain available.
+Native capture mounts the attempt workspace with its owner's UID and GID.
+Harbor capture runs an owned server inside the existing task VM; set
+`"openhandsBoundary": "task-guest"` in that study's runtime request. Its trusted
+coordinator starts the server inside a dedicated cgroup before applying the
+workspace UID and GID. This contains tool sessions that detach from the server's
+process group. Shutdown proves the cgroup is empty before workspace capture.
+Host VM coordination and guest server execution have distinct qualification
+identities.
 
-For a native macOS ARM64 installation, download the release's
-`agent-server-1.54.0-macos-arm64` and verify it against `SHA256SUMS` (also pinned
-in the contract manifest). Mark the binary executable and launch it with:
-
-```sh
-agent-server-1.54.0-macos-arm64 --host 127.0.0.1 --port 18080
-curl --fail http://127.0.0.1:18080/server_info
-```
-
-The identity response must report `1.54.0`. Server readiness does not establish
-a working model route; the opt-in conversation smoke below verifies that separately.
+The 1.54.0 [contract manifest](../../contracts/openhands-agent-server-v1.54.0.json) records the development conformance baseline: OpenAPI digest, server commit, image and authentication mode. Retained captures preserve their own observed runtime and adapter identities.
 
 `@openhands/typescript-client` `1.54.0` targets Agent Server `1.54.0` and supports
 first-message WebSocket authentication. EBO uses Node's native `fetch` and
@@ -42,7 +35,7 @@ The run configuration must expose the actual model at `agent.llm.model` or
 `agent_settings.llm.model`; EBO rejects a request whose executable model differs
 from the run manifest identity.
 
-1. Verify `/server_info` reports exactly `1.54.0`.
+1. Verify `/server_info` reports the version frozen for this study.
 2. Create one conversation with the supplied agent configuration and the
    workspace path visible to the server. Authenticated REST requests use the
    pinned server's `X-Session-API-Key` header.
@@ -55,7 +48,7 @@ from the run manifest identity.
    verifier result before finalizing the run bundle. If workspace packaging
    fails, preserve and report the disposable workspace path for recovery.
 
-Container callers can set `serverWorkspacePath` when the Agent Server sees a
+Native callers can set `serverWorkspacePath` when the Agent Server sees a
 different mount path from the local EBO coordinator.
 
 ## Reconciliation and completeness
@@ -149,3 +142,20 @@ OpenHands' supported subprocess terminal. Agent Server 1.54.0 completed a
 Fireworks `accounts/fireworks/models/glm-5p3-flash` run with authenticated
 REST/WebSocket capture, a verified workspace and normalized events. EventLog
 completeness remains an explicit qualification gap.
+
+## Retained evidence and ATIF
+
+Retained evidence is read through this adapter's native format contract.
+The study freezes verification receipts for its runtime, capture contract and
+recorded scope. The [verification catalog](../reference/harness-verification.md)
+reports installation probes separately from named capture capabilities. Missing
+or conflicting evidence adds a confidence limitation; version declarations and
+disagreements remain visible as cohort metadata.
+Malformed records and corrupted source bindings receive specific diagnostics.
+[Limitation definitions](../reference/atif-limitations.md) explain version confidence.
+
+Conforming ATIF uses EBO's generic core reader regardless of producer identity
+or version. The [coverage matrix](../reference/atif-harness-coverage.md) identifies
+this harness's upstream converter, source-surface differences, fixture provenance
+and measured equivalence. Imported document measures retain their own scope and
+do not acquire native capture qualification.

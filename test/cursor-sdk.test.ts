@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { assertNativeV2RetainedBundle } from "./native-v2-contract-helper.js";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("cursor-sdk");
 import { Cursor } from "@cursor/sdk";
 
 import type {
@@ -45,11 +47,29 @@ const MODEL: ModelSelection = { id: "cursor-test-model", params: [{ id: "thinkin
 const AGENT_ID = "cursor-agent-fixture";
 const NATIVE_RUN_ID = "cursor-run-fixture";
 
+test("an alias arm executes a bound queue through an explicit matching runtime", async () => {
+  const fixture = createCursorFixture("cursor-arm-a");
+  try {
+    const {currentStudyRuntime} = await import("../src/runtime-context.js");
+    const {bindStudyRuntimeQueue, queueRunId} = await import("../src/study-runtime-bindings.js");
+    const {readRunQueue} = await import("../src/scheduler.js");
+    const context = currentStudyRuntime()!;
+    const bound = await bindStudyRuntimeQueue(context.studyRoot, readRunQueue(fixture.queuePath, undefined, {bundleRoot: fixture.bundleRoot}), {configurationRoot: fixture.bundleRoot});
+    writeFileSync(fixture.queuePath, JSON.stringify(bound));
+    const summary = await runCursorSdkQueueEntry({...fixture, runtime: {studyRoot: context.studyRoot, options: context.options}, apiKey: "fixture", modelLister: fakeModelLister, agentFactory: fakeAgentFactory()});
+    assert.equal(summary.classification, "completed");
+    assert.equal(summary.runId, queueRunId(bound.queue, fixture.runId));
+    const manifest = readManifest(summary.bundlePath);
+    assert.equal(manifest.runtimeLock!.studyFreezeDigest, bound.studyFreeze.digest);
+    await createRetainedBehaviorEvidence(summary.bundlePath);
+  } finally {rmSync(fixture.parent, {recursive: true, force: true});}
+});
+
 test("Harbor Cursor wrapper retains native retries, usage, session and workspace evidence", async () => {
   const fixture = createCursorFixture();
   try {
     const queue = JSON.parse(readFileSync(fixture.queuePath, "utf8"));
-    const input = harborStepFixture(fixture.parent, "cursor-sdk");
+    const input = harborStepFixture(fixture.parent, "cursor-arm-a");
     const result = await createCursorHarborExecutor({ studyRoot: fixture.bundleRoot,
       configuration: { ...queue.entries[0].configuration, captureProfile: queue.captureProfile },
       apiKey: "fixture-only", agentFactory: fakeAgentFactory() })(input);
@@ -57,6 +77,7 @@ test("Harbor Cursor wrapper retains native retries, usage, session and workspace
     assert.equal(result.qualification, "qualified");
     assert.equal(result.nativeSessionId, AGENT_ID);
     const evidence = await createRetainedBehaviorEvidence(input.stepBundleRoot);
+    await assertNativeV2RetainedBundle(input.stepBundleRoot);
     assert.ok(evidence.dataset.events.length > 0);
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
 });
@@ -86,8 +107,8 @@ test("runs one frozen Cursor SDK entry through native store, export, observation
 
     const manifest = readManifest(summary.bundlePath);
     assert.equal(manifest.run.model.provider, "cursor");
-    assert.deepEqual(manifest.run.runtime, [
-      { source: "cursor", name: "cursor-sdk", version: "1.0.37" },
+    assert.deepEqual(manifest.run.runtime.filter(({ source }) => source === "cursor"), [
+      { source: "cursor", name: "cursor-sdk", version: JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).dependencies["@cursor/sdk"] },
       { source: "cursor", name: "local-agent-runtime", version: "not-exposed" },
     ]);
     assert.ok(manifest.evidence.some(({ id }) => id === "cursor-store-checkpoints"));
@@ -365,7 +386,7 @@ test("aborts pending agent creation, restores the environment, and disposes a la
     assert.equal(summary.captureQualification, "unqualified");
     assert.equal(process.env.EBO_CURSOR_TEST_SECRET, "restore-me");
     resolveAgent({
-      agentId: "late-agent", model: MODEL, send: async () => { throw new Error("late agent must not send"); }, close() {}, async reload() {},
+      agentId: "late-agent", model: MODEL, send: async () => { throw new Error("late agent must not send"); }, async summarize() { throw new Error("late agent must not summarize"); }, close() {}, async reload() {},
       async [Symbol.asyncDispose]() { disposed += 1; }, async listArtifacts() { return []; }, async downloadArtifact() { return Buffer.alloc(0); },
       async getUsage() { return { usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 }, runs: [] }; },
     });
@@ -527,7 +548,7 @@ test("foreign, oversized, malformed, incomplete, or model-mismatched native stor
 test("CLI exposes Cursor run usage and never accepts an incomplete invocation", async () => {
   const output: string[] = [];
   assert.equal(await main(["cursor", "run", "bundle", "queue", "run"], (message) => output.push(message)), 1);
-  assert.equal(output.join(""), "Usage: ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]\n");
+  assert.equal(output.join(""), "Usage: ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n");
 });
 
 type Fixture = {
@@ -539,7 +560,7 @@ type Fixture = {
   workspaceRoot: string;
 };
 
-function createCursorFixture(): Fixture {
+function createCursorFixture(arm = "cursor-sdk"): Fixture {
   const parent = mkdtempSync(join(tmpdir(), "ebo-cursor-sdk-test-"));
   const bundleRoot = join(parent, "bundle");
   mkdirSync(bundleRoot, { recursive: true });
@@ -602,6 +623,11 @@ function createCursorFixture(): Fixture {
   writeConfig(experiment.harnessSet["cursor-sdk"]!.nativeLimitsRef, records.limits, bundleRoot);
   writeConfig(experiment.harnessSet["cursor-sdk"]!.nativeToolPolicyRef, records.tools, bundleRoot);
   writeConfig(experiment.captureProfile, records.capture, bundleRoot);
+  if (arm !== "cursor-sdk") {
+    experiment.harnessSet[arm] = experiment.harnessSet["cursor-sdk"]!;
+    delete experiment.harnessSet["cursor-sdk"];
+    experiment.ordering.declaredOrder!.harnessIds = [arm];
+  }
   const queue = compileRunQueue(experiment, { bundleRoot });
   const queuePath = join(parent, "queue.json");
   writeRunQueue(queuePath, queue);
@@ -681,6 +707,7 @@ function fakeAgentFactory(behavior: {
     return {
       agentId: AGENT_ID,
       model: options.model,
+      async summarize() { throw new Error("capture never summarizes"); },
       async send(_message: string | { text: string }, sendOptions?: SendOptions): Promise<Run> {
         await store.runs.create({ run: { runId: NATIVE_RUN_ID, agentId: AGENT_ID, turnNumber: 1, status: "running", model: options.model, createdAt: 1, updatedAt: 1 } });
         let status: Run["status"] = "running";

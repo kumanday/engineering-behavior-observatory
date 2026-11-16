@@ -5,7 +5,7 @@ to capture a real engineering task.
 
 ## Install from npm
 
-Requires Node **24.19.0** and npm:
+Requires Node **26.13.0** and npm:
 
 ```sh
 npm install -g engineering-behavior-observatory
@@ -25,7 +25,7 @@ source checkout because its generator and test fixtures are not packaged.
 
 ## Install from source
 
-Use Git, npm, and Node **24.19.0** (the repository's `.nvmrc` pin). If you use
+Use Git, npm **12.2.2**, and Node **26.13.0** (the repository's `.nvmrc` pin). If you use
 nvm:
 
 ```sh

@@ -7,19 +7,9 @@ then derives uniform events and behavioral observations from the retained stream
 
 ## Install and authenticate
 
-EBO pins **`@factory/droid-sdk` 0.9.1** and **Droid CLI 0.238.0** separately.
-The SDK is an EBO dependency. Install the CLI in a dedicated runtime directory:
+Freeze the `factory-droid` role using the [study runtime workflow](../reference/study-runtimes.md). It selects the official CLI and SDK separately, installs their exact dependency graph with lifecycle scripts disabled, and checks the CLI’s reported version against the lock. The 0.238.0 CLI and 0.9.1 SDK fixtures establish the development conformance baseline.
 
-```sh
-npm install --prefix "$PWD/factory-runtime" --save-exact @factory/cli@0.238.0
-"$PWD/factory-runtime/node_modules/.bin/droid" --version
-```
-
-The output must be `0.238.0`. Use the executable's absolute path in the frozen
-harness configuration. EBO probes the version before capture, records the
-executable digest, and disables the standalone updater in the child environment.
-The npm distribution also disables its updater. Run install scripts so the npm
-launcher resolves to the platform binary rather than a JavaScript shim.
+EBO selects the executable from the isolated runtime directory, records its digest, and disables its updater. The harness configuration’s executable and version fields remain part of the captured condition; actual execution identities come from the study lock and runtime probes.
 
 Select a managed route or a BYOK route in the frozen model record. Managed
 routes use `FACTORY_API_KEY`; BYOK defaults to `FIREWORKS_API_KEY`. Either can
@@ -213,19 +203,22 @@ the shared capture core in Harbor's task filesystem. Each step creates a fresh
 native session; cross-step resume is unsupported. Harbor owns task setup and
 verification after capture has drained.
 
-Build the Linux runtime with the pinned Factory CLI included:
+Include `factory-droid` in the study runtime request and select a Linux ARM64
+target for Harbor execution. Build the worker archive from that study:
 
 ```sh
-node scripts/build-harbor-runtime.mjs .ebo/harbor-runtime --factory
+node scripts/build-harbor-runtime.mjs .ebo/harbor-runtime \
+  --study ./study --node-image <pinned-Node-Linux-arm64-image@sha256:platform-digest>
 ```
 
-Use `/opt/ebo/factory-cli/node_modules/.bin/droid` in the guest harness record.
+The worker uses the CLI and SDK in the frozen study cache.
 Declare `FACTORY_API_KEY` for managed models or `FIREWORKS_API_KEY` for BYOK
 (or the selected credential variable) in the worker
 runtime's `environmentKeys`. The builder archives the CLI's npm lockfile and
 platform binary with the SDK worker. Follow the [runtime image and Smol binding
 instructions](../guides/harbor-tasks.md#build-and-pin-the-guest-runtime); the
 archive, guest image and model configuration are distinct frozen inputs.
+The archive builder uses the study’s local Smol engine.
 
 ## Verification and live qualification
 
@@ -267,7 +260,7 @@ GLM-5.3-Flash smoke passed with Droid 0.238.0 and SDK 0.9.1 without Factory
 credentials. A Factory-hosted versus BYOK benchmark is a separate study.
 
 The separate VM check requires the [qualified Smol host and guest runtime](../guides/harbor-tasks.md#build-and-pin-the-guest-runtime).
-Build with `--factory`, then bind the runtime archive, `image-build.json`, a
+Build from the frozen study, then bind the runtime archive, `image-build.json`, a
 registry-accessible Linux ARM64 execution-image digest, and the bundled libkrun
 digest. Set `EBO_HARBOR_PYTHON`, `EBO_HARBOR_RUNTIME`, `EBO_SMOL_IMAGE`, and
 `EBO_SMOL_LIBKRUN_SHA256`. With the selected model and credential supplied:
@@ -288,3 +281,20 @@ Upstream contracts: [TypeScript SDK](https://docs.factory.com/sdk/typescript),
 [BYOK](https://docs.factory.com/model-independence/byok),
 [settings](https://docs.factory.com/droid-cli/settings),
 [telemetry privacy](https://docs.factory.com/enterprise/telemetry/privacy).
+
+## Retained evidence and ATIF
+
+Retained evidence is read through this adapter's native format contract.
+The study freezes verification receipts for its runtime, capture contract and
+recorded scope. The [verification catalog](../reference/harness-verification.md)
+reports installation probes separately from named capture capabilities. Missing
+or conflicting evidence adds a confidence limitation; version declarations and
+disagreements remain visible as cohort metadata.
+Malformed records and corrupted source bindings receive specific diagnostics.
+[Limitation definitions](../reference/atif-limitations.md) explain version confidence.
+
+Conforming ATIF uses EBO's generic core reader regardless of producer identity
+or version. The [coverage matrix](../reference/atif-harness-coverage.md) identifies
+this harness's upstream converter, source-surface differences, fixture provenance
+and measured equivalence. Imported document measures retain their own scope and
+do not acquire native capture qualification.

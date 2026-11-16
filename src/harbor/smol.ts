@@ -8,7 +8,10 @@ import { createHarborAdapter } from "./adapter.js";
 import { harborStudyPaths } from "./study.js";
 import { readHarborRunQueue, type RunQueueV2 } from "./queue.js";
 import { HARBOR_TRIAL_SCRIPT } from "./trial-script.js";
-import { resolveHarborWorkerRuntime } from "./official-trial.js";
+import { assertWorkerStudyRuntime, resolveHarborWorkerRuntime } from "./official-trial.js";
+import { currentStudyRuntime, lockedRuntimePython, withStudyRuntime } from "../runtime-context.js";
+import type { StudyRuntimeOptions } from "../study-runtimes.js";
+import { frozenPythonEnvironment } from "../runtime-bootstrap.js";
 
 export function smolCondition(studyRoot: string, queue: RunQueueV2) {
   if (queue.execution.environmentProfile !== "smol" || !queue.execution.environmentRef || !queue.execution.workerRef) {
@@ -28,9 +31,16 @@ export function smolCondition(studyRoot: string, queue: RunQueueV2) {
 }
 
 /** Foreground owner only; no task scheduling or detached daemon. */
-export async function serveSmolEnvironments(studyRoot: string, queuePath: string): Promise<number> {
+export async function serveSmolEnvironments(studyRoot: string, queuePath: string, options: StudyRuntimeOptions = {}): Promise<number> {
+  return withStudyRuntime({studyRoot, role: "smol", options}, () => serveSmolEnvironmentsOwned(studyRoot, queuePath));
+}
+async function serveSmolEnvironmentsOwned(studyRoot: string, queuePath: string): Promise<number> {
+  const context = currentStudyRuntime()!;
+  if (!context.launch.roots.some((root) => root.id === "harbor")) throw new Error("RUNTIME_ROLE_NOT_FROZEN: Smol preparation requires harbor and smol in the same frozen Python group.");
   const adapter = await createHarborAdapter();
   const queue = await readHarborRunQueue(queuePath, { studyRoot, adapter });
+  if (!queue.execution.workerRef) throw new Error("RUNTIME_WORKER_MIGRATION_REQUIRED: select a frozen worker pack.");
+  assertWorkerStudyRuntime(resolveHarborWorkerRuntime(studyRoot, queue.execution.workerRef), context.launch.lockDigest);
   const condition = smolCondition(studyRoot, queue);
   const tasks = new Map<string, { id: string; path: string; verified: boolean }>();
   for (const entry of queue.entries) {
@@ -42,11 +52,11 @@ export async function serveSmolEnvironments(studyRoot: string, queuePath: string
   const script = join(condition.ownerRoot, `ebo_smol_${digestMetadata(HARBOR_TRIAL_SCRIPT).value.slice(0, 16)}.py`);
   await writeFile(script, HARBOR_TRIAL_SCRIPT, { mode: 0o600 });
   const request = join(condition.ownerRoot, `request-${randomUUID()}.json`);
-  await writeFile(request, JSON.stringify({ ...condition, operation: "serve", tasks: [...tasks.values()],
+  await writeFile(request, JSON.stringify({ ...condition, frozenPythonVersions: Object.fromEntries(context.probes.filter((probe) => probe.source === "package-metadata").map((probe) => [probe.package, probe.actualVersion])), operation: "serve", tasks: [...tasks.values()],
     budgetMs: queue.coordinatorBudget.maxWallClockMs, build: "ebo-harbor-smol-v1", model: "preparation-only" }), { flag: "wx", mode: 0o600 });
-  const { python } = await adapter.describePrerequisites();
+  const python = lockedRuntimePython();
   return new Promise((done, fail) => {
-    const child = spawn(python, [script, request], { stdio: "inherit" });
+    const child = spawn(python, [script, request], { stdio: "inherit", env: frozenPythonEnvironment() });
     const stop = () => { child.kill("SIGTERM"); };
     process.on("SIGINT", stop); process.on("SIGTERM", stop);
     const cleanup = () => { process.off("SIGINT", stop); process.off("SIGTERM", stop); };

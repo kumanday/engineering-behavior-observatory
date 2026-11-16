@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:analysis:v2",
+  "$defs": {
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eventId",
+        "nativeReference",
+        "digest"
+      ],
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "nativeReference": {
+          "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/nativeReference"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "measure",
+        "definition",
+        "scope",
+        "unit",
+        "value",
+        "coverage",
+        "sourceEventIds",
+        "citations"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.structural-observation/v2"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "measure": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "definition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "scope": {
+          "$ref": "urn:ebo:schema:normalization:v2#/$defs/measurement/properties/scope"
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "value": {
+          "$ref": "urn:ebo:schema:normalization:v2#/$defs/measurement/properties/value"
+        },
+        "coverage": {
+          "$ref": "urn:ebo:schema:normalization:v2#/$defs/measurement/properties/coverage"
+        },
+        "sourceEventIds": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384
+          }
+        },
+        "citations": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "$ref": "#/$defs/citation"
+          }
+        }
+      }
+    },
+    "observationSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "runId",
+        "attemptId",
+        "extractorVersion",
+        "dataset",
+        "origin",
+        "observations"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.structural-observation-set/v2"
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "extractorVersion": {
+          "const": "2.0.0"
+        },
+        "dataset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "digest"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": "ebo.normalized-dataset/v2"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "origin": {
+          "$ref": "urn:ebo:schema:normalization:v2#/$defs/dataset/properties/origin"
+        },
+        "observations": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "$ref": "#/$defs/observation"
+          }
+        }
+      }
+    }
+  }
+}

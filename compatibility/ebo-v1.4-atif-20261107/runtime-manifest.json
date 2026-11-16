@@ -1,0 +1,473 @@
+{
+  "schemaVersion": "ebo.analysis-runtime-snapshot/v1",
+  "id": "ebo-v1.4-atif-20261107",
+  "source": {
+    "repository": "https://github.com/kumanday/engineering-behavior-observatory",
+    "commit": "fb1dfd7397836de1eab370090534433f0383f45f"
+  },
+  "nodeVersion": "24.19.0",
+  "builder": {
+    "id": "esbuild",
+    "version": "0.28.2"
+  },
+  "entry": "dist/src/reader.mjs",
+  "exports": [
+    "createRetainedBehaviorEvidence",
+    "createRetainedStructuralObservationSet",
+    "loadAtlas",
+    "queryAtlas",
+    "roCrate",
+    "validateRetainedBehaviorAssertion",
+    "validateStructuralObservationSet",
+    "verifyPacket"
+  ],
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.296",
+    "@cursor/sdk": "1.0.37",
+    "@deepseek-ai/dsh-sdk-client": "0.2.0-rc.2",
+    "@duckdb/node-api": "1.5.4-r.1",
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@factory/droid-sdk": "0.9.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "apache-arrow": "21.2.0",
+    "proper-lockfile": "4.1.2"
+  },
+  "files": [
+    {
+      "path": "LICENSE",
+      "bytes": 11358,
+      "digest": "sha256:cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "contracts/codex-app-server-0.150.1/manifest.json",
+      "bytes": 1699,
+      "digest": "sha256:d9ceec5af0aa88b4cb16558bdf4af09117cb07da112d8bf74ada25a2cfeef004"
+    },
+    {
+      "path": "contracts/codex-app-server-0.150.1/schema/InitializeParams.json",
+      "bytes": 2143,
+      "digest": "sha256:6f0094be9a65242ec779a40794cbd4fdfa32fca1e45084a16adfb50501d33ea2"
+    },
+    {
+      "path": "contracts/codex-app-server-0.150.1/schema/JSONRPCMessage.json",
+      "bytes": 2888,
+      "digest": "sha256:6da4cc373a7ccd01f5608ad4496eeb4d44b6a9b0d3158e85ed66b59f3c0b5114"
+    },
+    {
+      "path": "contracts/codex-app-server-0.150.1/schema/v2/ThreadReadParams.json",
+      "bytes": 355,
+      "digest": "sha256:7222da641029c071811f6bcb651de347fe037e6689db22b3fad0c5b17b7f1c21"
+    },
+    {
+      "path": "contracts/codex-app-server-0.150.1/schema/v2/ThreadTokenUsageUpdatedNotification.json",
+      "bytes": 1727,
+      "digest": "sha256:aba4f6c7e4a19b2b842c08ee793b57000c07dafd57b922ad0d8e7c76609108c2"
+    },
+    {
+      "path": "contracts/codex-app-server-0.150.1/schema/v2/TurnInterruptParams.json",
+      "bytes": 278,
+      "digest": "sha256:6dff382dae73d1dbc58406ed045605f647e7a49660e2540fbd2c6c24d60c5f2b"
+    },
+    {
+      "path": "contracts/codex-app-server-0.150.1/types/AskForApproval.ts",
+      "bytes": 367,
+      "digest": "sha256:81dd17defd9a7fd4785346d3ce54c14243353b43174c7417827210cbd3ef3c52"
+    },
+    {
+      "path": "contracts/codex-app-server-0.150.1/types/ClientNotification.ts",
+      "bytes": 215,
+      "digest": "sha256:96692c191ff9ac32c2688b46a0a04f23d15646937adc352f2adcc8211c6d17a0"
+    },
+    {
+      "path": "contracts/codex-app-server-0.150.1/types/SandboxMode.ts",
+      "bytes": 235,
+      "digest": "sha256:8a59381e04efa84f9001e5c24444ee26fccf8f9e10bcfb02d2f6a24e85898843"
+    },
+    {
+      "path": "contracts/codex-app-server-0.150.1/types/ThreadReadParams.ts",
+      "bytes": 305,
+      "digest": "sha256:db68afa8df8ccee698b637d1fe9e535eb0ae6ee390eb0a359f46022d5152c5aa"
+    },
+    {
+      "path": "contracts/codex-app-server-0.150.1/types/TokenUsageBreakdown.ts",
+      "bytes": 345,
+      "digest": "sha256:e983f21175fdfdf1a239e26cd8916e1cb765bc0cb7904e2bd9cc83ffe325c8a7"
+    },
+    {
+      "path": "contracts/codex-app-server-0.150.1/types/TurnInterruptParams.ts",
+      "bytes": 226,
+      "digest": "sha256:643034c3d25c23c7700236d4d1ff16286565786d48148e85b0c4761fe46d3804"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/manifest.json",
+      "bytes": 1916,
+      "digest": "sha256:e62281ff5e5d1cc71d07763b85e997ccc9ddbad9aa82a469da4181ee4b1890a8"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/schema/JSONRPCMessage.json",
+      "bytes": 2888,
+      "digest": "sha256:6da4cc373a7ccd01f5608ad4496eeb4d44b6a9b0d3158e85ed66b59f3c0b5114"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/schema/v1/InitializeParams.json",
+      "bytes": 2143,
+      "digest": "sha256:6f0094be9a65242ec779a40794cbd4fdfa32fca1e45084a16adfb50501d33ea2"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/schema/v2/ThreadReadParams.json",
+      "bytes": 502,
+      "digest": "sha256:dfe040c6ac71d30795b8be3f3ff232e66f362a37f883b491e5d1ea367f470db4"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/schema/v2/ThreadStartParams.json",
+      "bytes": 12971,
+      "digest": "sha256:25f490368ec6df52a2a3b82a5469d2413307eb93439121b309f415b5648eee7a"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/schema/v2/ThreadTokenUsageUpdatedNotification.json",
+      "bytes": 1727,
+      "digest": "sha256:aba4f6c7e4a19b2b842c08ee793b57000c07dafd57b922ad0d8e7c76609108c2"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/schema/v2/TurnInterruptParams.json",
+      "bytes": 278,
+      "digest": "sha256:6dff382dae73d1dbc58406ed045605f647e7a49660e2540fbd2c6c24d60c5f2b"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/schema/v2/TurnStartParams.json",
+      "bytes": 23746,
+      "digest": "sha256:b36fb37326b1cf69f75c8b306f1f886d53a57c4b1b985e08e298e2407ea2ad02"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/types/AskForApproval.ts",
+      "bytes": 367,
+      "digest": "sha256:81dd17defd9a7fd4785346d3ce54c14243353b43174c7417827210cbd3ef3c52"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/types/ClientNotification.ts",
+      "bytes": 215,
+      "digest": "sha256:96692c191ff9ac32c2688b46a0a04f23d15646937adc352f2adcc8211c6d17a0"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/types/SandboxMode.ts",
+      "bytes": 235,
+      "digest": "sha256:8a59381e04efa84f9001e5c24444ee26fccf8f9e10bcfb02d2f6a24e85898843"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/types/ThreadReadParams.ts",
+      "bytes": 461,
+      "digest": "sha256:c24743cb5655b4c71a853a2a290412d78e1a27e0278f2a0cde9bd9d9b78118a8"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/types/TokenUsageBreakdown.ts",
+      "bytes": 345,
+      "digest": "sha256:e983f21175fdfdf1a239e26cd8916e1cb765bc0cb7904e2bd9cc83ffe325c8a7"
+    },
+    {
+      "path": "contracts/codex-app-server-0.153.4/types/TurnInterruptParams.ts",
+      "bytes": 226,
+      "digest": "sha256:643034c3d25c23c7700236d4d1ff16286565786d48148e85b0c4761fe46d3804"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/manifest.json",
+      "bytes": 1916,
+      "digest": "sha256:d260255e9667eb4bd7840fe4274295378f2dd61ee77b47012ded5e27b9ec0b7a"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/schema/JSONRPCMessage.json",
+      "bytes": 2888,
+      "digest": "sha256:6da4cc373a7ccd01f5608ad4496eeb4d44b6a9b0d3158e85ed66b59f3c0b5114"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/schema/v1/InitializeParams.json",
+      "bytes": 2401,
+      "digest": "sha256:b55124e7c0f36a1789396daa5578217a92be67f053903696236686e59f6f212e"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/schema/v2/ThreadReadParams.json",
+      "bytes": 502,
+      "digest": "sha256:dfe040c6ac71d30795b8be3f3ff232e66f362a37f883b491e5d1ea367f470db4"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/schema/v2/ThreadStartParams.json",
+      "bytes": 13453,
+      "digest": "sha256:80a40a7fac15b4bf70efb7f893fb353acc0a0d30c68f54aee4f01923deca85de"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/schema/v2/ThreadTokenUsageUpdatedNotification.json",
+      "bytes": 1727,
+      "digest": "sha256:aba4f6c7e4a19b2b842c08ee793b57000c07dafd57b922ad0d8e7c76609108c2"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/schema/v2/TurnInterruptParams.json",
+      "bytes": 278,
+      "digest": "sha256:6dff382dae73d1dbc58406ed045605f647e7a49660e2540fbd2c6c24d60c5f2b"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/schema/v2/TurnStartParams.json",
+      "bytes": 25284,
+      "digest": "sha256:07771223642e1b61bd9aac0069fc0f98143a1c047724ca02c7ceb13653442738"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/types/AskForApproval.ts",
+      "bytes": 367,
+      "digest": "sha256:81dd17defd9a7fd4785346d3ce54c14243353b43174c7417827210cbd3ef3c52"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/types/ClientNotification.ts",
+      "bytes": 215,
+      "digest": "sha256:96692c191ff9ac32c2688b46a0a04f23d15646937adc352f2adcc8211c6d17a0"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/types/SandboxMode.ts",
+      "bytes": 235,
+      "digest": "sha256:8a59381e04efa84f9001e5c24444ee26fccf8f9e10bcfb02d2f6a24e85898843"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/types/ThreadReadParams.ts",
+      "bytes": 461,
+      "digest": "sha256:c24743cb5655b4c71a853a2a290412d78e1a27e0278f2a0cde9bd9d9b78118a8"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/types/TokenUsageBreakdown.ts",
+      "bytes": 345,
+      "digest": "sha256:e983f21175fdfdf1a239e26cd8916e1cb765bc0cb7904e2bd9cc83ffe325c8a7"
+    },
+    {
+      "path": "contracts/codex-app-server-0.157.0/types/TurnInterruptParams.ts",
+      "bytes": 226,
+      "digest": "sha256:643034c3d25c23c7700236d4d1ff16286565786d48148e85b0c4761fe46d3804"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/manifest.json",
+      "bytes": 1916,
+      "digest": "sha256:39ee532e8d25d9840c618728b906994903e3a4e840a0237d8213841d847e2677"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/schema/JSONRPCMessage.json",
+      "bytes": 2888,
+      "digest": "sha256:6da4cc373a7ccd01f5608ad4496eeb4d44b6a9b0d3158e85ed66b59f3c0b5114"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/schema/v1/InitializeParams.json",
+      "bytes": 2401,
+      "digest": "sha256:b55124e7c0f36a1789396daa5578217a92be67f053903696236686e59f6f212e"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/schema/v2/ThreadReadParams.json",
+      "bytes": 502,
+      "digest": "sha256:dfe040c6ac71d30795b8be3f3ff232e66f362a37f883b491e5d1ea367f470db4"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/schema/v2/ThreadStartParams.json",
+      "bytes": 13453,
+      "digest": "sha256:80a40a7fac15b4bf70efb7f893fb353acc0a0d30c68f54aee4f01923deca85de"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/schema/v2/ThreadTokenUsageUpdatedNotification.json",
+      "bytes": 1727,
+      "digest": "sha256:aba4f6c7e4a19b2b842c08ee793b57000c07dafd57b922ad0d8e7c76609108c2"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/schema/v2/TurnInterruptParams.json",
+      "bytes": 278,
+      "digest": "sha256:6dff382dae73d1dbc58406ed045605f647e7a49660e2540fbd2c6c24d60c5f2b"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/schema/v2/TurnStartParams.json",
+      "bytes": 26060,
+      "digest": "sha256:062373a7dfc290b506e591bc5c2a35005211df27b3c60358cee3efed12859062"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/types/AskForApproval.ts",
+      "bytes": 367,
+      "digest": "sha256:81dd17defd9a7fd4785346d3ce54c14243353b43174c7417827210cbd3ef3c52"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/types/ClientNotification.ts",
+      "bytes": 215,
+      "digest": "sha256:96692c191ff9ac32c2688b46a0a04f23d15646937adc352f2adcc8211c6d17a0"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/types/SandboxMode.ts",
+      "bytes": 235,
+      "digest": "sha256:8a59381e04efa84f9001e5c24444ee26fccf8f9e10bcfb02d2f6a24e85898843"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/types/ThreadReadParams.ts",
+      "bytes": 461,
+      "digest": "sha256:c24743cb5655b4c71a853a2a290412d78e1a27e0278f2a0cde9bd9d9b78118a8"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/types/TokenUsageBreakdown.ts",
+      "bytes": 345,
+      "digest": "sha256:e983f21175fdfdf1a239e26cd8916e1cb765bc0cb7904e2bd9cc83ffe325c8a7"
+    },
+    {
+      "path": "contracts/codex-app-server-0.162.1/types/TurnInterruptParams.ts",
+      "bytes": 226,
+      "digest": "sha256:643034c3d25c23c7700236d4d1ff16286565786d48148e85b0c4761fe46d3804"
+    },
+    {
+      "path": "contracts/openhands-agent-server-v1.44.1.json",
+      "bytes": 2631,
+      "digest": "sha256:e7a07977688a0703b15751a8a1ab17f29be45f9fdf438017e0dbcbc49cca37b0"
+    },
+    {
+      "path": "contracts/openhands-agent-server-v1.46.0.json",
+      "bytes": 2199,
+      "digest": "sha256:455cdddd2c206cb2f20245c2189b92e773657ec14d651236baa532b2dbadeb28"
+    },
+    {
+      "path": "contracts/openhands-agent-server-v1.54.0.json",
+      "bytes": 2164,
+      "digest": "sha256:7d844403c79ad87e464c1daa72a763fb8219e8a8501f650b2f951467520c7c16"
+    },
+    {
+      "path": "dist/src/reader.mjs",
+      "bytes": 601240,
+      "digest": "sha256:645515f81f5f2eff5a0b5cd1a9e08c217316cda77671fe9f9fe0341d9ffbc04e"
+    },
+    {
+      "path": "ontology/behavior-categories.v1.json",
+      "bytes": 1622,
+      "digest": "sha256:36e8086bb02e0bbb61641b70e633b05df0301ddb0400d054af57b988f23c5d35"
+    },
+    {
+      "path": "schemas/aggregation.v1.json",
+      "bytes": 15464,
+      "digest": "sha256:8723e25a0ee74a66b7ba793be1f8f0ea52a46b644e3711ff926b0c0e019438a7"
+    },
+    {
+      "path": "schemas/atif-inspection.v1.json",
+      "bytes": 3271,
+      "digest": "sha256:05b663667663db0c13ca5dd96917a296b7e33a3989750a3351dc37321b4951df"
+    },
+    {
+      "path": "schemas/atif-producer-profile.v1.json",
+      "bytes": 3024,
+      "digest": "sha256:b834852dd3bde05af138deb1549b1ecaea8d5016b44d511d7a230efaaa90f7af"
+    },
+    {
+      "path": "schemas/atlas-bundle.v1.json",
+      "bytes": 5338,
+      "digest": "sha256:56f5f6825feff8f707791199eb2cf7a5b55eefa4e3ae3215598c591fb58d4b6c"
+    },
+    {
+      "path": "schemas/behavior-assertions.v1.json",
+      "bytes": 8052,
+      "digest": "sha256:460679e6f58525182ce3c29dee42bd9008a7fe977086a40e0588ac606f4ff39e"
+    },
+    {
+      "path": "schemas/campaign-status.v1.json",
+      "bytes": 4573,
+      "digest": "sha256:1b97a8fa426b65d31ca20ce6e7f25488e69bcbdec6c1bb40f5754194b518c5fe"
+    },
+    {
+      "path": "schemas/claim-checks.v1.json",
+      "bytes": 2709,
+      "digest": "sha256:77f27c397dcba04e756d3bd0f5c141d5e138526f8dc05bbed76567696c80064e"
+    },
+    {
+      "path": "schemas/deepseek-runtime-composition.v1.schema.json",
+      "bytes": 4213,
+      "digest": "sha256:78cbf471249d778d0f012b198c4e7a885e1496584f0d397ce7ac1168a8f31d14"
+    },
+    {
+      "path": "schemas/experiment.v1.schema.json",
+      "bytes": 5916,
+      "digest": "sha256:777bb87aff74ec8263c369e27f3f64c6dc03a00f9997f224d0e50ba06f68cc27"
+    },
+    {
+      "path": "schemas/experiment.v2.schema.json",
+      "bytes": 6438,
+      "digest": "sha256:2285a39c8d09727dd08535e75b1dece626dee23753e7d983091461776c93653c"
+    },
+    {
+      "path": "schemas/harbor-admission.v1.schema.json",
+      "bytes": 4724,
+      "digest": "sha256:adae0e7368bb6a8474b16c4fa0bce2a8e0dec4ef9a2a5f3e05663bbf5ec93612"
+    },
+    {
+      "path": "schemas/harbor-freeze.v1.schema.json",
+      "bytes": 1863,
+      "digest": "sha256:261d8676f9480d579e32c2a55caa03956c248ed242020288880a83d5bd88f405"
+    },
+    {
+      "path": "schemas/harbor-import.v1.json",
+      "bytes": 14049,
+      "digest": "sha256:9aacd01a63ec1ad0fa7353009891e8f6af4a39327c98316008c6faa0cbedf82a"
+    },
+    {
+      "path": "schemas/harbor-review.v1.schema.json",
+      "bytes": 1023,
+      "digest": "sha256:c0ac5fb3a816dd4518b712c801e2645904363b416fe384590cd6d158f1bcaec5"
+    },
+    {
+      "path": "schemas/human-calibration.v1.json",
+      "bytes": 14846,
+      "digest": "sha256:bc3eaa10711a8ef98990b8663ea7ecdafe41462d8c6b028f7abb3b6e9e8a62cb"
+    },
+    {
+      "path": "schemas/import-manifest.v1.json",
+      "bytes": 4071,
+      "digest": "sha256:4f4e51c689f667c74b61c8160cc94395f55756adc41bea19910b0be491264324"
+    },
+    {
+      "path": "schemas/normalization-integrity.v1.json",
+      "bytes": 12494,
+      "digest": "sha256:5ecf38da7f84a18df7811162e8f61a8c9c605641c47dfa42a921f87e516f33fb"
+    },
+    {
+      "path": "schemas/occurrence-ratings.v1.json",
+      "bytes": 7941,
+      "digest": "sha256:f6c4be4eaec04d2243b04281135ca73bbeeeec6def9bc77efaf4fb85e12e0c7d"
+    },
+    {
+      "path": "schemas/pi-atif-mapping.v1.json",
+      "bytes": 3559,
+      "digest": "sha256:da721827e1d577f0a927e45611b84e52ad95c720d623a729d8e8dcff0402e24b"
+    },
+    {
+      "path": "schemas/run-bundles/v1.json",
+      "bytes": 38623,
+      "digest": "sha256:b93b83b405454f22a8eac8c0ea66bffbdb5b5cb37e3a08d89853c70c6c34c3cb"
+    },
+    {
+      "path": "schemas/run-queue.v1.schema.json",
+      "bytes": 7590,
+      "digest": "sha256:827fb53a5cf1aae06452e5afb945235a80329c0c2d0b092081d06d6218c86f8e"
+    },
+    {
+      "path": "schemas/run-queue.v2.schema.json",
+      "bytes": 8725,
+      "digest": "sha256:6a07519cbdac515f2c7110154f6668ccd4e1fb931c9a149e69489c7d4dba26df"
+    },
+    {
+      "path": "schemas/semantic-judge.v1.json",
+      "bytes": 18245,
+      "digest": "sha256:b7390e9f132265dcfa1bdc1cfa89727d0433c1d0ca5c971bd904272ccc0649ab"
+    },
+    {
+      "path": "schemas/structural-observations.v1.json",
+      "bytes": 7392,
+      "digest": "sha256:e13aadab4813d9bad1fefe9284b449e29580eb8dba1e88ff52773323a0844f5b"
+    },
+    {
+      "path": "schemas/task-packet-freeze.v1.schema.json",
+      "bytes": 3538,
+      "digest": "sha256:5d4e4997f8642dd2528d88b2174c002f0682bbef66022dac67b5f99c290f9f0f"
+    },
+    {
+      "path": "schemas/task-packet.v1.schema.json",
+      "bytes": 9004,
+      "digest": "sha256:1ae8c5419cf699f3a385b39b14f219e4cd6946131474e8fadf7664dbbedee8a1"
+    },
+    {
+      "path": "schemas/uniform-events/v1.json",
+      "bytes": 9101,
+      "digest": "sha256:96ec26f86bbb43340d1d06ad37b229aafffd9afec772de44cadb9b3a98f21573"
+    }
+  ]
+}

@@ -3,6 +3,9 @@ import { mkdtemp, mkdir, writeFile, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import {freezeStudyRuntimes} from "../src/study-runtimes.js";
+import {withStudyRuntime} from "../src/runtime-context.js";
+import {fakePythonRuntimeOptions} from "./runtime-python-fixture.js";
 import { digestBytes } from "../src/artifacts.js";
 import { invokeTrial, runOfficialHarborTrial } from "../src/harbor/official-trial.js";
 import type { HarborAdapter } from "../src/harbor/adapter.js";
@@ -30,12 +33,14 @@ test("Harbor child stdout retains split UTF-8 bytes", async () => {
 async function trialFixture() {
   const root = await mkdtemp(join(tmpdir(), "ebo-harbor-trial-"));
   const attempt = join(root, "attempt");
+  const options = fakePythonRuntimeOptions();
+  const runtimeLock = await freezeStudyRuntimes(root, {studyId: "harbor-host", roles: ["harbor", "smol"]}, options);
   const ref = async (locator: string, content: string) => {
     await writeFile(join(root, locator), content);
     return { locator, digest: digestBytes(Buffer.from(content)) };
   };
   const archive = await ref("worker.tgz", "test archive; not executed");
-  const workerRef = await ref("worker.json", JSON.stringify({ schemaVersion: "ebo.harbor-worker-runtime/v1", archive, node: "node", entrypoint: "worker.js", environmentKeys: [] }));
+  const workerRef = await ref("worker.json", JSON.stringify({ schemaVersion: "ebo.harbor-worker-runtime/v2", studyLockDigest: runtimeLock.digest, archive, node: "node", entrypoint: "worker.js", environmentKeys: [] }));
   const environmentRef = await ref("environment.json", JSON.stringify({ schemaVersion: "ebo.smol-environments/v1", platform: "linux/arm64", runtimeArchiveDigest: archive.digest.value }));
   const config = await ref("config.json", "{}");
   const digest = config.digest;
@@ -60,14 +65,14 @@ async function trialFixture() {
     captureProfile: config, coordinatorBudget: { maxWallClockMs: 5000 },
     ordering: { strategy: "sequential" as const, seed: "test" }, execution: { environmentProfile: "smol" as const, contextPolicy: "fresh" as const, workerRef, environmentRef }, entries: [entry],
   };
-  return { root, attempt, prepared, entry, queue, studyRoot: root, attemptId: "attempt" };
+  return { root, attempt, prepared, entry, queue, studyRoot: root, attemptId: "attempt", options };
 }
 
 test("Harbor staging failure retains an explicit unqualified attempt", async () => {
   const input = await trialFixture();
   input.entry.configuration.model = { ...input.entry.configuration.model, locator: "missing.json" };
   const adapter = { describePrerequisites: async () => { throw new Error("must not launch"); } } as unknown as HarborAdapter;
-  const result = await runOfficialHarborTrial({ ...input, adapter });
+  const result = await withStudyRuntime({studyRoot: input.root, role: "harbor", options: input.options}, () => runOfficialHarborTrial({ ...input, adapter, invoke: async (_python, script, request, signal, budget) => {const {python} = await adapter.describePrerequisites(); return invokeTrial(python, script, request, signal, budget);} }));
   assert.equal(result.terminal.state, "failed");
   assert.equal(result.captureQualification, "unqualified");
   const saved = JSON.parse(await readFile(join(input.prepared.evidence.eboDir, "manifest.json"), "utf8"));
@@ -95,11 +100,20 @@ test("Harbor wrapper preserves native terminal and classification through its er
       await writeFile(join(input.attempt, "harbor/trials/attempt/lock.json"), "{}");
       return { python: executable, version: null, docker: null };
     } } as unknown as HarborAdapter;
-    const result = await runOfficialHarborTrial({ ...input, adapter });
+    const result = await withStudyRuntime({studyRoot: input.root, role: "harbor", options: input.options}, () => runOfficialHarborTrial({ ...input, adapter, invoke: async (_python, script, request, signal, budget) => {const {python} = await adapter.describePrerequisites(); return invokeTrial(python, script, request, signal, budget);} }));
     assert.deepEqual(result.terminal, terminal);
     assert.equal(result.classification, classification);
     const joined = JSON.parse(await readFile(join(input.attempt, "steps/1/bundle/manifest.json"), "utf8"));
     assert.equal(joined.evidence[0].id, "harbor-result");
     assert.equal((await stat(join(input.attempt, "steps/1/bundle/manifest.json"))).mode & 0o777, 0o600);
+  });
+});
+
+test("each public Harbor trial refreshes OSV even inside an existing checked context", async () => {
+  const input = await trialFixture(); input.entry.configuration.model = {...input.entry.configuration.model, locator: "missing.json"};
+  const adapter = {describePrerequisites: async () => {throw new Error("must not launch");}} as unknown as HarborAdapter;
+  await withStudyRuntime({studyRoot: input.root, role: "harbor", options: input.options}, async () => {
+    input.options.query = async () => ({vulns: [{id: "MAL-2026-new-harbor-fixture"}]});
+    await assert.rejects(runOfficialHarborTrial({...input, adapter}), /RUNTIME_MALICIOUS/);
   });
 });

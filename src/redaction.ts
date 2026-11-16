@@ -19,6 +19,7 @@ export const SECRET_PLACEHOLDER = "[REDACTED_SECRET]";
 export type SecretTokenKind =
   | "private-key"
   | "aws-access-key"
+  | "huggingface-token"
   | "github-token"
   | "anthropic-api-key"
   | "openai-style-api-key"
@@ -52,6 +53,7 @@ const TOKEN_PATTERNS: ReadonlyArray<{ kind: SecretTokenKind; pattern: RegExp }> 
     pattern: /()(?:-----BEGIN (?:(?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----[\s\S]*?(?:-----END (?:(?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----|$))/gu,
   },
   { kind: "aws-access-key", pattern: /()\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/gu },
+  { kind: "huggingface-token", pattern: /()(?:hf_[A-Za-z0-9]{30,})/gu },
   { kind: "github-token", pattern: /()\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{22,})\b/gu },
   { kind: "anthropic-api-key", pattern: /()\bsk-ant-[A-Za-z0-9_-]{12,}/gu },
   { kind: "openai-style-api-key", pattern: /()\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}/gu },

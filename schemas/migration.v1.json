@@ -1,0 +1,896 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:migration:v1",
+  "$defs": {
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputDigest",
+        "datasetDigest",
+        "selectionDigest",
+        "selectedEvidenceDigest",
+        "rubricDigest",
+        "promptVersion",
+        "ratingsDigest",
+        "behaviorDigest",
+        "rubricIdentityDigest"
+      ],
+      "properties": {
+        "inputDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "datasetDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "selectionDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "selectedEvidenceDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "rubricDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "promptVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "ratingsDigest": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "behaviorDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "rubricIdentityDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "observationSetDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "ledgerDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "requestDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "inputDigest",
+        "evaluatorDigest",
+        "runId",
+        "attemptId",
+        "configurationDigest",
+        "judgmentDigests",
+        "assertionDigests",
+        "paths",
+        "inputStatuses",
+        "assertionStatuses",
+        "dependencies",
+        "behavior",
+        "costSamples"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "inputDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "evaluatorDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "configurationDigest": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "judgmentDigests": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        },
+        "assertionDigests": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        },
+        "paths": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384
+          }
+        },
+        "inputStatuses": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "enum": [
+              "verified",
+              "missing",
+              "absent",
+              "invalid"
+            ]
+          }
+        },
+        "assertionStatuses": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "enum": [
+              "verified",
+              "missing",
+              "absent",
+              "invalid"
+            ]
+          }
+        },
+        "dependencies": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/dependencies"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "behavior": {
+          "anyOf": [
+            {
+              "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/behavior"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "costSamples": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "judgmentDigest",
+              "totalCostUsd"
+            ],
+            "properties": {
+              "judgmentDigest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "totalCostUsd": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "inventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "studyId",
+        "analysisRuntime",
+        "selection",
+        "records",
+        "units",
+        "failures",
+        "summary",
+        "assertions"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.migration-inventory/v1"
+        },
+        "studyId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "analysisRuntime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "manifestDigest"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "manifestDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "selection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifacts",
+            "completeWithinSelection"
+          ],
+          "properties": {
+            "artifacts": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              }
+            },
+            "completeWithinSelection": {
+              "type": "boolean"
+            }
+          }
+        },
+        "records": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "schemaVersion",
+              "digest",
+              "validationProfile"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              },
+              "schemaVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "validationProfile": {
+                "enum": [
+                  "current-schema",
+                  "codex-relay-0.162.1-no-wall-limit/v1"
+                ]
+              }
+            }
+          }
+        },
+        "units": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "$ref": "#/$defs/unit"
+          }
+        },
+        "failures": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "reason"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              }
+            }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifactFiles",
+            "distinctAssertionContents",
+            "judgmentUnits",
+            "verifiedInputUnits",
+            "missingInputUnits",
+            "invalidInputUnits",
+            "measuredCostUsd"
+          ],
+          "properties": {
+            "artifactFiles": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "distinctAssertionContents": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "judgmentUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "verifiedInputUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "missingInputUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "invalidInputUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "measuredCostUsd": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "assertions": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "$ref": "#/$defs/assertion"
+          }
+        }
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "studyId",
+        "inventoryDigest",
+        "units",
+        "summary",
+        "unboundAssertions"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.migration-reconciliation/v1"
+        },
+        "studyId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "inventoryDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "units": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "disposition",
+              "changedDependencies",
+              "target"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "disposition": {
+                "enum": [
+                  "preserve-frozen-missing-evidence",
+                  "pending-target",
+                  "reuse",
+                  "rejudge"
+                ]
+              },
+              "changedDependencies": {
+                "type": "array",
+                "maxItems": 100000,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16384
+                }
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "inputDigest",
+                      "evaluatorDigest",
+                      "configurationDigest"
+                    ],
+                    "properties": {
+                      "inputDigest": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "evaluatorDigest": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "configurationDigest": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "inputSchemaVersion": {
+                        "const": "ebo.semantic-judge-input/v2"
+                      },
+                      "readiness": {
+                        "enum": [
+                          "ready",
+                          "requires-ratings"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reusableUnits",
+            "affectedUnits",
+            "pendingUnits",
+            "preservedMissingUnits",
+            "unpricedAffectedUnits",
+            "measuredForecastUsd",
+            "authorizedPaidBudgetUsd",
+            "preservedAssertionUnits"
+          ],
+          "properties": {
+            "reusableUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "affectedUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "pendingUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "preservedMissingUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unpricedAffectedUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "measuredForecastUsd": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "authorizedPaidBudgetUsd": {
+              "const": 0
+            },
+            "preservedAssertionUnits": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "unboundAssertions": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "digest",
+              "disposition"
+            ],
+            "properties": {
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "disposition": {
+                "const": "preserve-frozen-missing-evidence"
+              }
+            }
+          }
+        }
+      }
+    },
+    "assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "datasetDigest",
+        "behaviorDigest",
+        "rubricIdentityDigest",
+        "runId",
+        "attemptId",
+        "configurationDigest",
+        "paths"
+      ],
+      "properties": {
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "datasetDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "behaviorDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "rubricIdentityDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "configurationDigest": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "paths": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384
+          }
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "studyId",
+        "inventoryDigest",
+        "sourceRuntime",
+        "target",
+        "units",
+        "unboundAssertions",
+        "summary"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.migration-plan/v1"
+        },
+        "studyId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "inventoryDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "sourceRuntime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "manifestDigest"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "manifestDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "datasetSchemaVersion",
+            "inputSchemaVersion",
+            "promptVersion"
+          ],
+          "properties": {
+            "datasetSchemaVersion": {
+              "const": "ebo.normalized-dataset/v2"
+            },
+            "inputSchemaVersion": {
+              "const": "ebo.semantic-judge-input/v2"
+            },
+            "promptVersion": {
+              "const": "2.0.0"
+            }
+          }
+        },
+        "units": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "assertionDigests",
+              "disposition",
+              "proof",
+              "ratingDependencyRebuild",
+              "targetPreparation",
+              "targetInputDigest"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "assertionDigests": {
+                "type": "array",
+                "maxItems": 1000000,
+                "items": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              },
+              "disposition": {
+                "enum": [
+                  "rejudge-required",
+                  "preserve-frozen-missing-evidence"
+                ]
+              },
+              "proof": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "dependency",
+                      "previous",
+                      "target"
+                    ],
+                    "properties": {
+                      "dependency": {
+                        "const": "promptVersion"
+                      },
+                      "previous": {
+                        "enum": [
+                          "1.0.0",
+                          "1.1.0",
+                          "1.2.0",
+                          "1.3.0"
+                        ]
+                      },
+                      "target": {
+                        "const": "2.0.0"
+                      }
+                    }
+                  }
+                ]
+              },
+              "ratingDependencyRebuild": {
+                "type": "boolean"
+              },
+              "targetPreparation": {
+                "enum": [
+                  "prepared",
+                  "pending",
+                  "preserved"
+                ]
+              },
+              "targetInputDigest": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "unboundAssertions": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "digest",
+              "disposition"
+            ],
+            "properties": {
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "disposition": {
+                "const": "preserve-frozen-missing-evidence"
+              }
+            }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "affectedUnits",
+            "affectedAssertionContents",
+            "preservedMissingUnits",
+            "preservedAssertionContents",
+            "ratingDependencyUnits",
+            "distinctRetainedRatingDependencies",
+            "preparedTargets",
+            "pendingTargetUnits",
+            "measuredForecastUsd",
+            "authorizedPaidBudgetUsd"
+          ],
+          "properties": {
+            "affectedUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "affectedAssertionContents": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "preservedMissingUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "preservedAssertionContents": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "ratingDependencyUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "distinctRetainedRatingDependencies": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "preparedTargets": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "pendingTargetUnits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "measuredForecastUsd": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "authorizedPaidBudgetUsd": {
+              "const": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}

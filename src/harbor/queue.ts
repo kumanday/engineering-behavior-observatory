@@ -1,3 +1,6 @@
+import { join } from "node:path";
+import { unwrapRuntimeBoundQueue } from "../study-runtime-bindings.js";
+import { harborTaskHasPriorTrajectory } from "./tasks.js";
 import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact, type ArtifactValidationError } from "../artifacts.js";
 import {
   assertDeclaredOrder,
@@ -9,7 +12,7 @@ import {
 } from "../contracts.js";
 import { formatErrors } from "../task-packets.js";
 import type { FrozenTaskIdentity } from "../scheduler.js";
-import { admissionLocatorOf, freezeLocatorOf, readHarborStudyJson, statusHarborTask } from "./study.js";
+import { admissionLocatorOf, freezeLocatorOf, harborStudyPaths, readHarborStudyJson, statusHarborTask } from "./study.js";
 import type { AssessmentMode } from "../contracts.js";
 import type { HarborAdapter } from "./adapter.js";
 
@@ -313,7 +316,7 @@ export async function readHarborRunQueue(path: string, options: ReadHarborRunQue
   const bytes = readBoundedFile(path, "Run queue");
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   assertNoDuplicateJsonKeys(text);
-  const queue = JSON.parse(text) as unknown;
+  const queue = unwrapRuntimeBoundQueue(JSON.parse(text));
   const errors = await validateHarborRunQueue(queue, options, path);
   if (errors.length > 0) throw new Error(formatErrors(errors));
   return queue as RunQueueV2;
@@ -323,7 +326,9 @@ export async function readHarborRunQueue(path: string, options: ReadHarborRunQue
 export async function readRunQueueVersioned(path: string, options: { bundleRoot?: string; studyRoot?: string; adapter?: HarborAdapter } = {}): Promise<RunQueueV2 | import("../scheduler.js").RunQueue> {
   const { readBoundedFile, readRunQueue } = await import("../scheduler.js");
   const bytes = readBoundedFile(path, "Run queue");
-  const document = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as { schemaVersion?: string };
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  assertNoDuplicateJsonKeys(text);
+  const document = unwrapRuntimeBoundQueue(JSON.parse(text)) as { schemaVersion?: string };
   if (document.schemaVersion === HARBOR_RUN_QUEUE_SCHEMA_VERSION) {
     return readHarborRunQueue(path, options.adapter === undefined
       ? { studyRoot: options.studyRoot }
@@ -374,6 +379,9 @@ async function resolveTaskIdentity(
   }
   if (options.studyRoot === undefined) {
     throw new Error(`Harbor task "${taskId}" requires a study root to resolve its frozen identity.`);
+  }
+  if (harborTaskHasPriorTrajectory(join(harborStudyPaths(options.studyRoot).snapshotsRoot, condition.taskSourceId))) {
+    throw new Error("unsupported-imported-trajectory: task-shipped trajectory.json requires seeded-context support.");
   }
   const status = await statusHarborTask(options.studyRoot, condition.taskSourceId, options.adapter === undefined ? {} : { adapter: options.adapter });
   if (status.status !== "frozen") {

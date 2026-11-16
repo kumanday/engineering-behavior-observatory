@@ -8,6 +8,13 @@ EBO accepts externally authored task packets and experiment configurations as
 versioned JSON documents. The schemas are the contract; this repository does
 not contain an evaluation corpus or a fixed operating matrix.
 
+`ebo.run-queue/v3` binds a validated v1 task-packet or v2 Harbor queue to an
+`ebo.study-freeze/v1` record. That record identifies the runtime lock and the
+source queue by digest. Execution derives a run ID from the freeze and original
+assignment ID; the source queue and its ordering stay intact. See
+[study runtime locks](study-runtimes.md#bind-a-queue-to-the-freeze) for the command
+and migration rules.
+
 ## Task packets
 
 `schemas/task-packet.v1.schema.json` divides a packet into two surfaces:

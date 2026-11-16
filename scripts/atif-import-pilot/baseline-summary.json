@@ -1,0 +1,259 @@
+{
+  "schemaVersion": "ebo.atif-pilot-summary/v1",
+  "date": "2026-11-07",
+  "baseCommit": "86a601079a51243756fe52798365a9cbf69cfe6f",
+  "runtime": {
+    "node": "24.19.0",
+    "python": "3.13.12",
+    "harbor": "0.24.0",
+    "atif-scan": "0.8.21"
+  },
+  "productionEligible": false,
+  "publicArtifacts": 47,
+  "publicBytes": 2915673,
+  "publicCases": {
+    "codex-pending": {
+      "schema": "ATIF-v1.7",
+      "structuralGate": "pass",
+      "recordedToolCalls": 44,
+      "nativeCallCount": 45,
+      "nativeCallsMissingFromAtif": 1,
+      "declaredInferenceCount": 44,
+      "limitations": [
+        "EVENT_LOG_COMPLETENESS_UNPROVEN",
+        "THIRD_PARTY_CONVERTED_SOURCE",
+        "NATIVE_CALLS_MISSING_FROM_ATIF",
+        "EXTERNAL_REFERENCE_NOT_RETAINED"
+      ]
+    },
+    "hermes": {
+      "schema": "ATIF-v1.2",
+      "structuralGate": "pass",
+      "recordedToolCalls": 28,
+      "nativeCallCount": null,
+      "nativeCallsMissingFromAtif": null,
+      "declaredInferenceCount": null,
+      "limitations": [
+        "EVENT_LOG_COMPLETENESS_UNPROVEN",
+        "THIRD_PARTY_CONVERTED_SOURCE",
+        "DECLARED_INFERENCE_COUNT_UNAVAILABLE"
+      ]
+    },
+    "openclaw": {
+      "schema": "ATIF-v1.8",
+      "structuralGate": "pass",
+      "recordedToolCalls": 0,
+      "nativeCallCount": null,
+      "nativeCallsMissingFromAtif": null,
+      "declaredInferenceCount": null,
+      "limitations": [
+        "EVENT_LOG_COMPLETENESS_UNPROVEN",
+        "THIRD_PARTY_CONVERTED_SOURCE",
+        "PRODUCER_PARTIAL_HISTORY"
+      ]
+    },
+    "pi": {
+      "schema": "ATIF-v1.7",
+      "structuralGate": "pass",
+      "recordedToolCalls": 28,
+      "nativeCallCount": 28,
+      "nativeCallsMissingFromAtif": 0,
+      "declaredInferenceCount": 28,
+      "limitations": [
+        "EVENT_LOG_COMPLETENESS_UNPROVEN",
+        "THIRD_PARTY_CONVERTED_SOURCE"
+      ]
+    }
+  },
+  "paired": [
+    {
+      "key": "paired-0",
+      "nativeLoad": "pass",
+      "comparisons": [
+        {
+          "measure": "tool-operation-count",
+          "native": {
+            "status": "known",
+            "value": 105,
+            "unit": "identified-logical-tool-operations"
+          },
+          "atif": {
+            "status": "known",
+            "value": 105,
+            "unit": "identified-logical-tool-operations"
+          },
+          "pass": true
+        },
+        {
+          "measure": "tool-error-count",
+          "native": {
+            "status": "known",
+            "value": 4,
+            "unit": "logical-tool-operations"
+          },
+          "atif": {
+            "status": "known",
+            "value": 4,
+            "unit": "logical-tool-operations"
+          },
+          "pass": true
+        },
+        {
+          "measure": "input-token-count",
+          "native": {
+            "status": "known",
+            "value": 493564,
+            "unit": "tokens"
+          },
+          "atif": {
+            "status": "known",
+            "value": 493564,
+            "unit": "tokens"
+          },
+          "pass": true
+        },
+        {
+          "measure": "output-token-count",
+          "native": {
+            "status": "known",
+            "value": 68300,
+            "unit": "tokens"
+          },
+          "atif": {
+            "status": "known",
+            "value": 68300,
+            "unit": "tokens"
+          },
+          "pass": true
+        },
+        {
+          "measure": "cache-read-input-token-count",
+          "native": {
+            "status": "known",
+            "value": 11053922,
+            "unit": "tokens"
+          },
+          "atif": {
+            "status": "known",
+            "value": 11053922,
+            "unit": "tokens"
+          },
+          "pass": true
+        }
+      ],
+      "operationSignatureAgreement": true,
+      "nativeRequestCount": {
+        "status": "known",
+        "value": 77,
+        "unit": "requests"
+      },
+      "declaredInferenceCount": 77
+    },
+    {
+      "key": "paired-1",
+      "nativeLoad": "pass",
+      "comparisons": [
+        {
+          "measure": "tool-operation-count",
+          "native": {
+            "status": "known",
+            "value": 45,
+            "unit": "identified-logical-tool-operations"
+          },
+          "atif": {
+            "status": "known",
+            "value": 45,
+            "unit": "identified-logical-tool-operations"
+          },
+          "pass": true
+        },
+        {
+          "measure": "tool-error-count",
+          "native": {
+            "status": "known",
+            "value": 3,
+            "unit": "logical-tool-operations"
+          },
+          "atif": {
+            "status": "known",
+            "value": 3,
+            "unit": "logical-tool-operations"
+          },
+          "pass": true
+        },
+        {
+          "measure": "input-token-count",
+          "native": {
+            "status": "known",
+            "value": 213612,
+            "unit": "tokens"
+          },
+          "atif": {
+            "status": "known",
+            "value": 213612,
+            "unit": "tokens"
+          },
+          "pass": true
+        },
+        {
+          "measure": "output-token-count",
+          "native": {
+            "status": "known",
+            "value": 5709,
+            "unit": "tokens"
+          },
+          "atif": {
+            "status": "known",
+            "value": 5709,
+            "unit": "tokens"
+          },
+          "pass": true
+        },
+        {
+          "measure": "cache-read-input-token-count",
+          "native": {
+            "status": "known",
+            "value": 1394594,
+            "unit": "tokens"
+          },
+          "atif": {
+            "status": "known",
+            "value": 1394594,
+            "unit": "tokens"
+          },
+          "pass": true
+        }
+      ],
+      "operationSignatureAgreement": true,
+      "nativeRequestCount": {
+        "status": "known",
+        "value": 22,
+        "unit": "requests"
+      },
+      "declaredInferenceCount": 22
+    },
+    {
+      "key": "paired-2",
+      "nativeLoad": "rejected",
+      "importMustNotUpgradeQualification": true
+    }
+  ],
+  "allThreeConversionsDeterministic": true,
+  "orderingProbe": {
+    "expectedResponseEventId": "call-b",
+    "observedResponseEventId": null,
+    "defectReproduced": true,
+    "ruleVersion": "1.1.0"
+  },
+  "scannerInputsAvailable": 4,
+  "secretScan": {
+    "artifactsScanned": 47,
+    "findings": 0
+  },
+  "focusedTests": {
+    "node": 3,
+    "python": 8
+  },
+  "modelCalls": 0,
+  "reviewSha256": "42426f31e20fb4ec9ace5d9e0c106bb58f9fe28d65a70943942586fd4ef7b485"
+}

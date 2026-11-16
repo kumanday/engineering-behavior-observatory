@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { runtimeTest } from "./with-runtime-fixture.js";
+const test = runtimeTest("pi-sdk");
 import type { AddressInfo } from "node:net";
 import { digestBytes, createRetainedBehaviorEvidence, PINNED_PI_SDK_VERSION } from "../src/index.js";
 import { runHarborWorker, type HarborWorkerInput } from "../src/harbor/worker.js";
 import { startProvider } from "./harbor-provider-worker.js";
 
-test("worker uses the real Pi SDK, captures evidence and drains without a Harbor scheduler", async () => {
+test("worker resolves an alias arm to the real Pi SDK, captures evidence and drains", async () => {
  const root = mkdtempSync(join(tmpdir(), "ebo-harbor-native-"));
  const workspace = join(root, "workspace"), config = join(root, "config");
  mkdirSync(workspace); mkdirSync(config);
@@ -17,7 +18,7 @@ test("worker uses the real Pi SDK, captures evidence and drains without a Harbor
  const digest = digestBytes(Buffer.from(prompt));
  const input: HarborWorkerInput = {
   prepared: {
-   run: { id: "run-conformance", attemptId: "attempt-conformance", taskId: "task", modelId: "synthetic-model", harnessId: "pi-sdk", trialIndex: 1 },
+   run: { id: "run-conformance", attemptId: "attempt-conformance", taskId: "task", modelId: "synthetic-model", harnessId: "pi-arm-a", trialIndex: 1 },
    task: { taskSourceId: "harbor-conformance", harborDigest: digest.value, assessmentMode: "observational", snapshotDirectory: "/host-only-task", resolutionDigest: digest },
    steps: [{ index: 1, name: null, effectiveInstruction: prompt, instructionDigest: digest, minReward: null, verifierTimeoutSec: 10 }],
    environment: { profile: "local-fs-test", provider: "test", containerized: false, enforcement: "none", dockerImage: null, networkMode: "public" },

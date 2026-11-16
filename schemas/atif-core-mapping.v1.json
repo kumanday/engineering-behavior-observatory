@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:atif-core-mapping:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "scope",
+    "producerStatus",
+    "limitations",
+    "recorded",
+    "signatures",
+    "measures",
+    "measurements"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "ebo.atif-core-mapping/v1"
+    },
+    "scope": {
+      "const": "recorded-documents"
+    },
+    "producerStatus": {
+      "const": "supported"
+    },
+    "profileDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "limitations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "recorded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "calls",
+        "linkedResults",
+        "copiedStepsExcluded",
+        "contextOnlyStepsExcluded"
+      ],
+      "properties": {
+        "calls": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "linkedResults": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "copiedStepsExcluded": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "contextOnlyStepsExcluded": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "signatures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "document",
+          "id",
+          "name",
+          "failed",
+          "operationId",
+          "scope",
+          "identityClass"
+        ],
+        "properties": {
+          "document": {
+            "type": "string",
+            "minLength": 1
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "operationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "identityClass": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "measures": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "value",
+              "unit"
+            ],
+            "properties": {
+              "status": {
+                "const": "known"
+              },
+              "value": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "unit": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "reason"
+            ],
+            "properties": {
+              "status": {
+                "const": "unavailable"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    "measurements": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:ebo:schema:normalization:v2#/$defs/measurement"
+      }
+    }
+  }
+}
