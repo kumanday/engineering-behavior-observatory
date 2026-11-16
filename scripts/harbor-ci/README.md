@@ -3,8 +3,8 @@
 Harbor CI uses a complete, hash-locked Linux/Python 3.14 dependency graph.
 `selection.json` records the Harbor and Smol releases selected through the same
 `fetchRuntimeReleases` and `selectRuntimeRelease` functions used by study freezes,
-with the default 24-hour age gate. This snapshot selects Harbor 0.25.0 and
-Smol 1.32.4. Studies resolve and freeze their own runtimes independently.
+with the default 24-hour age gate. This snapshot selects Harbor 0.26.0 and
+Smol 1.35.0. Studies resolve and freeze their own runtimes independently.
 
 Refresh the snapshot after building EBO, with `uv` available on PATH:
 
