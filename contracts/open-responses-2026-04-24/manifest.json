@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "ebo.open-responses-contract/v1",
+  "specification": {
+    "name": "Open Responses",
+    "version": "2026-04-24",
+    "url": "https://www.openresponses.org/specification"
+  },
+  "source": {
+    "url": "https://www.openresponses.org/openapi/2026-04-24/openapi.json",
+    "repository": "https://github.com/openresponses/openresponses",
+    "repositoryPath": "public/openapi/2026-04-24/openapi.json",
+    "gitCommit": "4849f32442bc380852bb4068f0b6cfff347c2baa",
+    "retrievedAt": "2026-11-16"
+  },
+  "license": {
+    "spdx": "Apache-2.0",
+    "url": "https://github.com/openresponses/openresponses/blob/main/LICENSE",
+    "modifications": "none; the file is byte-identical to the source"
+  },
+  "files": {
+    "openapi.json": "d598753c3a86fd8a2434828fe39dcc8786a7a694bbe46080a0d24c9fa40e72df"
+  }
+}

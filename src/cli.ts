@@ -59,6 +59,7 @@ import {
 import { createRetainedStructuralObservationSet } from "./structural-observations.js";
 import { serveAtlasBundle } from "./atlas-viewer.js";
 import { serveRunMonitor } from "./run-monitor.js";
+import { runOpenResponsesCommand } from "./open-responses-cli.js";
 import { buildAtlasBundle, verifyAtlasBundle } from "./atlas-bundle.js";
 import { buildPacket, verifyPacket, type PacketVariant } from "./atlas-packet.js";
 import { DEFAULT_RATING_POLICY, rateRetainedOccurrences, type OccurrenceRatings } from "./occurrence-ratings.js";
@@ -104,6 +105,8 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo devin run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo pi run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
+       ebo open-responses record <recording-root> <route-id> --upstream <base-url> --upstream-key-env <NAME> --route-key-env <NAME> [--endpoint <responses|chat/completions>] [--model <id>] [--host <address>] [--port <port>]
+       ebo open-responses analyze <recording-root> <output.json> [--schema <openapi.json>]
        ebo export create <run-bundle-root> <policy.json> <export-root>
        ebo corpus build <corpus-root> <index.jsonl>
        ebo corpus query <index.jsonl> [--kind|--run|--attempt|--task|--model|--harness|--assessment-mode|--terminal|--failure-class|--verifier-status|--capture|--export-status|--sharing-class <value>]
@@ -172,6 +175,8 @@ export function main(
   if (args[0] === "v2") return runAnalysisV2Command(args.slice(1), write);
 
   if (args[0] === "atif") return runAtifInspection(args.slice(1), write);
+
+  if (args[0] === "open-responses") return runOpenResponsesCommand(args.slice(1), write);
 
   if ((args[0] === "matrix" && args[1] === "compile") || args[0] === "compile") {
     return compileQueue(args[0] === "matrix" ? args.slice(2) : args.slice(1), write);
