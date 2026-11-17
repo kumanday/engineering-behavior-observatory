@@ -15,11 +15,12 @@ import { piV2Profile } from "./v2-profiles/pi.js";
 import { codexV2Profile } from "./v2-profiles/codex.js";
 import { factoryV2Profile } from "./v2-profiles/factory.js";
 import { cursorV2Profile } from "./v2-profiles/cursor.js";
+import { antigravityV2Profile } from "./v2-profiles/antigravity.js";
 import { devinV2Profile } from "./v2-profiles/devin.js";
 import { openHandsV2Profile } from "./v2-profiles/openhands.js";
 import { deepSeekV2Profile } from "./v2-profiles/deepseek.js";
 type Hash = `sha256:${string}`;
-const profiles = [claudeV2Profile, piV2Profile, codexV2Profile, factoryV2Profile, cursorV2Profile, devinV2Profile, openHandsV2Profile, deepSeekV2Profile];
+const profiles = [claudeV2Profile, piV2Profile, codexV2Profile, factoryV2Profile, cursorV2Profile, devinV2Profile, antigravityV2Profile, openHandsV2Profile, deepSeekV2Profile];
 export type SourceEvidenceResolverV2 = NativeEvidenceResolver & { read(reference: NativeEvidenceReference): unknown };
 export type RetainedBehaviorEvidenceV2 = Omit<RetainedBehaviorEvidence, "dataset" | "coverage" | "resolver"> & {
   dataset: NormalizedDatasetV2;

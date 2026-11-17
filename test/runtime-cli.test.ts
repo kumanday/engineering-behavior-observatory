@@ -52,7 +52,7 @@ test("runtime CLI prepares and admits real probe outputs at the mocked registry 
     const admitted = await run(["verification", "admit", catalog, candidate, operator]);
     assert.match(admitted.warnings.join(), /GHSA-new-at-admission/);
     assert.match(admitted.warnings.join(), /RUNTIME_DEPENDENCY_DEPRECATED.*fixture-deprecated-dependency@2.0.0/);
-    assert.equal((await run(["verification", "inspect", catalog])).receipts.length, 1);
+    assert.equal((await run(["verification", "inspect", catalog])).receipts.filter((receipt: {digest: string}) => receipt.digest === probe.receiptDigest).length, 1);
     await writeFile(request, JSON.stringify({studyId: "research", roles: ["cursor-sdk"]}));
     const research = await run(["freeze", join(root, "research"), request, "--verification-catalog", catalog]);
     assert.equal(research.groups[0].verification["cursor-sdk"].state, "probe-checked");

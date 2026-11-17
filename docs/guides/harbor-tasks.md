@@ -170,6 +170,7 @@ configuration files at `/tmp/ebo-worker/config/<locator>`.
 | Codex | Frozen Linux app-server runtime | Owned stdio child; no host daemon |
 | DeepSeek Harness | Named Linux runtime/plugin composition and its installed runtime | Official TypeScript JSON-RPC client |
 | OpenHands | Frozen Agent Server image as the task guest; cgroup v2 | Agent Server inside that guest, loopback REST/WebSocket and the same task workspace |
+| [Google Antigravity CLI](../harnesses/antigravity-cli.md#harbor-execution) | Frozen Linux CLI and private personal OAuth keyring in the guest | Fresh stream-json conversation per step |
 | Devin CLI | Frozen Linux vendor binary and Cognition credential | Owned ACP child and retained session |
 
 The archive contains EBO's coordinating dependencies and the study's exact

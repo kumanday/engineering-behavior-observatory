@@ -83,7 +83,7 @@ export async function prepareHarnessVerification(request: VerificationRequest, o
   request = {...request, studyRoot: resolve(request.studyRoot), ...(request.cases ? {cases: request.cases.map(item => ({...item, bundleRoot: resolve(item.bundleRoot)}))} : {})};
   const lock = await readStudyRuntimeLock(request.studyRoot), group = lock.groups.find(g => g.roles.includes(request.role));
   const subject = group && runtimeExecutionVerificationSubject(request.role, group);
-  if (!subject) throw new VerificationError("HARNESS_VERIFICATION_ROLE_INVALID", "Only the eight maintained native harnesses have capture verification records.");
+  if (!subject) throw new VerificationError("HARNESS_VERIFICATION_ROLE_INVALID", "Only the nine maintained native harnesses have capture verification records.");
   return withStudyRuntime({...request, options}, async () => {
     const context = currentStudyRuntime()!;
     for (const root of context.launch.roots) if (root.executable) await probeLockedRuntimeExecutable(root.id);

@@ -9,6 +9,7 @@ export function listRuntimeRecipes(target: { platform: string; architecture: str
   return [
     { id: "claude-agent-sdk", harness: "claude-agent-sdk", revision: 1, components: [npm("agent-sdk", "@anthropic-ai/claude-agent-sdk", true)] },
     { id: "codex-app-server", harness: "codex-app-server", revision: 1, components: [npm("codex", "@openai/codex", false, "codex")] },
+    { id: "antigravity-cli", harness: "antigravity-cli", revision: 1, components: [{ id: "agy", source: "github", name: "antigravity-cli", repository: "google-antigravity/antigravity-cli", assetPattern: `^agy_cli_${target.platform === "darwin" ? "mac" : target.platform}_${target.architecture === "x64" ? "x64" : target.architecture}\\.tar\\.gz$`, purl: "pkg:github/google-antigravity/antigravity-cli", executable: "antigravity" }] },
     { id: "devin-cli", harness: "devin-cli", revision: 1, components: [{ id: "devin", source: "vendor", name: "devin-cli", repository: "CognitionAI/devin-cli", platform: devinPlatform, purl: "pkg:github/CognitionAI/devin-cli", executable: "bin/devin" }] },
     { id: "cursor-sdk", harness: "cursor-sdk", revision: 1, components: [npm("cursor-sdk", "@cursor/sdk", true)] },
     { id: "pi-sdk", harness: "pi-sdk", revision: 1, components: [npm("pi-sdk", "@earendil-works/pi-coding-agent", true), npm("pi-codemode", "@earendil-works/pi-codemode")] },

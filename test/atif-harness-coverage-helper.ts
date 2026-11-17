@@ -26,11 +26,11 @@ export async function renderCoverageMatrix(): Promise<string> {
   const rows = await coverageResults();
   return `# ATIF coverage across EBO harnesses
 
-EBO maintains the eight native harnesses in this table. Every conforming ATIF document uses the same core reader, including documents from other producers. An upstream converter is a separate tool that writes ATIF; its availability does not determine whether EBO can read a document.
+EBO maintains the nine native harnesses in this table. Every conforming ATIF document uses the same core reader, including documents from other producers. An upstream converter is a separate tool that writes ATIF; its availability does not determine whether EBO can read a document.
 
 The native adapter column identifies EBO’s v2 adapter. The core result is measured on the checked-in public fixture with overlays disabled. Public fixtures use fictional content and are available in the source repository. Private retained conversions and capture-derived selections have source paths and digests in the pilot receipts; their digests bind the checked-in coverage record.
 
-The inspected Harbor release is [${coverage.upstream.version}](${coverage.upstream.source}), wheel SHA-256 \`${coverage.upstream.wheelSha256}\`. Its installed-agent sources contain the six converter modules listed below. No Factory Droid or DeepSeek Harness converter was found in that release.
+The inspected Harbor release is [${coverage.upstream.version}](${coverage.upstream.source}), wheel SHA-256 \`${coverage.upstream.wheelSha256}\`. Its installed-agent sources contain the six converter modules listed below. No Factory Droid, DeepSeek Harness or Antigravity CLI converter was found in that release.
 
 | Harness and native v2 adapter | Upstream ATIF producer | Fixture and core result | Overlay and measured limits | Same-run evidence |
 | --- | --- | --- | --- | --- |

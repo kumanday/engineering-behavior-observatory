@@ -83,6 +83,12 @@
       "captureSessionSha256": "9edf6d897008ebdc5321191446d1ad104176ea7a896a5ac1d55620cd49aa46ae",
       "privateAuthoredTrajectorySha256": "3351ae9bde199d3f6d28fa8be4fe493b9a3cba0ce9a78bb8d2c7ad0d9a216ebf",
       "trajectorySha256": "402c79c5528a59a9cbc62bc0ded251401e644a18471670fc154f9835ec104eae"
+    },
+    {
+      "harness": "antigravity-cli",
+      "authored": true,
+      "purpose": "Fictional derivative for conformance; real qualification is recorded in the verification catalog.",
+      "trajectorySha256": "679a94e54480a7eb031f92e3491e1657b7fbd124c64b0f85d70fea85ce5e8f2d"
     }
   ]
 }

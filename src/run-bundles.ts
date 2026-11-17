@@ -1052,6 +1052,8 @@ function nativeRecordSummary(records: unknown[]): { hookNames: string[]; session
   }
   for (const record of records) {
     if (!isRecord(record)) continue;
+    if (record.source === "antigravity-cli" && record.kind === "frame" && isRecord(record.payload)
+      && record.payload.event === "init" && typeof record.payload.conversation_id === "string") sessionIds.push(record.payload.conversation_id);
     const hook = typeof record.hook === "string" ? record.hook
       : typeof record.hook_event_name === "string" ? record.hook_event_name
         : typeof record.type === "string" ? record.type : undefined;
@@ -1059,7 +1061,7 @@ function nativeRecordSummary(records: unknown[]): { hookNames: string[]; session
     for (const sessionId of [
       record.sessionId,
       record.session_id,
-      record.schemaVersion === "ebo.protocol-observation/v1" && (record.source === "codex-app-server" || record.source === "devin-cli")
+      record.schemaVersion === "ebo.protocol-observation/v1" && (record.source === "codex-app-server" || record.source === "devin-cli" || record.source === "antigravity-cli")
         ? record.sourceIdentity : undefined,
       isRecord(record.message) ? record.message.session_id : undefined,
     ]) {

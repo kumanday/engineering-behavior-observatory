@@ -674,6 +674,8 @@ export { selectAggregationAttempts } from "./aggregation.js";
 
 export * from "./factory-droid.js";
 export * from "./factory-run.js";
+export * from "./antigravity.js";
+export * from "./antigravity-run.js";
 
 export { FACTORY_BYOK_MODEL_ID, type FactoryModelRoute } from "./factory-model.js";
 export { createPointerEvidenceResolver, readEvidencePointer, type PointedEvidence, type PointerValue } from "./evidence-pointers.js";
@@ -740,3 +742,5 @@ export {prepareHarnessVerification, validateHarnessVerificationCandidate, admitH
 export type {VerificationRequest, VerificationCase, VerificationCandidate} from "./harness-verification-candidate.js";
 export {readVerificationCatalog, snapshotVerification, evaluateVerification, assertVerificationReceipt, assertVerificationSnapshot, harnessCaptureContract, VerificationError} from "./harness-verification.js";
 export type {HarnessVerificationReceipt, VerificationAdmission, VerificationCatalog, VerificationSubject, VerificationScope, VerificationSnapshot, VerificationResult, VerificationClaim, VerificationClaimResult} from "./harness-verification.js";
+
+export { exportAntigravityAtif } from "./antigravity-atif.js";

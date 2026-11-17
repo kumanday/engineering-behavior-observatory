@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "ebo.antigravity-config/v1",
+  "kind": "harness",
+  "adapter": "antigravity-cli",
+  "executable": "/opt/ebo/bin/agy",
+  "version": "1.5.9",
+  "contractDigest": "sha256:c2407c27d764880e8a2bc78d25d0806c390d38bbdfba33001e468e955ee0bf97"
+}

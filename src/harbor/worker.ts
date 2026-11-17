@@ -9,7 +9,7 @@ import { digestBytes, assertNoDuplicateJsonKeys } from "../artifacts.js";
 import { resolveBundleConfiguration, type ArtifactReference } from "../contracts.js";
 import {
   createClaudeAgentSdkHarborExecutor, createCodexHarborExecutor, createCursorHarborExecutor,
-  createFactoryHarborExecutor, createPiHarborExecutor, createDeepSeekHarborExecutor, createOpenHandsHarborExecutor, createDevinHarborExecutor,
+  createAntigravityHarborExecutor, createFactoryHarborExecutor, createPiHarborExecutor, createDeepSeekHarborExecutor, createOpenHandsHarborExecutor, createDevinHarborExecutor,
   type HarborHarnessConfigurationReferences,
 } from "./harnesses.js";
 import type { DeepSeekRuntimeComposition } from "../deepseek-adapter.js";
@@ -63,6 +63,7 @@ export function createNativeHarborExecutor(input: HarborWorkerInput): HarborHarn
       if (!apiKey) throw new Error("CURSOR_API_KEY is required by the selected Cursor condition.");
       return createCursorHarborExecutor({ ...options, apiKey });
     }
+    case "antigravity-cli": return createAntigravityHarborExecutor(options);
     case "factory-droid": return createFactoryHarborExecutor(options);
     case "pi-sdk": return createPiHarborExecutor(options);
     case "deepseek-harness": {

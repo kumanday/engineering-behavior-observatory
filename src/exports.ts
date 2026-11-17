@@ -435,7 +435,7 @@ function sanitizeArtifact(
     const output = Buffer.from(canonicalizeMetadata(sanitizeValue(
       kind === "verifier"
         ? rewriteVerifierDiagnosticReferences(parseJson(bytes, "JSON evidence"), portableDiagnostics)
-        : stripDevinRawTelemetryBodies(stripNativeReasoning(parseJson(bytes, "JSON evidence"), kind, counts), kind, counts),
+        : stripDevinRawTelemetryBodies(stripNativeReasoning(parseJson(bytes, "JSON evidence"), kind, counts, replacements), kind, counts),
       policy,
       replacements,
       sensitiveValues,
@@ -454,7 +454,7 @@ function sanitizeArtifact(
     if (lines.length === 0) throw new Error("JSONL evidence is empty.");
     increment(counts, "canonicalized", lines.length);
     const sanitized = lines.map((line) => canonicalizeMetadata(sanitizeValue(
-      stripNativeReasoning(parseJson(Buffer.from(line), "JSONL evidence record"), kind, counts),
+      stripNativeReasoning(parseJson(Buffer.from(line), "JSONL evidence record"), kind, counts, replacements),
       policy, replacements, sensitiveValues, localIdentifiers, counts,
     )));
     const retained: string[] = [];
@@ -531,7 +531,7 @@ function sanitizeValue(
     // Correlation values are also rewritten as substrings: native evidence
     // embeds session and workspace identities inside encoded path strings that
     // survive absolute-path redaction.
-    return rewriteString(
+    const rewritten = rewriteString(
       value,
       policy,
       replacements,
@@ -544,6 +544,7 @@ function sanitizeValue(
       normalizedField !== undefined && LOCAL_IDENTIFIER_FIELDS.has(normalizedField),
       onFinding === undefined ? undefined : (finding) => onFinding({ ...finding, path }),
     );
+    return rewritten;
   }
   if (Array.isArray(value)) {
     return value.map((entry, index) => sanitizeValue(
@@ -646,8 +647,34 @@ function stripNativeReasoning(
   value: unknown,
   kind: PortableKind | undefined,
   counts: Map<TransformationAction, number>,
+  replacements?: ReadonlyMap<string, string>,
 ): unknown {
-  return stripFactoryReasoning(stripDevinReasoning(stripPiReasoning(stripCodexReasoning(value, kind, counts), kind, counts), kind, counts), counts);
+  return stripAntigravityReasoning(stripFactoryReasoning(stripDevinReasoning(stripPiReasoning(stripCodexReasoning(value, kind, counts), kind, counts), kind, counts), counts), counts, false, replacements);
+}
+
+/** Unknown step bodies stay restricted. Raw frames duplicate all payload fields, including private steps. */
+function stripAntigravityReasoning(value: unknown, counts: Map<TransformationAction, number>, native = false, replacements?: ReadonlyMap<string, string>): unknown {
+  if (Array.isArray(value)) return value.map(entry => stripAntigravityReasoning(entry, counts, native, replacements));
+  if (!isRecord(value)) return value;
+  native ||= value.source === "antigravity-cli" || value.source === "ebo-antigravity-client" || value.schemaVersion === "ebo.antigravity-runtime/v1";
+  const privateStep = native && typeof value.step_type === "string" && !["user_input", "agent_response", "tool"].includes(value.step_type);
+  const output: Record<string, unknown> = Object.create(null);
+  for (const [key, entry] of Object.entries(value)) {
+    if (value.source === "antigravity-cli" && value.kind === "frame" && key === "payload"
+      && isRecord(entry) && !["init", "step_update", "result"].includes(String(entry.event))) {
+      output[key] = typeof entry.event === "string" ? { event: entry.event } : {};
+      increment(counts, "removed-field"); continue;
+    }
+    if (key === "raw" && native || privateStep && !["conversation_id", "step_index", "state", "step_type", "duration_seconds", "usage"].includes(key)) {
+      increment(counts, "removed-field"); continue;
+    }
+    if (replacements && native && key.toLowerCase().replace(/[^a-z]/gu, "") === "conversationid" && typeof entry === "string" && entry.trim()) {
+      output[key] = replacements.get(entry) ?? `conversation-${createHash("sha256").update([...replacements.values()].join("\0")).update(`\0${entry}`).digest("hex").slice(0, 24)}`;
+      increment(counts, "rewritten-correlation"); continue;
+    }
+    output[key] = stripAntigravityReasoning(entry, counts, native, replacements);
+  }
+  return output;
 }
 
 const FACTORY_THINKING_TYPES = new Set(["thinkingtextdelta", "thinkingtextcomplete", "thinking", "redactedthinking"]);
@@ -896,6 +923,7 @@ function scanPortableTree(
       ["Pi private reasoning content", containsPiReasoningContent(text, mediaType)],
       ["Devin thought content", containsDevinReasoningContent(text, mediaType)],
       ["Factory private reasoning content", containsFactoryReasoningContent(text, mediaType)],
+      ["Antigravity private step content", containsAntigravityPrivateContent(text, mediaType)],
     ].find(([, matched]) => matched);
     if (failure !== undefined) {
       resetPatterns();
@@ -903,6 +931,22 @@ function scanPortableTree(
     }
     resetPatterns();
   }
+}
+
+function containsAntigravityPrivateContent(text: string, mediaType: string): boolean {
+  const contains = (value: unknown, native = false): boolean => {
+    if (Array.isArray(value)) return value.some(entry => contains(entry, native));
+    if (!isRecord(value)) return false;
+    native ||= value.source === "antigravity-cli" || value.source === "ebo-antigravity-client" || value.schemaVersion === "ebo.antigravity-runtime/v1";
+    if (value.source === "antigravity-cli" && value.kind === "frame" && isRecord(value.payload)
+      && !["init", "step_update", "result"].includes(String(value.payload.event))
+      && Object.keys(value.payload).some(key => key !== "event")) return true;
+    const privateStep = native && typeof value.step_type === "string" && !["user_input", "agent_response", "tool"].includes(value.step_type);
+    return privateStep && Object.keys(value).some(key => !["conversation_id", "step_index", "state", "step_type", "duration_seconds", "usage"].includes(key)) || Object.values(value).some(entry => contains(entry, native));
+  };
+  if (mediaType === "application/json") return contains(parseJson(Buffer.from(text), "Antigravity step scan"));
+  if (mediaType === "application/x-ndjson") return text.split(/\r?\n/u).filter(Boolean).some(line => contains(parseJson(Buffer.from(line), "Antigravity step scan")));
+  return false;
 }
 
 function containsPiReasoningContent(text: string, mediaType: string): boolean {

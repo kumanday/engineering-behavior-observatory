@@ -2,7 +2,7 @@
 
 ATIF core projection is producer-agnostic. It maps standard fields according to
 `schema_version`, retains extensions and supplies the same EBO analytical
-contracts as native projections. Producers outside EBO's eight maintained native
+contracts as native projections. Producers outside EBO's nine maintained native
 harnesses use this generic path. Reading, visualization and document-scoped
 measurements require no overlay.
 

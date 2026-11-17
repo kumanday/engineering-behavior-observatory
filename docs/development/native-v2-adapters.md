@@ -37,6 +37,7 @@ value; a missing population identifier stays unknown.
 | OpenHands | Conversation scope and native action/observation relations bind operations. Source timestamps remain producer observations. REST and WebSocket evidence keep their declared order domains. |
 | Factory Droid | Session scope binds tool-use IDs and the native message identities on prompts, partial deltas and completed messages. Session snapshots and owned-turn totals inclusive of children retain separate resource scopes. |
 | Cursor | Missing tool status remains a partial observation. Collector sequence is presentation order. Streamed assistant deltas remain fragments. Shell process exit codes qualify the successful tool envelope. |
+| Google Antigravity CLI | Conversation and step indices bind tools and delegation. A DONE snapshot can retain call parameters and output together. Text deltas remain fragments; terminal usage is cumulative session usage. Receipt time does not establish execution time or inference identity. |
 | Devin CLI/ACP | Session tool-call IDs bind terminal updates, including a previously recorded terminal exit. Message chunks remain partial; receipt clocks retain their own provenance. |
 
 The derivation records the executed harness separately from source-container,

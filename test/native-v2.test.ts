@@ -34,8 +34,8 @@ const project = (evidence: RetainedBehaviorEvidence) => projectNativeEvidenceV2(
 const piRecord = (type: string, id: string, message?: object, parentId?: string) => ({ type, id, ...(message ? { message } : {}), ...(parentId ? { parentId } : {}), timestamp: "2026-11-07T00:00:00.000Z" });
 const stream = (sequence: number, type: string, payload: object) => ({ schemaVersion: "ebo.pi-native-record/v1", sequence, sessionId: "s", channel: "stream", nativeType: type, payload, receivedAt: "2026-11-07T00:00:01.000Z" });
 
-test("native v2 registers all eight current producers and creates separate deterministic derivations", async () => {
-  assert.equal(listNativeV2Profiles().length, 8);
+test("native v2 registers all nine current producers and creates separate deterministic derivations", async () => {
+  assert.equal(listNativeV2Profiles().length, 9);
   const evidence = fixture("pi-sdk", [piRecord("session", "s"), piRecord("message", "m", { role: "assistant", content: [] })], [{ record: 1, family: "message", phase: "after" }]);
   const original = hash(evidence.dataset), first = await project(evidence), second = await project(evidence);
   assert.equal(hash(evidence.dataset), original); assert.notEqual(datasetV2Digest(first.dataset), original);

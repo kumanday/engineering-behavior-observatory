@@ -1,0 +1,42 @@
+{
+  "schema_version": "ATIF-v1.8",
+  "agent": {
+    "name": "antigravity-cli",
+    "version": "1.5.9"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "user",
+      "message": "Run the fixture test."
+    },
+    {
+      "step_id": 2,
+      "source": "agent",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "step-2",
+          "function_name": "run_command",
+          "arguments": {
+            "CommandLine": "npm test"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "step-2",
+            "content": "1 test passed"
+          }
+        ]
+      }
+    },
+    {
+      "step_id": 3,
+      "source": "agent",
+      "message": "DONE"
+    }
+  ],
+  "notes": "Authored fictional stream-json counterpart for deterministic EBO ATIF conformance. No independent Antigravity converter was found in the inspected Harbor release."
+}

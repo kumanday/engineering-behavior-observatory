@@ -193,6 +193,7 @@ export async function appendVerificationAdmission(root: string, receipt: Harness
 const contractModules: Record<string, string[]> = {
   "claude-agent-sdk": ["agent-sdk.js", "agent-sdk-run.js", "agent-sdk-runner.js", "agent-sdk-normalizer.js", "v2-profiles/claude.js"],
   "codex-app-server": ["codex.js", "codex-run.js", "v2-profiles/codex.js"],
+  "antigravity-cli": ["antigravity.js", "antigravity-run.js", "v2-profiles/antigravity.js"],
   "devin-cli": ["devin.js", "devin-run.js", "v2-profiles/devin.js"],
   "cursor-sdk": ["cursor-sdk.js", "cursor-sdk-runner.js", "v2-profiles/cursor.js"],
   "pi-sdk": ["pi.js", "v2-profiles/pi.js"],

@@ -50,7 +50,8 @@ class JsonlTail {
 const NATIVE_STREAM = /^(session|pi-events|hooks|events|stream)[\w.-]*\.jsonl$/u;
 const typeOf = (o: Json): string | null => {
   const p = o?.payload;
-  return str(p && typeof p === "object" ? p.type ?? p.method ?? p.kind : null) ?? str(o?.nativeType) ?? str(o?.type) ?? str(o?.method);
+  if (o?.source === "antigravity-cli" && o?.kind === "frame" && p?.event === "step_update") return str(p.step_update?.step_type) ? `step_update:${p.step_update.step_type}` : "step_update";
+  return str(p && typeof p === "object" ? p.type ?? p.method ?? p.kind ?? p.event : null) ?? str(o?.nativeType) ?? str(o?.type) ?? str(o?.method);
 };
 // Tool calls started, per native vocabulary: Pi `tool_execution_start`, Codex `item/started` for tool items, Claude
 // Agent SDK `tool_use` content blocks. Harnesses without a mapping report null rather than a guessed zero.
@@ -64,7 +65,8 @@ function toolStarts(o: Json, type: string | null): number | null {
 }
 
 type Request = [n: number | null, at: number | null, prompt: number | null, completion: number | null, cached: number | null, costUsd: number | null];
-type Accumulator = { requests: Request[]; reasoning: number; types: Map<string, number>; lines: number; tools: number; toolsKnown: boolean };
+type Accumulator = { requests: Request[]; reasoning: number; types: Map<string, number>; lines: number; tools: number; toolsKnown: boolean;
+  agySessions: Map<string, string>; agyTools: Set<string>; agyUsage: Map<string, { prompt: number | null; completion: number | null; cached: number | null; reasoning: number | null }> };
 
 export function createRunMonitor(statusPath: string) {
   const root = dirname(resolve(statusPath));
@@ -89,7 +91,7 @@ export function createRunMonitor(statusPath: string) {
   function attempt(entry: Json, now: number) {
     const id = String(entry.id);
     let a = acc.get(id);
-    if (!a) { a = { requests: [], reasoning: 0, types: new Map(), lines: 0, tools: 0, toolsKnown: false }; acc.set(id, a); }
+    if (!a) { a = { requests: [], reasoning: 0, types: new Map(), lines: 0, tools: 0, toolsKnown: false, agySessions: new Map(), agyTools: new Set(), agyUsage: new Map() }; acc.set(id, a); }
     const log = at(entry.requestLog);
     if (log) for (const r of tail.read(log)) {
       const u = r?.usage && typeof r.usage === "object" ? r.usage : {};
@@ -115,6 +117,21 @@ export function createRunMonitor(statusPath: string) {
           if (t) a.types.set(t, (a.types.get(t) ?? 0) + 1);
           const n = toolStarts(o, t);
           if (n !== null) { a.toolsKnown = true; a.tools += n; }
+          if (o?.source === "antigravity-cli" && o?.kind === "frame") {
+            const stream = join(bundle, f), p = o.payload;
+            if (p?.event === "init" && str(p.conversation_id)) { a.agySessions.set(stream, p.conversation_id); a.toolsKnown = true; }
+            const owned = a.agySessions.get(stream);
+            const step = p?.step_update;
+            if (owned && p?.event === "step_update" && step?.conversation_id === owned && step?.step_type === "tool" && Number.isSafeInteger(step.step_index)) {
+              const key = `${stream}:${step.step_index}`;
+              if (!a.agyTools.has(key)) { a.agyTools.add(key); a.tools++; }
+            }
+            const result = p?.result;
+            if (owned && p?.event === "result" && result?.conversation_id === owned && result?.num_turns === 1 && result?.usage) {
+              const u = result.usage;
+              a.agyUsage.set(stream, { prompt: num(u.input_tokens), completion: num(u.output_tokens), cached: num(u.cache_read_tokens), reasoning: num(u.thinking_tokens) });
+            }
+          }
         }
       }
       const manifest = readJson(join(bundle, "manifest.json"));
@@ -131,6 +148,10 @@ export function createRunMonitor(statusPath: string) {
     const s = entry.spend ?? null;
     const startedAt = time(entry.startedAt), endedAt = time(entry.endedAt), lastResponseAt = time(s?.lastResponseAt);
     const sum = (i: 2 | 3 | 4) => a!.requests.reduce((n, r) => n + (r[i] ?? 0), 0);
+    const nativeSum = (key: "prompt" | "completion" | "cached" | "reasoning") => {
+      const values = [...a!.agyUsage.values()].map(u => u[key]);
+      return values.length && values.every(v => v !== null) ? values.reduce<number>((n, v) => n + v!, 0) : null;
+    };
     return {
       id, harness: String(entry.harness), harnessVersion, model: String(entry.model), replicate: num(entry.replicate), probe: entry.probe === true,
       api: str(entry.api), state, exitCode: num(entry.exitCode), passed: typeof entry.passed === "boolean" ? entry.passed : null,
@@ -144,7 +165,9 @@ export function createRunMonitor(statusPath: string) {
         status: str(entry.taskAssessment.status), reasonCode: str(entry.taskAssessment.reasonCode),
         reason: str(entry.taskAssessment.reason), assessedAt: time(entry.taskAssessment.assessedAt),
       },
-      tokens: { prompt: sum(2), completion: sum(3), cached: sum(4), reasoning: a.reasoning },
+      tokens: entry.harness === "antigravity-cli" && !a.requests.length
+        ? { prompt: nativeSum("prompt"), completion: nativeSum("completion"), cached: nativeSum("cached"), reasoning: nativeSum("reasoning") }
+        : { prompt: sum(2), completion: sum(3), cached: sum(4), reasoning: a.reasoning },
       requests: a.requests,
       native: { lines: a.lines, toolCalls: a.toolsKnown ? a.tools : null, types: [...a.types].sort((x, y) => y[1] - x[1]).slice(0, 12) },
     };

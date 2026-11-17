@@ -25,8 +25,8 @@ export type AtlasUnit = {
 export type AtlasUnitEvent = { unit_id: string; event_key: string; part: string };
 
 const MESSAGE_CHARS = 1200, EPISODE_MESSAGE_CHARS = 600, SUMMARY_CHARS = 1500;   // embedding input only; stored text is complete
-const SHELL = new Set(["bash", "shell", "exec", "exec_command", "commandexecution", "run_terminal_cmd", "execute", "terminal", "bashoutput", "killshell"]);
-const READ = new Set(["read", "view", "read_file", "cat", "open_file", "notebookread"]);
+const SHELL = new Set(["bash", "shell", "exec", "exec_command", "commandexecution", "run_terminal_cmd", "run_command", "execute", "terminal", "bashoutput", "killshell"]);
+const READ = new Set(["read", "view", "read_file", "view_file", "cat", "open_file", "notebookread"]);
 const EDIT = new Set(["edit", "write", "multiedit", "apply_patch", "str_replace", "str_replace_editor", "create", "write_file", "edit_file", "notebookedit", "patch", "filechange"]);
 const SEARCH = new Set(["glob", "grep", "find", "search", "ls", "list", "list_dir", "codebase_search", "file_search", "rg"]);
 const WEB = new Set(["webfetch", "websearch", "fetch", "web_search", "browse"]);
@@ -280,6 +280,14 @@ export function deriveUnits({ attemptId, events, occurrences, resolveContent, ev
         e++;
         parts.push([events[e]!.id, "message"]);
         texts2.push(contentOf(events[e]!).flatMap((v) => visibleText(v)).join("\n"));
+      }
+    }
+    if (event.source.harness === "antigravity-cli" && event.attributes.stepType === "agent_response") {
+      while (e + 1 < events.length && !claimed.has(events[e + 1]!.id)
+        && events[e + 1]!.family === "message" && events[e + 1]!.source.harness === "antigravity-cli"
+        && events[e + 1]!.attributes.stepIndex === event.attributes.stepIndex && events[e + 1]!.attributes.stepType === "agent_response") {
+        e++; parts.push([events[e]!.id, "message"]);
+        texts2.push(contentOf(events[e]!).flatMap(v => visibleText(v)).join("\n"));
       }
     }
     const text = texts2.join("").trim();

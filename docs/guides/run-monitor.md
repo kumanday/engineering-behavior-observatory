@@ -62,3 +62,8 @@ The snapshot (`/snapshot.json`, `ebo.monitor-snapshot/v1`; the page receives it 
 is an allowlist: it never includes prompts, completions, commands, tool arguments or results, logs, credentials or
 paths outside the status file's directory. The server binds 127.0.0.1, rejects non-loopback hosts and origins,
 answers only `GET`/`HEAD`, and serves only its own page and the Atlas viewer tokens, never campaign files.
+
+Antigravity CLI attempts use the owned stream’s final cumulative token totals
+once. Repeated step snapshots contribute no additional tokens or tool calls.
+Per-request counts and billed USD remain unknown unless separately supplied by
+the campaign operator.
