@@ -39,8 +39,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "npm run build && node --test --test-concurrency=2 dist/test/*.test.js",
     "ebo": "node dist/src/cli.js",
-    "build:viewer": "npm run build --workspace viewer",
-    "compatibility:verify": "node scripts/compatibility/freeze-deepseek-sdk.mjs && node scripts/compatibility/freeze-v1.mjs all"
+    "build:viewer": "npm run build --workspace viewer"
   },
   "files": [
     "contracts/",
@@ -78,7 +77,6 @@
     "viewer/src/tokens.css",
     "schemas/",
     "scripts/atlas-grafana.sh",
-    "compatibility/",
     "release/2.0.0-rc.1/",
     "release/2.0.0-rc.2/",
     "verification/"
@@ -91,22 +89,6 @@
     "@duckdb/node-api": "2.0.0-r.1",
     "@earendil-works/pi-codemode": "1.5.2",
     "@earendil-works/pi-coding-agent": "1.5.2",
-    "@ebo-compat/ajv": "npm:ajv@8.20.0",
-    "@ebo-compat/ajv-formats": "npm:ajv-formats@3.0.1",
-    "@ebo-compat/anthropic-ai-claude-agent-sdk": "npm:@anthropic-ai/claude-agent-sdk@0.3.296",
-    "@ebo-compat/apache-arrow": "npm:apache-arrow@21.2.0",
-    "@ebo-compat/cursor-sdk": "npm:@cursor/sdk@1.0.37",
-    "@ebo-compat/duckdb-node-api": "npm:@duckdb/node-api@1.5.4-r.1",
-    "@ebo-compat/earendil-works-chord": "npm:@earendil-works/chord@1.1.0",
-    "@ebo-compat/earendil-works-pi-agent-core": "npm:@earendil-works/pi-agent-core@1.1.0",
-    "@ebo-compat/earendil-works-pi-ai": "npm:@earendil-works/pi-ai@1.1.0",
-    "@ebo-compat/earendil-works-pi-codemode": "npm:@earendil-works/pi-codemode@1.1.0",
-    "@ebo-compat/earendil-works-pi-coding-agent": "npm:@earendil-works/pi-coding-agent@1.1.0",
-    "@ebo-compat/earendil-works-pi-mcp": "npm:@earendil-works/pi-mcp@1.1.0",
-    "@ebo-compat/earendil-works-pi-telemetry": "npm:@earendil-works/pi-telemetry@1.1.0",
-    "@ebo-compat/earendil-works-pi-tui": "npm:@earendil-works/pi-tui@1.1.0",
-    "@ebo-compat/factory-droid-sdk": "npm:@factory/droid-sdk@0.9.1",
-    "@ebo-compat/proper-lockfile": "npm:proper-lockfile@4.1.2",
     "@factory/droid-sdk": "0.11.0",
     "@renovatebot/pep440": "6.0.0",
     "ajv": "8.20.0",
@@ -116,7 +98,6 @@
     "semver": "7.8.6"
   },
   "devDependencies": {
-    "@ebo-compat/esbuild": "npm:esbuild@0.28.2",
     "@types/node": "26.6.6",
     "@types/proper-lockfile": "4.1.4",
     "@typescript/typescript6": "6.0.2",
@@ -130,8 +111,6 @@
     "undici@>=8.0.0 <8.12.2": "8.12.3",
     "zod@>=4.0.0 <4.6.6": "4.6.7",
     "@modelcontextprotocol/client@>=2.0.0 <2.3.0": "2.3.0",
-    "fflate@>=0.8.0 <0.8.3": "0.8.3",
-    "uuid@<11.1.1": "11.1.1",
-    "minimatch": "11.0.3"
+    "fflate@>=0.8.0 <0.8.3": "0.8.3"
   }
 }

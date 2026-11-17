@@ -2,9 +2,8 @@
 
 EBO owns the normalized dataset, uniform event and operation contracts. ATIF is
 an admitted source format with its own versioned readers and producer profiles.
-The v2 API is explicit: default retained loading and 1.x consumers keep their
-existing dataset and digest recipes until the compatibility and adapter gates
-are complete.
+The v2 API is explicit and opt-in: the default CLI analysis commands keep the
+`ebo.normalized-dataset/v1` lane and its digest recipes.
 
 `NormalizedDatasetV2` binds the original manifest, qualification, reader code,
 source format, producer profile and executed harness independently. Native
@@ -59,14 +58,11 @@ record-mapping coverage, parentage, endpoint order and measurement coverage. A
 resolver must return the actual run, attempt and digest; a boolean resolution
 alone is insufficient. Reader code is shipped implementation, never packet data.
 
-## Migration boundary
+## What the typed lane changes
 
-[Migration accounting](migration-accounting.md) inventories explicit retained
-study selections before adapter development, then reconciles actual regenerated
-inputs after the target consumers are implemented. Frozen readers retain the
-original outputs throughout both phases.
+The typed lane represents the following differently from the default lane.
 
-| 1.x field or behavior | v2 representation |
+| Default lane | Typed v2 lane |
 | --- | --- |
 | Adapter harness doubles as source kind | Source format/profile and executed harness are independent |
 | Optional scalar operation ID aliases | Required operation scope and a single operation projection |
@@ -77,10 +73,8 @@ original outputs throughout both phases.
 | Model request event positions | Native request identity separate from declared inference count |
 | Compaction vocabulary in consumers | Typed context kind and explicit replacement boundary |
 
-Adapter projections, consumer migration and frozen 1.x readers have separate
-acceptance gates. Adding the contracts does not authorize regenerating retained
-assertions or launching model judgments. Dataset or ledger changes must identify
-the affected units before a migration budget is proposed.
+Adding the typed contracts does not authorize regenerating existing assertions
+or launching model judgments.
 
 ## ATIF alignment
 

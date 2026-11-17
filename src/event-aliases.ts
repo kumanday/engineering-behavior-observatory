@@ -1,7 +1,10 @@
 import type { UniformEvent } from "./uniform-events.js";
 
-/** Frozen 1.x interpretation policies. Typed v2 consumers use Operation and EventFactsV2. */
-export function v1OperationAlias(event: UniformEvent, policy: "structural" | "rating" | "atlas"): string | undefined {
+/**
+ * How the default analysis lane reads an operation identity and a message role from a uniform event. Each consumer
+ * names the attributes it accepts. The typed lane uses Operation and EventFactsV2 instead.
+ */
+export function operationAlias(event: UniformEvent, policy: "structural" | "rating" | "atlas"): string | undefined {
   const keys = policy === "structural" ? ["toolUseId", "toolCallId", "actionId", "callId", "itemId"]
     : policy === "rating" ? ["toolUseId", "toolCallId", "callId", "itemId"] : ["toolCallId", "callId", ...(event.family === "tool" ? ["itemId"] : [])];
   for (const key of keys) {
@@ -10,7 +13,7 @@ export function v1OperationAlias(event: UniformEvent, policy: "structural" | "ra
   }
   return undefined;
 }
-export function v1MessageRole(event: UniformEvent): string | undefined {
+export function messageRole(event: UniformEvent): string | undefined {
   const a = event.attributes, type = [a.eventType, a.itemType, a.method].find((v): v is string => typeof v === "string") ?? event.source.nativeType;
   const role = typeof a.role === "string" ? a.role : undefined;
   switch (event.source.harness) {

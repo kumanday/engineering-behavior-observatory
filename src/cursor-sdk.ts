@@ -1,7 +1,6 @@
-import {legacyV1Profile} from "./legacy-v1-confidence.js";
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
 import * as developmentSdk from "@cursor/sdk";
-import {markRetainedVersion} from "./legacy-v1-confidence.js";
+import {markDeclaredVersion} from "./retained-version-policy.js";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, open, stat, type FileHandle } from "node:fs/promises";
@@ -67,9 +66,6 @@ import type { VerifierResult } from "./verifiers.js";
 import { readBoundedFile } from "./scheduler.js";
 
 export const CURSOR_SDK_VERSION = "1.0.37";
-/** Cursor SDK versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
-/** Historical fixture inventory; not a runtime confidence list. */
-export const RETAINED_CURSOR_SDK_VERSIONS: readonly string[] = [CURSOR_SDK_VERSION, "1.0.31"];
 export const CURSOR_SDK_HARNESS = "cursor-sdk";
 export const CURSOR_SDK_ADAPTER_ID = "ebo-cursor-sdk-v1";
 export const CURSOR_SDK_ADAPTER_VERSION = "0.1.0";
@@ -775,12 +771,12 @@ export async function projectCursorSdkBehaviorEvidence(bundleRoot: string): Prom
   };
   assertRetainedCursorIdentity(manifest, capture.records.map(({ record }) => record));
   const nativeVersion = asRecord(capture.records.find(({ record }) => record.channel === "configuration")?.record.payload)?.sdkVersion;
-  capture = markRetainedVersion(capture, retainedVersion, "cursor-sdk", [nativeVersion, ...manifest.run.runtime.filter(({ name }) => name === "cursor-sdk").map(({ version }) => version)]);
+  capture = markDeclaredVersion(capture, retainedVersion, [nativeVersion, ...manifest.run.runtime.filter(({ name }) => name === "cursor-sdk").map(({ version }) => version)]);
   const normalization = normalizeCursorSdkCapture(capture);
   const dataset = describeNormalizedDataset({
     capture,
     normalization,
-    capabilityProfile: legacyV1Profile(CURSOR_SDK_CAPABILITIES, "cursor-sdk", retainedVersion),
+    capabilityProfile: CURSOR_SDK_CAPABILITIES,
     adapterVersion: CURSOR_SDK_ADAPTER_VERSION,
     nativeType: cursorNativeType,
   });

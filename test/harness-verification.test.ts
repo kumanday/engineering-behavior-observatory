@@ -104,10 +104,10 @@ import {createRetainedBehaviorEvidence} from "../src/retained-evidence.js";
 import {validateBehaviorAssertion} from "../src/behavior-assertions.js";
 import { judged, llmEvidence, llmProducer } from "./behavior-fixture.js";
 import {digestBytes, digestMetadata} from "../src/artifacts.js";
-test("unfamiliar native v1 projections keep the base dataset digest and retained assertions", async () => {
-  const root = await mkdtemp(join(tmpdir(), "ebo-legacy-v1-annotations-"));
+test("an unfamiliar harness version still reads, stays unverified and keeps its assertions valid", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ebo-unfamiliar-version-"));
   try {
-    await cp("test/fixtures/codex/legacy-0.150.1", root, {recursive: true});
+    await cp("test/fixtures/codex/bundle-0.150.1", root, {recursive: true});
     const path = join(root, "manifest.json"), manifest = JSON.parse(await readFile(path, "utf8"));
     for (const descriptor of manifest.evidence) if (/json/u.test(descriptor.mediaType)) {
       const target = join(root, descriptor.relativePath), bytes = Buffer.from((await readFile(target, "utf8")).replaceAll("0.150.1", "9000.1.0"));
@@ -116,7 +116,6 @@ test("unfamiliar native v1 projections keep the base dataset digest and retained
     await writeFile(path, JSON.stringify(manifest).replaceAll("0.150.1", "9000.1.0"));
     const evidence = await createRetainedBehaviorEvidence(root);
     const datasetDigest = `sha256:${digestMetadata(evidence.dataset).value}` as const;
-    assert.equal(datasetDigest, "sha256:09326dff2707f2f5f015a4d7ec8287a2afebd96a38b0dbee8479d683a4b68afa", "Offline 55b187c interpretation of these exact public native records");
     assert.equal(evidence.verification?.state, "unverified");
     const assertion = {schemaVersion: "ebo.behavior-assertion/v1", id: "prior-annotation", runId: evidence.dataset.runId, attemptId: evidence.dataset.attemptId,
       dataset: {schemaVersion: evidence.dataset.schemaVersion, digest: datasetDigest}, behavior: judged("VF-01"), producer: llmProducer(),
@@ -126,24 +125,23 @@ test("unfamiliar native v1 projections keep the base dataset digest and retained
   } finally {await rm(root, {recursive: true, force: true});}
 });
 
-test("legacy DeepSeek client conflicts keep the exact base v1 digest without blocking recorded events", async () => {
-  const evidence = await createRetainedBehaviorEvidence("test/fixtures/deepseek/legacy-version-conflict");
-  assert.equal(digestMetadata(evidence.dataset).value, "d462bde77ef8327d371c527198883142fafefa5d34ad2850803f5e9775a647df");
+test("a DeepSeek client that disagrees with the declared version is a conflict and does not block recorded events", async () => {
+  const evidence = await createRetainedBehaviorEvidence("test/fixtures/deepseek/version-conflict");
   assert.ok(evidence.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"));
   assert.ok(evidence.verification?.limitations.includes("HARNESS_VERSION_CONFLICT"));
   assert.equal(evidence.dataset.events.length, 5);
 });
 
-test("DeepSeek current version facts compare client with client while preserving historical v1 labels", async () => {
+test("DeepSeek version facts compare the declared client component with the client its records state", async () => {
   const root = await mkdtemp(join(tmpdir(), "ebo-deepseek-component-domains-"));
   try {
-    await cp("test/fixtures/deepseek/legacy-version-conflict", root, {recursive: true});
+    await cp("test/fixtures/deepseek/version-conflict", root, {recursive: true});
     const path = join(root, "manifest.json"), manifest = JSON.parse(await readFile(path, "utf8"));
     manifest.run.runtime.push({source: "npm", name: "@deepseek-ai/dsh-sdk-client", version: "0.1.7-rc.2"});
     await writeFile(path, JSON.stringify(manifest));
-    const legacy = await createRetainedBehaviorEvidence(root);
-    assert.ok(legacy.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"), "Historical v1 representation");
-    assert.ok(!legacy.verification?.limitations.includes("HARNESS_VERSION_CONFLICT"), "Declared client and native client agree even though server version differs");
+    const agreeing = await createRetainedBehaviorEvidence(root);
+    assert.ok(!agreeing.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"), "Declared client and native client agree even though the server version differs");
+    assert.ok(!agreeing.verification?.limitations.includes("HARNESS_VERSION_CONFLICT"));
     const {createRetainedBehaviorEvidenceV2} = await import("../src/native-v2.js"), modern = await createRetainedBehaviorEvidenceV2(root);
     assert.ok(!modern.dataset.sources[0]!.limitations?.includes("HARNESS_VERSION_CONFLICT"));
     assert.equal(modern.dataset.sources[0]!.executedHarness.version.status, "known");

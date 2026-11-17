@@ -60,8 +60,7 @@ Admission manifests retain the IDs and digests of applied overlays. Reopening
 reprojects with current code and reports an interpretation revision rather than
 requiring today's registry to reproduce an admission key. Source and receipt
 integrity remain mandatory. New core or overlay semantics change derivation
-identity and require selective downstream dependency reconciliation. Frozen
-compatibility readers and the rc.1 artifact retain their own implementations.
+identity, so downstream observations, ratings and assertions are derived again.
 
 ## Mapping status
 

@@ -82,14 +82,15 @@ test("judge and assertion preparation bind dependencies and preserve abstention 
 
 test("Atlas units retain typed unknowns and use the same pointed citation digests as judging", async () => {
   const { buildAtlasViewV2, validateAtlasViewV2, writeAtlasViewV2, buildAtlasCohortsV2 } = await import("../src/atlas-v2.js");
-  const { mkdtempSync, readFileSync, rmSync } = await import("node:fs"), { tmpdir } = await import("node:os"), { join, resolve } = await import("node:path");
+  const { mkdtempSync, readFileSync, rmSync } = await import("node:fs"), { tmpdir } = await import("node:os"), { join } = await import("node:path");
   const evidence = await atifFixtureV2("parallel-failure-cache-write", (source) => { (source.steps as AtifObject[])[1]!.message = "</script><script>window.fixtureXss=1</script>"; });
   const view = await buildAtlasViewV2(evidence); await validateAtlasViewV2(view, evidence);
   assert.equal(view.units.filter(({ kind }) => kind === "tool").length, 2); assert.ok(view.units.every(({ durationMs }) => durationMs.status === "unknown"));
   assert.equal(view.units.filter(({ kind, failure }) => kind === "tool" && failure.status === "unknown").length, 1);
   for (const item of view.evidence) await validateCitationV2(evidence.dataset, evidence.resolver, item.citation);
-  const mixed = await buildAtlasCohortsV2([{ id: "new", evidence }, { id: "old", bundleRoot: resolve("test/fixtures/codex/legacy-0.150.1"), runtimeId: "ebo-v1.4.0-86a6010" }]);
-  assert.equal(mixed.length, 2); assert.equal(mixed[0]!.origin, "imported"); assert.equal(mixed[1]!.runtime.id, "ebo-v1.4.0-86a6010"); assert.equal(mixed[1]!.unitCount, null);
+  const cohorts = await buildAtlasCohortsV2([{ id: "new", evidence }]);
+  assert.equal(cohorts.length, 1); assert.equal(cohorts[0]!.origin, "imported"); assert.equal(cohorts[0]!.runtime.id, "ebo-typed-v2"); assert.equal(cohorts[0]!.unitCount, view.units.length);
+  await assert.rejects(buildAtlasCohortsV2([{ id: "new", evidence }, { id: "new", evidence }]), /Duplicate Atlas cohort identity/u);
   const root = mkdtempSync(join(tmpdir(), "ebo-atlas-v2-"));
   try {
     writeAtlasViewV2(view, join(root, "view")); const html = readFileSync(join(root, "view/index.html"), "utf8");
@@ -101,7 +102,7 @@ test("Atlas units retain typed unknowns and use the same pointed citation digest
 });
 test("typed CLI creates reviewable local outputs and preserves the source bundle", async () => {
   const { main } = await import("../src/cli.js"), { mkdtempSync, readFileSync, rmSync, existsSync } = await import("node:fs"), { tmpdir } = await import("node:os"), { join, resolve } = await import("node:path");
-  const root = mkdtempSync(join(tmpdir(), "ebo-v2-cli-")), bundle = resolve("test/fixtures/codex/legacy-0.150.1");
+  const root = mkdtempSync(join(tmpdir(), "ebo-v2-cli-")), bundle = resolve("test/fixtures/codex/bundle-0.150.1");
   const bytes = readFileSync(join(bundle, "manifest.json")); let message = "";
   try {
     assert.equal(await main(["v2", "inspect", bundle, join(root, "analysis")], (text) => { message += text; }), 0, message);
@@ -370,7 +371,7 @@ test("failure-hook diagnostics reach bounded rating output with their pointed ci
 test("scalar native shell commands preserve JSON-like executable names", async () => {
   const { createRetainedBehaviorEvidence } = await import("../src/retained-evidence.js"), { createCapturedNativeEvidenceResolver } = await import("../src/normalization-integrity.js");
   const { describeAndValidateCodexDataset } = await import("../src/codex.js"), { projectNativeEvidenceV2 } = await import("../src/native-v2.js");
-  const original = await createRetainedBehaviorEvidence("test/fixtures/codex/legacy-0.150.1");
+  const original = await createRetainedBehaviorEvidence("test/fixtures/codex/bundle-0.150.1");
   for (const command of ["printf ok", "true", "false", "null", "0"]) {
     const capture = structuredClone(original.capture) as Parameters<typeof describeAndValidateCodexDataset>[0];
     for (const { record } of capture.records) {

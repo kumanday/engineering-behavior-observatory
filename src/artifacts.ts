@@ -1299,7 +1299,6 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("study-runtimes.v2.json"));
   ajv.addSchema(readSchema("harness-verification.v1.json"));
   ajv.addSchema(readSchema("study-runtime-bindings.v1.json"));
-  ajv.addSchema(readSchema("migration.v1.json"));
   ajv.addSchema(readSchema("human-calibration.v1.json"));
   ajv.addSchema(readSchema("aggregation.v1.json"));
   ajv.addSchema(readSchema("occurrence-ratings.v1.json"));
@@ -1309,7 +1308,6 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("harbor-admission.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-import.v1.json"));
   ajv.addSchema(readSchema("leaderboard-import.v1.json"));
-  ajv.addSchema(readSchema("analysis-runtime-snapshot.v1.json"));
   ajv.addSchema(readSchema("harbor-review.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-freeze.v1.schema.json"));
   ajv.addSchema(readSchema("experiment.v2.schema.json"));
@@ -1330,7 +1328,6 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.leaderboard-cohort/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/cohort")],
     ["ebo.leaderboard-acquisition/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/acquisition")],
     ["ebo.import-scan/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/scan")],
-    ["ebo.analysis-runtime-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:analysis-runtime-snapshot:v1")],
     ["ebo.harbor-trial-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/inspection")],
     ["ebo.harbor-source-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/snapshot")],
     ["ebo.harbor-execution/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/execution")],
@@ -1365,8 +1362,6 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.operation-identity/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operationIdentity")],
     ["ebo.normalized-dataset/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/normalizedDataset")],
     ["ebo.adapter-coverage-report/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/coverageReport")],
-    ["ebo.comparison-request/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/comparisonRequest")],
-    ["ebo.comparison-report/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/comparisonReport")],
     ["ebo.comparison-request/v2", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/comparisonRequestV2")],
     ["ebo.comparison-report/v2", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/comparisonReportV2")],
     ["ebo.structural-observation/v1", requiredValidator(ajv, "urn:ebo:schema:structural-observations:v1#/$defs/observation")],
@@ -1385,7 +1380,6 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.study-runtime-lock/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/lock")],
     ["ebo.runtime-launch/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/launch")],
     ["ebo.semantic-judgment/v3", requiredValidator(ajv, "urn:ebo:schema:semantic-judge-runtime:v1#/$defs/judgment")],
-    ["ebo.semantic-judgment/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/judgment")],
     ["ebo.semantic-judge-answer/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeAnswer")],
     ["ebo.semantic-judgment/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgment")],
     ["ebo.atlas-view/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/atlasView")],
@@ -1398,9 +1392,6 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.behavior-assertion/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/assertion")],
     ["ebo.structural-observation/v2", requiredValidator(ajv, "urn:ebo:schema:analysis:v2#/$defs/observation")],
     ["ebo.structural-observation-set/v2", requiredValidator(ajv, "urn:ebo:schema:analysis:v2#/$defs/observationSet")],
-    ["ebo.migration-plan/v1", requiredValidator(ajv, "urn:ebo:schema:migration:v1#/$defs/plan")],
-    ["ebo.migration-inventory/v1", requiredValidator(ajv, "urn:ebo:schema:migration:v1#/$defs/inventory")],
-    ["ebo.migration-reconciliation/v1", requiredValidator(ajv, "urn:ebo:schema:migration:v1#/$defs/reconciliation")],
     ["ebo.review-source-set/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sourceSet")],
     ["ebo.review-sample-criteria/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/criteria")],
     ["ebo.review-sample/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sample")],

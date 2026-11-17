@@ -1,7 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { analysisDigestV2, citeEventV2, createStructuralObservationSetV2, type EvidenceCitationV2, type HashV2, type ObservationSetV2 } from "./analysis-v2.js";
-import { loadAnalysisRuntime, type AnalysisRuntimeIdentity } from "./analysis-runtime.js";
 import { visibleEvidence } from "./evidence-projection.js";
 import { ATIF_TOKEN_ACCOUNTING_LABEL } from "./atif-display.js";
 import type { RetainedBehaviorEvidenceV2 } from "./native-v2.js";
@@ -66,17 +65,15 @@ export async function validateAtlasViewV2(view: AtlasViewV2, evidence: RetainedB
   if (analysisDigestV2(view) !== analysisDigestV2(await buildAtlasViewV2(evidence))) throw new Error("V2 Atlas view differs from its dataset and evidence.");
 }
 export type AtlasCohortSummaryV2 = { id: string; runId: string; attemptId: string; origin: "owned" | "imported"; datasetDigest: HashV2;
-  runtime: AnalysisRuntimeIdentity | AtlasViewV2["runtime"]; unitCount: number | null; observations: unknown };
-/** Fixed shipped v1 readers are the only compatibility execution route. Cohorts retain independent measures. */
-export async function buildAtlasCohortsV2(inputs: Array<{ id: string; evidence: RetainedBehaviorEvidenceV2 } | { id: string; bundleRoot: string; runtimeId: string }>): Promise<AtlasCohortSummaryV2[]> {
+  runtime: AtlasViewV2["runtime"]; unitCount: number; observations: unknown };
+/** One summary per cohort; cohorts retain independent measures. */
+export async function buildAtlasCohortsV2(inputs: Array<{ id: string; evidence: RetainedBehaviorEvidenceV2 }>): Promise<AtlasCohortSummaryV2[]> {
   if (new Set(inputs.map(({ id }) => id)).size !== inputs.length) throw new Error("Duplicate Atlas cohort identity.");
   const result: AtlasCohortSummaryV2[] = [];
   for (const input of inputs) {
-    if ("evidence" in input) { const view = await buildAtlasViewV2(input.evidence); result.push({ id: input.id, runId: view.runId, attemptId: view.attemptId,
-      origin: view.origin.kind, datasetDigest: view.runtime.datasetDigest, runtime: view.runtime, unitCount: view.units.length, observations: view.observations }); }
-    else { const runtime = await loadAnalysisRuntime(input.runtimeId), evidence = await runtime.createRetainedBehaviorEvidence(input.bundleRoot);
-      result.push({ id: input.id, runId: evidence.dataset.runId, attemptId: evidence.dataset.attemptId, origin: evidence.dataset.origin?.kind ?? "owned",
-        datasetDigest: analysisDigestV2(evidence.dataset), runtime: runtime.identity, unitCount: null, observations: await runtime.createRetainedStructuralObservationSet(input.bundleRoot) }); }
+    const view = await buildAtlasViewV2(input.evidence);
+    result.push({ id: input.id, runId: view.runId, attemptId: view.attemptId,
+      origin: view.origin.kind, datasetDigest: view.runtime.datasetDigest, runtime: view.runtime, unitCount: view.units.length, observations: view.observations });
   }
   return result;
 }

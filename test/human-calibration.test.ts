@@ -297,16 +297,15 @@ test("reproducibly samples, renders safe native drilldown, imports lineage, and 
     const unavailableRequests = aggregate.groups[0]!.metrics.find(({ id }) => id === "structural:model-request-count")!;
     assert.equal(unavailableRequests.measurement.status, "unavailable");
     assert.equal(unavailableRequests.measurement.exclusions.length > 0, true);
-    const legacyObservationSet = structuredClone(observationSet);
-    delete legacyObservationSet.normalization.capabilityProfile;
-    const migratedAggregate = await aggregateEvaluation({
+    const withoutCapabilities = structuredClone(observationSet);
+    delete withoutCapabilities.normalization.capabilityProfile;
+    await assert.rejects(aggregateEvaluation({
       corpusEntries: buildCorpusIndex(bundleRoot),
-      observationSets: [{ bundleRoot, document: legacyObservationSet }],
+      observationSets: [{ bundleRoot, document: withoutCapabilities }],
       assertions: [],
       calibrations: [],
       comparisons: [],
-    }, { groupBy: ["task"], selectedAttemptPolicy: "all-attempts", recurrence: { minimumOccurrences: 2 } });
-    assert.equal(migratedAggregate.sourceLineage.observationSets.length, 1, "legacy structural v1 sets are rebuilt with declared capabilities");
+    }, { groupBy: ["task"], selectedAttemptPolicy: "all-attempts", recurrence: { minimumOccurrences: 2 } }), /is stale/u, "an observation set without its capability profile is not the set the bundle produces");
     const conflictingAssertion = structuredClone(assertions[0]!);
     conflictingAssertion.judgment.rationale = "Conflicting revised synthetic judgment.";
     await assert.rejects(aggregateEvaluation({

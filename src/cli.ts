@@ -51,7 +51,7 @@ import {
   type ReviewSampleCriteria,
   type ReviewSourceSet,
 } from "./human-calibration.js";
-import { assessComparisonEligibility, assessLegacyComparisonEligibility, type ComparisonRequest, type LegacyComparisonRequest } from "./normalization-integrity.js";
+import { assessComparisonEligibility, type ComparisonRequest } from "./normalization-integrity.js";
 import {
   runAgentSdkSemanticJudge,
   type SemanticJudgeBackend,
@@ -239,10 +239,7 @@ export function main(
       return 1;
     }
     try {
-      const request = readJson(args[2]) as ComparisonRequest | LegacyComparisonRequest;
-      const report = request.schemaVersion === "ebo.comparison-request/v1"
-        ? assessLegacyComparisonEligibility(request)
-        : assessComparisonEligibility(request);
+      const report = assessComparisonEligibility(readJson(args[2]) as ComparisonRequest);
       write(`${canonicalizeMetadata(report)}\n`);
       return report.status === "unsupported" ? 1 : 0;
     } catch (error) {

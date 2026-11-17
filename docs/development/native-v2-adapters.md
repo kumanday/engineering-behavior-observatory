@@ -57,21 +57,19 @@ EBO receipt time. Native timestamp presence alone does not qualify execution
 duration. `precedes` compares established native order domains; timestamps and
 presentation order do not establish a missing behavioral relation.
 
-The v2 API is opt-in while typed consumers and migration reconciliation pass
-their gates. Current v1 entry points retain their published contracts. A release
-candidate must also pass the native baseline, package and mixed-runtime tests
-described in [migration accounting](migration-accounting.md).
+The v2 API is opt-in. The default lane's entry points keep their published
+contracts. A release candidate must also pass the native baseline and package
+tests.
 
 ## Verification interpretation
 
 The [verification catalog](../reference/harness-verification.md) supplies native
-confidence through frozen study snapshots. Adapter constants enumerate historical
-fixture versions only. Reading a retained run binds its diagnostic snapshot and
+confidence through frozen study snapshots. Reading a retained run binds its diagnostic snapshot and
 profile/route before normalization; it does not consult the current operator
 catalog. Runtime declarations remain cohort dimensions. A version disagreement
 adds a limitation without removing native records or measurements.
 
-Historical 1.x payloads render their version annotations from the immutable
-compatibility policy. These fields preserve existing assertion digests. The v2
-projector excludes those historical confidence codes and uses the retained
-verification result for its source limitations.
+The default lane's dataset carries `HARNESS_VERSION_UNVERIFIED` when the
+bundle's own records state no version, and `HARNESS_VERSION_CONFLICT` when they
+state a different one. The v2 projector leaves those codes out of its source
+limitations and uses the retained verification result instead.

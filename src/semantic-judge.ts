@@ -203,7 +203,7 @@ type RecordReference = {
 type Availability<Value> = { status: "available"; value: Value } | { status: "unavailable"; reason: string };
 
 export type SemanticJudgmentRecord = {
-  schemaVersion: "ebo.semantic-judgment/v1" | "ebo.semantic-judgment/v3";
+  schemaVersion: "ebo.semantic-judgment/v3";
   runtime?: { lockDigest: string; role: string; lock: RecordReference; launch: RecordReference; warnings: string[] };
   id: string;
   runId: string;

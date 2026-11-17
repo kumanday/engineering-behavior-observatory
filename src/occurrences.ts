@@ -14,7 +14,7 @@ export type Occurrence = {
   schemaVersion: "ebo.occurrence/v1";
   id: string;
   type: OccurrenceType;
-  rule: { id: string; version: "1.0.0" | "1.1.0" | typeof OCCURRENCE_RULES_VERSION; heuristic: boolean };
+  rule: { id: string; version: typeof OCCURRENCE_RULES_VERSION; heuristic: boolean };
   eventIds: string[];
   citations: NativeEvidenceReference[];
   attributes: Record<string, UniformAttributeValue>;

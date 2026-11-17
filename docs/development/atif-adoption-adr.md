@@ -14,8 +14,8 @@ Status: accepted. The additive 1.x implementation preserves existing capture and
    import as independently reviewable 1.x slices. Existing dataset bytes and
    source manifests remain immutable.
 4. Use EBO v2 for typed operations, clock provenance, measure-level coverage,
-   and removal of consumer-side native vocabulary. Ship a frozen compatibility
-   reader and selective re-judge accounting with those changes.
+   and removal of consumer-side native vocabulary. EBO 2 ships no reader for
+   1.x studies; version 1.4.0 remains the reader for them.
 5. Keep the ATIF reader extensible by format version. Support the released v1
    corpus first. Reassess the event-model boundary against the ATIF v2 RFC
    before freezing EBO v2 contracts. An unmerged RFC is research input.

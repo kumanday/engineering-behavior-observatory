@@ -23,9 +23,9 @@ measures remain available alongside limitations on completeness or native semant
 
 ## Native version confidence
 
-Current confidence appears in the retained verification result and native v2
-source limitations. The normalized 1.x payload preserves its historical annotation
-for existing assertion digests; use the verification result for current confidence.
+Confidence appears in the retained verification result and native v2 source
+limitations. The default lane's dataset adds a version code only when the
+bundle's own records fail to state the declared version or state another one.
 
 | Code | Meaning |
 | --- | --- |

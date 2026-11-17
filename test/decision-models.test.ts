@@ -182,12 +182,6 @@ test("a failure with no later call is rated by rule without asking the model", a
   assert.deepEqual(ratings.ratings.map(({ source, label, rule }) => [source, label, rule]), [["rule", "no-response", "no source-ordered follow-up call of the tool outside the same inference"]]);
   validateOccurrenceRatings(ratings);
   verifyRatingRules(ratings, observationSet, lone.events, () => undefined);
-  const legacySet = structuredClone(observationSet);
-  legacySet.occurrences![0]!.rule.version = "1.1.0";
-  const legacyRatings = await rateOccurrences(legacySet, lone.events, () => undefined, { provider: "typesafe" }, { fetch: fake.fetch, env });
-  assert.equal(legacyRatings.ratings[0]!.rule, "no later call of the tool in the same session");
-  validateOccurrenceRatings(legacyRatings);
-  verifyRatingRules(legacyRatings, legacySet, lone.events, () => undefined);
   const lost = structuredClone(ratings);
   lost.ratings = [];
   lost.coverage.byRule = 0;
@@ -373,9 +367,9 @@ test("question set 1.1: silent success is a rule rating, source changes between 
   const restatedItem = restated.fallbackDecisions![restatedRating.fallback!]!.request.items.find(({ occurrenceId }) => occurrenceId === restatedRating.occurrenceId)!;
   restatedItem.state = { fabricated: true };
   assert.throws(() => validateOccurrenceRatings(restated), /Fallback rating/u, "the fallback must have seen the deferred decision's state");
-  const legacy = structuredClone(ratings);
-  legacy.questionSetVersion = "1.0.0";
-  assert.throws(() => validateOccurrenceRatings(legacy), /question set/u, "1.0 artifacts are checked against the 1.0 questions");
+  const otherSet = structuredClone(ratings) as unknown as { questionSetVersion: string };
+  otherSet.questionSetVersion = "1.0.0";
+  assert.throws(() => validateOccurrenceRatings(otherSet as unknown as typeof ratings), /questionSetVersion/u, "only the current question set validates");
 
   const broken = await rateOccurrences(observationSet, events, ({ recordLocator }) => content[recordLocator], { provider: "typesafe" }, { fetch: fetchImpl, env,
     fallback: { ...fallback, run: async () => ({ status: "completed" as const, raw: {}, response: { answers: [] } }) } });

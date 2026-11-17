@@ -317,8 +317,8 @@ test("comparison CLI emits the inspectable report and blocks incompatible reques
     const legacyPath = join(temporary, "legacy.json");
     writeFileSync(legacyPath, JSON.stringify(legacy));
     output = "";
-    assert.equal(main(["comparison", "check", legacyPath], (message) => (output += message)), 0);
-    assert.equal((JSON.parse(output) as { schemaVersion: string }).schemaVersion, "ebo.comparison-report/v1");
+    assert.equal(main(["comparison", "check", legacyPath], (message) => (output += message)), 1);
+    assert.match(output, /Unsupported schema version/u, "a request without the measure and manifest digests is not a comparison request");
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }

@@ -47,13 +47,9 @@ workspace, rejects additional roots, and requires the requested network and
 temporary-directory restrictions. Initial thread effort and sandbox overrides
 match the explicit turn policy.
 
-Existing 0.150.1, 0.153.4 and 0.157.0 bundles remain readable through their
-original normalization profile and dataset identity. Legacy contract snapshots
-stay checked in;
-a captured synthetic 0.150.1 bundle and its pre-upgrade normalized dataset test
-exact readback. New captures use the 0.162.1 profile. Frozen run configurations
-for the older executable are not rewritten: new execution requires fresh
-configuration references carrying the new runtime version and contract digest.
+Captures use the 0.162.1 contract snapshot and one normalization profile. New
+execution requires configuration references carrying the runtime version and
+contract digest of the study's lock.
 
 ## Queue configuration
 
