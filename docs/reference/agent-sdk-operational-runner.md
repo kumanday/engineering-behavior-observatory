@@ -29,7 +29,7 @@ the experiment/queue. Bounds and model values are examples, not research
 defaults. Authentication stays in the process environment.
 
 ```json
-{ "schemaVersion": "ebo.agent-sdk-config/v1", "kind": "model", "model": "sonnet" }
+{ "schemaVersion": "ebo.agent-sdk-config/v1", "kind": "model", "model": "sonnet", "effort": "high", "systemPromptPreset": "claude_code" }
 ```
 
 ```json
@@ -82,6 +82,7 @@ Rules:
 - The queue entry's model, harness, native-limits, native-tool-policy, and queue-level capture-profile references must resolve to the corresponding `kind`.
 - Duplicate JSON keys, unknown fields, unsafe numbers, wrong kinds, digest mismatches, malformed UTF-8, and malformed JSON are rejected before SDK launch.
 - The model record's `model` must equal the queue entry's model ID, matching the existing capture invariant.
+- Optional `effort` accepts `low`, `medium`, `high`, `xhigh`, or `max`; optional `systemPromptPreset` accepts `claude_code`. The runner passes both to the SDK query options and retains them in the capture report's effective configuration. An omitted setting leaves the SDK default in place and is absent from the retained configuration.
 - The harness adapter must be `claude-agent-sdk`.
 - `maxTurns` and `maxBudgetUsd` are optional positive limits. The queue's coordinator `maxWallClockMs` remains the outer wall-clock limit.
 - Tool lists are arrays of unique nonempty strings. Preserve Agent SDK names; do not invent a common tool ontology.
