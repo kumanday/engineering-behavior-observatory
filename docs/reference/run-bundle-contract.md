@@ -161,9 +161,14 @@ behavioral or semantic-quality judgment.
 
 An explicit `unsupported` capture-report capability remains qualified and is
 reported as `unsupported`, not rewritten as missing evidence. Qualification
-caps every retained artifact read at 64 MiB; larger evidence is rejected with
-`ARTIFACT_TOO_LARGE` before whole-file parsing. Parsed session records and raw
-telemetry payloads are not retained in the qualification report.
+streams native JSONL evidence and verifies the digest and size of the complete
+file; a trace has no total size bound. Each JSONL record and each whole-file
+JSON read is bounded at 64 MiB, and an oversized record or document is rejected
+with `ARTIFACT_TOO_LARGE` before it is parsed. Opaque workspace snapshots use
+streaming integrity checks with their separate 1 GiB bound. JSONL records are
+addressed by physical line number, blank lines included. The qualification
+report retains session identities and hook names, not parsed session records
+or raw telemetry payloads.
 
 Session qualification requires the descriptor, manifest, and every observed
 native session identity to agree. Hook JSONL must contain at least one pinned

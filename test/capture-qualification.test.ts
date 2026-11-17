@@ -2,7 +2,7 @@ import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
 const test = runtimeTest("claude-agent-sdk");
 const liveTest = liveRuntimeTest("claude-agent-sdk");
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -316,10 +316,61 @@ test("preserves explicit unsupported telemetry as a qualified dimension", async 
   }
 });
 
-test("rejects native evidence above the documented qualification bound without reading it", async () => {
+test("streams native JSONL evidence larger than 64 MiB and verifies every byte", async () => {
   const fixture = await assembleScenario("success");
   try {
-    truncateSync(join(fixture.bundleRoot, evidencePath(fixture.bundleRoot, "hooks")), 64 * 1024 * 1024 + 1);
+    const manifest = readManifest(fixture.bundleRoot);
+    const descriptor = manifest.evidence.find((entry) => entry.id === "hooks")!;
+    const path = join(fixture.bundleRoot, descriptor.relativePath);
+    const line = `${JSON.stringify({ padding: "x".repeat(1024 * 1024) })}\n`;
+    for (let index = 0; index < 65; index++) appendFileSync(path, line);
+    const bytes = readFileSync(path);
+    assert.ok(bytes.length > 64 * 1024 * 1024);
+    descriptor.sizeBytes = bytes.length;
+    descriptor.digest = `sha256:${digestBytes(bytes).value}`;
+    writeFileSync(join(fixture.bundleRoot, "manifest.json"), JSON.stringify(manifest));
+    const options = { startingWorkspacePath: fixture.start, hookCapabilities: capabilities, expectedHooks: fixture.expectedHooks };
+    const report = await qualifyRunBundle(fixture.bundleRoot, options);
+    assert.equal(report.status, "qualified", JSON.stringify(report.reasons));
+    // A well-formed extra record keeps the file parseable; only the digest can reject it.
+    const extra = '{"padding":"tampered"}\n';
+    appendFileSync(path, extra);
+    descriptor.sizeBytes += Buffer.byteLength(extra);
+    writeFileSync(join(fixture.bundleRoot, "manifest.json"), JSON.stringify(manifest));
+    const tampered = await qualifyRunBundle(fixture.bundleRoot, options);
+    assert.equal(tampered.status, "unqualified");
+    assert.ok(reasonCodes(tampered).has("ARTIFACT_INTEGRITY_INVALID"));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("bounds each native JSONL record at the qualification limit", async () => {
+  const fixture = await assembleScenario("success");
+  try {
+    const manifest = readManifest(fixture.bundleRoot);
+    const descriptor = manifest.evidence.find((entry) => entry.id === "hooks")!;
+    // One record of 66 MiB: the file never reaches a newline within the per-record bound.
+    truncateSync(join(fixture.bundleRoot, descriptor.relativePath), 66 * 1024 * 1024);
+    descriptor.sizeBytes = 66 * 1024 * 1024;
+    writeFileSync(join(fixture.bundleRoot, "manifest.json"), JSON.stringify(manifest));
+    const report = await qualifyRunBundle(fixture.bundleRoot, {
+      startingWorkspacePath: fixture.start,
+      hookCapabilities: capabilities,
+      expectedHooks: fixture.expectedHooks,
+    });
+    assert.equal(report.status, "unqualified");
+    assert.ok(reasonCodes(report).has("ARTIFACT_TOO_LARGE"));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects whole-file evidence above the documented qualification bound without reading it", async () => {
+  const fixture = await assembleScenario("success");
+  try {
+    const captureReport = readManifest(fixture.bundleRoot).evidence.find((descriptor) => descriptor.kind === "capture-report")!;
+    truncateSync(join(fixture.bundleRoot, captureReport.relativePath), 64 * 1024 * 1024 + 1);
     const report = await qualifyRunBundle(fixture.bundleRoot, {
       startingWorkspacePath: fixture.start,
       hookCapabilities: capabilities,

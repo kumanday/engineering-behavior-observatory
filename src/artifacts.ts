@@ -218,6 +218,7 @@ export function validateRunManifestEvidence(
   artifact: string,
   manifest: unknown,
   bundleRoot: string,
+  verifiedArtifacts: ReadonlyMap<string, { digest: string; sizeBytes: number }> = new Map(),
 ): ArtifactValidationError[] {
   if (!isRecord(manifest) || !["run-manifest/v1", "run-manifest/v2"].includes(String(manifest.schemaVersion)) || !Array.isArray(manifest.evidence)) return [];
   const errors: ArtifactValidationError[] = [];
@@ -251,6 +252,11 @@ export function validateRunManifestEvidence(
     if (!isRecord(descriptor) || typeof descriptor.id !== "string" || typeof descriptor.relativePath !== "string"
         || typeof descriptor.digest !== "string" || typeof descriptor.sizeBytes !== "number") continue;
     try {
+      // Qualification has already checked these exact bytes through a verified
+      // file descriptor. Verifiers still need their nested semantic validation.
+      const verified = verifiedArtifacts.get(descriptor.relativePath);
+      if (descriptor.kind !== "verifier" && verified !== undefined
+          && verified.digest === descriptor.digest && verified.sizeBytes === descriptor.sizeBytes) continue;
       const bytes = resolveBundleArtifact(bundleRoot, {
         locator: descriptor.relativePath,
         digest: runDigest(descriptor.digest),
@@ -1001,6 +1007,105 @@ export async function readVerifiedArtifact(
   } finally {
     await handle.close();
   }
+}
+
+/**
+ * Stream an artifact of the declared size while hashing it. The digest is known only at the end:
+ * consume the entire iterator before trusting anything derived from its chunks.
+ */
+export async function* readVerifiedArtifactChunks(
+  artifactRoot: string,
+  relativePath: string,
+  expectedDigest: Digest,
+  expectedSize: number,
+): AsyncGenerator<Buffer> {
+  const { root, path } = await resolveExistingArtifactPath(artifactRoot, relativePath);
+  removeInterruptedPublicationLink(path, lstatSync(path));
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const opened = await handle.stat();
+    const openedTimes = await handle.stat({ bigint: true });
+    if (!opened.isFile() || !(await isReadablePublishedArtifact(path, opened))) {
+      throw new Error(`Artifact path "${relativePath}" is not an isolated regular file.`);
+    }
+    if (!Number.isSafeInteger(expectedSize) || expectedSize < 0 || opened.size !== expectedSize) {
+      throw new Error(`Artifact "${relativePath}" size does not match its source reference.`);
+    }
+    await assertExistingArtifactPath(root, relativePath);
+    const hash = createHash("sha256");
+    for (let offset = 0; offset < opened.size;) {
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, opened.size - offset));
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, offset);
+      if (bytesRead === 0) throw new Error(`Artifact path "${relativePath}" changed while it was being read.`);
+      const bytes = chunk.subarray(0, bytesRead);
+      hash.update(bytes);
+      offset += bytesRead;
+      yield bytes;
+    }
+    const completed = await handle.stat();
+    const completedTimes = await handle.stat({ bigint: true });
+    if (!completed.isFile() || !(await isReadablePublishedArtifact(path, completed))
+        || !sameFileIdentity(opened, completed) || completed.size !== opened.size
+        || completedTimes.mtimeNs !== openedTimes.mtimeNs || completedTimes.ctimeNs !== openedTimes.ctimeNs) {
+      throw new Error(`Artifact path "${relativePath}" changed while it was being read.`);
+    }
+    await assertExistingArtifactPath(root, relativePath);
+    if (expectedDigest.algorithm !== "sha256" || hash.digest("hex") !== expectedDigest.value) {
+      throw new Error(`Artifact "${relativePath}" digest does not match its source reference.`);
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Parse JSONL from byte chunks one physical line at a time. A record is bounded at `maxRecordBytes`;
+ * the file's total size is not. Lines are numbered physically, blank lines included. Each chunk
+ * must own its bytes until the next line ends.
+ */
+export async function* parseNativeJsonlRecords(
+  chunks: AsyncIterable<Buffer>,
+  maxRecordBytes: number,
+): AsyncGenerator<{ line: number; record: unknown }> {
+  if (!Number.isSafeInteger(maxRecordBytes) || maxRecordBytes < 1) throw new Error("Native JSONL record limit must be a positive safe integer.");
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let fragments: Buffer[] = [];
+  let pendingBytes = 0;
+  let line = 0;
+  let records = 0;
+  const append = (bytes: Buffer): void => {
+    pendingBytes += bytes.length;
+    if (pendingBytes > maxRecordBytes) throw new Error(`Native JSONL record exceeds the qualification byte limit of ${maxRecordBytes}.`);
+    fragments.push(bytes);
+  };
+  const finish = (): { line: number; record: unknown } | undefined => {
+    const text = decoder.decode(Buffer.concat(fragments, pendingBytes));
+    fragments = [];
+    pendingBytes = 0;
+    line += 1;
+    if (text.trim() === "") return undefined;
+    records += 1;
+    try {
+      assertNoDuplicateJsonKeys(text);
+      return { line, record: JSON.parse(text) as unknown };
+    } catch (error) {
+      throw new Error(`Native JSONL evidence line ${line} is malformed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+  for await (const chunk of chunks) {
+    let start = 0;
+    let newline: number;
+    while ((newline = chunk.indexOf(10, start)) !== -1) {
+      append(chunk.subarray(start, newline));
+      const parsed = finish();
+      if (parsed !== undefined) yield parsed;
+      start = newline + 1;
+    }
+    if (start < chunk.length) append(chunk.subarray(start));
+  }
+  const parsed = finish();
+  if (parsed !== undefined) yield parsed;
+  if (records === 0) throw new Error("Native JSONL evidence is empty.");
 }
 
 export async function inspectRetainedArtifact(

@@ -20,6 +20,8 @@ import {
   canonicalizeMetadata,
   inspectRetainedArtifact,
   readVerifiedArtifact,
+  readVerifiedArtifactChunks,
+  parseNativeJsonlRecords,
   validateArtifact,
   validateExportManifest,
   validateRunManifestEvidence,
@@ -745,6 +747,9 @@ export async function qualifyRunBundle(
     valid: boolean;
   };
   const states = new Map<string, ArtifactState>();
+  // Bytes this pass verified against their descriptor are not read a second time by manifest validation.
+  const verifiedArtifacts = new Map<string, { digest: string; sizeBytes: number }>();
+  const verified = (descriptor: RunBundleEvidenceDescriptor) => verifiedArtifacts.set(descriptor.relativePath, { digest: descriptor.digest, sizeBytes: descriptor.sizeBytes });
   for (const descriptor of manifest.evidence) {
     const state: ArtifactState = { descriptor, valid: true };
     states.set(descriptor.id, state);
@@ -755,6 +760,17 @@ export async function qualifyRunBundle(
         if (inspected.sizeBytes !== descriptor.sizeBytes || digestString(inspected.digest.value) !== descriptor.digest) {
           throw new Error("Workspace snapshot size or digest does not match its descriptor.");
         }
+        verified(descriptor);
+        continue;
+      }
+      if (descriptor.mediaType === "application/x-ndjson") {
+        // A trace has no total size bound; each record is bounded and every byte is hashed.
+        const summary = await parseNativeJsonl(readVerifiedArtifactChunks(
+          bundleRoot, descriptor.relativePath, digestValue(descriptor.digest), descriptor.sizeBytes,
+        ));
+        state.hookNames = summary.hookNames;
+        state.sessionIds = summary.sessionIds;
+        verified(descriptor);
         continue;
       }
       const bytes = await readVerifiedArtifact(
@@ -763,11 +779,8 @@ export async function qualifyRunBundle(
         digestValue(descriptor.digest),
         MAX_QUALIFICATION_ARTIFACT_BYTES,
       );
-      if (descriptor.mediaType === "application/x-ndjson") {
-        const summary = parseNativeJsonl(bytes);
-        state.hookNames = summary.hookNames;
-        state.sessionIds = summary.sessionIds;
-      } else if (descriptor.mediaType === "application/json") {
+      if (bytes.length === descriptor.sizeBytes) verified(descriptor);
+      if (descriptor.mediaType === "application/json") {
         const parsed = parseNativeJson(bytes);
         if (descriptor.kind === "session" || descriptor.kind === "hook") {
           const summary = nativeRecordSummary([parsed]);
@@ -786,7 +799,7 @@ export async function qualifyRunBundle(
   }
 
   if (!report.reasons.some((reason) => reason.code === "ARTIFACT_TOO_LARGE")) {
-    for (const error of validateRunManifestEvidence("manifest.json", manifest, bundleRoot)) {
+    for (const error of validateRunManifestEvidence("manifest.json", manifest, bundleRoot, verifiedArtifacts)) {
       const descriptor = descriptorFromValidationField(manifest, error.field);
       const dimension = descriptor === undefined
         ? error.field.startsWith("/terminal") ? "terminal" : "semanticEvidence"
@@ -1001,21 +1014,26 @@ function parseNativeJson(bytes: Buffer): unknown {
   return value;
 }
 
-function parseNativeJsonl(bytes: Buffer): { hookNames: string[]; sessionIds: string[] } {
-  if (bytes.length === 0) throw new Error("Native JSONL evidence is empty.");
-  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  const lines = text.split(/\r?\n/u).filter((line) => line.trim() !== "");
-  if (lines.length === 0) throw new Error("Native JSONL evidence is empty.");
-  return nativeRecordSummary(lines.map((line, index) => {
-    try {
-      assertNoDuplicateJsonKeys(line);
-      const value: unknown = JSON.parse(line);
-      if (!isRecord(value) || Object.keys(value).length === 0) throw new Error("record is empty");
-      return value;
-    } catch (error) {
-      throw new Error(`Native JSONL evidence line ${index + 1} is malformed: ${errorMessage(error)}`);
+async function parseNativeJsonl(chunks: AsyncIterable<Buffer>): Promise<{ hookNames: string[]; sessionIds: string[] }> {
+  const hookNames: string[] = [];
+  const sessionIds: string[] = [];
+  // Factory's root identity pairs an initialization request with its response; only those
+  // identity fields are kept across records.
+  const factoryIdentity: unknown[] = [];
+  for await (const { line, record } of parseNativeJsonlRecords(chunks, MAX_QUALIFICATION_ARTIFACT_BYTES)) {
+    if (!isRecord(record) || Object.keys(record).length === 0) throw new Error(`Native JSONL evidence line ${line} is malformed: record is empty`);
+    const summary = nativeRecordSummary([record]);
+    hookNames.push(...summary.hookNames);
+    sessionIds.push(...summary.sessionIds);
+    if (record.source === "ebo-factory-client" && record.kind === "request" && record.method === "droid.initialize_session") {
+      factoryIdentity.push({ source: record.source, kind: record.kind, method: record.method, id: record.id });
+    } else if (record.source === "factory-droid" && record.kind === "frame" && isRecord(record.payload) && record.payload.type === "response") {
+      factoryIdentity.push({ source: record.source, kind: record.kind, payload: { type: record.payload.type, id: record.payload.id,
+        ...(isRecord(record.payload.result) ? { result: { sessionId: record.payload.result.sessionId } } : {}) } });
     }
-  }));
+  }
+  sessionIds.push(...nativeRecordSummary(factoryIdentity).sessionIds);
+  return { hookNames, sessionIds };
 }
 
 function nativeRecordSummary(records: unknown[]): { hookNames: string[]; sessionIds: string[] } {

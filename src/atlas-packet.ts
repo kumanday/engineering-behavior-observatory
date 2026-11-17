@@ -292,7 +292,8 @@ async function writePacket({ bundleRoot, bundle, out, variant, viewerRoot, now }
     const target = `viewer/bundle/${path}`;
     const layer: Layer = role === "native-records" || role === "audits" ? "L4" : role === "claims" ? "L1" : role === "assessments" ? "L2" : role === "cohort-report" ? "L3" : "L5";
     if (variant === "restricted" && (role === "native-records" || role === "audits" || role === "table")) {
-      withheld.push({ path: target, layer, sha256: sha256(readFileSync(source)), reason: "native records, attempt audits and tables are withheld in the restricted variant" });
+      // The bundle was verified against its manifest above; a withheld payload is not read whole again.
+      withheld.push({ path: target, layer, sha256: bundle.files.find((file) => file.path === path)!.sha256, reason: "native records, attempt audits and tables are withheld in the restricted variant" });
       continue;
     }
     if (variant === "internal") { mkdirSync(dirname(join(out, target)), { recursive: true }); cpSync(source, join(out, target)); layerOf.set(target, layer); continue; }

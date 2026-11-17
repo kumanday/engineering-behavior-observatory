@@ -421,8 +421,8 @@ test("produces stable event identities and ordering on repeated normalization", 
   ]);
 });
 
-for (const missingWorkspace of [false, true]) {
-test(`loads qualified semantic evidence with missing workspace=${missingWorkspace} and validates every reference`, async () => {
+for (const [missingWorkspace, largeNativeTrace] of [[false, false], [true, false], [false, true]]) {
+test(`loads qualified semantic evidence with missing workspace=${missingWorkspace}, large trace=${largeNativeTrace} and validates every reference`, async () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-agent-sdk-normalizer-"));
   const start = join(root, "start");
   const final = join(root, "final");
@@ -487,7 +487,10 @@ test(`loads qualified semantic evidence with missing workspace=${missingWorkspac
     };
     const sessionDescriptor = manifest.evidence.find(({ kind }) => kind === "session")!;
     const sessionPath = join(bundleRoot, sessionDescriptor.relativePath);
-    const sessionBytes = Buffer.concat([Buffer.from("\n"), readFileSync(sessionPath)]);
+    // Blank padding lines carry the trace past 64 MiB without changing its records.
+    const padding = largeNativeTrace ? Buffer.from(`${" ".repeat(1024 * 1024)}\n`.repeat(65)) : Buffer.alloc(0);
+    const sessionBytes = Buffer.concat([padding, Buffer.from("\n"), readFileSync(sessionPath)]);
+    if (largeNativeTrace) assert.ok(sessionBytes.length > 64 * 1024 * 1024);
     writeFileSync(sessionPath, sessionBytes);
     sessionDescriptor.digest = `sha256:${digestBytes(sessionBytes).value}`;
     sessionDescriptor.sizeBytes = sessionBytes.length;
@@ -507,7 +510,7 @@ test(`loads qualified semantic evidence with missing workspace=${missingWorkspac
     assert.deepEqual(normalized.events.find(({ source }) => source.nativeType === "assessment-mode")?.attributes,
       { assessmentMode: "observational" });
     assert.deepEqual(normalized.events.filter(({ source }) => source.nativeReference.artifactId === "session")
-      .map(({ source }) => source.nativeReference.recordLocator), ["line:2", "line:3", "line:3"]);
+      .map(({ source }) => source.nativeReference.recordLocator), largeNativeTrace ? ["line:67", "line:68", "line:68"] : ["line:2", "line:3", "line:3"]);
     assert.equal(normalized.events.find(({ source }) => source.nativeReference.artifactId === "hooks")
       ?.source.nativeReference.recordLocator, "#");
 

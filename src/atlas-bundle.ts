@@ -2,7 +2,7 @@ import { v1OperationAlias } from "./v1-consumer-compatibility.js";
 import { loadAnalysisRuntime, type AnalysisRuntimeIdentity, type FrozenAnalysisRuntime } from "./analysis-runtime.js";
 import { createPointerEvidenceResolver } from "./evidence-pointers.js";
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { DuckDBInstance } from "@duckdb/node-api";
@@ -17,7 +17,7 @@ import { laneData, type LaneMeta } from "./atlas-lanes.js";
 import { ATLAS_UNITS_VERSION, deriveUnits, type AtlasUnit } from "./atlas-units.js";
 import type { BehaviorAssertion } from "./behavior-assertions.js";
 import type { CorpusIndexEntry } from "./corpus.js";
-import { createRetainedBehaviorEvidence, type RetainedBehaviorEvidence } from "./retained-evidence.js";
+import { createRetainedBehaviorEvidence, withRetainedEvidenceReuse, type RetainedBehaviorEvidence, type RetainedEvidenceReuseStats } from "./retained-evidence.js";
 import type { StructuralObservationSet } from "./structural-observations.js";
 import type { NativeEvidenceReference, UniformEvent } from "./uniform-events.js";
 
@@ -133,6 +133,15 @@ export function flattenText(value: unknown, key?: string, out: string[] = []): s
 }
 
 const sha256 = (data: string | Buffer) => `sha256:${createHash("sha256").update(data).digest("hex")}` as const;
+/** Tables and native records can exceed what one Buffer holds. */
+function fileSha256(path: string): `sha256:${string}` {
+  const hash = createHash("sha256");
+  const buffer = Buffer.allocUnsafe(64 * 1024);
+  const fd = openSync(path, "r");
+  try { let count: number; while ((count = readSync(fd, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, count)); }
+  finally { closeSync(fd); }
+  return `sha256:${hash.digest("hex")}`;
+}
 const known = <T>(field: { status: string; value?: T }) => (field.status === "known" ? field.value ?? null : null);
 const str = (value: unknown) => (typeof value === "string" ? value : null);
 
@@ -222,10 +231,13 @@ class TableSink {
   readonly staging = mkdtempSync(join(tmpdir(), `ebo-atlas-tables-${process.pid}-`));
   private fds = new Map<string, number>();
   readonly counts = new Map<string, number>();
+  readonly maxRowBytes = new Map<string, number>();
   push(name: string, row: Row) {
     let fd = this.fds.get(name);
     if (fd === undefined) { fd = openSync(join(this.staging, `${name}.ndjson`), "w"); this.fds.set(name, fd); }
-    writeSync(fd, `${JSON.stringify(Object.fromEntries(ATLAS_TABLES[name]!.map(([column]) => [column, row[column] ?? null])))}\n`);
+    const text = JSON.stringify(Object.fromEntries(ATLAS_TABLES[name]!.map(([column]) => [column, row[column] ?? null])));
+    this.maxRowBytes.set(name, Math.max(this.maxRowBytes.get(name) ?? 0, Buffer.byteLength(text)));
+    writeSync(fd, `${text}\n`);
     this.counts.set(name, (this.counts.get(name) ?? 0) + 1);
   }
   close() { for (const fd of this.fds.values()) closeSync(fd); this.fds.clear(); }
@@ -237,7 +249,9 @@ async function writeTables(tables: Record<string, Row[]>, directory: string, sin
   mkdirSync(directory, { recursive: true });
   const staging = sink.staging;
   sink.close();
-  const db = await DuckDBInstance.create(":memory:", { autoinstall_known_extensions: "false", autoload_known_extensions: "false" });
+  // A study's event table can exceed memory: one thread, a fixed budget, spill to the staging directory.
+  const db = await DuckDBInstance.create(":memory:", { autoinstall_known_extensions: "false", autoload_known_extensions: "false",
+    threads: "1", memory_limit: "4GB", preserve_insertion_order: "false", temp_directory: join(staging, "duckdb-spill") });
   const connection = await db.connect();
   const quote = (s: string) => `'${s.replace(/'/gu, "''")}'`;
   try {
@@ -245,21 +259,29 @@ async function writeTables(tables: Record<string, Row[]>, directory: string, sin
     for (const [name, columns] of Object.entries(ATLAS_TABLES)) {
       const ndjson = join(staging, `${name}.ndjson`);
       let count: number;
+      // The reader's buffers scale with the object-size limit, so it follows the largest row written.
+      let maxRowBytes = sink.maxRowBytes.get(name) ?? 0;
       if (STREAMED.has(name)) count = sink.counts.get(name) ?? 0;
       else {
         // One line at a time: a study's native content can exceed the largest single string V8 allows.
         const rows = tables[name] ?? [];
         const fd = openSync(ndjson, "w");
-        try { for (const row of rows) writeSync(fd, `${JSON.stringify(Object.fromEntries(columns.map(([column]) => [column, row[column] ?? null])))}\n`); } finally { closeSync(fd); }
+        try {
+          for (const row of rows) {
+            const text = JSON.stringify(Object.fromEntries(columns.map(([column]) => [column, row[column] ?? null])));
+            maxRowBytes = Math.max(maxRowBytes, Buffer.byteLength(text));
+            writeSync(fd, `${text}\n`);
+          }
+        } finally { closeSync(fd); }
         count = rows.length;
       }
       const path = join(directory, `${name}.parquet`);
       const spec = `{${columns.map(([column, type]) => `${column}: ${quote(type)}`).join(", ")}}`;
       const select = count
-        ? `SELECT ${columns.map(([column]) => column).join(", ")} FROM read_json(${quote(ndjson)}, format = 'newline_delimited', columns = ${spec}, maximum_object_size = 1073741824)`
+        ? `SELECT ${columns.map(([column]) => column).join(", ")} FROM read_json(${quote(ndjson)}, format = 'newline_delimited', columns = ${spec}, maximum_object_size = ${String(Math.max(1024 * 1024, maxRowBytes + 16384))})`
         : `SELECT ${columns.map(([column, type]) => `CAST(NULL AS ${type}) AS ${column}`).join(", ")} WHERE false`;
-      await connection.run(`COPY (${select}) TO ${quote(path)} (FORMAT parquet, COMPRESSION zstd)`);
-      out[name] = { path: `tables/${name}.parquet`, rows: count, sha256: sha256(readFileSync(path)) };
+      await connection.run(`COPY (${select}) TO ${quote(path)} (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE_BYTES '16MB')`);
+      out[name] = { path: `tables/${name}.parquet`, rows: count, sha256: fileSha256(path) };
     }
     return out;
   } finally {
@@ -274,14 +296,14 @@ async function writeTables(tables: Record<string, Row[]>, directory: string, sin
  * (invalid source, DuckDB, embedding provider) never leaves a partial bundle at the destination.
  */
 export async function buildAtlasBundle(requestPath: string, destination: string,
-  options: { now?: () => Date; embed?: typeof embedTexts } = {}): Promise<AtlasBundleManifest> {
+  options: { now?: () => Date; embed?: typeof embedTexts; evidenceReuse?: RetainedEvidenceReuseStats } = {}): Promise<AtlasBundleManifest> {
   const request = readRequest(requestPath);
   if (existsSync(destination) && readdirSync(destination).length) throw new Error(`Atlas bundle output ${destination} is not empty; choose a new directory.`);
   mkdirSync(dirname(resolve(destination)), { recursive: true });
   const outputRoot = mkdtempSync(join(dirname(resolve(destination)), `.${basename(destination)}.partial-`));
   const sink = new TableSink();
   try {
-    const manifest = await writeAtlasBundle(request, requestPath, outputRoot, sink, options);
+    const manifest = await withRetainedEvidenceReuse(() => writeAtlasBundle(request, requestPath, outputRoot, sink, options), options.evidenceReuse);
     if (existsSync(destination)) rmSync(destination, { recursive: true });
     renameSync(outputRoot, destination);
     return manifest;
@@ -622,7 +644,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     ...readdirSync(join(outputRoot, "native")).map((f) => ({ path: `native/${f}`, role: "native-records" })),
     ...[["units.arrow", "cloud-units"], ["embeddings.f32", "cloud-embeddings"], ["lanes.json", "swimlanes"], ["audit.json", "audits"], ["assessments.json", "assessments"],
       ["claims.json", "claims"], ["views.json", "view-specs"]].filter(([path]) => existsSync(join(outputRoot, path!))).map(([path, role]) => ({ path: path!, role: role! }))]
-    .map(({ path, role }) => ({ path, role, bytes: statSync(join(outputRoot, path)).size, sha256: sha256(readFileSync(join(outputRoot, path))) }))
+    .map(({ path, role }) => ({ path, role, bytes: statSync(join(outputRoot, path)).size, sha256: fileSha256(join(outputRoot, path)) }))
     .sort((a, b) => a.path.localeCompare(b.path));
   const manifest: AtlasBundleManifest = {
     schemaVersion: "ebo.atlas-bundle/v1", id: request.id, title: request.title, builder: ATLAS_BUNDLE_BUILDER, tablesVersion: ATLAS_TABLES_VERSION, unitsVersion: ATLAS_UNITS_VERSION,
@@ -659,7 +681,7 @@ export function verifyAtlasBundle(root: string): { ok: boolean; changed: string[
   const present = walk("").map((p) => p.replace(/\\/gu, "/")).filter((p) => p !== "manifest.json");
   const missing = manifest.files.filter(({ path }) => !existsSync(join(root, path))).map(({ path }) => path);
   const changed = manifest.files.filter(({ path, bytes, sha256: digest }) => existsSync(join(root, path))
-    && (statSync(join(root, path)).size !== bytes || sha256(readFileSync(join(root, path))) !== digest)).map(({ path }) => path);
+    && (statSync(join(root, path)).size !== bytes || fileSha256(join(root, path)) !== digest)).map(({ path }) => path);
   const unlisted = present.filter((p) => !listed.has(p));
   return { ok: !missing.length && !changed.length && !unlisted.length, changed, missing, unlisted };
 }

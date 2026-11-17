@@ -10,7 +10,9 @@ import {
   canonicalizeMetadata,
   digestBytes,
   digestMetadata,
+  parseNativeJsonlRecords,
   readVerifiedArtifact,
+  readVerifiedArtifactChunks,
   validateArtifact,
   validateExportManifest,
   validateRunManifestEvidence,
@@ -98,6 +100,56 @@ test("artifact paths reject traversal and symlinks while preserving verified byt
   } finally {
     await Promise.all([rm(root, { force: true, recursive: true }), rm(outside, { force: true, recursive: true })]);
   }
+});
+
+test("streamed artifact reads reject linked paths, wrong size, wrong digest and mid-read mutation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ebo-stream-read-"));
+  const bytes = Buffer.alloc(128 * 1024, 120);
+  const digest = digestBytes(bytes);
+  async function consume(path: string, size = bytes.length, expected = digest): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of readVerifiedArtifactChunks(root, path, expected, size)) chunks.push(chunk);
+    return Buffer.concat(chunks);
+  }
+  try {
+    await writeFile(join(root, "native.jsonl"), bytes);
+    assert.deepEqual(await consume("native.jsonl"), bytes);
+    await assert.rejects(consume("native.jsonl", bytes.length + 1), /size does not match/);
+    await assert.rejects(consume("native.jsonl", bytes.length, digestBytes(Buffer.from("wrong"))), /digest/);
+    await symlink(join(root, "native.jsonl"), join(root, "symlink.jsonl"));
+    await assert.rejects(consume("symlink.jsonl"));
+    await link(join(root, "native.jsonl"), join(root, "hardlink.jsonl"));
+    await assert.rejects(consume("native.jsonl"), /isolated/);
+    await rm(join(root, "hardlink.jsonl"));
+    const iterator = readVerifiedArtifactChunks(root, "native.jsonl", digest, bytes.length);
+    assert.equal((await iterator.next()).done, false);
+    await writeFile(join(root, "native.jsonl"), Buffer.alloc(bytes.length, 121));
+    await assert.rejects(async () => { for await (const _ of iterator) { /* finish */ } }, /changed/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("streamed JSONL keeps physical line numbers across chunk boundaries and bounds each record", async () => {
+  async function parse(chunks: Buffer[], limit = 1024): Promise<Array<{ line: number; record: unknown }>> {
+    const records: Array<{ line: number; record: unknown }> = [];
+    for await (const record of parseNativeJsonlRecords((async function* () { yield* chunks; })(), limit)) records.push(record);
+    return records;
+  }
+  const text = '{"a":"é"}\r\n\n  \n{"b":2}\n{"c":3}';
+  const expected = [{ line: 1, record: { a: "é" } }, { line: 4, record: { b: 2 } }, { line: 5, record: { c: 3 } }];
+  const bytes = Buffer.from(text);
+  assert.deepEqual(await parse([bytes]), expected);
+  // Every split point, including inside the two-byte character and between CR and LF.
+  for (let split = 1; split < bytes.length; split++) assert.deepEqual(await parse([bytes.subarray(0, split), bytes.subarray(split)]), expected);
+  await assert.rejects(parse([Buffer.from('{"a":1}\n{"a":1,"a":2}\n')]), /line 2 is malformed/);
+  await assert.rejects(parse([Buffer.from('{"a":1}\n{"a":\n')]), /line 2 is malformed/);
+  await assert.rejects(parse([Buffer.from("\n \n")]), /empty/);
+  await assert.rejects(parse([]), /empty/);
+  await assert.rejects(parse([Buffer.from([0x7b, 0x22, 0xff, 0x22, 0x7d])]));
+  const record = `${JSON.stringify({ padding: "x".repeat(64) })}\n`;
+  assert.equal((await parse([Buffer.from(record.repeat(100))], Buffer.byteLength(record))).length, 100);
+  await assert.rejects(parse([Buffer.from(record)], 32), /qualification byte limit of 32/);
 });
 
 test("atomic metadata writes retain the previous valid file when interrupted", async () => {

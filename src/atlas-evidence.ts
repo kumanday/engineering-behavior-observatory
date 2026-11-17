@@ -2,8 +2,9 @@ import { isAtifImportSchema } from "./atif-import.js";
 import { createHash } from "node:crypto";
 import { canonicalizeMetadata, digestBytes } from "./artifacts.js";
 import { readEvidencePointer } from "./evidence-pointers.js";
-import { readFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 import type { AtlasUnit, AtlasUnitEvent } from "./atlas-units.js";
 import { visibleText } from "./atlas-units.js";
@@ -100,7 +101,7 @@ export class NativeLines {
     }
     if (!this.cache.has(artifact)) {
       let lines: string[] | null = null;
-      try { lines = readFileSync(join(this.bundleRoot, relativePath), "utf8").split("\n"); } catch { lines = null; }
+      try { lines = readNativeLines(join(this.bundleRoot, relativePath)); } catch { lines = null; }
       this.cache.set(artifact, lines);
     }
     const raw = this.cache.get(artifact)?.[Number(match[1]) - 1];
@@ -108,6 +109,25 @@ export class NativeLines {
     return { artifact, locator, path: `${this.displayRoot}/${relativePath}`, resolved: true, sha256: createHash("sha256").update(raw).digest("hex"),
       chars: raw.length, truncated: false, text: raw, ...(part ? { part } : {}), ...(eventKey ? { event_key: eventKey } : {}) };
   }
+}
+
+/** The file's physical lines, decoded without one string for the whole artifact (a trace can exceed V8's string limit). */
+function readNativeLines(path: string): string[] {
+  const fd = openSync(path, "r"), decoder = new StringDecoder("utf8"), chunk = Buffer.allocUnsafe(64 * 1024);
+  const lines: string[] = [];
+  let pending = "";
+  const append = (text: string) => {
+    const parts = text.split("\n");
+    pending += parts[0]!;
+    for (let i = 1; i < parts.length; i++) { lines.push(pending); pending = parts[i]!; }
+  };
+  try {
+    let size: number;
+    while ((size = readSync(fd, chunk, 0, chunk.length, null)) !== 0) append(decoder.write(chunk.subarray(0, size)));
+    append(decoder.end());
+    lines.push(pending);
+    return lines;
+  } finally { closeSync(fd); }
 }
 
 type Run = { row_id: number; seq: number; step: number; t_ms: number | null; status: string | null; kinds?: string[]; exit_code?: number | null;
