@@ -21,12 +21,17 @@ export interface NativeRec { artifact: string; locator: string; path?: string; r
 export interface Citation { link?: string | null; ordinal: number; event_key: string; resolved_event: boolean; row_id: number | null; unit_kind: string | null; step: number | null; seq: number | null; native: NativeRec }
 export interface Assessment {
   id: string; attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; card: string; family: string; title: string;
+  /** Who produced the result: `llm-judge` (reads a selection, cites events) or `decision-model` (reads every step, returns probabilities). */
+  mode: string; producer?: string;
+  shown?: { scope: string; events?: { included: number; total: number }; steps?: { included: number; total: number }; fieldChars?: { min: number; max: number }; budgetChars?: number };
+  /** The ontology's direction of a present result: favourable, unfavourable or neutral. */
+  direction: string | null; probability?: number | null; probabilities?: Record<string, unknown> | null; thresholds?: { present: number; absent: number } | null;
   outcome: string; value: string | null; confidence: number | null; rationale: string | null; alternative: string | null; review: string | null;
-  evaluator: string; rubric: string; cohorts: Record<string, { included?: boolean; disputed?: boolean; review?: string }>; source: string; citations: Citation[];
+  evaluator: string; rubric: string | null; cohorts: Record<string, { included?: boolean; disputed?: boolean; review?: string }>; source: string; citations: Citation[];
 }
 export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; harness_id: string; model_id: string; terminal_state: string | null; failure_class: string | null; cohorts: string[]; bundle: string; native_span_seconds: number | null;
   native_record_count?: number | null; unmapped_record_count?: number | null; event_count?: number | null; event_types?: Record<string, number>; units?: number; tool_calls?: number }
-interface CertCell { group: Record<string, string>; card: string; family?: string; counts: Record<string, number>; values?: Record<string, number>; denominator: number; assertions: string[]; conditions?: string[] }
+interface CertCell { group: Record<string, string>; card: string; family?: string; mode?: string; counts: Record<string, number>; values?: Record<string, number>; denominator: number; assertions: string[]; conditions?: string[] }
 export interface AssessDoc {
   study: string; cohorts: { id: string; title: string; certified: boolean; report: string | null }[]; attempts: AttemptMeta[]; assessments: Assessment[];
   /** The judged cards and their families, in ontology order. */
@@ -52,6 +57,9 @@ export interface EvidenceHooks { highlight: (rows: number[] | null) => void; sho
 
 const SHOW_MAX = 200_000;   // rendering safeguard for very long native lines (the data itself is never truncated)
 const fmtT = (ms: number | null | undefined) => (ms == null ? "—" : fmtDur(ms));
+const MODE_LABEL: Record<string, string> = { "llm-judge": "LLM judge", "decision-model": "decision model" };
+const modeLabel = (m: string) => MODE_LABEL[m] ?? m;
+const dirChip = (d: string | null | undefined) => d ? `<span class="dir dir-${cls(d)}">${esc(d)}</span>` : "";
 const outChip = (o: string, value?: string | null) => `<span class="oc oc-${cls(o)}">${esc(value ? `${o}: ${value}` : o)}</span>`;
 const short = (h?: string) => (h ? h.slice(0, 12) : "");
 
@@ -226,14 +234,19 @@ export class Evidence {
     const coh = Object.entries(a.cohorts).map(([c, v]) => `${c}${v.included === false ? " (excluded)" : ""}${v.disputed ? " (disputed)" : ""}`).join(", ");
     this.drawer.open({ kind: "assessment", id }, `Assessment · ${a.card}`, () => `
       <p class="dr-meta">${esc(this.attemptLabel(a.attempt_id))}</p>
-      <p class="dr-big">${outChip(a.outcome, a.value)} <b>${esc(a.card)} ${esc(a.title)}</b>${a.confidence != null ? ` · confidence ${num(a.confidence)}` : ""}</p>
-      <dl class="kv"><dt>Evaluator</dt><dd>${esc(a.evaluator)}</dd><dt>Rubric</dt><dd>${esc(a.rubric)}</dd>
+      <p class="dr-big">${outChip(a.outcome, a.value)} ${dirChip(a.direction)} <b>${esc(a.card)} ${esc(a.title)}</b>${a.confidence != null ? ` · confidence ${num(a.confidence)}` : ""}${a.probability != null ? ` · probability ${num(a.probability)}` : ""}</p>
+      <dl class="kv"><dt>Produced by</dt><dd>${esc(modeLabel(a.mode))} · ${esc(a.evaluator)}</dd>${a.rubric ? `<dt>Rubric</dt><dd>${esc(a.rubric)}</dd>` : ""}
+        <dt>Was shown</dt><dd>${a.mode === "decision-model"
+          ? `${a.shown?.steps ? `${num(a.shown.steps.included)} of ${num(a.shown.steps.total)} recorded steps` : "the recorded steps"}${a.shown?.fieldChars ? `, each field cut to ${num(a.shown.fieldChars.min)}-${num(a.shown.fieldChars.max)} characters` : ""}`
+          : `a selection: ${a.shown?.events ? `${num(a.shown.events.included)} of the attempt's ${num(a.shown.events.total)} events` : "selected events"}`}</dd>
         <dt>Review</dt><dd>${esc(a.review ?? "unreviewed (model proposal)")}</dd><dt>Cohorts</dt><dd>${esc(coh || "—")}</dd>
         <dt>Assertion</dt><dd class="mono small">${esc(a.id)}</dd></dl>
+      ${a.mode === "decision-model" ? `<h4>Probabilities</h4><pre class="rec-t">${esc(JSON.stringify({ probabilities: a.probabilities ?? null, thresholds: a.thresholds ?? null }, null, 1))}</pre>
+        <p class="muted small">A decision model returns probabilities only. This result has no cited steps, rationale or alternative explanation; the verdict is the probability under the thresholds above.</p>` : `
       <h4>Judge's rationale</h4><p class="prose">${esc(a.rationale ?? (a.outcome === "unknown" ? "The judge answered unknown." : "—"))}</p>
       ${a.alternative ? `<h4>Alternative explanation (judge)</h4><p class="prose">${esc(a.alternative)}</p>` : ""}
       <h4>Cited evidence (${a.citations.length})</h4>
-      <p class="muted small">Each citation is a native record the judge pointed to. Open it to read the line; the unit links it to the swimlanes and cloud.</p>
+      <p class="muted small">Each citation is a native record the judge pointed to. Open it to read the line; the unit links it to the swimlanes and cloud.</p>`}
       <ol class="cites">${a.citations.map((c) => `<li>
         ${c.row_id != null ? `<button class="link" data-row="${num(c.row_id)}" ${target("openUnit", `${a.attempt_id}:${c.row_id}`)}>${esc(c.unit_kind ?? "unit")}${c.step ? ` · step ${num(c.step)}` : ""}${c.seq != null ? ` · unit #${num(c.seq)}` : ""}</button>${c.link && c.link !== "event" ? ` <span class="muted small" title="The cited record is not one of the unit's own events; linked to the ${c.link === "time" ? "nearest unit in time (≤5 s)" : "nearest preceding unit in the same native file"}">≈ linked by ${esc(c.link)}</span>` : ""}` : `<span class="muted">not linked to a unit</span>`}
         <span class="mono small">${esc(c.native.artifact)} ${esc(c.native.locator)}</span>
@@ -402,19 +415,27 @@ export class MatrixPanel {
   private cohort: string;
   private task: string | null = "all";
   private sel: { cat: string; arm: string } | null = null;
+  /** One producer mode is shown at a time: LLM-judge and decision-model results are never counted together. */
+  private mode: string;
+  private direction = "all";
   constructor(private root: HTMLElement, private ev: Evidence) {
     const certified = ev.doc.cohorts.filter((c) => c.certified);
     this.cohort = certified[0]?.id ?? "all";
+    this.mode = this.modes()[0] ?? "llm-judge";
     const obj = (properties: Record<string, unknown>, required = Object.keys(properties)) => ({ type: "object", required, properties, additionalProperties: false });
     register<{ cohort: string }>({ name: "setMatrixCohort", description: "Count assessments of one cohort (or all attempts).", args: obj({ cohort: { type: "string" } }),
       run: ({ cohort }) => { this.cohort = cohort; this.sel = null; this.render(); return `Assessments show ${cohort === "all" ? "all attempts" : `cohort ${cohort}`}.`; } });
     register<{ task: string | null }>({ name: "setMatrixTask", description: "Count assessments of one task (or all tasks).", args: obj({ task: { type: ["string", "null"] } }),
       run: ({ task }) => { this.task = task; this.sel = null; this.render(); return `Assessments show ${task === "all" ? "all tasks" : task}.`; } });
+    register<{ mode: string }>({ name: "setMatrixMode", description: "Show the results of one producer mode: llm-judge or decision-model.", args: obj({ mode: { type: "string" } }),
+      run: ({ mode }) => { this.mode = mode; this.sel = null; this.render(); return `Assessments show ${modeLabel(mode)} results.`; } });
+    register<{ direction: string }>({ name: "setMatrixDirection", description: "Count only present results of one direction (favourable, unfavourable, neutral), or all results.", args: obj({ direction: { type: "string" } }),
+      run: ({ direction }) => { this.direction = direction; this.sel = null; this.render(); return direction === "all" ? "Assessments show all results." : `Assessments show ${direction} results.`; } });
     register<{ card: string | null; arm?: string }>({ name: "selectMatrixCell", description: "List the judgments of one behavior card × arm cell; card null shows all.",
       args: obj({ card: { type: ["string", "null"] }, arm: { type: "string" } }, ["card"]),
       run: ({ card, arm }) => { this.sel = card === null || arm === undefined ? null : { cat: card, arm }; this.render(); return this.sel ? `Listing ${card} × ${arm}.` : "Listing all judgments."; } });
-    provide({ key: "assessments", get: () => ({ cohort: this.cohort, task: this.task, cell: this.sel ? { card: this.sel.cat, arm: this.sel.arm } : null }),
-      apply: (st: { cohort: string; task: string | null; cell: { card: string; arm: string } | null }) => { this.cohort = st.cohort; this.task = st.task; this.sel = st.cell ? { cat: st.cell.card, arm: st.cell.arm } : null; this.render(); } });
+    provide({ key: "assessments", get: () => ({ cohort: this.cohort, task: this.task, mode: this.mode, direction: this.direction, cell: this.sel ? { card: this.sel.cat, arm: this.sel.arm } : null }),
+      apply: (st: { cohort: string; task: string | null; mode?: string; direction?: string; cell: { card: string; arm: string } | null }) => { this.cohort = st.cohort; this.task = st.task; this.mode = st.mode ?? this.mode; this.direction = st.direction ?? "all"; this.sel = st.cell ? { cat: st.cell.card, arm: st.cell.arm } : null; this.render(); } });
     describable("assessments", this);
     this.render();
   }
@@ -428,7 +449,7 @@ export class MatrixPanel {
       const unrecognized = xs.filter((a) => !(OUTCOMES as readonly string[]).includes(a.outcome)).length;
       if (unrecognized) counts.unrecognized = unrecognized;
       const cert = this.certCell(cat, arm);
-      return { card: cat, arm, judgments: xs.length, counts, certified: cert ? OUTCOMES.every((o) => (cert.counts[o] ?? 0) === counts[o]) && cert.denominator === xs.length : false };
+      return { card: cat, mode: this.mode, arm, judgments: xs.length, counts, certified: cert ? OUTCOMES.every((o) => (cert.counts[o] ?? 0) === counts[o]) && cert.denominator === xs.length : false };
     }));
     return { summary: `${pool.length} judgments, ${this.cohort === "all" ? "all attempts" : `cohort ${this.cohort}`}${this.task !== "all" ? `, task ${this.task}` : ""}.`, data: { cohort: this.cohort, task: this.task, cells } };
   }
@@ -436,13 +457,14 @@ export class MatrixPanel {
     // Agreeing judge reruns of one attempt and card count once, as in the certified report; disagreeing ones stay.
     const seen = new Set<string>();
     return this.ev.doc.assessments.filter((a) => (this.cohort === "all" || (a.cohorts[this.cohort] && a.cohorts[this.cohort].included !== false))
-      && (this.task === "all" || a.task_id === this.task))
+      && (this.task === "all" || a.task_id === this.task) && a.mode === this.mode && (this.direction === "all" || a.direction === this.direction))
       .filter((a) => { const k = `${a.attempt_id}\0${a.card}\0${a.outcome}\0${a.value ?? ""}`; if (seen.has(k)) return false; seen.add(k); return true; });
   }
   private arms() { return [...new Set(this.ev.doc.attempts.map((a) => a.condition))].sort(); }
+  private modes() { return [...new Set(this.ev.doc.assessments.map((a) => a.mode))].sort(); }
   /** Judged card ids in ontology order when the bundle lists them, else sorted. */
   private cats() {
-    const judged = new Set(this.ev.doc.assessments.map((a) => a.card));
+    const judged = new Set(this.ev.doc.assessments.filter((a) => a.mode === this.mode).map((a) => a.card));
     const listed = (this.ev.doc.cards ?? []).map((c) => c.id).filter((id) => judged.has(id));
     return [...listed, ...[...judged].filter((id) => !listed.includes(id)).sort()];
   }
@@ -450,8 +472,10 @@ export class MatrixPanel {
   private familyOf(card: string) { return this.ev.doc.cards?.find((c) => c.id === card)?.family ?? this.ev.doc.assessments.find((a) => a.card === card)?.family ?? ""; }
   private titleOf(card: string) { return this.ev.doc.cards?.find((c) => c.id === card)?.title ?? this.ev.doc.assessments.find((a) => a.card === card)?.title ?? ""; }
   private certCell(cat: string, arm: string) {
-    const c = this.ev.doc.certified[this.cohort];
-    if (!c) return null;
+    const report = this.ev.doc.certified[this.cohort];
+    // A direction filter shows a subset the report does not tally; report cells of another producer mode never apply.
+    if (!report || this.direction !== "all") return null;
+    const c = { ...report, cells: report.cells.filter((x) => (x.mode ?? this.mode) === this.mode) };
     const m = this.ev.doc.attempts.find((x) => x.condition === arm);
     if (!m) return null;
     // EBO bundles record each cell's arms. Only cells covering this arm alone are comparable with it; report groups
@@ -494,25 +518,30 @@ export class MatrixPanel {
     const list = this.sel ? pool.filter((a) => a.card === this.sel!.cat && a.condition === this.sel!.arm) : pool;
     this.root.innerHTML = `
       <div class="panel-head"><div><h2>Assessments</h2>
-        <p class="sub">${pool.length} judgments (one per attempt × behavior card) · ${this.cohort === "all" ? "all attempts" : `cohort ${esc(this.cohort)}`}${this.task !== "all" ? ` · ${esc(this.task ?? "task unavailable")}` : ""}</p></div>
+        <p class="sub">${pool.length} ${esc(modeLabel(this.mode))} judgments (one per attempt × behavior card)${this.direction !== "all" ? ` · ${esc(this.direction)} only` : ""} · ${this.cohort === "all" ? "all attempts" : `cohort ${esc(this.cohort)}`}${this.task !== "all" ? ` · ${esc(this.task ?? "task unavailable")}` : ""}</p></div>
         <div class="controls">
+          <label class="field">Produced by <select data-mode ${target("setMatrixMode")}>${this.modes().map((m) => `<option value="${esc(m)}" ${m === this.mode ? "selected" : ""}>${esc(modeLabel(m))}</option>`).join("")}</select></label>
+          <label class="field">Direction <select data-direction ${target("setMatrixDirection")}>${["all", "favourable", "unfavourable", "neutral"].map((d) => `<option value="${d}" ${d === this.direction ? "selected" : ""}>${d === "all" ? "all results" : d}</option>`).join("")}</select></label>
           <label class="field">Cohort <select data-cohort ${target("setMatrixCohort")}>${this.ev.doc.cohorts.map((c) => `<option value="${esc(c.id)}" ${c.id === this.cohort ? "selected" : ""}>${esc(c.id)}${c.certified ? " (EBO report)" : ""}</option>`).join("")}<option value="all" ${this.cohort === "all" ? "selected" : ""}>all attempts</option></select></label>
           ${tasks.length > 1 ? `<label class="field">Task <select data-task ${target("setMatrixTask")}><option value="&quot;all&quot;" ${this.task === "all" ? "selected" : ""}>all tasks</option>${tasks.map((t) => `<option value="${esc(JSON.stringify(t))}" ${t === this.task ? "selected" : ""}>${esc(t ?? "task unavailable")}</option>`).join("")}</select></label>` : ""}
         </div></div>
-      <p class="legend">Cells count judge verdicts: one per attempt and behavior card, not cited units.
+      <p class="legend">Cells count ${esc(modeLabel(this.mode))} verdicts: one per attempt and behavior card, not cited units. ${this.mode === "decision-model" ? "A decision model read every recorded step and returns probabilities, with no cited steps or reasons." : "An LLM judge read a selection of events and cites them."} Results of the other producer are shown separately, never added to these.
         <span class="lg"><span class="sw oc-present"></span>present</span> <span class="lg"><span class="sw oc-absent"></span>absent</span>
         <span class="lg"><span class="sw oc-unknown"></span>unknown (the record lacks the steps the card needs)</span>.
-        A present dimension card names one value, shown in the judgment list.
+        A present dimension card names one value, shown in the judgment list. A present result has a direction fixed by the ontology
+        (${dirChip("favourable")} ${dirChip("unfavourable")} ${dirChip("neutral")}); neutral results are counted and never scored.
         ${anyCert ? "<b>EBO certified</b>: the cell equals the tally in the EBO Atlas report for the chosen cohort; <b>exploratory</b>: computed here." : "This study has no EBO Atlas report, so every number here is <b>exploratory</b> (computed from the judge assertions)."}
         Judgments are unreviewed model proposals over sampled evidence. Click a cell for its judgments; click a judgment for rationale and cited native records.</p>
       <div class="p3-split">
         <div class="table-wrap mx-wrap"><table class="grid mxt"><thead><tr><th scope="col">Behavior card</th>${arms.map((a) => `<th scope="col" class="arm"><span class="arm-name">${esc(a)}</span></th>`).join("")}</tr></thead>
           <tbody>${cats.map((c, i) => `${i === 0 || this.familyOf(c) !== this.familyOf(cats[i - 1]!) ? `<tr class="mx-family"><th scope="colgroup" colspan="${arms.length + 1}">${esc(this.familyOf(c))}${this.familyName(this.familyOf(c)) ? ` · ${esc(this.familyName(this.familyOf(c)))}` : ""}</th></tr>` : ""}<tr><th scope="row" class="c-label"><span class="lbl">${esc(c)} ${esc(this.titleOf(c))}</span></th>${arms.map((a) => cell(c, a)).join("")}</tr>`).join("")}</tbody></table></div>
         <div class="table-wrap jl-wrap"><p class="sub">${this.sel ? `${esc(this.sel.cat)} × ${esc(this.sel.arm)} · <button class="link" data-clear ${target("selectMatrixCell", "all")}>show all</button>` : "All judgments"} (${list.length})</p>
-          <table class="grid jl"><thead><tr><th>Arm</th><th>Task</th><th>Trial</th><th>Attempt</th><th>Card</th><th>Verdict</th><th class="num">Conf.</th><th class="num">Cites</th><th>Rationale (start)</th></tr></thead>
+          <table class="grid jl"><thead><tr><th>Arm</th><th>Task</th><th>Trial</th><th>Attempt</th><th>Card</th><th>By</th><th>Verdict</th><th>Direction</th><th class="num">Conf. / prob.</th><th class="num">Cites</th><th>Rationale (start)</th></tr></thead>
           <tbody>${list.map((a) => `<tr data-id="${esc(a.id)}" ${target("openAssessment", a.id)} tabindex="0"><td>${esc(a.condition)}</td><td>${esc(a.task_id)}</td><td>${esc(a.trial_id ?? "unavailable")}</td><td class="mono">${esc(a.short)}</td><td>${esc(a.card)}</td>
-            <td>${outChip(a.outcome, a.value)}</td><td class="num">${a.confidence == null ? "—" : num(a.confidence)}</td><td class="num">${a.citations.length}</td><td class="small">${esc((a.rationale ?? "").slice(0, 140))}${(a.rationale ?? "").length > 140 ? "…" : ""}</td></tr>`).join("")}</tbody></table></div>
+            <td class="small">${esc(modeLabel(a.mode))}</td><td>${outChip(a.outcome, a.value)}</td><td>${dirChip(a.direction) || "—"}</td><td class="num">${a.confidence != null ? num(a.confidence) : a.probability != null ? num(a.probability) : "—"}</td><td class="num">${a.citations.length}</td><td class="small">${esc((a.rationale ?? "").slice(0, 140))}${(a.rationale ?? "").length > 140 ? "…" : ""}</td></tr>`).join("")}</tbody></table></div>
       </div>`;
+    this.root.querySelector<HTMLSelectElement>("[data-mode]")?.addEventListener("change", (e) => run("setMatrixMode", { mode: (e.target as HTMLSelectElement).value }));
+    this.root.querySelector<HTMLSelectElement>("[data-direction]")?.addEventListener("change", (e) => run("setMatrixDirection", { direction: (e.target as HTMLSelectElement).value }));
     this.root.querySelector<HTMLSelectElement>("[data-cohort]")!.addEventListener("change", (e) => run("setMatrixCohort", { cohort: (e.target as HTMLSelectElement).value }));
     this.root.querySelector<HTMLSelectElement>("[data-task]")?.addEventListener("change", (e) => run("setMatrixTask", { task: JSON.parse((e.target as HTMLSelectElement).value) }));
     this.root.querySelector("[data-clear]")?.addEventListener("click", () => run("selectMatrixCell", { card: null }));

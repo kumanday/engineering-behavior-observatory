@@ -14,36 +14,41 @@ import {
   createAgentSdkNativeEvidenceResolver,
   digestMetadata,
   isConfirmedBehaviorAssertion,
+  isDecisionModelAssertion,
+  producerLabel,
   probeClaudeAgentSdkCapabilities,
   readQualifiedClaudeAgentSdkCapture,
   validateBehaviorAssertion,
   validateBehaviorReview,
   type BehaviorAssertion,
   type BehaviorReview,
+  type DecisionModelAssertion,
+  type LlmJudgeAssertion,
   type ClaudeAgentSdkQuery,
   type NativeEvidenceResolver,
   type NormalizedDataset,
   type RunBundleDefinition,
 } from "../src/index.js";
 import { main } from "../src/cli.js";
+import { ONTOLOGY_DIGEST, decisionModelAssertion } from "./behavior-fixture.js";
 
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 const fixtureRoot = join(repositoryRoot, "test/fixtures/behavior-assertions");
 
-test("configuration digests belong only to evaluator identities", async () => {
+test("configuration digests belong only to producers", async () => {
   const dataset = fixture<NormalizedDataset>("dataset.json");
-  const assertion = fixture<BehaviorAssertion>("positive.json");
-  assertion.evaluator.configurationDigest = `sha256:${"a".repeat(64)}`;
+  const assertion = fixture<LlmJudgeAssertion>("positive.json");
+  assertion.producer.configurationDigest = `sha256:${"a".repeat(64)}`;
   assert.equal((await validateBehaviorAssertion(assertion, dataset, resolver(dataset))).length, 1);
-  const invalid = { ...assertion, rubric: { ...assertion.rubric, configurationDigest: assertion.evaluator.configurationDigest } };
+  const invalid = { ...assertion, rubric: { ...assertion.rubric, configurationDigest: assertion.producer.configurationDigest } };
   await assert.rejects(validateBehaviorAssertion(invalid, dataset, resolver(dataset)), /rubric.*additional properties/u);
 });
 
 test("validates positive, disputed, abstained, and invalid-reference fixtures", async () => {
   const dataset = fixture<NormalizedDataset>("dataset.json");
-  const positive = fixture<BehaviorAssertion>("positive.json");
+  const positive = fixture<LlmJudgeAssertion>("positive.json");
   const disputed = fixture<BehaviorReview>("disputed.review.json");
-  const abstained = fixture<BehaviorAssertion>("abstained.json");
+  const abstained = fixture<LlmJudgeAssertion>("abstained.json");
 
   assert.equal((await validateBehaviorAssertion(positive, dataset, resolver(dataset))).length, 1);
   validateBehaviorReview(positive, disputed);
@@ -70,7 +75,7 @@ test("validates positive, disputed, abstained, and invalid-reference fixtures", 
 
 test("rejects wrong-run, changed-digest, stale, dangling, and conflicting assertion identities", async () => {
   const dataset = fixture<NormalizedDataset>("dataset.json");
-  const assertion = fixture<BehaviorAssertion>("positive.json");
+  const assertion = fixture<LlmJudgeAssertion>("positive.json");
   const disputed = fixture<BehaviorReview>("disputed.review.json");
 
   const wrongRun = structuredClone(assertion);
@@ -104,7 +109,7 @@ test("rejects wrong-run, changed-digest, stale, dangling, and conflicting assert
 
 test("rejects undeclared cards, other ontology versions and misplaced values, and keeps proposed review separate from human confirmation", async () => {
   const dataset = fixture<NormalizedDataset>("dataset.json");
-  const assertion = fixture<BehaviorAssertion>("positive.json");
+  const assertion = fixture<LlmJudgeAssertion>("positive.json");
   const undeclared = structuredClone(assertion);
   undeclared.behavior.cardId = "ZZ-99";
 
@@ -128,7 +133,7 @@ test("rejects undeclared cards, other ontology versions and misplaced values, an
   if (dimension.judgment.verdict === "present") dimension.judgment.value = "check after the last edit";
   assert.equal((await validateBehaviorAssertion(dimension, dataset, resolver(dataset))).length, 1);
   const absent = structuredClone(dimension);
-  absent.judgment = { verdict: "absent", confidence: { value: 0.7, scale: "evaluator-reported-0-to-1" }, rationale: "No edit occurs in the record.", alternativeExplanation: "An edit may be unrecorded.", citations: [] };
+  absent.judgment = { basis: "cited-evidence", verdict: "absent", confidence: { value: 0.7, scale: "evaluator-reported-0-to-1" }, rationale: "No edit occurs in the record.", alternativeExplanation: "An edit may be unrecorded.", citations: [] };
   assert.deepEqual(await validateBehaviorAssertion(absent, dataset, resolver(dataset)), [], "an absent verdict needs no citation and no value");
   const uncited = structuredClone(assertion);
   uncited.judgment.citations = [];
@@ -150,20 +155,90 @@ test("rejects undeclared cards, other ontology versions and misplaced values, an
   }), /must NOT be valid/u);
 });
 
+test("a decision-model result carries probabilities and thresholds, and its verdict follows from them", async () => {
+  const dataset = fixture<NormalizedDataset>("dataset.json");
+  const result = fixture<DecisionModelAssertion>("decision-model.json");
+  assert.equal(isDecisionModelAssertion(result), true);
+  assert.equal(result.behavior.ontologyDigest, ONTOLOGY_DIGEST, "the fixture names the shipped card texts");
+  assert.deepEqual(await validateBehaviorAssertion(result, dataset, resolver(dataset)), [], "a decision-model result resolves no citations");
+  assert.equal(producerLabel(result.producer), "decision-model fixture/fixture-decision-model");
+
+  // The record says what it does not carry: citations, a rationale and an alternative explanation are not fields of this variant.
+  for (const field of ["citations", "rationale", "alternativeExplanation", "confidence", "claims"]) {
+    await assert.rejects(validateBehaviorAssertion({ ...result, judgment: { ...result.judgment, [field]: field === "citations" || field === "claims" ? [] : "text" } } as unknown as BehaviorAssertion, dataset, resolver(dataset)),
+      /behavior assertion/u, `a decision-model result takes no ${field}`);
+  }
+  await assert.rejects(validateBehaviorAssertion({ ...result, rubric: { id: "rubric", version: "1.0.0" } } as unknown as BehaviorAssertion, dataset, resolver(dataset)), /behavior assertion/u, "a rubric belongs to the LLM judge");
+
+  // The verdict is the probabilities under the recorded thresholds, so a record cannot state another one.
+  const overstated = structuredClone(result);
+  if ("applies" in overstated.judgment.probabilities) overstated.judgment.probabilities.applies = 0.6;
+  await assert.rejects(validateBehaviorAssertion(overstated, dataset, resolver(dataset)), /does not follow from its probabilities and thresholds/u);
+  const abstained = structuredClone(overstated);
+  abstained.judgment.verdict = "unknown";
+  delete abstained.judgment.value;
+  assert.deepEqual(await validateBehaviorAssertion(abstained, dataset, resolver(dataset)), [], "between the thresholds the verdict is unknown, the abstention");
+  const otherValue = structuredClone(result);
+  otherValue.judgment.value = "no check recorded";
+  await assert.rejects(validateBehaviorAssertion(otherValue, dataset, resolver(dataset)), /does not follow/u);
+  const missingValue = structuredClone(result);
+  if ("applies" in missingValue.judgment.probabilities) missingValue.judgment.probabilities.values = { "check after the last edit": 0.9, "an invented value": 0.1 };
+  await assert.rejects(validateBehaviorAssertion(missingValue, dataset, resolver(dataset)), /must cover exactly the values/u);
+
+  // A workflow or finding card takes the three-way answer, and a dimension card takes applies and values.
+  const workflow = decisionModelAssertion(result, "VF-01", { present: 0.04, nearMiss: 0.21, absent: 0.75 });
+  assert.equal(workflow.judgment.verdict, "absent");
+  assert.deepEqual(await validateBehaviorAssertion({ ...workflow, id: "workflow" }, dataset, resolver(dataset)), []);
+  await assert.rejects(validateBehaviorAssertion({ ...workflow, judgment: { ...workflow.judgment, probabilities: result.judgment.probabilities } }, dataset, resolver(dataset)), /needs present, near-miss and absent probabilities/u);
+  await assert.rejects(validateBehaviorAssertion({ ...workflow, judgment: { ...workflow.judgment, probabilities: { present: 0.5, nearMiss: 0.1, absent: 0.1 } } }, dataset, resolver(dataset)), /do not sum to 1/u);
+  await assert.rejects(validateBehaviorAssertion({ ...workflow, judgment: { ...workflow.judgment, thresholds: { present: 0.1, absent: 0.9 } } }, dataset, resolver(dataset)), /thresholds need/u);
+
+  // What the model was shown is part of the record and has to be coherent.
+  const excerpt = structuredClone(result);
+  excerpt.evidence.steps = { included: 1, total: 4 };
+  await assert.rejects(validateBehaviorAssertion(excerpt, dataset, resolver(dataset)), /evidence description is inconsistent/u);
+  excerpt.evidence.scope = "step-excerpt";
+  assert.deepEqual(await validateBehaviorAssertion(excerpt, dataset, resolver(dataset)), []);
+
+  // A review binds a decision-model result like any other, and an abstention is never confirmed.
+  const review: BehaviorReview = { schemaVersion: "ebo.behavior-review/v1", id: "review-decision-model", assertion: binding(result), state: "confirmed", reviewer: { kind: "human", id: "synthetic-fixture-reviewer" }, rationale: "Synthetic fixture review." };
+  assert.equal(await isConfirmedBehaviorAssertion(result, dataset, resolver(dataset), review), true);
+  assert.equal(await isConfirmedBehaviorAssertion(abstained, dataset, resolver(dataset), { ...review, assertion: binding(abstained) }), false);
+});
+
+test("a result names the card texts it was judged against, and each mode keeps its own fields", async () => {
+  const dataset = fixture<NormalizedDataset>("dataset.json");
+  const assertion = fixture<LlmJudgeAssertion>("positive.json");
+  const otherTexts = structuredClone(assertion);
+  otherTexts.behavior.ontologyDigest = sha("0");
+  await assert.rejects(validateBehaviorAssertion(otherTexts, dataset, resolver(dataset)), /judged against other card texts/u);
+  const undigested = structuredClone(assertion) as unknown as { behavior: { ontologyDigest?: string } };
+  delete undigested.behavior.ontologyDigest;
+  await assert.rejects(validateBehaviorAssertion(undigested as unknown as BehaviorAssertion, dataset, resolver(dataset)), /behavior/u);
+  // An LLM-judge result cannot borrow the decision-model fields, and a result without a producer is not a result.
+  await assert.rejects(validateBehaviorAssertion({ ...assertion, judgment: { ...assertion.judgment, probabilities: { present: 0.9, nearMiss: 0.05, absent: 0.05 } } } as unknown as BehaviorAssertion, dataset, resolver(dataset)), /behavior assertion/u);
+  const anonymous = structuredClone(assertion) as unknown as { producer?: unknown };
+  delete anonymous.producer;
+  await assert.rejects(validateBehaviorAssertion(anonymous as unknown as BehaviorAssertion, dataset, resolver(dataset)), /producer/u);
+  const overread = structuredClone(assertion);
+  overread.evidence.events = { included: 3, total: 1 };
+  await assert.rejects(validateBehaviorAssertion(overread, dataset, resolver(dataset)), /evidence description is inconsistent/u);
+});
+
 test("Agent SDK assertion CLI validates through retained native evidence", async () => {
   const temporary = mkdtempSync(join(tmpdir(), "ebo-behavior-cli-"));
   const bundleRoot = await qualifiedBundle(temporary);
   const {dataset} = await createRetainedBehaviorEvidence(bundleRoot);
   const capture = await readQualifiedClaudeAgentSdkCapture(bundleRoot);
   const event = dataset.events[0]!;
-  const assertion: BehaviorAssertion = {
-    ...fixture("positive.json"),
+  const assertion: LlmJudgeAssertion = {
+    ...fixture<LlmJudgeAssertion>("positive.json"),
     id: "assertion-cli",
     runId: dataset.runId,
     attemptId: dataset.attemptId,
     dataset: { schemaVersion: dataset.schemaVersion, digest: digest(dataset) },
     judgment: {
-      ...fixture<BehaviorAssertion>("positive.json").judgment,
+      ...fixture<LlmJudgeAssertion>("positive.json").judgment,
       citations: [{ eventId: event.id, nativeReference: event.source.nativeReference }],
     },
   };

@@ -26,7 +26,8 @@ all, measured that classification at an AUC of 0.96 and 0.95.
 | `evidenceTest` | What to look for in the record to decide the card |
 | `nearMiss` | Records that resemble the behavior and do not count |
 | `significance` | How the card changes the reading of a record; present on 72 cards |
-| `values` | The named outcomes of a dimension card, each with its own test |
+| `direction` | On a workflow or finding card: what the card means in a comparison when it is present. One of `favourable`, `unfavourable`, `neutral` |
+| `values` | The named outcomes of a dimension card, each with its own test and its own `direction` |
 | `unit` | The span one judgment covers: `trajectory`, `episode`, `call-result` or `change` |
 | `layers` | One or more of `strategy`, `interface`, `evidence`, `verification` and `architecture` |
 | `proposedClassification` | `rule`, `classifier` or `judgment`: a proposal for how the card could be decided |
@@ -47,21 +48,54 @@ all, measured that classification at an AUC of 0.96 and 0.95.
 
 A judgment on a card is one of three verdicts.
 
-| Verdict | Meaning | What the record must carry |
-| :--- | :--- | :--- |
-| `present` | The card's situation occurred and its evidence test passed | At least one citation that resolves to a retained native record, a rationale, an alternative explanation and a confidence. On a dimension card, exactly one of the card's value names in `value` |
-| `absent` | The trigger or the test did not occur in the visible record | A rationale, an alternative explanation and a confidence. Citations are optional, since absence may have no event to cite |
-| `unknown` | The record lacks the steps the test needs | A reason, a rationale and an alternative explanation. This is the abstention |
+| Verdict | Meaning | From an LLM judge | From a decision model |
+| :--- | :--- | :--- | :--- |
+| `present` | The card's situation occurred and its evidence test passed | At least one citation that resolves to a retained native record, a rationale, an alternative explanation and a confidence | The decisive probability is at or above the `present` threshold |
+| `absent` | The trigger or the test did not occur in the visible record | A rationale, an alternative explanation and a confidence. Citations are optional, since absence may have no event to cite | The decisive probability is below the `absent` threshold |
+| `unknown` | The record does not settle the card. This is the abstention | A reason, a rationale and an alternative explanation | The decisive probability lies between the two thresholds |
 
-A value appears only on a `present` verdict of a dimension card. Workflow and
-finding cards never carry one. The verdict list and the value rule have one
-definition, `BEHAVIOR_VERDICTS` and `resolveBehaviorDecision` in
-`src/behavior-ontology.ts`, which assertions, both judge lanes, aggregation
-and Atlas all use.
+On a dimension card a `present` verdict names exactly one of the card's
+values in `value`. Workflow and finding cards never carry one. The verdict
+list and the value rule have one definition, `BEHAVIOR_VERDICTS` and
+`resolveBehaviorDecision` in `src/behavior-ontology.ts`, which assertions,
+both judge lanes, aggregation and Atlas all use.
 
-A verdict states a fact about the record. Whether a present card is good or
-bad depends on the card: "Checks run after a change" is a practice, and
-"Completion claims without linked verifier evidence" is a problem.
+A [behavior assertion](behavior-assertions.md) records which of the two
+produced a verdict. An LLM judge reads a selection of an attempt's events and
+cites the ones its verdict rests on. A decision model reads every recorded
+step and returns probabilities: `present`, `nearMiss` and `absent` for a
+workflow or finding card, and for a dimension card the probability that it
+applies and one probability per value. The thresholds that turn those
+probabilities into a verdict are stored with the result.
+
+## Direction
+
+A card states a fact about the record. Its direction says what that fact
+means when two harnesses or models are compared: `favourable`, `unfavourable`
+or `neutral`. A workflow or finding card has one direction, read when the
+card is present. A dimension card has none of its own; each of its values
+has one, so "check after the last edit" is favourable and "no check recorded"
+is unfavourable on the same card.
+
+| | Favourable | Unfavourable | Neutral |
+| :--- | ---: | ---: | ---: |
+| Workflow cards (25) | 23 | 1 | 1 |
+| Finding cards (39) | 9 | 17 | 13 |
+| Dimension values (68) | 21 | 21 | 26 |
+
+A card's kind does not give its direction. Nine finding cards are favourable,
+and one workflow card, "Identical retry after a failure", is unfavourable.
+Read the direction from the card or the value.
+
+Directions were assigned by two independent reads of the card texts. The two
+reads agreed on 120 of the 132 entries, and the rest were set conservatively,
+10 of them to neutral.
+
+Direction is fixed in the ontology. No judge decides it and no result stores
+it: a consumer looks it up with `behaviorDirection`, using the ontology
+version and digest the result names. [Aggregation](aggregation.md) reports
+the share of favourable, unfavourable and neutral results beside the per-card
+rates. Neutral results are counted and never scored.
 
 ## Coding rules
 
@@ -100,7 +134,9 @@ fails validation.
 ```ts
 import {
   behaviorCardFamilies,
+  behaviorDirection,
   behaviorOntologyDigest,
+  decideFromProbabilities,
   loadDefaultBehaviorOntology,
   resolveBehaviorCard,
   resolveBehaviorDecision,
@@ -110,6 +146,11 @@ const ontology = loadDefaultBehaviorOntology();
 const families = behaviorCardFamilies(ontology);
 const card = resolveBehaviorCard({ ontologyVersion: "2.0.0", cardId: "VF-03" });
 resolveBehaviorDecision({ ontologyVersion: "2.0.0", cardId: "VF-03" }, { verdict: "present", value: "no check recorded" });
+behaviorDirection(card, { verdict: "present", value: "no check recorded" }); // "unfavourable"
+decideFromProbabilities(card, {
+  applies: 0.97,
+  values: { "check after the last edit": 0.91, "last edit after the last check": 0.06, "no check recorded": 0.03 },
+}, { present: 0.9, absent: 0.1 }); // { verdict: "present", value: "check after the last edit" }
 const digest = behaviorOntologyDigest(ontology);
 ```
 

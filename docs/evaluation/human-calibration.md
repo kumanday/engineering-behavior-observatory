@@ -27,8 +27,10 @@ candidate can enter a sample.
 
 Sampling criteria use explicit, non-overlapping strata. Each stratum has its
 own requested size and may filter by task, model, harness, verifier outcome,
-terminal state, behavior card, confidence, or judge abstention (an `unknown` verdict). A single
-stratum with empty filters is an unstratified sample.
+terminal state, behavior card, producer mode (`modes`: `llm-judge` or
+`decision-model`), confidence, or abstention (an `unknown` verdict). A single
+stratum with empty filters is an unstratified sample. Confidence is reported
+by LLM judges only, so a confidence filter selects no decision-model result.
 
 ```json
 {
@@ -156,7 +158,12 @@ ebo calibration summarize \
   selection.json history.json calibration-summary.json
 ```
 
-The summary reports totals and counts per card. Judge-human agreement is
+The summary reports totals, counts per producer mode, and counts per card and
+mode, so agreement with an LLM judge and agreement with a decision model are
+separate populations. When a sample holds both modes, the judge-human
+agreement in the totals is `unavailable` and the per-mode entries carry it. A review packet shows each result's producer; for a
+decision-model result it shows the probabilities and thresholds, since that
+result cites no events. Judge-human agreement is
 over latest judge-human decision pairs on non-abstaining assertions.
 Human-human agreement is over distinct-reviewer pairs on the same assertion,
 excluding human abstentions. Adjudication counts use human adjudication

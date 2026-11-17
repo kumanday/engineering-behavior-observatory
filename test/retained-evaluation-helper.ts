@@ -6,7 +6,7 @@ import { loadAtlas, queryAtlas } from "../src/atlas.js";
 import { writeCorpusIndex } from "../src/corpus.js";
 import { aggregateEvaluation, buildCorpusIndex, createRetainedBehaviorEvidence, createRetainedStructuralObservationSet,
   digestBytes, digestMetadata, main, probeClaudeAgentSdkCapabilities, runRetainedSemanticJudge, selectReviewSample, writeReviewPacket, validateArtifact, CODEX_APP_SERVER_VERSION,
-  type BehaviorAssertion, type ReviewHistory, type SemanticJudgeRequest } from "../src/index.js";
+  type LlmJudgeAssertion, type ReviewHistory, type SemanticJudgeRequest } from "../src/index.js";
 
 const digest = (value: unknown): `sha256:${string}` => `sha256:${digestMetadata(value).value}`;
 
@@ -44,7 +44,7 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
           claims: [{ id: "fact-1", text: "The cited event is retained.", citations: [{ eventId: event.id, nativeReference: event.source.nativeReference }], workspace: null }] } } }) } }));
     assert.equal(result.status, "proposed", JSON.stringify(result));
   }
-  const assertion = JSON.parse(readFileSync(join(outputRoot, "claude-agent-sdk/assertion.json"), "utf8")) as BehaviorAssertion;
+  const assertion = JSON.parse(readFileSync(join(outputRoot, "claude-agent-sdk/assertion.json"), "utf8")) as LlmJudgeAssertion;
   const assertPath = join(outputRoot, "assertion.json");
   const reports = [];
   for (const assessment of ["present", "absent"] as const) {
@@ -121,7 +121,7 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
     const report = await aggregateEvaluation({ corpusEntries: buildCorpusIndex(bundleRoot), observationSets: [], assertions: values.map((document) => ({ bundleRoot, document })),
       calibrations: [{ selection, history }], comparisons: [] }, { groupBy: [], selectedAttemptPolicy: "all-attempts", recurrence: { minimumOccurrences: 2 } });
     assert.equal(report.groups[0]!.behaviors!.length, 2);
-    const original = report.groups[0]!.behaviors!.find(({ rubric }) => rubric.version === "1.0.0")!;
+    const original = report.groups[0]!.behaviors!.find(({ rubric }) => rubric?.version === "1.0.0")!;
     assert.equal(original.verdicts[0]!.measurement.denominator.value, conflict ? 0 : 1);
     if (conflict) assert.equal(original.verdicts[0]!.measurement.exclusions[0]!.reason, "conflicting-judge-reruns");
   }

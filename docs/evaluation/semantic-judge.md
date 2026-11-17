@@ -10,6 +10,19 @@ ebo judge run \
   <run-bundle-root> <observations.json> <request.json> <output-root>
 ```
 
+The judge is an LLM, and it reads a sample. A request names the events and
+structural observations to show, at most `maxEvidenceItems` of them, each cut
+to `maxRecordChars`, and the judge decides the card from that selection
+alone. It does not read the whole attempt. A verdict of `absent` therefore
+means absent from what was shown, and a behavior that sits in events outside
+the selection goes unseen. Each result records how much was shown:
+`evidence.events` gives the events included and the attempt's total, with the
+omitted and truncated counts and the limits. Use this judge where cited
+evidence, a rationale and an alternative explanation matter, such as an
+audit. Its results are written as `llm-judge`
+[behavior assertions](behavior-assertions.md) and are kept apart from
+decision-model results everywhere.
+
 The output root must not exist and must be outside the immutable run bundle.
 Every rerun therefore creates a new record. Runs with the same rubric,
 selection, limits, and evidence share an input digest even when their output
@@ -136,13 +149,12 @@ consume the same wall-clock budget as the turn.
 The native structured response uses `turn/start.outputSchema` and completion
 must match both owned thread and turn IDs. See the
 [official app-server contract](https://developers.openai.com/codex/app-server/).
-New assertions carry optional `evaluator.configurationDigest`, binding the
+Assertions carry `producer.configurationDigest`, binding the
 prompt version, rubric instructions, evaluator parameters, limits and blinding.
 Evaluator defaults are made explicit before hashing: omitted and explicit
 Claude backend defaults match, as do omitted/explicit native `codex`
 executables and equivalent relative/absolute executable paths. Model or effort
 changes still produce distinct configuration digests.
-Existing v1 requests and assertions remain readable without rewriting them.
 
 The response can contain only an assessed proposal or an abstention. Assessed
 responses require confidence, rationale, an alternative explanation, and at

@@ -32,7 +32,7 @@
         "trigger": { "type": "string", "minLength": 1, "maxLength": 8192 },
         "evidenceTest": { "type": "string", "minLength": 1, "maxLength": 8192 },
         "nearMiss": { "type": "string", "minLength": 1, "maxLength": 8192 },
-        "values": { "type": "array", "minItems": 2, "maxItems": 16, "items": { "$ref": "urn:ebo:schema:behavior-ontology:v2#/$defs/value" } }
+        "values": { "type": "array", "minItems": 2, "maxItems": 16, "items": { "type": "object", "additionalProperties": false, "required": ["name", "test"], "properties": { "name": { "$ref": "#/$defs/identifier" }, "test": { "type": "string", "minLength": 1, "maxLength": 8192 } } } }
       }
     },
     "rubric": {
@@ -194,8 +194,9 @@
         "selection": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["requestedEventIds", "requestedStructuralObservationIds", "includedEventIds", "includedStructuralObservationIds", "omitted", "truncated"],
+          "required": ["datasetEventCount", "requestedEventIds", "requestedStructuralObservationIds", "includedEventIds", "includedStructuralObservationIds", "omitted", "truncated"],
           "properties": {
+            "datasetEventCount": { "type": "integer", "minimum": 0 },
             "requestedEventIds": { "$ref": "#/$defs/stringList" },
             "requestedStructuralObservationIds": { "$ref": "#/$defs/stringList" },
             "includedEventIds": { "$ref": "#/$defs/stringList" },

@@ -71,7 +71,7 @@ export async function prepareSemanticJudgeInputV2(evidence: RetainedBehaviorEvid
   const missing = ledger.occurrences.filter((row) => request.ratingRequirements?.types.includes(row.type) && !ratedOccurrences.has(row.id)).map(({ id }) => id);
   input.readiness = { status: missing.length ? "requires-ratings" : "ready", missingRatingOccurrenceIds: missing };
   input.modelData = blindValueV2({ behavior: request.behavior, card: { id: card.id, title: card.title, kind: card.kind, unit: card.unit, definition: card.definition, ...(card.trigger === undefined ? {} : { trigger: card.trigger }),
-      evidenceTest: card.evidenceTest, nearMiss: card.nearMiss, ...(card.values === undefined ? {} : { values: card.values }) },
+      evidenceTest: card.evidenceTest, nearMiss: card.nearMiss, ...(card.values === undefined ? {} : { values: card.values.map(({ name, test }) => ({ name, test })) }) },
     codingRules: loadDefaultBehaviorOntology().codingRules, origin: input.origin, observations, ledger, ratings,
     evidence: input.evidence.map(({ workspaceHints: _workspace, ...entry }) => entry), omissions: input.omissions, citationRegistry: input.citationRegistry,
     readiness: input.readiness, workspaceReferences: input.workspaceReferences.map(({ canonical: _canonical, citationId, visible }) => ({ citationId, workspace: visible })) }, evidence.modelAliases ?? []) as Record<string, unknown>;

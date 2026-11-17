@@ -1,6 +1,8 @@
 # Behavior Atlas
 
-The default behavior charts summarize LLM-as-judge assessments. Human review
+The behavior charts summarize saved card results, one set of rows per
+producer: LLM-judge results and decision-model results are labelled with
+their mode and never added together. Human review
 is optional and shown separately. Run the [evaluation workflow](behavioral-evaluation.md)
 before building an Atlas: capture and structural extraction alone do not create
 semantic judgments. `proposed` means no human adjudication, not no evaluation.
@@ -33,10 +35,19 @@ ebo atlas serve atlas.json
 ```
 
 Open `http://127.0.0.1:13011`. Model, harness, task, trial, capture, outcome,
-review, family, card, verdict and text filters select a reproducible cohort.
-Apply with the button or Enter; controls and evidence disclosures use native
-keyboard behavior. Expand a case for rationale, alternative explanation,
-normalized events, cited native records and human decision lineage.
+review, mode, family, card, verdict, direction and text filters select a
+reproducible cohort. Apply with the button or Enter; controls and evidence
+disclosures use native keyboard behavior. Each case shows its producer mode and, for a present
+result, the card's [direction](../evaluation/behavior-ontology.md#direction)
+beside the verdict. Expand an LLM-judge case for rationale, alternative
+explanation, normalized events, cited native records and human decision
+lineage. A decision-model case shows its probabilities, the thresholds and
+what the model was shown; it cites no events.
+
+The direction summary gives, for each cohort member, producer and family, the
+share of present results that are favourable, unfavourable and neutral, and
+the share of judged attempts with at least one result of each direction. It
+sits next to the per-card rates. Neutral results are counted and never scored.
 
 Filters select attempts through matching cases. Aggregation keeps **every
 judgment on those attempts**, including conflicting verdicts. Filtering for
@@ -156,8 +167,8 @@ excluded. Local review access never grants sharing approval. Nothing uploads,
 emails or publishes the report.
 
 Shared summaries accept model, harness, task, trial, capture and outcome
-filters. Review, family, card, verdict and free-text evidence filters are
-rejected: even without case details, their selected-cohort counts would disclose
+filters. Review, mode, family, card, verdict, direction and free-text
+evidence filters are rejected: even without case details, their selected-cohort counts would disclose
 semantic or human-review findings that have no export approval.
 
 ## Synthetic verification
@@ -171,5 +182,6 @@ node --test dist/test/atlas.test.js
 
 The generator injects synthetic capture streams and fixture review decisions;
 it never calls a model or labels real research. It covers present, absent and unknown verdicts, a dimension card with several values,
+decision-model results beside LLM-judge results when asked for,
 confirmed/disputed/rejected/proposed/abstained/unavailable states, a retry,
 missing observations, an unsupported comparison and hostile text.

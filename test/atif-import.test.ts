@@ -18,7 +18,7 @@ import { listAtifProducerProfiles } from "../src/atif-profiles.js";
 import { createRetainedBehaviorEvidence } from "../src/retained-evidence.js";
 import { createRetainedStructuralObservationSet, createStructuralObservationSet, toolOperations, nativeContentResolver } from "../src/structural-observations.js";
 import { readCorpusIndex, writeCorpusIndex, buildCorpusIndex } from "../src/corpus.js";
-import { validateBehaviorAssertion, type BehaviorAssertion } from "../src/behavior-assertions.js";
+import { validateBehaviorAssertion, type LlmJudgeAssertion } from "../src/behavior-assertions.js";
 import { boundedEvidence } from "../src/evidence-projection.js";
 import { main } from "../src/cli.js";
 import { assertAdapterContract, type HarnessAdapter } from "../src/uniform-events.js";
@@ -50,7 +50,7 @@ test("hidden reasoning and reversible token arrays stay out of semantic evidence
 
 test("exact call/result pointers validate behavior assertions with canonical value digests", async () => {
   const evidence = await project();
-  const assertion = JSON.parse(readFileSync(join(root, "test/fixtures/behavior-assertions/positive.json"), "utf8")) as BehaviorAssertion;
+  const assertion = JSON.parse(readFileSync(join(root, "test/fixtures/behavior-assertions/positive.json"), "utf8")) as LlmJudgeAssertion;
   const event = evidence.dataset.events.find((event) => event.family === "tool")!;
   assertion.runId = evidence.dataset.runId; assertion.attemptId = evidence.dataset.attemptId;
   assertion.dataset.digest = hash(evidence.dataset);

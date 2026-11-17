@@ -14,6 +14,7 @@ import { join, resolve } from "node:path";
 import type { HookInput, Options, SDKMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import {
+  behaviorOntologyDigest,
   captureClaudeAgentSdkRun,
   CODEX_APP_SERVER_VERSION,
   createAgentSdkBehaviorEvidence,
@@ -26,6 +27,7 @@ import {
   runClaudeAgentSdkSemanticJudge,
   validateArtifact,
   type ClaudeAgentSdkQuery,
+  type LlmJudgeAssertion,
   type RunBundleDefinition,
   type SemanticJudgeBackend,
   type SemanticJudgeRequest,
@@ -193,10 +195,10 @@ test("packages bounded blinded untrusted evidence and retains deterministic prop
     const abstention = { judgment: { verdict: "unknown", value: null, confidence: null,
       reason: "Synthetic fixture.", missingEvidenceCapability: null, rationale: "Synthetic fixture.", alternativeExplanation: "No claim.", claims: [], citations: [] } };
     const evaluatorDigest = (evaluator: SemanticJudgeRequest["evaluator"]) => parseSemanticJudgeResponse(
-      abstention, { ...request, evaluator }, packaged, "fixture-runtime").evaluator.configurationDigest;
+      abstention, { ...request, evaluator }, packaged, "fixture-runtime").producer.configurationDigest;
     assert.equal(evaluatorDigest(request.evaluator), evaluatorDigest({ ...request.evaluator, backend: "claude-agent-sdk" }));
     const codexEvaluator = { backend: "codex-app-server", provider: "openai", model: "fixture", effort: "low" } as const;
-    assert.equal(parseSemanticJudgeResponse(abstention, { ...request, evaluator: codexEvaluator }, packaged).evaluator.version, "unrecorded");
+    assert.equal(parseSemanticJudgeResponse(abstention, { ...request, evaluator: codexEvaluator }, packaged).producer.version, "unrecorded");
     assert.equal(evaluatorDigest(codexEvaluator), evaluatorDigest({ ...codexEvaluator, executable: "codex" }));
     assert.equal(evaluatorDigest({ ...codexEvaluator, executable: "./fixture-codex" }),
       evaluatorDigest({ ...codexEvaluator, executable: resolve("fixture-codex") }));
@@ -309,8 +311,15 @@ test("packages bounded blinded untrusted evidence and retains deterministic prop
     assert.equal(existsSync(join(root, "proposal-a", "judgment.json")), true);
     const retainedInput = JSON.parse(readFileSync(join(root, "proposal-a", "input.json"), "utf8"));
     const retainedJudgment = JSON.parse(readFileSync(join(root, "proposal-a", "judgment.json"), "utf8"));
-    const retainedAssertion = JSON.parse(readFileSync(join(root, "proposal-a", "assertion.json"), "utf8")) as { evaluator: { version: string } };
-    assert.equal(retainedAssertion.evaluator.version, first.evaluator.backend.version);
+    const retainedAssertion = JSON.parse(readFileSync(join(root, "proposal-a", "assertion.json"), "utf8")) as LlmJudgeAssertion;
+    assert.equal(retainedAssertion.producer.version, first.evaluator.backend.version);
+    assert.deepEqual([retainedAssertion.producer.mode, retainedAssertion.producer.provider, retainedAssertion.producer.model], ["llm-judge", first.evaluator.provider, first.evaluator.model]);
+    assert.equal(retainedAssertion.judgment.basis, "cited-evidence");
+    assert.equal(retainedAssertion.behavior.ontologyDigest, behaviorOntologyDigest(loadDefaultBehaviorOntology()));
+    assert.equal(retainedAssertion.evidence.scope, "selected-events");
+    assert.equal(retainedAssertion.evidence.events.included, retainedInput.selection.includedEventIds.length, "the result records how much of the attempt the judge was shown");
+    assert.equal(retainedAssertion.evidence.events.total, retainedInput.selection.datasetEventCount);
+    assert.ok(retainedAssertion.evidence.events.included <= retainedAssertion.evidence.events.total);
     assert.deepEqual(validateArtifact("semantic input", retainedInput), []);
     assert.deepEqual(validateArtifact("semantic judgment", retainedJudgment), []);
     const nativeJudgment = structuredClone(retainedJudgment);

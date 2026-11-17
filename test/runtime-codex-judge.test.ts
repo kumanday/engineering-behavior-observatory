@@ -60,7 +60,7 @@ test("the judge uses its frozen executable and coordinating Node for unfamiliar 
       const second = await runAgentSdkSemanticJudge({bundleRoot, observations, request: {...configured, evaluator: {...configured.evaluator, executable: "/another-ignored-executable"}}, outputRoot: join(root, "judgment-b")});
       const a = JSON.parse(await readFile(join(root, "judgment-a", first.assertion!.path), "utf8"));
       const b = JSON.parse(await readFile(join(root, "judgment-b", second.assertion!.path), "utf8"));
-      assert.equal(a.evaluator.configurationDigest, b.evaluator.configurationDigest, "Fresh receipt IDs and unused executable declarations do not change the frozen evaluator identity");
+      assert.equal(a.producer.configurationDigest, b.producer.configurationDigest, "Fresh receipt IDs and unused executable declarations do not change the frozen evaluator identity");
       malicious = true;
       await assert.rejects(runCodexSemanticJudge("success", request), /RUNTIME_MALICIOUS.*MAL-2026-after-first-turn/);
     });

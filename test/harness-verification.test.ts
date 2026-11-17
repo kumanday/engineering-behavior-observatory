@@ -102,6 +102,7 @@ test("named capture claims are scoped; disagreements retain limitations even whe
 import {cp, readFile} from "node:fs/promises";
 import {createRetainedBehaviorEvidence} from "../src/retained-evidence.js";
 import {validateBehaviorAssertion} from "../src/behavior-assertions.js";
+import { judged, llmEvidence, llmProducer } from "./behavior-fixture.js";
 import {digestBytes, digestMetadata} from "../src/artifacts.js";
 test("unfamiliar native v1 projections keep the base dataset digest and retained assertions", async () => {
   const root = await mkdtemp(join(tmpdir(), "ebo-legacy-v1-annotations-"));
@@ -118,9 +119,9 @@ test("unfamiliar native v1 projections keep the base dataset digest and retained
     assert.equal(datasetDigest, "sha256:09326dff2707f2f5f015a4d7ec8287a2afebd96a38b0dbee8479d683a4b68afa", "Offline 55b187c interpretation of these exact public native records");
     assert.equal(evidence.verification?.state, "unverified");
     const assertion = {schemaVersion: "ebo.behavior-assertion/v1", id: "prior-annotation", runId: evidence.dataset.runId, attemptId: evidence.dataset.attemptId,
-      dataset: {schemaVersion: evidence.dataset.schemaVersion, digest: datasetDigest}, behavior: {ontologyVersion: "2.0.0", cardId: "VF-01"},
-      rubric: {id: "fixture", version: "1"}, evaluator: {id: "fixture", version: "1"},
-      judgment: {verdict: "unknown", reason: "Fixture", rationale: "No semantic claim", alternativeExplanation: "Insufficient evidence", citations: []}} as const;
+      dataset: {schemaVersion: evidence.dataset.schemaVersion, digest: datasetDigest}, behavior: judged("VF-01"), producer: llmProducer(),
+      rubric: {id: "fixture", version: "1"}, evidence: llmEvidence(),
+      judgment: {basis: "cited-evidence", verdict: "unknown", reason: "Fixture", rationale: "No semantic claim", alternativeExplanation: "Insufficient evidence", citations: []}} as const;
     await validateBehaviorAssertion(assertion, evidence.dataset, evidence.resolver, undefined, evidence.capture);
   } finally {await rm(root, {recursive: true, force: true});}
 });

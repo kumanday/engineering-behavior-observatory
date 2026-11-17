@@ -4,9 +4,13 @@ import test from "node:test";
 
 import {
   assertBehaviorOntology,
+  BEHAVIOR_DIRECTIONS,
+  BEHAVIOR_PRODUCER_MODES,
   BEHAVIOR_VERDICTS,
   behaviorCardFamilies,
+  behaviorDirection,
   behaviorOntologyDigest,
+  decideFromProbabilities,
   loadDefaultBehaviorOntology,
   renderBehaviorOntologyReference,
   resolveBehaviorCard,
@@ -106,12 +110,73 @@ test("a card reference and a verdict resolve through one definition", () => {
   assert.throws(() => resolveBehaviorDecision(behavior("VF-01"), { verdict: "constructive" as never }), /must be one of present, absent, unknown/u);
 });
 
+test("direction is fixed in the ontology: on workflow and finding cards and on each value of a dimension card", () => {
+  const ontology = loadDefaultBehaviorOntology();
+  const count = (directions: ReadonlyArray<string | undefined>) => Object.fromEntries(BEHAVIOR_DIRECTIONS.map((direction) => [direction, directions.filter((item) => item === direction).length]));
+  const of = (kind: string) => ontology.cards.filter((item) => item.kind === kind);
+  assert.deepEqual(count(of("workflow").map(({ direction }) => direction)), { favourable: 23, unfavourable: 1, neutral: 1 });
+  assert.deepEqual(count(of("finding").map(({ direction }) => direction)), { favourable: 9, unfavourable: 17, neutral: 13 });
+  const values = of("dimension").flatMap((item) => item.values!);
+  assert.equal(values.length, 68);
+  assert.deepEqual(count(values.map(({ direction }) => direction)), { favourable: 21, unfavourable: 21, neutral: 26 });
+  for (const item of ontology.cards) assert.equal(item.kind === "dimension", item.direction === undefined, `${item.id}: a dimension card has no direction of its own`);
+  // A card's kind does not give its direction: one workflow card is unfavourable, and nine finding cards are favourable.
+  assert.deepEqual(of("workflow").filter(({ direction }) => direction === "unfavourable").map(({ id, title }) => [id, title]), [["TI-03", "Identical retry after a failure"]]);
+  assert.equal(of("finding").filter(({ direction }) => direction === "favourable").length, 9);
+
+  const behavior = (cardId: string) => resolveBehaviorCard({ ontologyVersion: "2.0.0", cardId });
+  assert.equal(behaviorDirection(behavior("VF-01"), { verdict: "present" }), "favourable");
+  assert.equal(behaviorDirection(behavior("TI-03"), { verdict: "present" }), "unfavourable");
+  assert.equal(behaviorDirection(behavior("EN-04"), { verdict: "present" }), "neutral");
+  assert.equal(behaviorDirection(behavior("VF-03"), { verdict: "present", value: "check after the last edit" }), "favourable");
+  assert.equal(behaviorDirection(behavior("VF-03"), { verdict: "present", value: "no check recorded" }), "unfavourable");
+  for (const verdict of ["absent", "unknown"] as const) assert.equal(behaviorDirection(behavior("VF-01"), { verdict }), undefined, "only a present result has a direction");
+
+  const rejects = (mutate: (ontology: Draft) => void, pattern: RegExp) => {
+    const ontology = draft();
+    mutate(ontology);
+    assert.throws(() => assertBehaviorOntology(ontology), pattern);
+  };
+  rejects((ontology) => { delete card(ontology, "VF-01").direction; }, /direction/u);
+  rejects((ontology) => { card(ontology, "VF-03").direction = "favourable"; }, /must NOT be valid/u);
+  rejects((ontology) => { delete (card(ontology, "VF-03").values![0] as { direction?: string }).direction; }, /direction/u);
+  rejects((ontology) => { (card(ontology, "VF-01") as unknown as { direction: string }).direction = "constructive"; }, /allowed values/u);
+  assert.deepEqual((JSON.parse(readFileSync(new URL("../../schemas/behavior-ontology.v2.json", import.meta.url), "utf8")) as { $defs: { direction: { enum: string[] } } }).$defs.direction.enum, [...BEHAVIOR_DIRECTIONS]);
+  // No result stores a direction: consumers look it up by ontology version and digest.
+  assert.doesNotMatch(readFileSync(new URL("../../schemas/behavior-assertions.v1.json", import.meta.url), "utf8"), /direction|favourable/u);
+});
+
+test("decision-model probabilities become a verdict under stated thresholds", () => {
+  const behavior = (cardId: string) => resolveBehaviorCard({ ontologyVersion: "2.0.0", cardId });
+  const thresholds = { present: 0.9, absent: 0.1 };
+  const threeWay = (present: number) => ({ present, nearMiss: 0, absent: 1 - present });
+  assert.deepEqual(decideFromProbabilities(behavior("VF-01"), threeWay(0.9), thresholds), { verdict: "present" });
+  assert.deepEqual(decideFromProbabilities(behavior("VF-01"), threeWay(0.89), thresholds), { verdict: "unknown" });
+  assert.deepEqual(decideFromProbabilities(behavior("VF-01"), threeWay(0.1), thresholds), { verdict: "unknown" });
+  assert.deepEqual(decideFromProbabilities(behavior("VF-01"), threeWay(0.09), thresholds), { verdict: "absent" });
+  assert.deepEqual(decideFromProbabilities(behavior("VF-01"), threeWay(0.6), { present: 0.5, absent: 0.5 }), { verdict: "present" }, "equal thresholds leave no abstention band");
+  const values = { "check after the last edit": 0.2, "last edit after the last check": 0.4, "no check recorded": 0.4 };
+  assert.deepEqual(decideFromProbabilities(behavior("VF-03"), { applies: 0.95, values }, thresholds), { verdict: "present", value: "last edit after the last check" }, "the first value in card order wins a tie");
+  assert.deepEqual(decideFromProbabilities(behavior("VF-03"), { applies: 0.05, values }, thresholds), { verdict: "absent" });
+  assert.deepEqual(decideFromProbabilities(behavior("VF-03"), { applies: 0.5, values }, thresholds), { verdict: "unknown" });
+  assert.throws(() => decideFromProbabilities(behavior("VF-03"), threeWay(0.9), thresholds), /needs the probability that it applies/u);
+  assert.throws(() => decideFromProbabilities(behavior("VF-01"), { applies: 0.9, values }, thresholds), /needs present, near-miss and absent/u);
+  assert.throws(() => decideFromProbabilities(behavior("VF-03"), { applies: 0.9, values: { ...values, other: 0.1 } }, thresholds), /must cover exactly the values/u);
+  assert.throws(() => decideFromProbabilities(behavior("VF-01"), { present: 0.9, nearMiss: 0.5, absent: 0.5 }, thresholds), /do not sum to 1/u);
+  for (const bad of [{ present: 0.4, absent: 0.6 }, { present: 0.9, absent: 0 }, { present: 1.1, absent: 0.1 }]) {
+    assert.throws(() => decideFromProbabilities(behavior("VF-01"), threeWay(0.5), bad), /thresholds need/u);
+  }
+});
+
 test("every schema and model contract states the same verdicts", () => {
   const verdicts = [...BEHAVIOR_VERDICTS];
   const schema = (name: string) => JSON.parse(readFileSync(new URL(`../../schemas/${name}`, import.meta.url), "utf8")) as { $defs: Record<string, any> };
   const assertions = schema("behavior-assertions.v1.json").$defs;
   assert.deepEqual(assertions.verdict.enum, verdicts);
-  assert.deepEqual(assertions.judgment.oneOf.map(({ $ref }: { $ref: string }) => assertions[$ref.split("/").at(-1)!].properties.verdict.const), verdicts);
+  assert.deepEqual(assertions.judgment.oneOf.map(({ $ref }: { $ref: string }) => $ref.split("/").at(-1)), ["llmJudgment", "decisionModelJudgment"]);
+  assert.deepEqual(assertions.llmJudgment.oneOf.map(({ $ref }: { $ref: string }) => assertions[$ref.split("/").at(-1)!].properties.verdict.const), verdicts);
+  assert.equal(assertions.decisionModelJudgment.properties.verdict.$ref, "#/$defs/verdict");
+  assert.deepEqual(assertions.producerMode.enum, [...BEHAVIOR_PRODUCER_MODES]);
   const consumers = schema("consumers.v2.json").$defs;
   assert.deepEqual(consumers.judgeAnswer.properties.verdict.enum, verdicts, "the typed answer schema is sent to a model, so it states the list inline");
   assert.equal(consumers.assertion.properties.verdict.$ref, "urn:ebo:schema:behavior-assertions:v1#/$defs/verdict");

@@ -118,7 +118,7 @@ test("the judge input carries every ledger row, ratings bound by digest, and acc
   const classicRequest = { ...request, selection: { eventIds: request.selection.eventIds, structuralObservationIds: [], includeOutcomeObservations: false } };
   const classicInput = packageSemanticJudgeInput(events, capture, boundObservations, classicRequest, `sha256:${"c".repeat(64)}`, "evaluated-model");
   const classic = parseSemanticJudgeResponse({ judgment: { ...response({ eventId: member, nativeReference: { artifactId: "session", recordLocator: `line:${member.slice("event-".length)}` } }).judgment } }, classicRequest, classicInput, "0.157.0");
-  assert.notEqual(classic.evaluator.configurationDigest, memberCitation.evaluator.configurationDigest, "the ledger prompt version is part of the evaluator configuration");
+  assert.notEqual(classic.producer.configurationDigest, memberCitation.producer.configurationDigest, "the ledger prompt version is part of the evaluator configuration");
   const schema = semanticJudgeResponseSchema(24, true) as { properties: { judgment: { anyOf: Array<{ properties: { citations: { maxItems: number; items: { required: string[] } } } }> } } };
   assert.equal(schema.properties.judgment.anyOf[0]!.properties.citations.maxItems, 24);
   assert.deepEqual(schema.properties.judgment.anyOf[0]!.properties.citations.items.required, ["eventId", "nativeReference", "occurrenceId"]);
@@ -218,7 +218,7 @@ test("judge evidence hides reasoning and keeps the tail of long outputs; assessm
   assert.throws(() => parseSemanticJudgeResponse({ judgment: { ...base, citations: [citation, other], claims: [{ id: "a", text: "x", citations: [citation], workspace: null }, { id: "a", text: "y", citations: [other], workspace: null }] } }, request, input, "0.157.0"),
     /unique/u);
 
-  const assertion = { judgment: { citations: [{ eventId: "event-1", nativeReference: { artifactId: "session", recordLocator: "line:1" } }],
+  const assertion = { producer: { mode: "llm-judge" }, judgment: { citations: [{ eventId: "event-1", nativeReference: { artifactId: "session", recordLocator: "line:1" } }],
     claims: [{ id: "c", text: "Ran in the repo.", citations: [{ eventId: "event-1", nativeReference: { artifactId: "session", recordLocator: "line:1" } }], workspace: "/repo" }] } } as unknown as BehaviorAssertion;
   validateClaimCitations(assertion);
   const bound = { ...capture, records: capture.records.map((entry) => entry.reference.recordLocator === "line:1" ? { ...entry, record: { cwd: "/repo" } } : entry) } as typeof capture;

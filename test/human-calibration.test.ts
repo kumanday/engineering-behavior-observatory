@@ -27,7 +27,7 @@ import {
   assertCalibrationDestination,
   type AgentSdkNativeRecord,
   type NormalizationInput,
-  type BehaviorAssertion,
+  type LlmJudgeAssertion,
   type ClaudeAgentSdkQuery,
   type ReviewDecision,
   type ReviewHistory,
@@ -37,6 +37,7 @@ import {
   type RunManifest,
   type RunBundleDefinition,
 } from "../src/index.js";
+import { decisionModelAssertion, judged, llmEvidence, llmProducer } from "./behavior-fixture.js";
 import { main } from "../src/cli.js";
 
 test("reproducibly samples, renders safe native drilldown, imports lineage, and reports explicit populations", async () => {
@@ -51,7 +52,7 @@ test("reproducibly samples, renders safe native drilldown, imports lineage, and 
     const unselectedAssertion = {
       ...structuredClone(assertions[0]!),
       id: "assertion-unselected",
-      behavior: { ontologyVersion: "2.0.0", cardId: "EN-04" },
+      behavior: judged("EN-04"),
     };
     const unselectedAssertionPath = join(temporary, "assertion-unselected.json");
     writeJson(unselectedAssertionPath, unselectedAssertion);
@@ -379,6 +380,54 @@ test("reports agreement as unavailable when no human reviews exist", async () =>
   }
 });
 
+test("samples and summarises each producer mode as its own population", async () => {
+  const temporary = mkdtempSync(join(tmpdir(), "ebo-human-calibration-modes-"));
+  try {
+    const bundleRoot = await qualifiedBundle(temporary);
+    const assertions = await writeAssertions(temporary, bundleRoot);
+    const { runId, attemptId, dataset } = assertions[0]!;
+    const decided = decisionModelAssertion({ id: "assertion-decision-model", runId, attemptId, dataset }, "VF-03",
+      { applies: 0.96, values: { "check after the last edit": 0.9, "last edit after the last check": 0.06, "no check recorded": 0.04 } });
+    writeJson(join(temporary, `${decided.id}.json`), decided);
+    const sources: ReviewSourceSet = { schemaVersion: "ebo.review-source-set/v1",
+      sources: [...assertions, decided].map(({ id }) => ({ bundleRoot, assertionPath: join(temporary, `${id}.json`), taskContext: "Synthetic fixture task context." })) };
+    const criteria = (filters: ReviewSampleCriteria["strata"][number]["filters"]): ReviewSampleCriteria =>
+      ({ schemaVersion: "ebo.review-sample-criteria/v1", seed: "mode-fixture", strata: [{ id: "all", sampleSize: 5, filters }] });
+
+    const onlyDecided = await selectReviewSample(sources, criteria({ modes: ["decision-model"] }));
+    assert.deepEqual(onlyDecided.candidates.map(({ assertion, context }) => [assertion.id, context.mode, context.confidence]), [["assertion-decision-model", "decision-model", null]]);
+    assert.equal((await selectReviewSample(sources, criteria({ modes: ["llm-judge"] }))).candidates.length, 4);
+    assert.equal((await selectReviewSample(sources, criteria({ confidence: { min: 0 } }))).candidates.every(({ context }) => context.mode === "llm-judge"), true,
+      "a confidence filter selects LLM-judge results only: a decision model reports none");
+
+    const selection = await selectReviewSample(sources, criteria({}));
+    assert.equal(selection.candidates.length, 5);
+    const history: ReviewHistory = { schemaVersion: "ebo.review-history/v1", selection: { schemaVersion: selection.schemaVersion, digest: digest(selection) }, decisions: [] };
+    for (const id of ["assertion-a", "assertion-decision-model"]) {
+      const candidate = selection.candidates.find(({ assertion }) => assertion.id === id)!;
+      history.decisions = [...history.decisions, { schemaVersion: "ebo.human-review-decision/v1", id: `review-${id}`, kind: "review", assertion: candidate.assertion,
+        reviewer: { kind: "human", id: "SYNTHETIC-TEST-FIXTURE" }, decidedAt: "2026-09-07T00:00:00Z", state: id === "assertion-a" ? "confirmed" : "rejected", rationale: "Synthetic test.",
+        previousHistory: history.decisions.length === 0 ? null : { schemaVersion: history.schemaVersion, digest: digest(history) } }];
+    }
+    const summary = await summarizeCalibration(selection, history);
+    assert.deepEqual(summary.modes.map(({ mode, counts }) => [mode, counts.selectedAssertions, counts.judgeHumanAgreement.status === "available" ? counts.judgeHumanAgreement.rate : null]),
+      [["llm-judge", 4, 1], ["decision-model", 1, 0]]);
+    assert.deepEqual(summary.cards.map(({ cardId, mode }) => [cardId, mode]), [["EN-04", "llm-judge"], ["VF-01", "llm-judge"], ["VF-03", "decision-model"]]);
+    assert.equal(summary.totals.selectedAssertions, 5);
+    assert.equal(summary.totals.judgeHumanAgreement.status, "unavailable", "one agreement rate over both modes would pool two populations");
+    assert.match(summary.totals.judgeHumanAgreement.status === "unavailable" ? summary.totals.judgeHumanAgreement.reason : "", /per mode/u);
+
+    const packetRoot = join(temporary, "packet");
+    await writeReviewPacket(selection, packetRoot);
+    const html = readFileSync(join(packetRoot, "index.html"), "utf8");
+    assert.match(html, /decision-model fixture\/fixture-decision-model/u);
+    assert.match(html, /Probabilities/u);
+    assert.match(html, /llm-judge fixture\/fixture-judge/u);
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test("selects the verifier outcome bound to the terminal workspace", () => {
   const capture = {
     runId: "run",
@@ -493,7 +542,7 @@ function largeAdjudicationSelection(count: number): ReviewSample {
     context: {
       runId: "fixture-run", attemptId: "fixture-attempt", taskId: "fixture-task", taskContext: "Synthetic fixture task context.",
       modelId: "fixture-model", harnessId: "agent-sdk", terminalState: "completed", outcome: "unavailable" as const,
-      cardId: "VF-01", abstained: false, confidence: 0.8,
+      cardId: "VF-01", mode: "llm-judge" as const, abstained: false, confidence: 0.8,
     },
   };
   const candidates = Array.from({ length: count }, (_, index) => ({
@@ -558,19 +607,21 @@ function largeAdjudicationHistory(selection: ReviewSample): ReviewHistory {
   return { ...history, decisions };
 }
 
-async function writeAssertions(root: string, bundleRoot: string): Promise<BehaviorAssertion[]> {
+async function writeAssertions(root: string, bundleRoot: string): Promise<LlmJudgeAssertion[]> {
   const {dataset} = await createRetainedBehaviorEvidence(bundleRoot);
   const event = dataset.events.find(({ source }) => source.nativeReference.artifactId === "session")!;
-  const base = (id: string): BehaviorAssertion => ({
+  const base = (id: string): LlmJudgeAssertion => ({
     schemaVersion: "ebo.behavior-assertion/v1",
     id,
     runId: dataset.runId,
     attemptId: dataset.attemptId,
     dataset: { schemaVersion: dataset.schemaVersion, digest: digest(dataset) },
-    behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
+    behavior: judged("VF-01"),
+    producer: llmProducer(),
     rubric: { id: "fixture-rubric", version: "1.0.0" },
-    evaluator: { id: "fixture-judge", version: "1.0.0" },
+    evidence: llmEvidence(),
     judgment: {
+      basis: "cited-evidence",
       verdict: "present",
       confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" },
       rationale: "<script>fixture</script>",
@@ -580,8 +631,9 @@ async function writeAssertions(root: string, bundleRoot: string): Promise<Behavi
   });
   const assertions = [base("assertion-a"), base("assertion-b"), base("assertion-c"), {
     ...base("assertion-abstained"),
-    behavior: { ontologyVersion: "2.0.0", cardId: "EN-04" },
+    behavior: judged("EN-04"),
     judgment: {
+      basis: "cited-evidence" as const,
       verdict: "unknown" as const,
       reason: "No permission evidence is present.",
       rationale: "The selected evidence does not establish permission behavior.",

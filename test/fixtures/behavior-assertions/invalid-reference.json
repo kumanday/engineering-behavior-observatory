@@ -9,19 +9,52 @@
   },
   "behavior": {
     "ontologyVersion": "2.0.0",
-    "cardId": "VF-01"
+    "cardId": "VF-01",
+    "ontologyDigest": "sha256:14569c4cecfce27afc596efbdadd9fef8f94e2616d39729ba7c7ddba12b2a7d4"
   },
-  "rubric": { "id": "verification-rubric", "version": "1.0.0" },
-  "evaluator": { "id": "fixture-judge", "version": "1.0.0" },
+  "producer": {
+    "mode": "llm-judge",
+    "provider": "fixture",
+    "model": "fixture-judge",
+    "version": "1.0.0"
+  },
+  "rubric": {
+    "id": "verification-rubric",
+    "version": "1.0.0"
+  },
+  "evidence": {
+    "scope": "selected-events",
+    "events": {
+      "included": 1,
+      "total": 1
+    },
+    "structuralObservations": 0,
+    "occurrenceLedgerRows": 0,
+    "omitted": 0,
+    "truncated": 0,
+    "limits": {
+      "maxEvidenceItems": 40,
+      "maxRecordChars": 4000,
+      "maxInputChars": 120000,
+      "maxCitations": 8
+    }
+  },
   "judgment": {
+    "basis": "cited-evidence",
     "verdict": "present",
-    "confidence": { "value": 0.8, "scale": "evaluator-reported-0-to-1" },
+    "confidence": {
+      "value": 0.8,
+      "scale": "evaluator-reported-0-to-1"
+    },
     "rationale": "The assertion cites an event that is not in the dataset.",
     "alternativeExplanation": "The event may have belonged to a different dataset version.",
     "citations": [
       {
         "eventId": "missing-event",
-        "nativeReference": { "artifactId": "session", "recordLocator": "line:1" }
+        "nativeReference": {
+          "artifactId": "session",
+          "recordLocator": "line:1"
+        }
       }
     ]
   }

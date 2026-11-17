@@ -166,6 +166,10 @@ table.grid { border-collapse: separate; border-spacing: 2px; font-variant-numeri
 .oc-absent { --oc: var(--div-mid); --oc-border: var(--text-muted); }
 .oc-unknown { --oc: transparent; --oc-border: var(--text-muted); }
 .sw.oc-present, .sw.oc-absent, .sw.oc-unknown { background: var(--oc); border: 1px solid var(--oc-border, transparent); }
+/* A direction is the ontology's reading of a present result; neutral is counted and never scored. */
+.dir { display: inline-block; padding: 0 6px; border-radius: var(--r-sm); border: 1px solid var(--border); font-size: 11px; color: var(--text-secondary); }
+.dir-favourable { border-color: var(--div-pos); }
+.dir-unfavourable { border-color: var(--div-neg); }
 .mxt tr.mx-family th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-secondary); background: var(--surface-1); }
 .sbar { display: flex; gap: 2px; height: 10px; margin-bottom: 4px; min-width: 120px; }
 .sb { border-radius: 2px; background: var(--oc); border: 1px solid var(--oc-border, transparent); }

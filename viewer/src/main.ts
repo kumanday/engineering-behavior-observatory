@@ -99,12 +99,12 @@ async function main() {
   if (assessDoc) {
     // the `assessments` host table view specs may query
     const rows = assessDoc.assessments.map((x) => ({ id: x.id, attempt_id: x.attempt_id, condition: x.condition, task_id: x.task_id, trial_id: x.trial_id,
-      card: x.card, family: x.family, outcome: x.outcome, value: x.value ?? null, confidence: x.confidence ?? null, citations: x.citations.length,
+      mode: x.mode, card: x.card, family: x.family, outcome: x.outcome, value: x.value ?? null, direction: x.direction ?? null, confidence: x.confidence ?? null, probability: x.probability ?? null, citations: x.citations.length,
       in_primary: Boolean(x.cohorts?.primary && x.cohorts.primary.included !== false) }));
     const c2 = await db.connect();
     // IPC bytes, not a Table object: DuckDB-WASM bundles its own apache-arrow
     if (rows.length) await c2.insertArrowFromIPCStream(tableToIPC(tableFromJSON(rows), "stream"), { name: "assessments", create: true });
-    else await c2.query("CREATE TABLE assessments (id VARCHAR, attempt_id VARCHAR, condition VARCHAR, task_id VARCHAR, trial_id VARCHAR, card VARCHAR, family VARCHAR, outcome VARCHAR, value VARCHAR, confidence DOUBLE, citations INTEGER, in_primary BOOLEAN)");
+    else await c2.query("CREATE TABLE assessments (id VARCHAR, attempt_id VARCHAR, condition VARCHAR, task_id VARCHAR, trial_id VARCHAR, mode VARCHAR, card VARCHAR, family VARCHAR, outcome VARCHAR, value VARCHAR, direction VARCHAR, confidence DOUBLE, probability DOUBLE, citations INTEGER, in_primary BOOLEAN)");
     await c2.close();
   }
 

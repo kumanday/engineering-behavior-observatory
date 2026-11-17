@@ -7,14 +7,23 @@ export type BehaviorCardLayer = "architecture" | "evidence" | "interface" | "str
 export type BehaviorCardUnit = "call-result" | "change" | "episode" | "trajectory";
 export type BehaviorCardClassification = "rule" | "classifier" | "judgment";
 
+/**
+ * What a present card, or a value of a dimension card, means in a comparison. It is fixed in the ontology: no judge
+ * decides it and no card result stores it. A card's kind does not give its direction.
+ */
+export const BEHAVIOR_DIRECTIONS = ["favourable", "unfavourable", "neutral"] as const;
+export type BehaviorDirection = (typeof BEHAVIOR_DIRECTIONS)[number];
+
 /** One named outcome of a dimension card, with the test that selects it. Names are unique within their card. */
-export type BehaviorCardValue = { readonly name: string; readonly test: string };
+export type BehaviorCardValue = { readonly name: string; readonly test: string; readonly direction: BehaviorDirection };
 
 export type BehaviorCard = {
   readonly id: string;
   readonly title: string;
   /** A workflow is a common practice, a dimension has named values, a finding is a specific situation. */
   readonly kind: BehaviorCardKind;
+  /** Workflow and finding cards only: what the card means when present. A dimension card states it per value. */
+  readonly direction?: BehaviorDirection;
   readonly family: string;
   readonly layers: readonly BehaviorCardLayer[];
   /** The span one judgment of the card covers. */
@@ -127,6 +136,41 @@ export function resolveBehaviorDecision(behavior: BehaviorReference, decision: B
   return card;
 }
 
+/** What a decision model returns for one card: a three-way status for workflow and finding cards, and for a dimension card the probability that it applies plus one probability per value. */
+export type DecisionModelProbabilities =
+  | { present: number; nearMiss: number; absent: number }
+  | { applies: number; values: Readonly<Record<string, number>> };
+
+/** A probability at or above `present` is a present verdict, one below `absent` is absent, and anything between is unknown. */
+export type DecisionThresholds = { present: number; absent: number };
+
+/** The verdict and value a decision model's probabilities give under the thresholds a record states. */
+export function decideFromProbabilities(card: BehaviorCard, probabilities: DecisionModelProbabilities, thresholds: DecisionThresholds): BehaviorDecision {
+  if (!(thresholds.absent > 0 && thresholds.absent <= thresholds.present && thresholds.present <= 1)) throw new Error("Decision thresholds need 0 < absent <= present <= 1.");
+  const dimension = card.kind === "dimension";
+  if (dimension !== ("applies" in probabilities)) {
+    throw new Error(dimension ? `Dimension card "${card.id}" needs the probability that it applies and one probability per value.` : `Card "${card.id}" needs present, near-miss and absent probabilities.`);
+  }
+  if ("applies" in probabilities) {
+    const names = Object.keys(probabilities.values);
+    if (names.length !== card.values!.length || names.some((name) => !card.values!.some((value) => value.name === name))) throw new Error(`Value probabilities must cover exactly the values of behavior card "${card.id}".`);
+  } else if (Math.abs(probabilities.present + probabilities.nearMiss + probabilities.absent - 1) > 0.03) {
+    throw new Error(`Present, near-miss and absent probabilities of card "${card.id}" do not sum to 1.`);
+  }
+  const decisive = "applies" in probabilities ? probabilities.applies : probabilities.present;
+  const verdict: BehaviorVerdict = decisive >= thresholds.present ? "present" : decisive < thresholds.absent ? "absent" : "unknown";
+  if (verdict !== "present" || !("applies" in probabilities)) return { verdict };
+  // The first value in card order wins a tie, so the choice does not depend on how a producer ordered its answer.
+  const value = card.values!.reduce((best, candidate) => probabilities.values[candidate.name]! > probabilities.values[best.name]! ? candidate : best).name;
+  return { verdict, value };
+}
+
+/** The direction of a decision: set only for a present verdict, from the card or from the named value. */
+export function behaviorDirection(card: BehaviorCard, decision: BehaviorDecision): BehaviorDirection | undefined {
+  if (decision.verdict !== "present") return undefined;
+  return card.kind === "dimension" ? card.values?.find(({ name }) => name === decision.value)?.direction : card.direction;
+}
+
 /** Canonical digest of an ontology: the identity of the exact card texts a result was produced against. */
 export function behaviorOntologyDigest(ontology: BehaviorOntology): `sha256:${string}` {
   return `sha256:${digestMetadata(ontology).value}`;
@@ -149,6 +193,8 @@ export function renderBehaviorOntologyReference(ontology: BehaviorOntology): str
     "",
     `${ontology.cards.length} cards in ${ontology.families.length} families: ${count("workflow")} workflow, ${count("dimension")} dimension, ${count("finding")} finding.`,
     "",
+    "Each workflow and finding card has a direction, read when the card is present: favourable, unfavourable or neutral. A dimension card has one per value.",
+    "",
     "## Coding rules",
     "",
     ...ontology.codingRules.map((rule, index) => `${index + 1}. ${inline(rule)}`),
@@ -156,16 +202,16 @@ export function renderBehaviorOntologyReference(ontology: BehaviorOntology): str
   ];
   for (const family of behaviorCardFamilies(ontology)) {
     lines.push(`## ${family.id}: ${inline(family.name)}`, "",
-      "| Card | Kind | Unit | Layers | Proposed classification |", "| :--- | :--- | :--- | :--- | :--- |",
-      ...family.cards.map((card) => `| ${link(card.id)} ${inline(card.title)} | ${card.kind} | ${card.unit} | ${card.layers.join(", ")} | ${card.proposedClassification} |`), "");
+      "| Card | Kind | Direction when present | Unit | Layers | Proposed classification |", "| :--- | :--- | :--- | :--- | :--- | :--- |",
+      ...family.cards.map((card) => `| ${link(card.id)} ${inline(card.title)} | ${card.kind} | ${card.direction ?? "by value"} | ${card.unit} | ${card.layers.join(", ")} | ${card.proposedClassification} |`), "");
     for (const card of family.cards) {
       lines.push(`### ${inline(heading(card))}`, "",
-        `${card.kind} · unit: ${card.unit} · layers: ${card.layers.join(", ")} · proposed classification: ${card.proposedClassification}`, "",
+        `${card.kind} · ${card.direction === undefined ? "direction by value" : `${card.direction} when present`} · unit: ${card.unit} · layers: ${card.layers.join(", ")} · proposed classification: ${card.proposedClassification}`, "",
         `**Definition.** ${inline(card.definition)}`, "");
       if (card.trigger !== undefined) lines.push(`**Trigger.** ${inline(card.trigger)}`, "");
       lines.push(`**Evidence test.** ${inline(card.evidenceTest)}`, "", `**Near miss.** ${inline(card.nearMiss)}`, "");
       if (card.significance !== undefined) lines.push(`**Why it matters.** ${inline(card.significance)}`, "");
-      if (card.values !== undefined) lines.push("**Values.**", "", ...card.values.map(({ name, test }) => `- **${inline(name)}**: ${inline(test)}`), "");
+      if (card.values !== undefined) lines.push("**Values.**", "", ...card.values.map(({ name, test, direction }) => `- **${inline(name)}** (${direction}): ${inline(test)}`), "");
       const links = [
         ...(card.parent === null ? [] : [`Parent: ${link(card.parent)}.`]),
         ...(card.related.length === 0 ? [] : [`Related: ${card.related.map(link).join(", ")}.`]),

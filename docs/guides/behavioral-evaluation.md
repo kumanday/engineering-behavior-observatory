@@ -21,6 +21,11 @@ requirement. The judge receives the card's text and the coding rules with the
 evidence, so rubric instructions only need to add what is specific to your
 study.
 
+The judge decides each card from the events the request selects, not from
+the whole attempt, and each result records how many of the attempt's events
+it was shown. Choose the selection method with that in mind: a card whose
+evidence can sit anywhere in a long attempt needs a selection that reaches it.
+
 Keep the evaluator, effort, rubric version, and evidence-selection method
 consistent across compared runs. Configure those in the request files rather
 than embedding model IDs in a script. Evidence IDs must belong to the retained
@@ -125,7 +130,9 @@ ebo aggregate build study/aggregation.json study/aggregate.json
 ebo atlas build study/atlas.json study/atlas-export
 ```
 
-Open `study/atlas-export/index.html`. Charts count **judged attempt-cards**:
+Open `study/atlas-export/index.html`. Charts count **judged attempt-cards**
+per producer, so these LLM-judge results stay separate from any
+decision-model results in the same study:
 agreeing repeated judgments count once, and conflicting judgments
 are excluded with reasons. An `unknown` verdict counts as unknown. A single judged attempt contributes a denominator
 of one, not zero because it lacks human review. Review states remain separate,

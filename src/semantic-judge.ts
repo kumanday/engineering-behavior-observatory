@@ -14,10 +14,12 @@ import {
 import {
   validateBehaviorAssertion,
   validateClaimCitations,
-  type BehaviorAssertion,
+  type LlmJudgeAssertion,
+  type LlmJudgment,
 } from "./behavior-assertions.js";
 import {
   BEHAVIOR_VERDICTS,
+  behaviorOntologyDigest,
   loadDefaultBehaviorOntology,
   resolveBehaviorCard,
   resolveBehaviorDecision,
@@ -120,7 +122,8 @@ export type SemanticJudgeEvidenceItem = {
   truncated: boolean;
 };
 
-export type SemanticJudgeCard = Pick<BehaviorCard, "id" | "title" | "kind" | "unit" | "definition" | "trigger" | "evidenceTest" | "nearMiss" | "values">;
+/** What the judge is shown of a card: its text and value tests. The direction is left out, since no judge decides it. */
+export type SemanticJudgeCard = Pick<BehaviorCard, "id" | "title" | "kind" | "unit" | "definition" | "trigger" | "evidenceTest" | "nearMiss"> & { values?: ReadonlyArray<{ name: string; test: string }> };
 
 export type SemanticJudgeInput = {
   schemaVersion: "ebo.semantic-judge-input/v1";
@@ -135,6 +138,8 @@ export type SemanticJudgeInput = {
   codingRules: readonly string[];
   rubric: SemanticJudgeRequest["rubric"];
   selection: {
+    /** How many events the attempt's dataset holds, so a reader sees how much of it the selection covers. */
+    datasetEventCount: number;
     requestedEventIds: readonly string[];
     requestedStructuralObservationIds: readonly string[];
     includedEventIds: readonly string[];
@@ -683,6 +688,7 @@ export function packageSemanticJudgeInput(
       codingRules: [...loadDefaultBehaviorOntology().codingRules],
       rubric: structuredClone(request.rubric),
       selection: {
+        datasetEventCount: events.length,
         requestedEventIds: [...request.selection.eventIds],
         requestedStructuralObservationIds: [...request.selection.structuralObservationIds],
         includedEventIds: items.filter(({ kind }) => kind === "event").map(({ id }) => id),
@@ -718,7 +724,7 @@ export function parseSemanticJudgeResponse(
   request: SemanticJudgeRequest,
   input: SemanticJudgeInput,
   evaluatorVersion: string = request.evaluator.backend === "codex-app-server" ? currentStudyRuntime()?.launch.role === "codex-judge" ? lockedRuntimeVersion("codex-judge") : "unrecorded" : probeClaudeAgentSdkCapabilities().sdkVersion,
-): BehaviorAssertion {
+): LlmJudgeAssertion {
   const envelope = record(value, "Judge response envelope");
   exactKeys(envelope, ["judgment"], "Judge response envelope");
   const response = record(envelope.judgment, "Judge response");
@@ -727,7 +733,7 @@ export function parseSemanticJudgeResponse(
   // Ledger inputs use the citation shape with `occurrenceId`, even when the ledger has no rows.
   const ledgerMode = input.promptVersion === SEMANTIC_JUDGE_LEDGER_PROMPT_VERSION;
   const allowedEventIds = new Set([...input.selection.includedEventIds, ...[...ledgerCites.values()].map(({ cite }) => cite)]);
-  let judgment: BehaviorAssertion["judgment"];
+  let judgment: LlmJudgment;
   exactKeys(response, [
     "verdict",
     "value",
@@ -740,6 +746,7 @@ export function parseSemanticJudgeResponse(
     "claims",
   ], "Judge response");
   const evidence = () => ({
+    basis: "cited-evidence" as const,
     rationale: requiredText(response.rationale, "Judge rationale", 8192),
     alternativeExplanation: requiredText(response.alternativeExplanation, "Judge alternative explanation", 8192),
     citations: citations(response.citations, allowedEventIds, request.limits.maxCitations, ledgerCites, ledgerMode),
@@ -793,20 +800,30 @@ export function parseSemanticJudgeResponse(
     };
   });
   if (judgment.claims.some((claim) => claim.citations.length === 0)) throw new Error("Every atomic claim needs at least one citation.");
-  const assertion: BehaviorAssertion = {
+  const assertion: LlmJudgeAssertion = {
     schemaVersion: "ebo.behavior-assertion/v1",
     id: `${request.id}-assertion`,
     runId: input.runId,
     attemptId: input.attemptId,
     dataset: structuredClone(input.dataset),
-    behavior: structuredClone(request.behavior),
-    rubric: { id: request.rubric.id, version: request.rubric.version },
-    evaluator: { id: `${request.evaluator.provider}/${request.evaluator.model}`, version: evaluatorVersion,
+    behavior: { ...structuredClone(request.behavior), ontologyDigest: behaviorOntologyDigest(loadDefaultBehaviorOntology()) },
+    producer: { mode: "llm-judge", provider: request.evaluator.provider, model: request.evaluator.model, version: evaluatorVersion,
       configurationDigest: digest({ promptVersion: input.promptVersion, ...(matchingJudgeRuntime(request) ? { runtimeLockDigest: currentStudyRuntime()!.launch.lockDigest } : {}), evaluator: {
         ...Object.fromEntries(Object.entries(request.evaluator).filter(([key]) => !matchingJudgeRuntime(request) || key !== "executable")), backend: request.evaluator.backend ?? CLAUDE_SEMANTIC_JUDGE_BACKEND_ID,
         ...(request.evaluator.backend === "codex-app-server" && !matchingJudgeRuntime(request) ? { executable: resolveCodexJudgeExecutable(request.evaluator.executable) } : {}),
       },
         rubric: request.rubric, limits: request.limits, blinding: request.blinding }) },
+    rubric: { id: request.rubric.id, version: request.rubric.version },
+    // The judge read a selection of the attempt, not all of it: state how much and under which limits.
+    evidence: {
+      scope: "selected-events",
+      events: { included: input.selection.includedEventIds.length, total: input.selection.datasetEventCount },
+      structuralObservations: input.selection.includedStructuralObservationIds.length,
+      occurrenceLedgerRows: input.selection.ledgerOccurrenceIds?.length ?? 0,
+      omitted: input.selection.omitted.length,
+      truncated: input.selection.truncated.length,
+      limits: { maxEvidenceItems: request.limits.maxEvidenceItems, maxRecordChars: request.limits.maxRecordChars, maxInputChars: request.limits.maxInputChars, maxCitations: request.limits.maxCitations },
+    },
     judgment,
   };
   const errors = validateArtifact("semantic judge assertion", assertion);
@@ -1028,7 +1045,7 @@ function citations(
   max: number,
   ledger: ReadonlyMap<string, { cite: string; members: ReadonlySet<string> }> = new Map(),
   ledgerMode = false,
-): BehaviorAssertion["judgment"]["citations"] {
+): LlmJudgment["citations"] {
   if (!Array.isArray(value) || value.length > max) throw new Error("Judge citations are invalid or exceed maxCitations.");
   const seen = new Set<string>();
   return value.map((entry) => {

@@ -18,7 +18,8 @@ import { FACTORY_CONTRACT_DIGEST, captureFactoryDroidRun, runFactoryQueueEntry }
 import { compileRunQueue, createPortableRunBundleExport, createRetainedBehaviorEvidence, createRetainedStructuralObservationSet,
   digestBytes, digestMetadata, freezeTaskPacket, main, readPortableRunBundleExport, writeRunQueue,
   selectReviewSample, writeReviewPacket,
-  type BehaviorAssertion, type ExperimentConfiguration, type PortableExportPolicy, type RunBundleDefinition, type TaskPacket } from "../src/index.js";
+  type LlmJudgeAssertion, type ExperimentConfiguration, type PortableExportPolicy, type RunBundleDefinition, type TaskPacket } from "../src/index.js";
+import { judged, llmEvidence, llmProducer } from "./behavior-fixture.js";
 import { visibleEvidence } from "../src/exports.js";
 import { createFactoryHarborExecutor } from "../src/harbor/harnesses.js";
 import { createNativeHarborExecutor, runHarborWorker, type HarborWorkerInput } from "../src/harbor/worker.js";
@@ -238,12 +239,12 @@ test("Factory run bundles reopen for retained behavioral and structural analysis
     assert.equal(units.units.filter(u => u.unit_kind === "message" && u.role === "assistant").length, 1);
     assert.equal(JSON.stringify(units).includes("FACTORY-HIDDEN-SENTINEL"), false);
     const cited = retained.dataset.events.find(e => e.family === "message" && e.actor.kind === "agent")!;
-    const assertion: BehaviorAssertion = { schemaVersion: "ebo.behavior-assertion/v1", id: "factory-review",
+    const assertion: LlmJudgeAssertion = { schemaVersion: "ebo.behavior-assertion/v1", id: "factory-review",
       runId: retained.dataset.runId, attemptId: retained.dataset.attemptId,
       dataset: { schemaVersion: retained.dataset.schemaVersion, digest: `sha256:${digestMetadata(retained.dataset).value}` },
-      behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
-      rubric: { id: "fixture-rubric", version: "1.0.0" }, evaluator: { id: "fixture-judge", version: "1.0.0" },
-      judgment: { verdict: "present", confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" },
+      behavior: judged("VF-01"), producer: llmProducer(),
+      rubric: { id: "fixture-rubric", version: "1.0.0" }, evidence: llmEvidence(),
+      judgment: { basis: "cited-evidence", verdict: "present", confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" },
         rationale: "The agent reports completion.", alternativeExplanation: "A completion message alone does not establish verification.",
         citations: [{ eventId: cited.id, nativeReference: cited.source.nativeReference }] } };
     const assertionPath = join(root, "assertion.json"); writeFileSync(assertionPath, JSON.stringify(assertion));

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { get } from "node:http";
 import test from "node:test";
 import { aggregateEvaluation } from "../src/aggregation.js";
-import { atlasBehaviorRows, loadAtlas, queryAtlas, serveAtlas, shareAtlas, writeAtlas, type AtlasRequest } from "../src/atlas.js";
+import { atlasBehaviorRows, atlasDirectionRows, loadAtlas, queryAtlas, serveAtlas, shareAtlas, writeAtlas, type AtlasRequest } from "../src/atlas.js";
 import { renderAtlas } from "../src/atlas-html.js";
 import { atlasDashboards } from "../src/atlas-grafana.js";
 import { createPortableRunBundleExport, sanitizeDerivedExport } from "../src/exports.js";
@@ -175,6 +175,74 @@ test("Atlas mixed fixture preserves exact cohort populations, decisions and nati
     writeFileSync(assertionPath, JSON.stringify(assertion));
     await assert.rejects(loadAtlas(requestPath), /unknown normalized event/u);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Atlas and aggregation keep the two producer modes apart and summarise direction for each", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-atlas-modes-"));
+  try {
+    const source = await loadAtlas(await createAtlasFixture(root, { decisionModel: true }));
+    const view = await queryAtlas(source);
+    assert.deepEqual(view.filterOptions.mode, ["decision-model", "llm-judge", "unavailable"]);
+    assert.deepEqual(view.filterOptions.direction, ["favourable", "neutral", "none", "unavailable", "unfavourable"]);
+
+    // Every LLM-judge number is what it is without the decision-model results: nothing is pooled.
+    const llmOnly = await aggregateEvaluation({ ...source.input, assertions: source.input.assertions.filter(({ document }) => document.producer.mode === "llm-judge") }, source.aggregation);
+    for (const [index, group] of view.report.groups.entries()) {
+      assert.deepEqual(group.behaviors!.filter(({ producer }) => producer.mode === "llm-judge"), llmOnly.groups[index]!.behaviors);
+      assert.deepEqual(group.directions!.filter(({ producer }) => producer.mode === "llm-judge"), llmOnly.groups[index]!.directions);
+      assert.ok(group.behaviors!.every(({ producer, rubric }) => (producer.mode === "llm-judge") === (rubric !== undefined)), "only the LLM judge has a rubric");
+    }
+
+    const rows = atlasBehaviorRows(view);
+    const count = (mode: string, group: string, card: string, verdict: string, value: string | null = null) => {
+      const row = rows.find((item) => item.mode === mode && item.group === group && item.card === card && item.verdict === verdict && item.value === value);
+      return row === undefined ? undefined : [row.numerator, row.denominator];
+    };
+    // The same card and cohort member, two modes, two sets of counts.
+    assert.deepEqual(count("llm-judge", "synthetic-model-a", "VF-03", "present"), [3, 3]);
+    assert.deepEqual(count("decision-model", "synthetic-model-a", "VF-03", "present"), [2, 2]);
+    assert.deepEqual(count("decision-model", "synthetic-model-a", "VF-03", "present", "no check recorded"), [1, 2]);
+    assert.deepEqual(count("llm-judge", "synthetic-model-b", "VF-03", "absent"), [1, 2]);
+    assert.deepEqual(count("decision-model", "synthetic-model-b", "VF-03", "absent"), [1, 2]);
+    assert.deepEqual(count("decision-model", "synthetic-model-b", "VF-03", "unknown"), [1, 2], "a probability between the thresholds counts as unknown");
+    assert.deepEqual(count("decision-model", "synthetic-model-a", "TI-03", "present"), [1, 1]);
+    assert.equal(count("llm-judge", "synthetic-model-a", "TI-03", "present"), undefined, "the LLM judge did not judge this card");
+    assert.ok(rows.every(({ mode, producer, label }) => producer.startsWith(`${mode} `) && label.includes(` · ${mode} · `)), "every row names its mode");
+    assert.equal(rows.find(({ card, verdict, value }) => card === "TI-03" && verdict === "present" && value === null)!.direction, "unfavourable");
+    assert.equal(rows.find(({ card, verdict, value }) => card === "VF-03" && verdict === "present" && value === null)!.direction, null, "a dimension card has a direction per value only");
+    assert.equal(rows.find(({ value }) => value === "check after the last edit")!.direction, "favourable");
+
+    // Direction summary per cohort member, producer and family: present results by direction, and attempts with at least one such result.
+    const directions = atlasDirectionRows(view);
+    const share = (mode: string, group: string, family: string, measure: string) => Object.fromEntries(directions
+      .filter((item) => item.mode === mode && item.group === group && item.family === family && item.measure === measure).map(({ direction, numerator, denominator }) => [direction, [numerator, denominator]]));
+    assert.deepEqual(share("decision-model", "synthetic-model-a", "all", "results"), { favourable: [2, 5], unfavourable: [2, 5], neutral: [1, 5] });
+    assert.deepEqual(share("decision-model", "synthetic-model-a", "all", "attempts"), { favourable: [1, 2], unfavourable: [2, 2], neutral: [1, 2] });
+    assert.deepEqual(share("decision-model", "synthetic-model-a", "VF", "results"), { favourable: [2, 3], unfavourable: [1, 3], neutral: [0, 3] });
+    assert.deepEqual(share("decision-model", "synthetic-model-a", "EN", "results"), { favourable: [0, 1], unfavourable: [0, 1], neutral: [1, 1] }, "a neutral result is counted");
+    assert.deepEqual(share("decision-model", "synthetic-model-b", "all", "results"), { favourable: [1, 1], unfavourable: [0, 1], neutral: [0, 1] });
+    assert.deepEqual(share("decision-model", "synthetic-model-b", "all", "attempts"), { favourable: [1, 2], unfavourable: [0, 2], neutral: [0, 2] });
+    assert.deepEqual(share("llm-judge", "synthetic-model-a", "all", "results"), { favourable: [2, 3], unfavourable: [1, 3], neutral: [0, 3] });
+    assert.deepEqual(share("llm-judge", "synthetic-model-b", "all", "attempts"), { favourable: [0, 3], unfavourable: [1, 3], neutral: [0, 3] });
+
+    // Each case shows its mode and direction, and both are filters.
+    const decided = view.cases.filter(({ mode }) => mode === "decision-model");
+    assert.equal(decided.length, 9);
+    assert.ok(decided.every(({ citations, assertion }) => citations.length === 0 && assertion!.judgment.basis === "probabilities"));
+    assert.deepEqual(decided.filter(({ card }) => card === "VF-03").map(({ verdict, direction }) => [verdict, direction]), [["present", "favourable"], ["unknown", "none"], ["present", "unfavourable"], ["absent", "none"]]);
+    const unfavourable = await queryAtlas(source, { mode: "decision-model", direction: "unfavourable" });
+    assert.deepEqual(unfavourable.cases.map(({ attemptId, card }) => [attemptId, card]).sort(), [["synthetic-attempt-0", "TI-03"], ["synthetic-attempt-2", "VF-03"]]);
+    assert.equal(unfavourable.report.sourcePopulation.selectedAttempts, 2);
+
+    const html = renderAtlas(view, true);
+    assert.match(html, /decision-model fixture\/fixture-decision-model/u);
+    assert.match(html, /llm-judge fixture\/synthetic-judge/u);
+    assert.match(html, /Direction/u);
+    const panels = JSON.stringify(atlasDashboards(view));
+    for (const column of ["mode", "producer", "direction"]) assert.match(panels, new RegExp(`"${column}"`, "u"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("shareable Atlas requires source export readback and fails closed on unsupported report fields", async () => {

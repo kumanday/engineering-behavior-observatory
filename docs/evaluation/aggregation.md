@@ -57,9 +57,12 @@ records with the same identity fail the build.
 Each group's additive `behaviors` array reports one entry per
 [behavior card](behavior-ontology.md), ordered by family and then by card as
 the ontology orders them, separately from review agreement. An entry names the
-card as `{ ontologyVersion, cardId }`, its `family`, the rubric id/version and
-the evaluator identity/version/configuration digest. An evaluator without a
-configuration digest stays a separate entry.
+card as `{ ontologyVersion, cardId, ontologyDigest }`, its `family` and its
+`producer`: mode, provider, model, version and configuration digest. An
+LLM-judge entry also names its rubric id and version. Each producer gets its
+own entry for a card, so a card judged by an LLM judge and by a decision model
+appears twice and the two sets of counts are never added together. A producer
+without a configuration digest stays a separate entry.
 
 `verdicts` is the distribution over `present`, `absent` and `unknown`. Its
 denominator is distinct judged attempt-cards (`judged-attempt-card`), not
@@ -70,6 +73,26 @@ verdict or on the value exclude that attempt as `conflicting-judge-reruns`. An
 A dimension card also has `values`: each named value's count among the
 attempts judged present (`present-attempt-card`), with the absent and unknown
 attempts listed as exclusions.
+
+Each group's `directions` array is the second view of the same results. It
+has one entry per producer and family, and one more per producer for all
+families together (`family: "all"`). The ontology fixes a
+[direction](behavior-ontology.md#direction) for every present result:
+`favourable`, `unfavourable` or `neutral`. An entry reports two shares for
+each direction:
+
+- `results`: present results of that direction among all present results
+  (`present-attempt-card`);
+- `attempts`: attempts with at least one present result of that direction
+  among the attempts that producer judged (`judged-attempt`). An attempt can
+  count under more than one direction.
+
+Neutral results are counted and never scored: the report gives the three
+shares and does not combine them into one number. Reruns of one attempt and
+card that disagree are excluded as `conflicting-judge-reruns`, as in the
+per-card rates. Read the direction shares next to the per-card rates; the
+shares say how a cohort member's results lean, and the rates say which
+behaviors produce that lean.
 
 Human review is optional: unreviewed, disputed, and rejected verdicts remain
 model judgments in this population, not human-endorsed findings. Assertion

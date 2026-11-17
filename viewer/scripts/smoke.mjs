@@ -152,7 +152,7 @@ const hostile = await browser.newPage({ viewport: { width: 1600, height: 1100 } 
 hostile.on("pageerror", (e) => errors.push(`hostile pageerror: ${e.message}`));
 await hostile.route("**/bundle/assessments.json", async (route) => {
   const doc = await (await route.fetch()).json();
-  doc.assessments = doc.assessments.map((a) => ({ ...a, outcome: payload, value: payload, confidence: payload, card: payload, title: payload }));
+  doc.assessments = doc.assessments.map((a) => ({ ...a, outcome: payload, value: payload, direction: payload, confidence: payload, card: payload, title: payload }));
   await route.fulfill({ json: doc });
 });
 await hostile.route("**/bundle/audit.json", async (route) => {

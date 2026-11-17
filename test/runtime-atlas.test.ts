@@ -16,9 +16,9 @@ test('cohorts retain shipped runtime receipts and deduplicate equivalent project
   const aggregation=rewrite(JSON.parse(readFileSync(join(copy,'aggregation.json'),'utf8'))) as {sources:{assertions:Array<{path:string}>;calibrations:unknown[]}};
   // The frozen reader accepts only the judgments it shipped with: rewrite the copy's assertions to that 1.x shape.
   for(const {path:assertionPath} of aggregation.sources.assertions){
-   const {behavior:_behavior,judgment,...rest}=JSON.parse(readFileSync(assertionPath,'utf8'));
-   const {verdict,value:_value,...evidence}=judgment;
-   writeFileSync(assertionPath,JSON.stringify({...rest,behavior:{vocabularyVersion:'1.0.0',categoryId:'verification-completion',dimensionId:'verification-completion'},
+   const {behavior:_behavior,judgment,producer,evidence:_shown,...rest}=JSON.parse(readFileSync(assertionPath,'utf8'));
+   const {verdict,value:_value,basis:_basis,...evidence}=judgment;
+   writeFileSync(assertionPath,JSON.stringify({...rest,evaluator:{id:`${producer.provider}/${producer.model}`,version:producer.version},behavior:{vocabularyVersion:'1.0.0',categoryId:'verification-completion',dimensionId:'verification-completion'},
     judgment:verdict==='unknown'?{disposition:'abstained',...evidence}:{disposition:'assessed',assessment:verdict==='present'?'constructive':'adverse',...evidence}}));
   }
   aggregation.sources.calibrations=[];writeFileSync(join(copy,'aggregation.json'),JSON.stringify(aggregation));

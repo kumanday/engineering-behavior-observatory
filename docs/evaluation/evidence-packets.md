@@ -8,7 +8,7 @@ built from an [Atlas bundle](atlas-bundles.md) and links the layers of a study:
 | :--- | :--- | :--- |
 | L0 narrative | study summary, contents, how to verify | `index.html`, `README.md`, `AGENTS.md` |
 | L1 claims | each number with how it recomputes; supporting evaluations | `claims/` |
-| L2 behavior evaluations | judge verdicts on behavior cards: verdict and value, rationale, alternative explanation, factual claims, cited native lines | `evaluations/` |
+| L2 behavior evaluations | card results with their producer mode and direction: an LLM judge's verdict and value, rationale, alternative explanation, factual claims and cited native lines, or a decision model's verdict, probabilities and thresholds | `evaluations/` |
 | L3 metrics and cohorts | the cohort aggregation reports (certified tallies) | `metrics/` |
 | L4 qualified evidence | attempt audits and native records | `evidence/`, `viewer/bundle/native/` |
 | L5 machine data and viewer | the bundle and the viewer | `viewer/`, `viewer/bundle/` |

@@ -1,8 +1,8 @@
 import { join, resolve } from "node:path";
 
 import { canonicalizeMetadata, digestBytes, digestMetadata, validateArtifact } from "./artifacts.js";
-import { validateRetainedBehaviorAssertion, type BehaviorAssertion } from "./behavior-assertions.js";
-import { BEHAVIOR_VERDICTS, loadDefaultBehaviorOntology, resolveBehaviorCard, type BehaviorDecision, type BehaviorVerdict } from "./behavior-ontology.js";
+import { isDecisionModelAssertion, validateRetainedBehaviorAssertion, type BehaviorAssertion, type BehaviorProducer } from "./behavior-assertions.js";
+import { BEHAVIOR_DIRECTIONS, BEHAVIOR_VERDICTS, behaviorDirection, loadDefaultBehaviorOntology, resolveBehaviorCard, type BehaviorCard, type BehaviorDecision, type BehaviorDirection, type BehaviorVerdict } from "./behavior-ontology.js";
 import type { CorpusIndexEntry } from "./corpus.js";
 import {
   effectiveReviewOutcome,
@@ -75,13 +75,18 @@ export type AggregateMetric = {
   measurement: AggregateMeasurement;
 };
 
-/** One card under one rubric and evaluator. Entries are ordered by family, then by card, as the ontology orders them. */
+/**
+ * One card under one producer (and, for an LLM judge, one rubric). Results of an LLM judge and of a decision model are
+ * never pooled: each producer has its own entries. Entries are ordered by family, then by card, as the ontology orders them.
+ */
 export type BehaviorAggregate = {
   behavior: BehaviorAssertion["behavior"];
   /** The card's family in the behavior ontology. */
   family: string;
-  rubric: BehaviorAssertion["rubric"];
-  evaluator: BehaviorAssertion["evaluator"];
+  /** Who produced these results, including the mode: `llm-judge` or `decision-model`. */
+  producer: BehaviorProducer;
+  /** LLM-judge entries only. */
+  rubric?: { id: string; version: string };
   /** Selected attempts whose judge runs for this card agree on one verdict and, where present, one value. */
   population: "judged-attempt-card";
   verdicts: ReadonlyArray<{ verdict: BehaviorVerdict; measurement: AggregateMeasurement }>;
@@ -92,6 +97,19 @@ export type BehaviorAggregate = {
     reviewOutcome: ReturnType<typeof effectiveReviewOutcome>; disputed: boolean;
     included: boolean;
   }>;
+};
+
+/**
+ * How one producer's present results divide by direction, for one family or for all cards (`family: "all"`). The
+ * direction comes from the ontology. Neutral results are counted and never scored.
+ */
+export type DirectionAggregate = {
+  producer: Pick<BehaviorProducer, "mode" | "provider" | "model" | "version">;
+  family: string;
+  /** Of the attempt-cards judged present, the share with each direction. */
+  results: ReadonlyArray<{ direction: BehaviorDirection; measurement: AggregateMeasurement }>;
+  /** Of the attempts with at least one judged card, the share with at least one present result of each direction. */
+  attempts: ReadonlyArray<{ direction: BehaviorDirection; measurement: AggregateMeasurement }>;
 };
 
 export type AggregationReport = {
@@ -121,6 +139,7 @@ export type AggregationReport = {
     dimensions: Partial<Record<AggregationDimension, string>>;
     metrics: readonly AggregateMetric[];
     behaviors?: readonly BehaviorAggregate[];
+    directions?: readonly DirectionAggregate[];
     variations: ReadonlyArray<{
       measure: "terminal-state" | "verifier-status";
       distribution: readonly AggregateMetric[];
@@ -197,6 +216,7 @@ async function aggregateValidatedEvaluation(
       dimensions,
       metrics: groupMetrics(members, attempts, observations, assertions, reviewOutcomes, dimensions),
       behaviors: behaviorAggregates(members, assertions, reviewOutcomes),
+      directions: directionAggregates(members, assertions),
       variations: [
         variation("terminal-state", members, policy.recurrence.minimumOccurrences),
         variation("verifier-status", members, policy.recurrence.minimumOccurrences),
@@ -256,7 +276,7 @@ function behaviorAggregates(selected: readonly Attempt[], assertions: ReadonlyMa
   const partitions = new Map<string, BehaviorAssertion[]>();
   for (const assertion of assertions.values()) {
     if (!selectedIds.has(attemptKey(assertion))) continue;
-    const key = canonicalizeMetadata({ behavior: assertion.behavior, rubric: assertion.rubric, evaluator: assertion.evaluator });
+    const key = canonicalizeMetadata({ behavior: assertion.behavior, producer: assertion.producer, rubric: isDecisionModelAssertion(assertion) ? null : assertion.rubric });
     const values = partitions.get(key) ?? [];
     values.push(assertion);
     partitions.set(key, values);
@@ -286,7 +306,8 @@ function behaviorAggregates(selected: readonly Attempt[], assertions: ReadonlyMa
     }
     const present = decisions.filter(({ verdict }) => verdict === "present");
     return {
-      behavior: structuredClone(first.behavior), family: card.family, rubric: structuredClone(first.rubric), evaluator: structuredClone(first.evaluator),
+      behavior: structuredClone(first.behavior), family: card.family, producer: structuredClone(first.producer),
+      ...(isDecisionModelAssertion(first) ? {} : { rubric: structuredClone(first.rubric) }),
       population: "judged-attempt-card" as const,
       verdicts: BEHAVIOR_VERDICTS.map((verdict) => ({
         verdict,
@@ -302,6 +323,48 @@ function behaviorAggregates(selected: readonly Attempt[], assertions: ReadonlyMa
         digest: metadataDigest(assertion), reviewOutcome: outcome(assertion).outcome, disputed: outcome(assertion).disputed,
         included: included.has(assertionKey(assertion)) })),
     };
+  });
+}
+
+function decisionOf(assertion: BehaviorAssertion): BehaviorDecision {
+  const { judgment } = assertion;
+  return { verdict: judgment.verdict, ...(judgment.verdict === "present" && judgment.value !== undefined ? { value: judgment.value } : {}) };
+}
+
+function directionAggregates(selected: readonly Attempt[], assertions: ReadonlyMap<string, BehaviorAssertion>): DirectionAggregate[] {
+  const selectedIds = new Set(selected.map(attemptKey));
+  const ontology = loadDefaultBehaviorOntology();
+  type Judged = { attempt: string; card: BehaviorCard; decisions: Map<string, BehaviorDecision> };
+  const producers = new Map<string, { producer: DirectionAggregate["producer"]; judged: Map<string, Judged> }>();
+  for (const assertion of assertions.values()) {
+    if (!selectedIds.has(attemptKey(assertion))) continue;
+    const { mode, provider, model, version } = assertion.producer;
+    const producer = { mode, provider, model, version };
+    const entry = producers.get(canonicalizeMetadata(producer)) ?? { producer, judged: new Map<string, Judged>() };
+    producers.set(canonicalizeMetadata(producer), entry);
+    const key = `${attemptKey(assertion)}\0${assertion.behavior.cardId}`;
+    const judged = entry.judged.get(key) ?? { attempt: attemptKey(assertion), card: resolveBehaviorCard(assertion.behavior, ontology), decisions: new Map<string, BehaviorDecision>() };
+    entry.judged.set(key, judged);
+    const decision = decisionOf(assertion);
+    judged.decisions.set(canonicalizeMetadata(decision), decision);
+  }
+  return [...producers.entries()].sort(([a], [b]) => a.localeCompare(b)).flatMap(([, { producer, judged }]) => {
+    const families = ["all", ...ontology.families.map(({ id }) => id).filter((id) => [...judged.values()].some(({ card }) => card.family === id))];
+    return families.map((family) => {
+      const items = [...judged.values()].filter(({ card }) => family === "all" || card.family === family);
+      // Judge runs of one attempt and card that disagree are left out, as in the per-card rates.
+      const agreed = items.filter(({ decisions }) => decisions.size === 1).map(({ attempt, card, decisions }) => ({ attempt, direction: behaviorDirection(card, [...decisions.values()][0]!) }));
+      const exclusions = exclusionCounts(items.filter(({ decisions }) => decisions.size > 1).map(() => "conflicting-judge-reruns"), "attempt-card");
+      const present = agreed.filter(({ direction }) => direction !== undefined);
+      const attempts = new Set(agreed.map(({ attempt }) => attempt));
+      return {
+        producer, family,
+        results: BEHAVIOR_DIRECTIONS.map((direction) => ({ direction,
+          measurement: rateMetric(direction, "attempt", present.filter((item) => item.direction === direction).length, present.length, "present-attempt-card", exclusions).measurement })),
+        attempts: BEHAVIOR_DIRECTIONS.map((direction) => ({ direction,
+          measurement: rateMetric(direction, "attempt", new Set(present.filter((item) => item.direction === direction).map(({ attempt }) => attempt)).size, attempts.size, "judged-attempt", exclusions).measurement })),
+      };
+    });
   });
 }
 

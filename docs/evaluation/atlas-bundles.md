@@ -64,7 +64,7 @@ are embedded:
 | `tables/*.parquet` | Atlas tables v1 (zstd) |
 | `units.arrow`, `embeddings.f32` | the cloud: one row per embedded unit (Arrow IPC) and its vector (float32, row order) |
 | `lanes.json` | swimlanes: lane metadata, cumulative tokens and context per request from normalized usage events |
-| `assessments.json`, `audit.json`, `native/<attempt>.json` | judge verdicts per attempt and card (`card`, `family`, `outcome` as present, absent or unknown, `value` on a present dimension card) with citations linked to units and native lines (SHA-256 of the full line), the judged cards and families in ontology order, attempt audits, per-unit native records |
+| `assessments.json`, `audit.json`, `native/<attempt>.json` | card results per attempt and card (`card`, `family`, `outcome` as present, absent or unknown, `value` on a present dimension card, `mode` and `producer`, the ontology's `direction` for a present result, and for a decision-model result its `probability`, `probabilities`, `thresholds` and what it was `shown`) with an LLM judge's citations linked to units and native lines (SHA-256 of the full line), the judged cards and families in ontology order, the `modes` and `directions` in use, attempt audits, per-unit native records |
 | `claims.json`, `views.json` | validated claims and view specs with their receipts, when the request names them |
 
 Atlas tables v1, all keyed by stable EBO identities (`event_key` is
@@ -76,7 +76,7 @@ Atlas tables v1, all keyed by stable EBO identities (`event_key` is
 | `attempts` | attempt: identity, arm, capture qualification, terminal state, adapter, dataset digest, native record and unmapped counts, time span |
 | `events` | uniform event with its native reference, order, time, tool fields, the resolved native content as JSON, and a flattened text view for search and embedding |
 | `event_relations` | known relation between two events |
-| `assessments`, `assessment_cohorts` | judge assertion with its `card_id`, `family_id`, `ontology_version`, `verdict`, `value` and review state; inclusion and dispute per cohort |
+| `assessments`, `assessment_cohorts` | card result with its `card_id`, `family_id`, `ontology_version`, `verdict`, `value`, `producer_mode`, `direction`, `probability` and review state; inclusion and dispute per cohort |
 | `citations` | assertion citation, with its occurrence and whether it resolves to a bundled event |
 | `claims` | atomic factual claim of an assertion, with its cited events and workspace |
 | `observations`, `observation_sources` | structural observation; its source events |
@@ -101,7 +101,10 @@ The build validates every claim: each number recomputes to its stated value
 or audit verdicts), every supporting assessment is in the bundle, every cited
 native line still hashes to its recorded SHA-256, and every cited view exists.
 `claims.json` records each claim's result and the failures; it never drops a
-claim that no longer holds.
+claim that no longer holds. A claim over cohort report cells selects one
+producer mode: when a cohort holds LLM-judge and decision-model results for
+the selected card, the claim names the mode in `where.mode`, and a selection
+that spans both fails.
 
 Each view spec's `query` is recomputed over the same host tables the viewer
 builds; its canonical rows (keys sorted, whole numbers as integers, compact

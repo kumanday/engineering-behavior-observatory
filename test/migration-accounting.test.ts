@@ -6,19 +6,19 @@ import test from "node:test";
 import { digestMetadata, validateArtifact } from "../src/artifacts.js";
 import { listAnalysisRuntimes } from "../src/analysis-runtime.js";
 import { inventoryMigrationStudy, migrationDependencies, reconcileMigration, type MigrationStudy } from "../src/migration-accounting.js";
-import type { BehaviorAssertion } from "../src/behavior-assertions.js";
+import type { LlmJudgeAssertion } from "../src/behavior-assertions.js";
 import type { SemanticJudgeInput, SemanticJudgmentRecord } from "../src/semantic-judge.js";
 const hash = (v: unknown): `sha256:${string}` => `sha256:${digestMetadata(v).value}`;
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "ebo-migration-"));
-  const assertion = JSON.parse(readFileSync("test/fixtures/behavior-assertions/abstained.json", "utf8")) as BehaviorAssertion;
-  assertion.evaluator.configurationDigest = hash("configuration");
-  assertion.evaluator.id = "anthropic/fixture-model"; assertion.evaluator.version = "fixture";
+  const assertion = JSON.parse(readFileSync("test/fixtures/behavior-assertions/abstained.json", "utf8")) as LlmJudgeAssertion;
+  assertion.producer.configurationDigest = hash("configuration");
+  assertion.producer.provider = "anthropic"; assertion.producer.model = "fixture-model"; assertion.producer.version = "fixture";
   const input: SemanticJudgeInput = { schemaVersion: "ebo.semantic-judge-input/v1", promptVersion: "2.0.0", runId: assertion.runId,
-    attemptId: assertion.attemptId, dataset: assertion.dataset, behavior: assertion.behavior,
+    attemptId: assertion.attemptId, dataset: assertion.dataset, behavior: { ontologyVersion: assertion.behavior.ontologyVersion, cardId: assertion.behavior.cardId },
     card: { id: "EN-04", title: "Fixture card", kind: "finding", unit: "episode", definition: "Fixture definition.", evidenceTest: "Fixture test.", nearMiss: "Fixture near miss." }, codingRules: [],
     rubric: { ...assertion.rubric, instructions: "Read the cited evidence." },
-    selection: { requestedEventIds: [], requestedStructuralObservationIds: [], includedEventIds: [], includedStructuralObservationIds: [], omitted: [], truncated: [] },
+    selection: { datasetEventCount: 0, requestedEventIds: [], requestedStructuralObservationIds: [], includedEventIds: [], includedStructuralObservationIds: [], omitted: [], truncated: [] },
     blinding: { evaluatedModelIdentity: "redacted", redactionCount: 0, sourceIdentityPreserved: true, residualClues: [] },
     limits: { maxEvidenceItems: 8, maxRecordChars: 1024, maxInputChars: 10000, maxCitations: 8 }, evidence: [] };
   const judgment: SemanticJudgmentRecord = { schemaVersion: "ebo.semantic-judgment/v1", id: "judgment", runId: input.runId, attemptId: input.attemptId,
@@ -97,7 +97,7 @@ test("stale, cross-attempt and dimension-mismatched references block reconciliat
 });
 test("unknown configuration does not merge separately recorded judgments", () => {
   const f = fixture(); try {
-    delete f.assertion.evaluator.configurationDigest; f.judgment.assertion!.digest = hash(f.assertion); f.write();
+    delete f.assertion.producer.configurationDigest; f.judgment.assertion!.digest = hash(f.assertion); f.write();
     const second = structuredClone(f.judgment); second.id = "second"; writeFileSync(join(f.root, "second.json"), JSON.stringify(second));
     const inventory = inventoryMigrationStudy({ ...f.study, artifacts: [...f.study.artifacts, "second.json"] });
     assert.equal(inventory.units.length, 2); assert.equal(reconcileMigration(inventory).summary.preservedMissingUnits, 2);
@@ -160,7 +160,7 @@ test("historical relay receipt profile labels its omitted limit on the pinned re
     f.judgment.evaluator = { ...f.judgment.evaluator, provider: "openai", backend: { id: "codex-app-server", version: "0.162.1" },
       environment: { parentPreserved: false, mode: "replace", allowedKeys: ["HOME", "CODEX_HOME", "PATH", "LANG", "LC_ALL", "TMPDIR"], authentication: "existing-auth-json-only", modelEffortOverrides: "removed", ambientTelemetry: "removed", removedKeys: ["*"] } };
     delete (f.judgment.evaluator.limits as Partial<typeof f.judgment.evaluator.limits>).maxWallClockMs;
-    f.assertion.evaluator.id = "openai/fixture-model"; f.assertion.evaluator.version = "0.162.1";
+    f.assertion.producer.provider = "openai"; f.assertion.producer.version = "0.162.1";
     f.judgment.assertion!.digest = hash(f.assertion);
     writeFileSync(join(f.root, "judgment.json"), JSON.stringify(f.judgment)); writeFileSync(join(f.root, "assertion.json"), JSON.stringify(f.assertion));
     const unlabelled = inventoryMigrationStudy(f.study); assert.equal(unlabelled.failures.length, 0);
@@ -208,7 +208,7 @@ test("v2 migration targets bind source readback, observations, ledger and evalua
     const inventory = inventoryMigrationStudy(f.study), unit = inventory.units[0]!;
     const observations = await createStructuralObservationSetV2(evidence.dataset, evidence.resolver), ledger = await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver);
     const input = await prepareSemanticJudgeInputV2(evidence, observations, ledger, { schemaVersion: "ebo.semantic-judge-request/v2", behavior: f.input.behavior,
-      rubric: f.input.rubric, evaluator: { id: f.assertion.evaluator.id, version: f.assertion.evaluator.version, configuration: { legacy: f.judgment.evaluator } }, eventIds: [], limits: { maxRecordChars: 6000, maxInputChars: 1000000 } });
+      rubric: f.input.rubric, evaluator: { id: `${f.assertion.producer.provider}/${f.assertion.producer.model}`, version: f.assertion.producer.version, configuration: { legacy: f.judgment.evaluator } }, eventIds: [], limits: { maxRecordChars: 6000, maxInputChars: 1000000 } });
     const target = await createMigrationTargetV2(unit, input, evidence), report = reconcileMigration(inventory, [target]);
     assert.equal(report.summary.affectedUnits, 1); assert.equal(report.summary.authorizedPaidBudgetUsd, 0);
     for (const key of ["datasetDigest", "observationSetDigest", "ledgerDigest", "requestDigest", "promptVersion", "configurationDigest"]) assert.ok(report.units[0]!.changedDependencies.includes(key), key);
