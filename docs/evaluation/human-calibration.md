@@ -27,7 +27,7 @@ candidate can enter a sample.
 
 Sampling criteria use explicit, non-overlapping strata. Each stratum has its
 own requested size and may filter by task, model, harness, verifier outcome,
-terminal state, behavior category, confidence, or judge abstention. A single
+terminal state, behavior card, confidence, or judge abstention (an `unknown` verdict). A single
 stratum with empty filters is an unstratified sample.
 
 ```json
@@ -39,7 +39,7 @@ stratum with empty filters is an unstratified sample.
       "id": "high-confidence-verification",
       "sampleSize": 20,
       "filters": {
-        "categoryIds": ["verification-completion"],
+        "cardIds": ["VF-01", "VF-03"],
         "confidence": { "min": 0.75 },
         "abstentions": [false]
       }
@@ -156,7 +156,7 @@ ebo calibration summarize \
   selection.json history.json calibration-summary.json
 ```
 
-The summary reports totals and category-level counts. Judge-human agreement is
+The summary reports totals and counts per card. Judge-human agreement is
 over latest judge-human decision pairs on non-abstaining assertions.
 Human-human agreement is over distinct-reviewer pairs on the same assertion,
 excluding human abstentions. Adjudication counts use human adjudication

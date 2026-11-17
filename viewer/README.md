@@ -123,10 +123,9 @@ every attempt starts at 0).
 
 ## Panel 3: Assessments (P3)
 
-Data: `assessments.json`. Matrix of behavior category × arm. Each cell counts judge
-assessments (one per attempt × behavior dimension, never cited units): a stacked bar in outcome order (constructive =
-diverging blue, mixed = neutral gray with outline, adverse = diverging red, context-dependent = hatch, abstained = empty
-outline) with the counts printed, then "n judgments · k attempts in arm". Cohort selector (Grok: primary,
+Data: `assessments.json`. Matrix of behavior card × arm, with the cards grouped by family in ontology order. Each cell
+counts judge verdicts (one per attempt × card, never cited units): a stacked bar in verdict order (present = solid
+primary, absent = neutral gray with outline, unknown = empty outline) with the counts printed, then "n judgments · k attempts in arm". Cohort selector (Grok: primary,
 deepseek-matched-timeout, all attempts) and task selector (Opus). Each cell is tagged **EBO certified** when its counts
 equal the EBO Atlas report tally for that cohort and arm (report groups harness × model), **differs from EBO** when not,
 and **exploratory** when the study has no report. Clicking a cell lists its judgments; clicking a judgment opens the
@@ -143,7 +142,7 @@ says whether validation passed (every number recomputes and every cited native l
 
 A right-side drawer with Back/Close (Esc). Views:
 
-- **Assessment**: outcome, dimension, confidence, evaluator, rubric, review status (all unreviewed model proposals),
+- **Assessment**: card, verdict and value, confidence, evaluator, rubric, review status (all unreviewed model proposals),
   cohorts, the judge's rationale and alternative explanation, and each citation: linked unit (step, unit #; "≈ linked by
   time/order" when the cited record is not one of the unit's own events) and the native line (path, line, SHA-256).
 - **Record**: the native lines of one unit (call, result, message…) from `native/<attempt>.json`, pretty-printed when

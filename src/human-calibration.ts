@@ -37,7 +37,7 @@ export type ReviewFilters = {
   harnessIds?: readonly string[];
   outcomes?: readonly Outcome[];
   terminalStates?: readonly string[];
-  categoryIds?: readonly string[];
+  cardIds?: readonly string[];
   abstentions?: readonly boolean[];
   confidence?: { min?: number; max?: number };
 };
@@ -60,7 +60,7 @@ export type ReviewCandidate = {
     harnessId: string;
     terminalState: string;
     outcome: Outcome;
-    categoryId: string;
+    cardId: string;
     abstained: boolean;
     confidence: number | null;
   };
@@ -109,7 +109,7 @@ export type CalibrationSummary = {
   selection: { schemaVersion: "ebo.review-sample/v1"; digest: DigestString };
   history: { schemaVersion: "ebo.review-history/v1"; digest: DigestString };
   totals: CalibrationCounts;
-  categories: ReadonlyArray<{ categoryId: string; counts: CalibrationCounts }>;
+  cards: ReadonlyArray<{ cardId: string; counts: CalibrationCounts }>;
 };
 
 type CalibrationCounts = {
@@ -303,19 +303,19 @@ export async function importReviewDecision(
 export async function summarizeCalibration(selection: ReviewSample, history: ReviewHistory): Promise<CalibrationSummary> {
   await revalidateReviewSample(selection);
   validateReviewHistory(selection, history);
-  const byCategory = new Map<string, ReviewCandidate[]>();
+  const byCard = new Map<string, ReviewCandidate[]>();
   for (const candidate of selection.candidates) {
-    const group = byCategory.get(candidate.context.categoryId) ?? [];
+    const group = byCard.get(candidate.context.cardId) ?? [];
     group.push(candidate);
-    byCategory.set(candidate.context.categoryId, group);
+    byCard.set(candidate.context.cardId, group);
   }
   const summary: CalibrationSummary = {
     schemaVersion: "ebo.calibration-summary/v1",
     selection: { schemaVersion: selection.schemaVersion, digest: digest(selection) },
     history: { schemaVersion: history.schemaVersion, digest: digest(history) },
     totals: counts(selection.candidates, history.decisions),
-    categories: [...byCategory].sort(([left], [right]) => left.localeCompare(right))
-      .map(([categoryId, candidates]) => ({ categoryId, counts: counts(candidates, history.decisions) })),
+    cards: [...byCard].sort(([left], [right]) => left.localeCompare(right))
+      .map(([cardId, candidates]) => ({ cardId, counts: counts(candidates, history.decisions) })),
   };
   assertValid("calibration summary", summary);
   return summary;
@@ -454,9 +454,9 @@ async function loadCandidate(
       harnessId: resolvedManifest.run.harness.id,
       terminalState: resolvedManifest.terminal.state,
       outcome,
-      categoryId: assertionDocument.behavior.categoryId,
-      abstained: assertionDocument.judgment.disposition === "abstained",
-      confidence: assertionDocument.judgment.disposition === "assessed" ? assertionDocument.judgment.confidence.value : null,
+      cardId: assertionDocument.behavior.cardId,
+      abstained: assertionDocument.judgment.verdict === "unknown",
+      confidence: assertionDocument.judgment.verdict === "unknown" ? null : assertionDocument.judgment.confidence.value,
     },
     assertionDocument,
     manifest: resolvedManifest,
@@ -484,7 +484,7 @@ function matchesFilters(candidate: ReviewCandidate, filters: ReviewFilters): boo
     [filters.harnessIds, candidate.context.harnessId],
     [filters.outcomes, candidate.context.outcome],
     [filters.terminalStates, candidate.context.terminalState],
-    [filters.categoryIds, candidate.context.categoryId],
+    [filters.cardIds, candidate.context.cardId],
     [filters.abstentions, candidate.context.abstained],
   ];
   if (values.some(([allowed, value]) => allowed !== undefined && !allowed.includes(value))) return false;
@@ -524,7 +524,7 @@ function renderPacketHtml(packet: { createdAt: string; items: readonly any[] }):
     const assertion = item.assertion as BehaviorAssertion;
     const citations = (item.citations as Array<{ eventId: string; href: string; sharingClass: string; nativeReference: { recordLocator: string } }>)
       .map((citation) => `<li><a href="${escapeHtml(citation.href)}">${escapeHtml(citation.eventId)}</a> — ${escapeHtml(citation.nativeReference.recordLocator)} (${escapeHtml(citation.sharingClass)})</li>`).join("");
-    return `<article id="${anchor(assertionKey(item.assertionBinding))}"><h2>${escapeHtml(assertion.id)}</h2><dl><dt>Run / attempt</dt><dd>${escapeHtml(item.context.runId)} / ${escapeHtml(item.context.attemptId)}</dd><dt>Task</dt><dd>${escapeHtml(item.context.taskId)}</dd><dt>Task context</dt><dd>${escapeHtml(item.context.taskContext)}</dd><dt>Model / harness</dt><dd>${escapeHtml(item.context.modelId)} / ${escapeHtml(item.context.harnessId)}</dd><dt>Outcome</dt><dd>${escapeHtml(item.context.outcome)}</dd><dt>Category</dt><dd>${escapeHtml(item.context.categoryId)}</dd></dl><h3>Judgment</h3><p>${escapeHtml(assertion.judgment.disposition === "assessed" ? assertion.judgment.assessment : `abstained: ${assertion.judgment.reason}`)}</p><h3>Rationale</h3><p>${escapeHtml(assertion.judgment.rationale)}</p><h3>Alternative explanation</h3><p>${escapeHtml(assertion.judgment.alternativeExplanation)}</p><h3>Native evidence</h3><ul>${citations || "<li>No citations (judge abstention).</li>"}</ul><p><a href="#top">Back to index</a></p></article>`;
+    return `<article id="${anchor(assertionKey(item.assertionBinding))}"><h2>${escapeHtml(assertion.id)}</h2><dl><dt>Run / attempt</dt><dd>${escapeHtml(item.context.runId)} / ${escapeHtml(item.context.attemptId)}</dd><dt>Task</dt><dd>${escapeHtml(item.context.taskId)}</dd><dt>Task context</dt><dd>${escapeHtml(item.context.taskContext)}</dd><dt>Model / harness</dt><dd>${escapeHtml(item.context.modelId)} / ${escapeHtml(item.context.harnessId)}</dd><dt>Outcome</dt><dd>${escapeHtml(item.context.outcome)}</dd><dt>Card</dt><dd>${escapeHtml(item.context.cardId)}</dd></dl><h3>Judgment</h3><p>${escapeHtml(assertion.judgment.verdict === "unknown" ? `unknown: ${assertion.judgment.reason}` : assertion.judgment.verdict === "present" && assertion.judgment.value !== undefined ? `present: ${assertion.judgment.value}` : assertion.judgment.verdict)}</p><h3>Rationale</h3><p>${escapeHtml(assertion.judgment.rationale)}</p><h3>Alternative explanation</h3><p>${escapeHtml(assertion.judgment.alternativeExplanation)}</p><h3>Native evidence</h3><ul>${citations || "<li>No citations (judge abstention).</li>"}</ul><p><a href="#top">Back to index</a></p></article>`;
   }).join("\n");
   const index = packet.items.map((item) => `<li><a href="#${anchor(assertionKey(item.assertionBinding))}">${escapeHtml(item.assertion.id)} — ${escapeHtml(item.context.runId)} / ${escapeHtml(item.context.attemptId)}</a></li>`).join("");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>EBO human review packet</title><style>body{font:16px/1.5 system-ui;max-width:72rem;margin:auto;padding:2rem}article{border-top:1px solid #bbb;margin-top:2rem}dt{font-weight:700}dd{margin-bottom:.5rem}code{overflow-wrap:anywhere}</style></head><body id="top"><h1>EBO human review packet</h1><p>Restricted local evidence. Exact cited records are copied into this packet; links return to the native source artifacts.</p><p>Created ${escapeHtml(packet.createdAt)}</p><nav aria-label="Assertions"><ol>${index}</ol></nav>${items}</body></html>\n`;

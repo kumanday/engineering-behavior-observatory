@@ -78,6 +78,22 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
     const assessments = JSON.parse(readFileSync(join(out, "assessments.json"), "utf8")) as { assessments: Array<{ citations: Array<{ native: { resolved: boolean } }> }> };
     assert.equal(assessments.assessments.length, source.input.assertions.length);
     assert.ok(assessments.assessments.every(({ citations }) => citations.every(({ native }) => native.resolved)), "every citation resolves to a native line");
+    // The fixture judges VF-03 (a dimension card) on five attempts and abstains on EN-04 for one.
+    const cards = JSON.parse(readFileSync(join(out, "assessments.json"), "utf8")) as { outcomes: string[]; ontology: string; cards: Array<{ id: string; family: string; title: string }>; families: Array<{ id: string; name: string }>;
+      assessments: Array<{ card: string; family: string; title: string; outcome: string; value: string | null; confidence: number | null }>;
+      certified: Record<string, { cells: Array<{ card: string; family: string; counts: Record<string, number>; values?: Record<string, number>; denominator: number }> }> };
+    assert.deepEqual(cards.outcomes, ["present", "absent", "unknown"]);
+    assert.equal(cards.ontology, "2.0.0");
+    assert.deepEqual(cards.cards.map(({ id, family }) => [id, family]), [["EN-04", "EN"], ["VF-03", "VF"]], "judged cards are listed in ontology order");
+    assert.deepEqual(cards.families.map(({ id }) => id), ["EN", "VF"]);
+    assert.deepEqual(cards.assessments.map(({ card, outcome, value }) => [card, outcome, value]).sort(), [
+      ["EN-04", "unknown", null], ["VF-03", "absent", null], ["VF-03", "present", "check after the last edit"], ["VF-03", "present", "check after the last edit"],
+      ["VF-03", "present", "last edit after the last check"], ["VF-03", "present", "no check recorded"]]);
+    assert.ok(cards.assessments.every(({ outcome, confidence }) => (outcome === "unknown") === (confidence === null)));
+    const cells = Object.values(cards.certified).flatMap(({ cells }) => cells);
+    assert.ok(cells.length > 0 && cells.every(({ card, counts }) => /^[A-Z]{2}-\d{2}$/u.test(card) && Object.keys(counts).join() === "present,absent,unknown"));
+    assert.ok(cells.filter(({ card }) => card === "VF-03").every(({ values, counts }) => values !== undefined && Object.values(values).reduce((sum, count) => sum + count, 0) === counts.present));
+    assert.ok(cells.filter(({ card }) => card === "EN-04").every(({ values }) => values === undefined));
     assert.deepEqual(verifyAtlasBundle(out), { ok: true, changed: [], missing: [], unlisted: [] });
     appendFileSync(join(out, "reports", "all.json"), " ");
     writeFileSync(join(out, "extra.txt"), "not listed");
@@ -153,18 +169,18 @@ test("claims: a certified filter on a dimension the report does not group by fai
   const connection = await db.connect();
   try {
     await connection.run("CREATE TABLE assessments (assertion_id VARCHAR)");
-    const cells = [{ group: { model: "m", task: "t" }, category: "verification", counts: { constructive: 2 }, denominator: 3 }];
+    const cells = [{ group: { model: "m", task: "t" }, card: "VF-01", counts: { present: 2 }, denominator: 3 }];
     const claim = (where: Record<string, string>) => ({ study: "s", source: { file: "f", title: "t" }, number_kinds: {},
-      claims: [{ id: "C1", type: "descriptive", text: "x", source_section: "s", support: [], numbers: [{ id: "n", label: "n", value: 2, kind: "certified" as const, expr: { cohort: "c", where, outcome: "constructive" } }] }] });
+      claims: [{ id: "C1", type: "descriptive", text: "x", source_section: "s", support: [], numbers: [{ id: "n", label: "n", value: 2, kind: "certified" as const, expr: { cohort: "c", where, outcome: "present" } }] }] });
     const context = { connection, certified: { c: { cells } }, reports: {}, assessments: [], audits: {}, attempts: {}, viewIds: new Set<string>(), recordSha256: () => undefined };
     assert.equal((await validateClaims(claim({ model: "m" }), context)).validated, true);
     const bad = await validateClaims(claim({ model: "m", trial: "1" }), context);
     assert.equal(bad.validated, false);
     assert.match(bad.failures[0]!, /not grouped by trial/u);
-    const noCell = await validateClaims({ ...claim({ model: "other" }), claims: [{ ...claim({}).claims[0]!, numbers: [{ ...claim({}).claims[0]!.numbers[0]!, value: 0, expr: { cohort: "c", where: { model: "other" }, outcome: "constructive" } }] }] }, context);
+    const noCell = await validateClaims({ ...claim({ model: "other" }), claims: [{ ...claim({}).claims[0]!, numbers: [{ ...claim({}).claims[0]!.numbers[0]!, value: 0, expr: { cohort: "c", where: { model: "other" }, outcome: "present" } }] }] }, context);
     assert.equal(noCell.validated, false, "a selector matching no cell is unavailable, not a certified zero");
-    const noOutcome = await validateClaims({ ...claim({}), claims: [{ ...claim({}).claims[0]!, numbers: [{ ...claim({}).claims[0]!.numbers[0]!, value: 0, expr: { cohort: "c", outcome: "constructve" } }] }] }, context);
-    assert.match(noOutcome.failures.join(" "), /reports no outcome constructve/u);
+    const noOutcome = await validateClaims({ ...claim({}), claims: [{ ...claim({}).claims[0]!, numbers: [{ ...claim({}).claims[0]!.numbers[0]!, value: 0, expr: { cohort: "c", outcome: "presnt" } }] }] }, context);
+    assert.match(noOutcome.failures.join(" "), /reports no outcome presnt/u);
     const twice = claim({ model: "m" });
     const duplicated = await validateClaims({ ...twice, claims: [twice.claims[0]!, twice.claims[0]!] }, context);
     assert.match(duplicated.failures.join(" "), /claim ids must be unique/u);

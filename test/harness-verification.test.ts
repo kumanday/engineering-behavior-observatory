@@ -118,9 +118,9 @@ test("unfamiliar native v1 projections keep the base dataset digest and retained
     assert.equal(datasetDigest, "sha256:09326dff2707f2f5f015a4d7ec8287a2afebd96a38b0dbee8479d683a4b68afa", "Offline 55b187c interpretation of these exact public native records");
     assert.equal(evidence.verification?.state, "unverified");
     const assertion = {schemaVersion: "ebo.behavior-assertion/v1", id: "prior-annotation", runId: evidence.dataset.runId, attemptId: evidence.dataset.attemptId,
-      dataset: {schemaVersion: evidence.dataset.schemaVersion, digest: datasetDigest}, behavior: {vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion"},
+      dataset: {schemaVersion: evidence.dataset.schemaVersion, digest: datasetDigest}, behavior: {ontologyVersion: "2.0.0", cardId: "VF-01"},
       rubric: {id: "fixture", version: "1"}, evaluator: {id: "fixture", version: "1"},
-      judgment: {disposition: "abstained", reason: "Fixture", rationale: "No semantic claim", alternativeExplanation: "Insufficient evidence", citations: []}} as const;
+      judgment: {verdict: "unknown", reason: "Fixture", rationale: "No semantic claim", alternativeExplanation: "Insufficient evidence", citations: []}} as const;
     await validateBehaviorAssertion(assertion, evidence.dataset, evidence.resolver, undefined, evidence.capture);
   } finally {await rm(root, {recursive: true, force: true});}
 });

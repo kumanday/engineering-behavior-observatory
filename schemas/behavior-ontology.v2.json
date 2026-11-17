@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ebo:schema:behavior-ontology:v2",
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192,
+      "pattern": ".*\\S.*"
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": ".*\\S.*"
+    },
+    "familyId": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$"
+    },
+    "cardId": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}-[0-9]{2}$"
+    },
+    "family": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/familyId"
+        },
+        "name": {
+          "$ref": "#/$defs/label"
+        }
+      }
+    },
+    "value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "test"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/label"
+        },
+        "test": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "kind",
+        "family",
+        "layers",
+        "unit",
+        "definition",
+        "evidenceTest",
+        "nearMiss",
+        "proposedClassification",
+        "parent",
+        "related"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/cardId"
+        },
+        "title": {
+          "$ref": "#/$defs/label"
+        },
+        "kind": {
+          "enum": [
+            "workflow",
+            "dimension",
+            "finding"
+          ]
+        },
+        "family": {
+          "$ref": "#/$defs/familyId"
+        },
+        "layers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "architecture",
+              "evidence",
+              "interface",
+              "strategy",
+              "verification"
+            ]
+          }
+        },
+        "unit": {
+          "enum": [
+            "call-result",
+            "change",
+            "episode",
+            "trajectory"
+          ]
+        },
+        "definition": {
+          "$ref": "#/$defs/text"
+        },
+        "trigger": {
+          "$ref": "#/$defs/text"
+        },
+        "evidenceTest": {
+          "$ref": "#/$defs/text"
+        },
+        "nearMiss": {
+          "$ref": "#/$defs/text"
+        },
+        "significance": {
+          "$ref": "#/$defs/text"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        "proposedClassification": {
+          "enum": [
+            "rule",
+            "classifier",
+            "judgment"
+          ]
+        },
+        "parent": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/cardId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "related": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/cardId"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "dimension"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "values"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "values"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ontology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "version",
+        "codingRules",
+        "families",
+        "cards"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ebo.behavior-ontology/v2"
+        },
+        "version": {
+          "$ref": "#/$defs/label"
+        },
+        "codingRules": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "families": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/family"
+          }
+        },
+        "cards": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1024,
+          "items": {
+            "$ref": "#/$defs/card"
+          }
+        }
+      }
+    }
+  },
+  "$ref": "#/$defs/ontology"
+}

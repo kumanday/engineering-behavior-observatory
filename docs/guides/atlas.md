@@ -33,14 +33,14 @@ ebo atlas serve atlas.json
 ```
 
 Open `http://127.0.0.1:13011`. Model, harness, task, trial, capture, outcome,
-review, category, assessment and text filters select a reproducible cohort.
+review, family, card, verdict and text filters select a reproducible cohort.
 Apply with the button or Enter; controls and evidence disclosures use native
 keyboard behavior. Expand a case for rationale, alternative explanation,
 normalized events, cited native records and human decision lineage.
 
 Filters select attempts through matching cases. Aggregation keeps **every
-judgment on those attempts**, including conflicting assessments. Filtering for
-constructive cases cannot erase an adverse rerun from the aggregate. Matching
+judgment on those attempts**, including conflicting verdicts. Filtering for
+present cases cannot erase an absent rerun from the aggregate. Matching
 case and aggregate attempt populations are named separately. Rates expose both
 counts and exclusion reasons; structural means retain their units and are not
 percentages. Observational completion is not task success.
@@ -156,7 +156,7 @@ excluded. Local review access never grants sharing approval. Nothing uploads,
 emails or publishes the report.
 
 Shared summaries accept model, harness, task, trial, capture and outcome
-filters. Review, category, assessment and free-text evidence filters are
+filters. Review, family, card, verdict and free-text evidence filters are
 rejected: even without case details, their selected-cohort counts would disclose
 semantic or human-review findings that have no export approval.
 
@@ -170,6 +170,6 @@ node --test dist/test/atlas.test.js
 ```
 
 The generator injects synthetic capture streams and fixture review decisions;
-it never calls a model or labels real research. It covers opposite assessments,
+it never calls a model or labels real research. It covers present, absent and unknown verdicts, a dimension card with several values,
 confirmed/disputed/rejected/proposed/abstained/unavailable states, a retry,
 missing observations, an unsupported comparison and hostile text.

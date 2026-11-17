@@ -8,15 +8,13 @@
     "digest": "sha256:855ff7b36acbd7dd94b685e079c27bc1a6b7fae798a9ec2da603784a44a90e27"
   },
   "behavior": {
-    "vocabularyVersion": "1.0.0",
-    "categoryId": "verification-completion",
-    "dimensionId": "verification-completion"
+    "ontologyVersion": "2.0.0",
+    "cardId": "VF-01"
   },
   "rubric": { "id": "verification-rubric", "version": "1.0.0" },
   "evaluator": { "id": "fixture-judge", "version": "1.0.0" },
   "judgment": {
-    "disposition": "assessed",
-    "assessment": "constructive",
+    "verdict": "present",
     "confidence": { "value": 0.8, "scale": "evaluator-reported-0-to-1" },
     "rationale": "The attempt records an explicit passing validation event.",
     "alternativeExplanation": "The validation may cover only part of the requested outcome.",

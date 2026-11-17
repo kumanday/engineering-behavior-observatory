@@ -113,7 +113,7 @@ suffix instead of deleting or overwriting retained evidence.
 
 Open `.ebo/operator-smoke-atlas/index.html`. The expected final CLI line starts
 with `Built Atlas:` and reports a `restricted-local-only` view. The Atlas must
-show constructive and adverse cases, proposed/confirmed/disputed/rejected/
+show present, absent and unknown verdicts, proposed/confirmed/disputed/rejected/
 abstained/unavailable states, a retry, missing evidence, and an unsupported
 comparison. Every drilldown must resolve to retained normalized and native
 evidence. Use the following only when interactive filtering is needed; the
@@ -312,7 +312,7 @@ common history.
 ### 7. Evaluate with a caller-selected judge
 
 LLM-as-judge is the default behavioral evaluation path. Capture-only studies
-can stop before this step. The request selects a behavior dimension, rubric, exact
+can stop before this step. The request selects a [behavior card](../evaluation/behavior-ontology.md), rubric, exact
 evidence IDs, limits, blinding, and either the Claude Agent SDK or Codex
 app-server backend. EBO does not choose the evaluator or fall back between
 providers.
@@ -327,9 +327,9 @@ ebo assertions validate \
   study/judgments/<judgment-id>/assertion.json
 ```
 
-The output is an evidence-grounded model assessment or abstention. The
+The output is an evidence-grounded verdict: present, absent or unknown. The
 `proposed` status means human adjudication has not occurred, not that the
-evaluation is incomplete. For repeated runs or multiple dimensions, use
+evaluation is incomplete. For repeated runs or multiple cards, use
 `ebo judge batch` and the [model-only evaluation runbook](behavioral-evaluation.md). See
 [the semantic judge guide](../evaluation/semantic-judge.md) for the two backend shapes and
 safe environment policy.

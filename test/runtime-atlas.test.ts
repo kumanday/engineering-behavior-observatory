@@ -13,9 +13,21 @@ test('cohorts retain shipped runtime receipts and deduplicate equivalent project
   await createAtlasFixture(join(root,'study'),{legacyManifest:true});
   const original=join(root,'study'),copy=join(root,'copied-study');cpSync(original,copy,{recursive:true});
   const rewrite=(value:unknown):unknown=>typeof value==='string'&&value.startsWith(original)?copy+value.slice(original.length):Array.isArray(value)?value.map(rewrite):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([key,item])=>[key,rewrite(item)])):value;
-  writeFileSync(join(copy,'aggregation.json'),JSON.stringify(rewrite(JSON.parse(readFileSync(join(copy,'aggregation.json'),'utf8')))));
+  const aggregation=rewrite(JSON.parse(readFileSync(join(copy,'aggregation.json'),'utf8'))) as {sources:{assertions:Array<{path:string}>;calibrations:unknown[]}};
+  // The frozen reader accepts only the judgments it shipped with: rewrite the copy's assertions to that 1.x shape.
+  for(const {path:assertionPath} of aggregation.sources.assertions){
+   const {behavior:_behavior,judgment,...rest}=JSON.parse(readFileSync(assertionPath,'utf8'));
+   const {verdict,value:_value,...evidence}=judgment;
+   writeFileSync(assertionPath,JSON.stringify({...rest,behavior:{vocabularyVersion:'1.0.0',categoryId:'verification-completion',dimensionId:'verification-completion'},
+    judgment:verdict==='unknown'?{disposition:'abstained',...evidence}:{disposition:'assessed',assessment:verdict==='present'?'constructive':'adverse',...evidence}}));
+  }
+  aggregation.sources.calibrations=[];writeFileSync(join(copy,'aggregation.json'),JSON.stringify(aggregation));
   const request:AtlasBundleRequest={schemaVersion:'ebo.atlas-bundle-request/v1',id:'runtime-study',title:'Runtime study',cohorts:[{id:'current',atlasRequest:'study/atlas.json'},{id:'frozen',atlasRequest:'copied-study/atlas.json',analysisRuntime:pin}]};
-  const path=join(root,'request.json');writeFileSync(path,JSON.stringify(request));const out=join(root,'atlas'),manifest=await buildAtlasBundle(path,out);
+  const path=join(root,'request.json');writeFileSync(path,JSON.stringify(request));
+  await assert.rejects(buildAtlasBundle(path,join(root,'old-judgments')),/cohort "frozen" is read through .* and carries 6 judgment\(s\) in that reader's category vocabulary/u);
+  aggregation.sources.assertions=[];writeFileSync(join(copy,'aggregation.json'),JSON.stringify(aggregation));
+  const out=join(root,'atlas'),manifest=await buildAtlasBundle(path,out);
+  assert.equal(manifest.tables.assessments!.rows,6,'only the current cohort contributes judgments');
   assert.equal(manifest.tables.attempts!.rows,7);assert.equal(manifest.cohorts.length,2);assert.deepEqual(manifest.cohorts.find(({id})=>id==='frozen')!.analysisRuntime,identity);assert.equal(manifest.cohorts.find(({id})=>id==='current')!.analysisRuntime,undefined);
   const report=JSON.parse(readFileSync(join(out,'reports/frozen.json'),'utf8'));assert.deepEqual(report.analysisRuntime,identity);assert.equal(verifyAtlasBundle(out).ok,true);
   writeFileSync(path,JSON.stringify({...request,cohorts:[{id:'bad',atlasRequest:'study/atlas.json',analysisRuntime:{...pin,manifestDigest:'sha256:'+'0'.repeat(64)}}]}));await assert.rejects(buildAtlasBundle(path,join(root,'bad-digest')),/runtime digest/u);

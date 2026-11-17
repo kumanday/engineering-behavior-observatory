@@ -632,30 +632,7 @@
           "const": "ebo.semantic-judge-request/v2"
         },
         "behavior": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "vocabularyVersion",
-            "categoryId",
-            "dimensionId"
-          ],
-          "properties": {
-            "vocabularyVersion": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 16384
-            },
-            "categoryId": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 16384
-            },
-            "dimensionId": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 16384
-            }
-          }
+          "$ref": "urn:ebo:schema:behavior-assertions:v1#/$defs/behavior"
         },
         "rubric": {
           "type": "object",
@@ -791,7 +768,7 @@
           "const": "ebo.semantic-judge-input/v2"
         },
         "promptVersion": {
-          "const": "2.0.0"
+          "const": "3.0.0"
         },
         "runId": {
           "type": "string",
@@ -1017,7 +994,8 @@
         "behavior",
         "evaluator",
         "status",
-        "assessment",
+        "verdict",
+        "value",
         "rationale",
         "alternativeExplanation",
         "citations",
@@ -1044,30 +1022,7 @@
           "pattern": "^sha256:[a-f0-9]{64}$"
         },
         "behavior": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "vocabularyVersion",
-            "categoryId",
-            "dimensionId"
-          ],
-          "properties": {
-            "vocabularyVersion": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 16384
-            },
-            "categoryId": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 16384
-            },
-            "dimensionId": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 16384
-            }
-          }
+          "$ref": "urn:ebo:schema:behavior-assertions:v1#/$defs/behavior"
         },
         "evaluator": {
           "type": "object",
@@ -1097,13 +1052,19 @@
         "status": {
           "const": "proposed"
         },
-        "assessment": {
-          "enum": [
-            "constructive",
-            "adverse",
-            "mixed",
-            "context-dependent",
-            "abstain"
+        "verdict": {
+          "$ref": "urn:ebo:schema:behavior-assertions:v1#/$defs/verdict"
+        },
+        "value": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "rationale": {
@@ -1544,7 +1505,8 @@
       "additionalProperties": false,
       "required": [
         "schemaVersion",
-        "assessment",
+        "verdict",
+        "value",
         "confidence",
         "abstentionReason",
         "rationale",
@@ -1556,13 +1518,23 @@
         "schemaVersion": {
           "const": "ebo.semantic-judge-answer/v2"
         },
-        "assessment": {
+        "verdict": {
           "enum": [
-            "constructive",
-            "adverse",
-            "mixed",
-            "context-dependent",
-            "abstain"
+            "present",
+            "absent",
+            "unknown"
+          ]
+        },
+        "value": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "confidence": {

@@ -102,13 +102,37 @@ test("rejects wrong-run, changed-digest, stale, dangling, and conflicting assert
   }), /identity or digest does not match/u);
 });
 
-test("rejects undeclared dimensions and keeps proposed review separate from human confirmation", async () => {
+test("rejects undeclared cards, other ontology versions and misplaced values, and keeps proposed review separate from human confirmation", async () => {
   const dataset = fixture<NormalizedDataset>("dataset.json");
   const assertion = fixture<BehaviorAssertion>("positive.json");
   const undeclared = structuredClone(assertion);
-  undeclared.behavior.dimensionId = "invented-dimension";
+  undeclared.behavior.cardId = "ZZ-99";
 
-  await assert.rejects(validateBehaviorAssertion(undeclared, dataset, resolver(dataset)), /declared behavior dimension/u);
+  await assert.rejects(validateBehaviorAssertion(undeclared, dataset, resolver(dataset)), /does not identify one card of behavior ontology 2\.0\.0/u);
+  const otherVersion = structuredClone(assertion);
+  otherVersion.behavior.ontologyVersion = "1.0.0";
+  await assert.rejects(validateBehaviorAssertion(otherVersion, dataset, resolver(dataset)), /does not identify one card/u);
+  const retired = { ...structuredClone(assertion), behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" } } as unknown as BehaviorAssertion;
+  await assert.rejects(validateBehaviorAssertion(retired, dataset, resolver(dataset)), /behavior.*(ontologyVersion|additional properties)/u, "a category and dimension reference is not a behavior reference");
+  const valence = { ...structuredClone(assertion), judgment: { ...assertion.judgment, verdict: undefined, disposition: "assessed", assessment: "constructive" } } as unknown as BehaviorAssertion;
+  await assert.rejects(validateBehaviorAssertion(valence, dataset, resolver(dataset)), /judgment/u, "a valence judgment is not a verdict");
+  // VF-01 is a workflow card: it takes no value. VF-03 is a dimension card: present needs exactly one declared value.
+  const stray = structuredClone(assertion);
+  if (stray.judgment.verdict === "present") stray.judgment.value = "check after the last edit";
+  await assert.rejects(validateBehaviorAssertion(stray, dataset, resolver(dataset)), /Only a present verdict on a dimension card carries a value/u);
+  const dimension = structuredClone(assertion);
+  dimension.behavior.cardId = "VF-03";
+  await assert.rejects(validateBehaviorAssertion(dimension, dataset, resolver(dataset)), /needs exactly one value/u);
+  if (dimension.judgment.verdict === "present") dimension.judgment.value = "an invented value";
+  await assert.rejects(validateBehaviorAssertion(dimension, dataset, resolver(dataset)), /is not a value of behavior card "VF-03"/u);
+  if (dimension.judgment.verdict === "present") dimension.judgment.value = "check after the last edit";
+  assert.equal((await validateBehaviorAssertion(dimension, dataset, resolver(dataset))).length, 1);
+  const absent = structuredClone(dimension);
+  absent.judgment = { verdict: "absent", confidence: { value: 0.7, scale: "evaluator-reported-0-to-1" }, rationale: "No edit occurs in the record.", alternativeExplanation: "An edit may be unrecorded.", citations: [] };
+  assert.deepEqual(await validateBehaviorAssertion(absent, dataset, resolver(dataset)), [], "an absent verdict needs no citation and no value");
+  const uncited = structuredClone(assertion);
+  uncited.judgment.citations = [];
+  await assert.rejects(validateBehaviorAssertion(uncited, dataset, resolver(dataset)), /judgment/u, "a present verdict needs a citation");
   await assert.rejects(isConfirmedBehaviorAssertion(undeclared, dataset, resolver(dataset), {
     schemaVersion: "ebo.behavior-review/v1",
     id: "invalid-confirmation",
@@ -116,7 +140,7 @@ test("rejects undeclared dimensions and keeps proposed review separate from huma
     state: "confirmed",
     reviewer: { kind: "human", id: "synthetic-fixture-reviewer" },
     rationale: "Synthetic fixture must not confirm an invalid assertion.",
-  }), /declared behavior dimension/u);
+  }), /does not identify one card/u);
   assert.throws(() => validateBehaviorReview(assertion, {
     schemaVersion: "ebo.behavior-review/v1",
     id: "invalid-proposal",

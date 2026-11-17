@@ -53,8 +53,9 @@ The [evaluation reading path](evaluation/README.md) explains how the parts fit:
   [occurrence ratings](evaluation/occurrence-ratings.md)
 - [Behavior assertions](evaluation/behavior-assertions.md) and
   [semantic judging](evaluation/semantic-judge.md)
-- [Behavior cards](evaluation/behavior-cards.md): the draft catalog of 93
-  behaviors, with a [reference page](reference/behavior-cards.md) for every card
+- [Behavior ontology](evaluation/behavior-ontology.md): the 93 cards every
+  judgment names and the three verdicts, with a
+  [reference page](reference/behavior-ontology.md) for every card
 - [Run behavioral evaluation](guides/behavioral-evaluation.md): model-only
   batches, explicit evidence selection, aggregation, and Atlas
 - [Optional human calibration](evaluation/human-calibration.md)

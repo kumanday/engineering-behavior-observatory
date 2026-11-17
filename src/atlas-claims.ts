@@ -20,8 +20,8 @@ type Num = { id: string; label: string; value: number; kind: "certified" | "judg
 export type ClaimsSource = { study: string; source: { file: string; title: string; also?: string[] }; number_kinds: Record<string, string>;
   claims: Array<{ id: string; type: string; text: string; source_section: string; cohort?: string; caveat?: string; numbers: Num[]; support?: string[]; support_sql?: string; views?: string[] }> };
 
-type CertifiedCell = { group: Record<string, string>; category: string; counts: Record<string, number>; denominator: number };
-type AssessmentDoc = { id: string; attempt_id: string; short: string; condition: string; trial_id: string | null; dimension: string; outcome: string;
+type CertifiedCell = { group: Record<string, string>; card: string; counts: Record<string, number>; denominator: number };
+type AssessmentDoc = { id: string; attempt_id: string; short: string; condition: string; trial_id: string | null; card: string; outcome: string; value: string | null;
   citations: Array<{ event_key: string; native: { resolved: boolean; path?: string; locator: string; sha256?: string } }> };
 type AuditDoc = { short: string; trial_id: string | null; cohorts: string[]; verdicts: Array<{ kind: string; status: string }> };
 
@@ -62,12 +62,12 @@ export async function validateClaims(source: ClaimsSource, context: {
         computed = typeof v === "number" ? v : Number.NaN;
         how = `report ${e.report.cohort} at ${e.report.pointer}`;
       } else if ("cohort" in e) {
-        // Every filter key must be the behavior category or a dimension the cohort's report groups by.
+        // Every filter key must be the behavior card or a dimension the cohort's report groups by.
         const cells = context.certified[e.cohort]?.cells ?? [];
-        const unsupported = Object.keys(e.where ?? {}).filter((k) => k !== "category" && !cells.every((c) => k in c.group));
+        const unsupported = Object.keys(e.where ?? {}).filter((k) => k !== "card" && !cells.every((c) => k in c.group));
         if (unsupported.length) failures.push(`${claim.id}.${n.id}: cohort ${e.cohort} is not grouped by ${unsupported.join(", ")}`);
         // A selector that matches no cell, or an outcome the report does not have, is unavailable, never a zero.
-        const matching = cells.filter((c) => Object.entries(e.where ?? {}).every(([k, v]) => (k === "category" ? c.category === v : c.group[k] === v)));
+        const matching = cells.filter((c) => Object.entries(e.where ?? {}).every(([k, v]) => (k === "card" ? c.card === v : c.group[k] === v)));
         const knownOutcome = e.outcome === "*denominator" || cells.some((c) => e.outcome in c.counts);
         if (!unsupported.length && !matching.length) failures.push(`${claim.id}.${n.id}: no report cell of cohort ${e.cohort} matches ${JSON.stringify(e.where ?? {})}`);
         if (!knownOutcome) failures.push(`${claim.id}.${n.id}: cohort ${e.cohort} reports no outcome ${e.outcome}`);
@@ -101,7 +101,7 @@ export async function validateClaims(source: ClaimsSource, context: {
         if (digest !== undefined && digest === c.native.sha256) resolved++;
         else failures.push(`${claim.id}: citation ${c.event_key} of ${id} does not resolve to its native line`);
       }
-      supportRows.push({ id, attempt_id: a.attempt_id, short: a.short, condition: a.condition, trial_id: a.trial_id, dimension: a.dimension, outcome: a.outcome, citations: a.citations.length });
+      supportRows.push({ id, attempt_id: a.attempt_id, short: a.short, condition: a.condition, trial_id: a.trial_id, card: a.card, outcome: a.outcome, value: a.value, citations: a.citations.length });
     }
     const { numbers: _n, support: _s, support_sql: _q, ...rest } = claim;
     claims.push({ ...rest, numbers, support: supportRows, citations_resolved: resolved, citations_total: total,

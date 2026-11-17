@@ -201,9 +201,9 @@ test("claim checks route unsupported or uncertain claims to review and bind to t
   const citation = { eventId: "event-1", nativeReference: { artifactId: "session", recordLocator: "line:1" } };
   const assertion = {
     schemaVersion: "ebo.behavior-assertion/v1", id: "a-1", runId: "run", attemptId: "attempt", dataset: { schemaVersion: "ebo.normalized-dataset/v1", digest: `sha256:${"d".repeat(64)}` },
-    behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" }, rubric: { id: "r", version: "1" },
+    behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" }, rubric: { id: "r", version: "1" },
     evaluator: { id: "openai/x", version: "1", configurationDigest: `sha256:${"e".repeat(64)}` },
-    judgment: { disposition: "assessed", assessment: "constructive", confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" }, rationale: "r", alternativeExplanation: "a", citations: [citation],
+    judgment: { verdict: "present", confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" }, rationale: "r", alternativeExplanation: "a", citations: [citation],
       claims: [{ id: "passed", text: "All tests passed.", citations: [citation], workspace: null }, { id: "typed", text: "Typecheck passed.", citations: [citation], workspace: null }] },
   } as unknown as Parameters<typeof checkClaims>[0];
   const capture = { runId: "run", attemptId: "attempt", qualification: "qualified", records: [{ reference: citation.nativeReference, record: { content: [{ type: "thinking", thinking: "SECRET-THOUGHT" }, { type: "text", text: "Tests: 4 passed" }] } }] } as never;

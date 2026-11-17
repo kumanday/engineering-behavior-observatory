@@ -19,18 +19,17 @@ requires an explicit callback through the library API. Existing CLI analysis
 commands retain their v1 contracts, and shipped v1 readers remain available
 through their fixed runtime identities.
 
-A judge request names one declared behavior dimension and pins its rubric and
+A judge request names one card of the [behavior ontology](../evaluation/behavior-ontology.md) and pins its rubric and
 evaluator configuration:
 
 ```json
 {
   "schemaVersion": "ebo.semantic-judge-request/v2",
   "behavior": {
-    "vocabularyVersion": "1.0.0",
-    "categoryId": "verification-completion",
-    "dimensionId": "verification-completion"
+    "ontologyVersion": "2.0.0",
+    "cardId": "VF-03"
   },
-  "rubric": {"id": "verification", "version": "1.0.0", "instructions": "Assess the visible verification evidence."},
+  "rubric": {"id": "verification", "version": "1.0.0", "instructions": "Treat a type check, a build or a test run as a check."},
   "evaluator": {"id": "operator-selected", "version": "1.0.0", "configuration": {}},
   "eventIds": [],
   "limits": {"maxRecordChars": 6000, "maxInputChars": 1000000}
@@ -79,9 +78,11 @@ validates its citation whitelist, and retains failed or deferred answers.
 Semantic inputs bind dataset, observations, ledger, ratings, request and
 configuration digests. Evaluated-model aliases are blinded in visible evidence;
 hidden reasoning is omitted. The prompt delimits untrusted evidence and asks
-for atomic cited claims, an alternative explanation and abstention when needed.
-Behavior assertions retain constructive/adverse/mixed/context-dependent
-assessments, confidence and proposed status. Workspace claims require an
+for atomic cited claims, an alternative explanation and an `unknown` verdict when
+the record lacks the steps the card needs. The model data carries the card's
+text and the ontology's coding rules (prompt version `3.0.0`).
+Behavior assertions retain a `present`, `absent` or `unknown` verdict, the
+`value` of a present dimension card (null otherwise), confidence and proposed status. Workspace claims require an
 explicit cited working-directory field. Validation reconstructs judge inputs
 from retained source evidence.
 

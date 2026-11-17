@@ -22,7 +22,7 @@ test("the public Claude judge selects the frozen SDK when no query callback is s
     try {
       await freezeStudyRuntimes(root,{studyId:'frozen-sdk-judge',roles:['claude-agent-sdk']},options);
       await withStudyRuntime({studyRoot:root,role:'claude-agent-sdk',options},async()=>{
-        const result=await runClaudeAgentSdkSemanticJudge('Synthetic fixture',{evaluator:{provider:'anthropic',model:'fixture',effort:'low'},limits:{maxWallClockMs:5000,maxOutputChars:16000,maxTurns:1}});
+        const result=await runClaudeAgentSdkSemanticJudge('Synthetic fixture',{behavior:{ontologyVersion:'2.0.0',cardId:'VF-01'},evaluator:{provider:'anthropic',model:'fixture',effort:'low'},limits:{maxWallClockMs:5000,maxOutputChars:16000,maxTurns:1}});
         if(result.status!=='completed')throw new Error(JSON.stringify(result));
       });
       process.stdout.write(JSON.stringify({developmentCalls:globalThis.developmentCalls,frozenCalls:globalThis.frozenCalls}));

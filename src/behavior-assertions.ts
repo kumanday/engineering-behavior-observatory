@@ -1,5 +1,5 @@
 import type { RetainedNormalizationInput } from "./uniform-events.js";
-import { readFileSync } from "node:fs";
+import { loadDefaultBehaviorOntology, resolveBehaviorDecision, type BehaviorOntology, type BehaviorReference } from "./behavior-ontology.js";
 import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
 import { evidenceWorkspaces } from "./evidence-projection.js";
 
@@ -27,16 +27,6 @@ import type {
 type DigestString = `sha256:${string}`;
 type VersionedIdentity = { id: string; version: string };
 
-export type BehaviorVocabulary = {
-  schemaVersion: "ebo.behavior-vocabulary/v1";
-  version: string;
-  categories: ReadonlyArray<{
-    id: string;
-    name: string;
-    dimensions: ReadonlyArray<{ id: string; name: string }>;
-  }>;
-};
-
 export type BehaviorCitation = {
   eventId: string;
   nativeReference: NativeEvidenceReference;
@@ -52,25 +42,34 @@ export type BehaviorClaim = {
   workspace: string | null;
 };
 
-type AssessedJudgment = {
-  disposition: "assessed";
-  assessment: "constructive" | "adverse" | "mixed" | "context-dependent";
-  confidence: { value: number; scale: "evaluator-reported-0-to-1" };
+type JudgmentEvidence = {
   rationale: string;
   alternativeExplanation: string;
   citations: readonly BehaviorCitation[];
   claims?: readonly BehaviorClaim[];
 };
 
-type AbstainedJudgment = {
-  disposition: "abstained";
+/** The card's situation occurred and its evidence test passed. A dimension card names exactly one of its values. */
+type PresentJudgment = JudgmentEvidence & {
+  verdict: "present";
+  value?: string;
+  confidence: { value: number; scale: "evaluator-reported-0-to-1" };
+};
+
+/** The record shows the card's trigger or test did not occur. Citations are optional: absence may have no event to cite. */
+type AbsentJudgment = JudgmentEvidence & {
+  verdict: "absent";
+  confidence: { value: number; scale: "evaluator-reported-0-to-1" };
+};
+
+/** The abstention: the record lacks the steps the card's test needs. */
+type UnknownJudgment = JudgmentEvidence & {
+  verdict: "unknown";
   reason: string;
   missingEvidenceCapability?: string;
-  rationale: string;
-  alternativeExplanation: string;
-  citations: readonly BehaviorCitation[];
-  claims?: readonly BehaviorClaim[];
 };
+
+export type BehaviorJudgment = PresentJudgment | AbsentJudgment | UnknownJudgment;
 
 export type BehaviorAssertion = {
   schemaVersion: "ebo.behavior-assertion/v1";
@@ -78,10 +77,10 @@ export type BehaviorAssertion = {
   runId: string;
   attemptId: string;
   dataset: { schemaVersion: "ebo.normalized-dataset/v1"; digest: DigestString };
-  behavior: { vocabularyVersion: string; categoryId: string; dimensionId: string };
+  behavior: BehaviorReference;
   rubric: VersionedIdentity;
   evaluator: VersionedIdentity & { configurationDigest?: DigestString };
-  judgment: AssessedJudgment | AbstainedJudgment;
+  judgment: BehaviorJudgment;
 };
 
 export type BehaviorReview = {
@@ -104,17 +103,15 @@ export type AgentSdkBehaviorEvidence = {
   coverage: AdapterCoverageReport;
 };
 
-export const DEFAULT_BEHAVIOR_VOCABULARY = loadDefaultVocabulary();
-
 export async function validateBehaviorAssertion(
   assertion: BehaviorAssertion,
   dataset: NormalizedDataset,
   resolver: NativeEvidenceResolver,
-  vocabulary: BehaviorVocabulary = DEFAULT_BEHAVIOR_VOCABULARY,
+  ontology: BehaviorOntology = loadDefaultBehaviorOntology(),
   capture?: RetainedNormalizationInput<unknown>,
 ): Promise<readonly ResolvedBehaviorCitation[]> {
   assertValid("behavior assertion", assertion);
-  assertVocabulary(vocabulary);
+  resolveBehaviorDecision(assertion.behavior, assertion.judgment, ontology);
   await validateNormalizedDataset(dataset, resolver);
 
   const datasetDigest = digest(dataset);
@@ -124,14 +121,6 @@ export async function validateBehaviorAssertion(
   if (assertion.runId !== dataset.runId || assertion.attemptId !== dataset.attemptId) {
     throw new Error("Behavior assertion belongs to the wrong run or attempt.");
   }
-  if (assertion.behavior.vocabularyVersion !== vocabulary.version) {
-    throw new Error("Behavior assertion uses the wrong vocabulary version.");
-  }
-  const category = vocabulary.categories.find(({ id }) => id === assertion.behavior.categoryId);
-  if (category === undefined || !category.dimensions.some(({ id }) => id === assertion.behavior.dimensionId)) {
-    throw new Error("Behavior assertion does not identify one declared behavior dimension.");
-  }
-
   const eventIds = new Set<string>();
   const events = new Map(dataset.events.map((event) => [event.id, event]));
   const records = new Map(dataset.nativeRecords.map((record) => [referenceKey(record.reference), record]));
@@ -203,13 +192,13 @@ export async function isConfirmedBehaviorAssertion(
   dataset: NormalizedDataset,
   resolver: NativeEvidenceResolver,
   review?: BehaviorReview,
-  vocabulary: BehaviorVocabulary = DEFAULT_BEHAVIOR_VOCABULARY,
+  ontology: BehaviorOntology = loadDefaultBehaviorOntology(),
   capture?: RetainedNormalizationInput<unknown>,
 ): Promise<boolean> {
-  await validateBehaviorAssertion(assertion, dataset, resolver, vocabulary, capture);
+  await validateBehaviorAssertion(assertion, dataset, resolver, ontology, capture);
   if (review === undefined) return false;
   validateBehaviorReview(assertion, review);
-  return assertion.judgment.disposition === "assessed" && review.state === "confirmed";
+  return assertion.judgment.verdict !== "unknown" && review.state === "confirmed";
 }
 
 export async function validateAgentSdkBehaviorAssertion(
@@ -251,27 +240,6 @@ export async function validateRetainedBehaviorAssertion(bundleRoot: string, asse
   const citations = await validateBehaviorAssertion(assertion, dataset, resolver, undefined, capture);
   if (review !== undefined) validateBehaviorReview(assertion, review);
   return citations;
-}
-
-function assertVocabulary(vocabulary: BehaviorVocabulary): void {
-  assertValid("behavior vocabulary", vocabulary);
-  const categoryIds = vocabulary.categories.map(({ id }) => id);
-  if (new Set(categoryIds).size !== categoryIds.length) throw new Error("Behavior vocabulary category IDs must be unique.");
-  for (const category of vocabulary.categories) {
-    const dimensionIds = category.dimensions.map(({ id }) => id);
-    if (new Set(dimensionIds).size !== dimensionIds.length) {
-      throw new Error(`Behavior vocabulary dimension IDs in category "${category.id}" must be unique.`);
-    }
-  }
-}
-
-function loadDefaultVocabulary(): BehaviorVocabulary {
-  const vocabulary = JSON.parse(readFileSync(
-    new URL("../../ontology/behavior-categories.v1.json", import.meta.url),
-    "utf8",
-  )) as BehaviorVocabulary;
-  assertVocabulary(vocabulary);
-  return vocabulary;
 }
 
 function digest(value: unknown): DigestString {

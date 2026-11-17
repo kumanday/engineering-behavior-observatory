@@ -6,7 +6,7 @@ import { prepareOccurrenceRatingInputsV2, rateOccurrenceV2, validateRatingRecord
 import { prepareSemanticJudgeInputV2, semanticJudgePromptV2, parseBehaviorAssertionV2, validateBehaviorAssertionV2, type JudgeRequestV2 } from "../src/semantic-judge-v2.js";
 import { atifFixtureV2 } from "./consumers-v2-fixture.js";
 import type { AtifObject } from "../src/atif-reader.js";
-const request: JudgeRequestV2 = { schemaVersion: "ebo.semantic-judge-request/v2", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+const request: JudgeRequestV2 = { schemaVersion: "ebo.semantic-judge-request/v2", behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
   rubric: { id: "checks", version: "1", instructions: "Assess recorded verification." }, evaluator: { id: "test", version: "1", configuration: { model: "mock" } },
   eventIds: [], limits: { maxRecordChars: 6000, maxInputChars: 1000000 } };
 
@@ -72,11 +72,11 @@ test("judge and assertion preparation bind dependencies and preserve abstention 
   assert.equal(JSON.stringify(input.evidence).includes("synthetic-model"), false);
   assert.match(semanticJudgePromptV2(input), /untrusted/u);
   const citation = input.evidence[0]!.citation;
-  const assertion = parseBehaviorAssertionV2({ assessment: "constructive", confidence: 0.8, abstentionReason: null, rationale: "Visible check attempt", alternativeExplanation: "May be incomplete", citationIds: [analysisDigestV2(citation)], claims: [{ id: "claim", text: "A request is recorded", workspace: null, citationIds: [analysisDigestV2(citation)] }] }, input);
+  const assertion = parseBehaviorAssertionV2({ verdict: "present", value: null, confidence: 0.8, abstentionReason: null, rationale: "Visible check attempt", alternativeExplanation: "May be incomplete", citationIds: [analysisDigestV2(citation)], claims: [{ id: "claim", text: "A request is recorded", workspace: null, citationIds: [analysisDigestV2(citation)] }] }, input);
   await validateBehaviorAssertionV2(assertion, input, evidence);
   await assert.rejects(validateBehaviorAssertionV2({ ...assertion, inputDigest: analysisDigestV2("wrong") }, input, evidence), /different input/u);
-  assert.throws(() => parseBehaviorAssertionV2({ assessment: "constructive", confidence: 0.8, abstentionReason: null, rationale: "claim", alternativeExplanation: "", citationIds: [], claims: [] }, input), /Invalid/u);
-  const abstention = parseBehaviorAssertionV2({ assessment: "abstain", confidence: null, abstentionReason: "Insufficient evidence", rationale: "Insufficient evidence", alternativeExplanation: "Unrecorded activity is possible", citationIds: [], claims: [] }, input);
+  assert.throws(() => parseBehaviorAssertionV2({ verdict: "present", value: null, confidence: 0.8, abstentionReason: null, rationale: "claim", alternativeExplanation: "", citationIds: [], claims: [] }, input), /Invalid/u);
+  const abstention = parseBehaviorAssertionV2({ verdict: "unknown", value: null, confidence: null, abstentionReason: "Insufficient evidence", rationale: "Insufficient evidence", alternativeExplanation: "Unrecorded activity is possible", citationIds: [], claims: [] }, input);
   assert.equal(abstention.status, "proposed");
 });
 
@@ -144,7 +144,7 @@ test("rating acceptance and assertion evidence cannot be forged by changing depe
   const rating = await rateOccurrenceV2(input, { id: "mock", version: "1", configurationDigest: analysisDigestV2("mock") }, async () => ({ label: "unclear", confidence: 0.9, rationale: "Unknown", citationIds: [] }));
   await assert.rejects(validateRatingRecordV2({ ...rating, accepted: true }, evidence, ledger), /acceptance/u);
   const observations = await createStructuralObservationSetV2(evidence.dataset, evidence.resolver), judgeInput = await prepareSemanticJudgeInputV2(evidence, observations, ledger, { ...request, eventIds: [evidence.dataset.events[0]!.id] });
-  const assertion = parseBehaviorAssertionV2({ assessment: "abstain", confidence: null, abstentionReason: "Insufficient", rationale: "Unknown", alternativeExplanation: "Other activity", citationIds: [], claims: [] }, judgeInput);
+  const assertion = parseBehaviorAssertionV2({ verdict: "unknown", value: null, confidence: null, abstentionReason: "Insufficient", rationale: "Unknown", alternativeExplanation: "Other activity", citationIds: [], claims: [] }, judgeInput);
   const invented = structuredClone(judgeInput); invented.evidence[0]!.content = '"invented"';
   const rebound = { ...assertion, inputDigest: analysisDigestV2(invented) };
   await assert.rejects(validateBehaviorAssertionV2(rebound, invented, evidence), /differs from/u);
@@ -175,11 +175,11 @@ test("semantic execution requires a matching explicit backend and retains a fail
   const input = await prepareSemanticJudgeInputV2(evidence, observations, ledger, request);
   let calls = 0;
   const backend = { id: request.evaluator.id, version: request.evaluator.version, configurationDigest: input.dependencies.evaluatorConfiguration,
-    run: async () => { calls++; return { answer: { assessment: "abstain" as const, confidence: null, abstentionReason: "Unknown", rationale: "Insufficient", alternativeExplanation: "Other activity", citationIds: [], claims: [] }, totalCostUsd: 0 }; } };
+    run: async () => { calls++; return { answer: { verdict: "unknown" as const, value: null, confidence: null, abstentionReason: "Unknown", rationale: "Insufficient", alternativeExplanation: "Other activity", citationIds: [], claims: [] }, totalCostUsd: 0 }; } };
   await assert.rejects(runSemanticJudgeV2(input, evidence, { ...backend, id: "different" }), /differs/u); assert.equal(calls, 0);
   const record = await runSemanticJudgeV2(input, evidence, backend); assert.equal(record.status, "completed"); assert.equal(calls, 1); assert.equal(record.usage.totalCostUsd, 0);
   assert.deepEqual(validateArtifact("judgment", record), []);
-  const failed = await runSemanticJudgeV2(input, evidence, { ...backend, run: async () => ({ answer: { assessment: "constructive", confidence: 1, abstentionReason: null, rationale: "Claim", alternativeExplanation: "", citationIds: [], claims: [] } }) });
+  const failed = await runSemanticJudgeV2(input, evidence, { ...backend, run: async () => ({ answer: { verdict: "present", value: null, confidence: 1, abstentionReason: null, rationale: "Claim", alternativeExplanation: "", citationIds: [], claims: [] } }) });
   assert.equal(failed.status, "failed"); assert.ok(failed.rawResponse); assert.equal(failed.usage.totalCostUsd, null);
 });
 
@@ -213,7 +213,7 @@ test("judge citation IDs include validated pointed rating references and answers
   });
   const input = await prepareSemanticJudgeInputV2(evidence, observations, ledger, request, [rating]);
   assert.ok(input.citationRegistry.some(({ id }) => id === pointed.id)); assert.ok(semanticJudgePromptV2(input).includes(pointed.id));
-  const answer = { assessment: "constructive" as const, confidence: 1, abstentionReason: null, rationale: "Recorded check request", alternativeExplanation: "May be incomplete", citationIds: [pointed.id],
+  const answer = { verdict: "present" as const, value: null, confidence: 1, abstentionReason: null, rationale: "Recorded check request", alternativeExplanation: "May be incomplete", citationIds: [pointed.id],
     claims: [{ id: "claim", text: "The command requests tests", citationIds: [pointed.id], workspace: null }] };
   const assertion = parseBehaviorAssertionV2(answer, input); assert.deepEqual(assertion.citations, [pointed.citation]);
   await validateBehaviorAssertionV2(assertion, input, evidence);
@@ -250,7 +250,7 @@ test("backend response schemas match the accepted answer body and exclude input-
   const ajv = new Ajv2020({ strict: false });
   const rating = ajv.compile(ratingAnswerSchemaV2()), judge = ajv.compile(semanticJudgeAnswerSchemaV2());
   assert.equal(rating({ label: "unclear", confidence: 0, rationale: "Insufficient", citationIds: [] }), true);
-  const answer = { assessment: "abstain", confidence: null, abstentionReason: "Insufficient", rationale: "Unknown", alternativeExplanation: "Other activity", citationIds: [], claims: [] };
+  const answer = { verdict: "unknown", value: null, confidence: null, abstentionReason: "Insufficient", rationale: "Unknown", alternativeExplanation: "Other activity", citationIds: [], claims: [] };
   assert.equal(judge(answer), true); assert.equal(judge({ ...answer, runId: "foreign" }), false);
   assert.equal(judge({ ...answer, schemaVersion: "ebo.semantic-judge-answer/v2" }), false);
 });
@@ -290,7 +290,7 @@ test("blinded workspace labels resolve to their one canonical cited working dire
   const input = await prepareSemanticJudgeInputV2(evidence, observations, ledger, { ...request, eventIds: [header.id] });
   const citation = input.citationRegistry.find(({ citation }) => citation.eventId === header.id)!;
   assert.ok(semanticJudgePromptV2(input).includes(visible)); assert.equal(semanticJudgePromptV2(input).includes(canonical), false);
-  const answer = { assessment: "constructive" as const, confidence: 0.8, abstentionReason: null, rationale: "Explicit working directory", alternativeExplanation: "Other activity remains possible", citationIds: [citation.id],
+  const answer = { verdict: "present" as const, value: null, confidence: 0.8, abstentionReason: null, rationale: "Explicit working directory", alternativeExplanation: "Other activity remains possible", citationIds: [citation.id],
     claims: [{ id: "claim", text: "The session declares this working directory", citationIds: [citation.id], workspace: visible }] };
   const assertion = parseBehaviorAssertionV2(answer, input); assert.equal(assertion.claims[0]!.workspace, canonical);
   await validateBehaviorAssertionV2(assertion, input, evidence);

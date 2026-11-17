@@ -1,26 +1,26 @@
 # Behavior assertions and evidence resolution
 
-`ebo.behavior-assertion/v1` records one semantic assessment or abstention for
-one declared behavior dimension. The initial `ebo.behavior-vocabulary/v1` is a
-small data file at
-[`ontology/behavior-categories.v1.json`](../../ontology/behavior-categories.v1.json).
-Its eight entries are the categories in the canonical specification; unmapped
-observations do not force a new category. The finer-grained
-[behavior cards](behavior-cards.md) ship beside this vocabulary; an assertion
-names a vocabulary category and dimension.
+`ebo.behavior-assertion/v1` records one verdict on one card of the
+[behavior ontology](behavior-ontology.md) for one attempt. The verdict is
+`present`, `absent` or `unknown`.
 
 Each assertion binds the normalized-dataset schema version and canonical
-digest, run and attempt IDs, vocabulary version, one category/dimension pair,
-and evaluator/rubric identities. An assessment is constructive, adverse,
-mixed, or context-dependent and retains confidence on the explicit
-`evaluator-reported-0-to-1` scale, rationale, an alternative explanation, and
-at least one citation. Confidence is not a calibrated probability. An abstention instead retains its reason and
-may name the missing event or evidence capability; citations are optional.
+digest, run and attempt IDs, the card as `{ ontologyVersion, cardId }`, and
+evaluator/rubric identities.
+
+- A `present` verdict retains confidence on the explicit
+  `evaluator-reported-0-to-1` scale, a rationale, an alternative explanation
+  and at least one citation. Confidence is not a calibrated probability. On a
+  dimension card it also names exactly one of the card's values in `value`.
+- An `absent` verdict retains confidence, a rationale and an alternative
+  explanation. Citations are optional.
+- An `unknown` verdict is the abstention. It retains its reason and may name
+  the missing event or evidence capability; citations are optional.
 
 A citation names both a normalized event ID and that event's exact native
 source reference. `validateBehaviorAssertion` first applies the existing
 normalized-dataset integrity validator, then checks the dataset digest and
-assertion identity, declared dimension, event ownership, native reference, and
+assertion identity, the declared card and its value rule, event ownership, native reference, and
 resolver-provided run/attempt/digest. Changed datasets, foreign attempts,
 dangling events or native records, and stale digests fail closed.
 
@@ -29,9 +29,9 @@ Its states are `proposed`, `confirmed`, `disputed`, `rejected`, and
 `insufficient-evidence`. Proposed records cannot carry a reviewer; all other
 states require an explicitly identified human reviewer and rationale. The
 library validates human confirmation against the assertion and its native
-evidence. Human review is optional: model-assessment distributions include
-assessed assertions independently of review status. `proposed` denotes an
-assessment without human adjudication, not a missing evaluation. A judge
+evidence. Human review is optional: verdict distributions include
+assertions independently of review status. `proposed` denotes a
+verdict without human adjudication, not a missing evaluation. A judge
 assertion cannot set human confirmation itself.
 
 The callable validator accepts any `ebo.normalized-dataset/v1` and its

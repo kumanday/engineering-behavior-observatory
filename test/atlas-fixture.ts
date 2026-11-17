@@ -75,10 +75,12 @@ export async function createAtlasFixture(root: string, options: {legacyManifest?
     const assertion: BehaviorAssertion = {
       schemaVersion: "ebo.behavior-assertion/v1", id: `synthetic-assertion-${index}`, runId, attemptId,
       dataset: { schemaVersion: dataset.schemaVersion, digest: sha(dataset) },
-      behavior: { vocabularyVersion: "1.0.0", categoryId: index === 5 ? "permission-escalation" : "verification-completion", dimensionId: index === 5 ? "permission-escalation" : "verification-completion" },
+      // Attempts 0 to 4 judge one dimension card: three present with two different values, one absent. Attempt 5 is an abstention on another card.
+      behavior: { ontologyVersion: "2.0.0", cardId: index === 5 ? "EN-04" : "VF-03" },
       rubric: { id: "synthetic-rubric", version: "1.0.0" }, evaluator: { id: "synthetic-judge", version: "1.0.0" },
-      judgment: states[index] === "abstained" ? { disposition: "abstained", reason: "Required permission evidence missing.", rationale: "Synthetic abstention: no supported permission event.", alternativeExplanation: "The task may not need escalation.", citations: [] } : {
-        disposition: "assessed", assessment: (["constructive", "adverse", "mixed", "context-dependent", "constructive"] as const)[index]!, confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" }, rationale: "Synthetic assessment only: observed validation follows the retained change. <script>window.fixtureXss=1</script>", alternativeExplanation: "Validation may cover only part of the task.", citations: [{ eventId: event.id, nativeReference: event.source.nativeReference }],
+      judgment: states[index] === "abstained" ? { verdict: "unknown", reason: "Required helper evidence missing.", rationale: "Synthetic abstention: no supported helper or policy event.", alternativeExplanation: "The task may not need a harness helper.", citations: [] } : {
+        ...(index === 1 ? { verdict: "absent" as const } : { verdict: "present" as const, value: (["check after the last edit", "", "last edit after the last check", "no check recorded", "check after the last edit"] as const)[index]! }),
+        confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" }, rationale: "Synthetic assessment only: observed validation follows the retained change. <script>window.fixtureXss=1</script>", alternativeExplanation: "Validation may cover only part of the task.", citations: [{ eventId: event.id, nativeReference: event.source.nativeReference }],
       },
     };
     const path = join(root, `assertion-${index}.json`); json(path, assertion); assertions.push({ bundleRoot, path });

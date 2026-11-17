@@ -51,7 +51,7 @@ test("reproducibly samples, renders safe native drilldown, imports lineage, and 
     const unselectedAssertion = {
       ...structuredClone(assertions[0]!),
       id: "assertion-unselected",
-      behavior: { vocabularyVersion: "1.0.0", categoryId: "permission-escalation", dimensionId: "permission-escalation" },
+      behavior: { ontologyVersion: "2.0.0", cardId: "EN-04" },
     };
     const unselectedAssertionPath = join(temporary, "assertion-unselected.json");
     writeJson(unselectedAssertionPath, unselectedAssertion);
@@ -70,7 +70,7 @@ test("reproducibly samples, renders safe native drilldown, imports lineage, and 
       schemaVersion: "ebo.review-sample-criteria/v1",
       seed: "fixture-seed",
       strata: [
-        { id: "verification", sampleSize: 3, filters: { categoryIds: ["verification-completion"] } },
+        { id: "verification", sampleSize: 3, filters: { cardIds: ["VF-01"] } },
         { id: "abstentions", sampleSize: 1, filters: { abstentions: [true] } },
         { id: "unavailable", sampleSize: 1, filters: { taskIds: ["not-present"] } },
       ],
@@ -493,7 +493,7 @@ function largeAdjudicationSelection(count: number): ReviewSample {
     context: {
       runId: "fixture-run", attemptId: "fixture-attempt", taskId: "fixture-task", taskContext: "Synthetic fixture task context.",
       modelId: "fixture-model", harnessId: "agent-sdk", terminalState: "completed", outcome: "unavailable" as const,
-      categoryId: "verification-completion", abstained: false, confidence: 0.8,
+      cardId: "VF-01", abstained: false, confidence: 0.8,
     },
   };
   const candidates = Array.from({ length: count }, (_, index) => ({
@@ -567,12 +567,11 @@ async function writeAssertions(root: string, bundleRoot: string): Promise<Behavi
     runId: dataset.runId,
     attemptId: dataset.attemptId,
     dataset: { schemaVersion: dataset.schemaVersion, digest: digest(dataset) },
-    behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+    behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
     rubric: { id: "fixture-rubric", version: "1.0.0" },
     evaluator: { id: "fixture-judge", version: "1.0.0" },
     judgment: {
-      disposition: "assessed",
-      assessment: "constructive",
+      verdict: "present",
       confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" },
       rationale: "<script>fixture</script>",
       alternativeExplanation: "The retained validation may cover only part of the task.",
@@ -581,9 +580,9 @@ async function writeAssertions(root: string, bundleRoot: string): Promise<Behavi
   });
   const assertions = [base("assertion-a"), base("assertion-b"), base("assertion-c"), {
     ...base("assertion-abstained"),
-    behavior: { vocabularyVersion: "1.0.0", categoryId: "permission-escalation", dimensionId: "permission-escalation" },
+    behavior: { ontologyVersion: "2.0.0", cardId: "EN-04" },
     judgment: {
-      disposition: "abstained" as const,
+      verdict: "unknown" as const,
       reason: "No permission evidence is present.",
       rationale: "The selected evidence does not establish permission behavior.",
       alternativeExplanation: "The task may not have required permission escalation.",

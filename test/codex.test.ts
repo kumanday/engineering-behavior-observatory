@@ -845,7 +845,7 @@ test("retained auth failure without an owned turn supports observations and abst
     const observations = await createRetainedStructuralObservationSet(definition.bundleRoot);
     assert.equal(await main(["observations", "create", definition.bundleRoot, join(root, "observations.json")], () => undefined), 0);
     const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "partial-fixture",
-      behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+      behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
       rubric: { id: "synthetic", version: "1.0.0", instructions: "Synthetic partial evidence only." },
       evaluator: { backend: "codex-app-server", provider: "openai", model: "fixture", effort: "low" },
       selection: { eventIds: [], structuralObservationIds: [], includeOutcomeObservations: true },
@@ -854,7 +854,7 @@ test("retained auth failure without an owned turn supports observations and abst
     const outputRoot = join(root, "judgment");
     const judgment = await withRuntimeFixture("codex-judge", () => runRetainedSemanticJudge({ bundleRoot: definition.bundleRoot, observations, request, outputRoot,
       backend: { id: "codex-app-server", version: CODEX_APP_SERVER_VERSION, run: async () => ({ status: "completed", raw: { synthetic: true }, response: { judgment: {
-        disposition: "abstained", assessment: null, confidence: null, reason: "No completed turn.", missingEvidenceCapability: null,
+        verdict: "unknown", value: null, confidence: null, reason: "No completed turn.", missingEvidenceCapability: null,
         rationale: "Synthetic fixture.", alternativeExplanation: "No behavioral claim.", claims: [], citations: [] } } }) } }));
     assert.equal(judgment.status, "proposed");
     assert.equal(await main(["assertions", "validate", definition.bundleRoot, join(outputRoot, "assertion.json")], () => undefined), 0);

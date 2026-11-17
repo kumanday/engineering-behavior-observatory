@@ -25,7 +25,7 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
   const event = evidence.dataset.events[0]!;
   const request: SemanticJudgeRequest = {
     schemaVersion: "ebo.semantic-judge-request/v1", id: "synthetic-retained-judge",
-    behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+    behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
     rubric: { id: "synthetic-only", version: "1.0.0", instructions: "Synthetic fixture." },
     evaluator: { provider: "anthropic", model: "fixture-judge", effort: "low" },
     selection: { eventIds: [event.id], structuralObservationIds: [], includeOutcomeObservations: false },
@@ -38,7 +38,7 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
     configured.evaluator.provider = backend === "claude-agent-sdk" ? "anthropic" : "openai";
     const result = await withRuntimeFixture(backend === "codex-app-server" ? "codex-judge" : "claude-agent-sdk", () => runRetainedSemanticJudge({ bundleRoot, observations, request: configured, outputRoot: join(outputRoot, backend),
       backend: { id: backend, version: backend === "claude-agent-sdk" ? probeClaudeAgentSdkCapabilities().sdkVersion : CODEX_APP_SERVER_VERSION,
-        run: async () => ({ status: "completed", raw: { synthetic: true }, response: { judgment: { disposition: "assessed", assessment: "constructive",
+        run: async () => ({ status: "completed", raw: { synthetic: true }, response: { judgment: { verdict: "present", value: null,
           confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" }, reason: null, missingEvidenceCapability: null,
           rationale: "Synthetic fixture only.", alternativeExplanation: "Not a human decision.", citations: [{ eventId: event.id, nativeReference: event.source.nativeReference }],
           claims: [{ id: "fact-1", text: "The cited event is retained.", citations: [{ eventId: event.id, nativeReference: event.source.nativeReference }], workspace: null }] } } }) } }));
@@ -47,8 +47,8 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
   const assertion = JSON.parse(readFileSync(join(outputRoot, "claude-agent-sdk/assertion.json"), "utf8")) as BehaviorAssertion;
   const assertPath = join(outputRoot, "assertion.json");
   const reports = [];
-  for (const assessment of ["constructive", "adverse"] as const) {
-    if (assertion.judgment.disposition === "assessed") assertion.judgment.assessment = assessment;
+  for (const assessment of ["present", "absent"] as const) {
+    if (assertion.judgment.verdict !== "unknown") assertion.judgment = { ...assertion.judgment, verdict: assessment };
     writeFileSync(assertPath, JSON.stringify(assertion));
     assert.equal(await main(["assertions", "validate", bundleRoot, assertPath], () => undefined), 0);
     const selection = await selectReviewSample({ schemaVersion: "ebo.review-source-set/v1", sources: [{ bundleRoot, assertionPath: assertPath, taskContext: "SYNTHETIC TEST" }] },
@@ -70,26 +70,30 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
     writeFileSync(`${atlasPrefix}.request.json`, JSON.stringify({ schemaVersion: "ebo.atlas-request/v1", aggregationRequest: `${atlasPrefix}.aggregation.json`, title: "Synthetic retained-harness Atlas" }));
     const atlas = await queryAtlas(await loadAtlas(`${atlasPrefix}.request.json`));
     assert.deepEqual(atlas.report.groups, report.groups);
-    assert.equal(atlas.cases[0]!.assessment, assessment);
+    assert.equal(atlas.cases[0]!.verdict, assessment);
+    assert.deepEqual([atlas.cases[0]!.card, atlas.cases[0]!.family], ["VF-01", "VF"]);
     assert.ok(atlas.cases[0]!.citations[0]!.nativeRecord, "each harness exposes its real cited native record to Atlas");
     const behavior = report.groups[0]!.behaviors![0]!;
     const permuted = structuredClone(report);
-    permuted.groups[0]!.behaviors![0]!.assessments = [...behavior.assessments].reverse();
-    assert.deepEqual(validateArtifact("permuted behavior assessments", permuted), []);
+    permuted.groups[0]!.behaviors![0]!.verdicts = [...behavior.verdicts].reverse();
+    assert.deepEqual(validateArtifact("permuted behavior verdicts", permuted), []);
     const repeated = structuredClone(report);
-    repeated.groups[0]!.behaviors![0]!.assessments[1]!.assessment = behavior.assessments[0]!.assessment;
-    assert.ok(validateArtifact("duplicate behavior assessment", repeated).length > 0);
-    assert.equal(behavior.assessments.find((value) => value.assessment === assessment)!.measurement.rate, 1);
+    repeated.groups[0]!.behaviors![0]!.verdicts[1]!.verdict = behavior.verdicts[0]!.verdict;
+    assert.ok(validateArtifact("duplicate behavior verdict", repeated).length > 0);
+    assert.deepEqual(behavior.verdicts.map(({ verdict }) => verdict), ["present", "absent", "unknown"]);
+    assert.equal(behavior.family, "VF");
+    assert.equal(behavior.values, undefined, "a workflow card reports no value distribution");
+    assert.equal(behavior.verdicts.find((value) => value.verdict === assessment)!.measurement.rate, 1);
     assert.equal(behavior.assertions[0]!.included, true);
     const unreviewed = await aggregateEvaluation({ ...input, calibrations: [] }, policy);
-    assert.equal(unreviewed.groups[0]!.behaviors![0]!.assessments[0]!.measurement.status, "available");
-    assert.equal(unreviewed.groups[0]!.behaviors![0]!.population, "judge-assessed-attempt-dimension");
+    assert.equal(unreviewed.groups[0]!.behaviors![0]!.verdicts[0]!.measurement.status, "available");
+    assert.equal(unreviewed.groups[0]!.behaviors![0]!.population, "judged-attempt-card");
     const disputedHistory = structuredClone(history);
     disputedHistory.decisions[0]!.state = "disputed";
     const disputed = await aggregateEvaluation({ ...input, calibrations: [{ selection, history: disputedHistory }] }, policy);
     assert.equal(disputed.groups[0]!.behaviors![0]!.assertions[0]!.included, true);
     assert.equal(disputed.groups[0]!.behaviors![0]!.assertions[0]!.disputed, true);
-    assert.equal(disputed.groups[0]!.behaviors![0]!.assessments[0]!.measurement.denominator.value, 1);
+    assert.equal(disputed.groups[0]!.behaviors![0]!.verdicts[0]!.measurement.denominator.value, 1);
     reports.push(report);
   }
   assert.notDeepEqual(reports[0]!.groups, reports[1]!.groups);
@@ -100,7 +104,7 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
   otherRubric.rubric.version = "2.0.0";
   const values = [assertion, rerun, otherRubric];
   for (const conflict of [false, true]) {
-    if (conflict && rerun.judgment.disposition === "assessed") rerun.judgment.assessment = "constructive";
+    if (conflict && rerun.judgment.verdict !== "unknown") rerun.judgment = { ...rerun.judgment, verdict: "present" };
     const sources = values.map((document) => {
       const assertionPath = join(outputRoot, `${document.id}.json`);
       writeFileSync(assertionPath, JSON.stringify(document));
@@ -118,8 +122,8 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
       calibrations: [{ selection, history }], comparisons: [] }, { groupBy: [], selectedAttemptPolicy: "all-attempts", recurrence: { minimumOccurrences: 2 } });
     assert.equal(report.groups[0]!.behaviors!.length, 2);
     const original = report.groups[0]!.behaviors!.find(({ rubric }) => rubric.version === "1.0.0")!;
-    assert.equal(original.assessments[0]!.measurement.denominator.value, conflict ? 0 : 1);
-    if (conflict) assert.equal(original.assessments[0]!.measurement.exclusions[0]!.reason, "conflicting-judge-reruns");
+    assert.equal(original.verdicts[0]!.measurement.denominator.value, conflict ? 0 : 1);
+    if (conflict) assert.equal(original.verdicts[0]!.measurement.exclusions[0]!.reason, "conflicting-judge-reruns");
   }
   assert.deepEqual(readFileSync(join(bundleRoot, "manifest.json")), before);
   if (["codex-app-server", "openhands-agent-server", "deepseek-harness"].includes(evidence.dataset.adapter.harness)) {

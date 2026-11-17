@@ -14,8 +14,9 @@ function fixture() {
   const assertion = JSON.parse(readFileSync("test/fixtures/behavior-assertions/abstained.json", "utf8")) as BehaviorAssertion;
   assertion.evaluator.configurationDigest = hash("configuration");
   assertion.evaluator.id = "anthropic/fixture-model"; assertion.evaluator.version = "fixture";
-  const input: SemanticJudgeInput = { schemaVersion: "ebo.semantic-judge-input/v1", promptVersion: "1.2.0", runId: assertion.runId,
+  const input: SemanticJudgeInput = { schemaVersion: "ebo.semantic-judge-input/v1", promptVersion: "2.0.0", runId: assertion.runId,
     attemptId: assertion.attemptId, dataset: assertion.dataset, behavior: assertion.behavior,
+    card: { id: "EN-04", title: "Fixture card", kind: "finding", unit: "episode", definition: "Fixture definition.", evidenceTest: "Fixture test.", nearMiss: "Fixture near miss." }, codingRules: [],
     rubric: { ...assertion.rubric, instructions: "Read the cited evidence." },
     selection: { requestedEventIds: [], requestedStructuralObservationIds: [], includedEventIds: [], includedStructuralObservationIds: [], omitted: [], truncated: [] },
     blinding: { evaluatedModelIdentity: "redacted", redactionCount: 0, sourceIdentityPreserved: true, residualClues: [] },
@@ -88,7 +89,7 @@ test("stale, cross-attempt and dimension-mismatched references block reconciliat
     const f = fixture(); try {
       if (change === "digest") f.judgment.input.digest = hash("stale");
       if (change === "identity") { f.input.attemptId = "another-attempt"; f.judgment.input.digest = hash(f.input); }
-      if (change === "dimension") { f.assertion.behavior = { ...f.assertion.behavior, dimensionId: "another-dimension" }; f.judgment.assertion!.digest = hash(f.assertion); }
+      if (change === "dimension") { f.assertion.behavior = { ...f.assertion.behavior, cardId: "EN-05" }; f.judgment.assertion!.digest = hash(f.assertion); }
       f.write(); const inventory = inventoryMigrationStudy(f.study);
       assert.throws(() => reconcileMigration(inventory), /integrity failures/u);
     } finally { f.close(); }
@@ -133,7 +134,7 @@ test("complementary copies cannot join an assertion to mismatched input dependen
   for (const field of ["dataset", "behavior", "rubric"] as const) {
     const f = fixture(); try {
       if (field === "dataset") f.assertion.dataset = { ...f.assertion.dataset, digest: hash("different-dataset") };
-      if (field === "behavior") f.assertion.behavior = { ...f.assertion.behavior, dimensionId: "different-dimension" };
+      if (field === "behavior") f.assertion.behavior = { ...f.assertion.behavior, cardId: "EN-05" };
       if (field === "rubric") f.assertion.rubric = { ...f.assertion.rubric, version: "different-version" };
       f.judgment.assertion!.digest = hash(f.assertion); f.write();
       mkdirSync(join(f.root, "partial"));
@@ -191,7 +192,7 @@ test("targets require exact original unit and behavior bindings", () => {
     assert.equal(reconcileMigration(inventory).summary.pendingUnits, 1);
     assert.throws(() => reconcileMigration(inventory, [target, target]), /Duplicate/u);
     assert.throws(() => reconcileMigration(inventory, [{ ...target, unitId: hash("unrelated") }]), /unknown/u);
-    target.input.behavior.dimensionId = "different"; assert.throws(() => reconcileMigration(inventory, [target]), /another attempt or behavior/u);
+    target.input.behavior.cardId = "EN-05"; assert.throws(() => reconcileMigration(inventory, [target]), /another attempt or behavior/u);
     assert.throws(() => migrationDependencies({ ...f.input, dataset: { ...f.input.dataset, digest: "invalid" } } as unknown as SemanticJudgeInput), /INVALID/u);
   } finally { f.close(); }
 });
@@ -264,7 +265,7 @@ test("the fixed v2 protocol change proves affected units before every source reb
     const inventory = inventoryMigrationStudy(f.study), plan = planMigrationV2(inventory);
     assert.deepEqual(validateArtifact("plan", plan), []);
     assert.equal(plan.summary.affectedUnits, 1); assert.equal(plan.summary.pendingTargetUnits, 1); assert.equal(plan.summary.preparedTargets, 0);
-    assert.deepEqual(plan.units[0]!.proof, { dependency: "promptVersion", previous: "1.2.0", target: "2.0.0" });
+    assert.deepEqual(plan.units[0]!.proof, { dependency: "promptVersion", previous: "2.0.0", target: "3.0.0" });
     assert.equal(plan.summary.measuredForecastUsd, null); assert.equal(plan.summary.authorizedPaidBudgetUsd, 0);
     const unit = inventory.units[0]!;
     const unchanged = reconcileMigration(inventory, [{ unitId: unit.id, input: f.input, evaluatorDigest: unit.evaluatorDigest, configurationDigest: unit.configurationDigest! }]);
@@ -284,10 +285,10 @@ test("v2 planning preserves missing evidence and inventories retained rating dep
   } finally { f.close(); }
 });
 
-test("v2 planning accounts for every retained v1 prompt generation and rejects unknown versions", async () => {
+test("typed planning accounts for both current prompt variants and rejects unknown versions", async () => {
   const { planMigrationV2 } = await import("../src/migration-accounting.js");
   const f = fixture(); try {
-    for (const version of ["1.0.0", "1.1.0", "1.2.0", "1.3.0"]) {
+    for (const version of ["2.0.0", "2.1.0"]) {
       Object.assign(f.input, { promptVersion: version }); f.judgment.input.digest = hash(f.input); f.write();
       const plan = planMigrationV2(inventoryMigrationStudy(f.study));
       assert.equal(plan.summary.affectedUnits, 1); assert.equal(plan.units[0]!.proof!.previous, version);

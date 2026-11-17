@@ -241,9 +241,9 @@ test("Factory run bundles reopen for retained behavioral and structural analysis
     const assertion: BehaviorAssertion = { schemaVersion: "ebo.behavior-assertion/v1", id: "factory-review",
       runId: retained.dataset.runId, attemptId: retained.dataset.attemptId,
       dataset: { schemaVersion: retained.dataset.schemaVersion, digest: `sha256:${digestMetadata(retained.dataset).value}` },
-      behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+      behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
       rubric: { id: "fixture-rubric", version: "1.0.0" }, evaluator: { id: "fixture-judge", version: "1.0.0" },
-      judgment: { disposition: "assessed", assessment: "context-dependent", confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" },
+      judgment: { verdict: "present", confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" },
         rationale: "The agent reports completion.", alternativeExplanation: "A completion message alone does not establish verification.",
         citations: [{ eventId: cited.id, nativeReference: cited.source.nativeReference }] } };
     const assertionPath = join(root, "assertion.json"); writeFileSync(assertionPath, JSON.stringify(assertion));

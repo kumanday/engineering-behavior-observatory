@@ -9,6 +9,7 @@ import { StringDecoder } from "node:string_decoder";
 import type { AtlasUnit, AtlasUnitEvent } from "./atlas-units.js";
 import { visibleText } from "./atlas-units.js";
 import type { BehaviorAssertion } from "./behavior-assertions.js";
+import { resolveBehaviorCard } from "./behavior-ontology.js";
 import type { Occurrence } from "./occurrences.js";
 import type { UniformEvent } from "./uniform-events.js";
 
@@ -272,11 +273,12 @@ export function assessmentDoc(assertion: BehaviorAssertion, context: { short: st
   cohorts: Record<string, { included?: boolean; disputed?: boolean; review?: string }> },
   linkCitation: (eventId: string) => { unit: (AtlasUnit & { row_id: number }) | undefined; how: string | null; step: number | null }, native: NativeLines) {
   const j = assertion.judgment;
+  const card = resolveBehaviorCard(assertion.behavior);
   return {
     id: assertion.id, attempt_id: assertion.attemptId, short: context.short, condition: context.condition, task_id: context.taskId, trial_id: context.trialId,
-    category: assertion.behavior.categoryId, dimension: assertion.behavior.dimensionId,
-    outcome: j.disposition === "assessed" ? j.assessment : "abstained", disposition: j.disposition,
-    confidence: j.disposition === "assessed" ? j.confidence?.value ?? null : null, rationale: j.rationale ?? null, alternative: j.alternativeExplanation ?? null,
+    card: assertion.behavior.cardId, family: card.family, title: card.title,
+    outcome: j.verdict, value: j.verdict === "present" ? j.value ?? null : null,
+    confidence: j.verdict === "unknown" ? null : j.confidence.value, rationale: j.rationale ?? null, alternative: j.alternativeExplanation ?? null,
     review: context.review, evaluator: `${assertion.evaluator.id} ${assertion.evaluator.version}`, rubric: `${assertion.rubric.id} ${assertion.rubric.version}`,
     cohorts: context.cohorts,
     claims: (j.claims ?? []).map((c) => ({ id: c.id, text: c.text, workspace: c.workspace, events: c.citations.map(({ eventId }) => eventId) })),

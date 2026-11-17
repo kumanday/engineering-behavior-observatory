@@ -12,7 +12,7 @@ an exact contract.
 | [Run lifecycle](run-lifecycle.md) | Attempt ownership, interruption, retries, process boundary |
 | [Agent SDK configuration](agent-sdk-operational-runner.md) | Five source-specific queue records and runner behavior |
 | [Uniform events](../evaluation/uniform-events.md) | Families, native references, coverage, explicit unknown/unsupported values |
-| [Behavior cards](behavior-cards.md) | Every card in the draft catalog: definition, trigger, evidence test, near miss and values |
+| [Behavior ontology](behavior-ontology.md) | Every card of the behavior ontology: definition, trigger, evidence test, near miss and values |
 | [Extension contracts](../development/extension-contracts.md) | How new adapters and evaluators fit existing interfaces |
 
 Machine-readable contracts are shipped under `schemas/`, `contracts/`, and

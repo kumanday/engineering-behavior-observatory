@@ -14,14 +14,15 @@ import type { SemanticJudgeRequest } from "../src/semantic-judge.js";
 liveTest("approved existing-auth native Codex judge smoke", { skip: process.env.EBO_LIVE_CODEX_JUDGE_SMOKE !== "1" }, async (context) => {
   const model = process.env.EBO_LIVE_CODEX_JUDGE_MODEL;
   assert.ok(model, "Supply an existing authenticated model route.");
-  const result = await runCodexSemanticJudge("Synthetic fixture only: no event evidence is provided. Return an abstention, with no citations.", {
+  const result = await runCodexSemanticJudge("Synthetic fixture only: no event evidence is provided. Answer unknown, with no citations.", {
+    behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
     evaluator: { backend: "codex-app-server", provider: "openai", model, effort: "low" },
     limits: { maxOutputChars: 16000, maxInputChars: 20000, maxWallClockMs: 30000, maxCitations: 1, maxTurns: 1 },
   } as SemanticJudgeRequest);
   assert.equal(result.status, "completed", JSON.stringify(result));
   if (result.status === "completed") {
-    assert.equal((result.response as { judgment: { disposition: string } }).judgment.disposition, "abstained");
-    context.diagnostic(JSON.stringify({ model, effort: "low", status: result.status, disposition: "abstained", usage: "unavailable" }));
+    assert.equal((result.response as { judgment: { verdict: string } }).judgment.verdict, "unknown");
+    context.diagnostic(JSON.stringify({ model, effort: "low", status: result.status, verdict: "unknown", usage: "unavailable" }));
   }
 });
 
@@ -36,7 +37,7 @@ test("native judge isolates ambient state, retains failures, matches owned turns
   process.env.ANTHROPIC_API_KEY = "synthetic-secret";
   process.env.EBO_JUDGE_SECRET_SENTINEL = "synthetic-secret";
   try {
-    const request = { evaluator: { backend: "codex-app-server", executable, provider: "openai", model: "fixture", effort: "low" },
+    const request = { behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" }, evaluator: { backend: "codex-app-server", executable, provider: "openai", model: "fixture", effort: "low" },
       limits: { maxOutputChars: 16000, maxWallClockMs: 5000, maxCitations: 2 } } as SemanticJudgeRequest;
     const success = await runCodexSemanticJudge("success", request);
     assert.equal(success.status, "completed", JSON.stringify(success));
@@ -149,7 +150,7 @@ liveTest("frozen native judge exposes zero tools on the model wire", { skip: pro
     }) as typeof originalSpawn);
     syncBuiltinESMExports();
     const results = [];
-    for (const model of ["gpt-5.6-sol", "gpt-5.5"]) results.push(await runCodexSemanticJudge("Synthetic evidence-only wire test.", { evaluator: { executable, model, effort: "low" },
+    for (const model of ["gpt-5.6-sol", "gpt-5.5"]) results.push(await runCodexSemanticJudge("Synthetic evidence-only wire test.", { behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" }, evaluator: { executable, model, effort: "low" },
       limits: { maxOutputChars: 16000, maxWallClockMs: 10000, maxCitations: 1 } } as SemanticJudgeRequest));
     const generations = requests.filter((request) => request.generate !== false);
     assert.equal(new Set(generations.map((request) => request.model)).size, 2, `Both native tool modes must send a model request: ${JSON.stringify(results)}`);

@@ -438,7 +438,6 @@ export type {
 } from "./structural-observations.js";
 export {
   createAgentSdkBehaviorEvidence,
-  DEFAULT_BEHAVIOR_VOCABULARY,
   isConfirmedBehaviorAssertion,
   validateAgentSdkBehaviorAssertion,
   validateBehaviorAssertion,
@@ -449,24 +448,29 @@ export type {
   BehaviorAssertion,
   BehaviorCitation,
   BehaviorReview,
-  BehaviorVocabulary,
+  BehaviorJudgment,
   ResolvedBehaviorCitation,
 } from "./behavior-assertions.js";
 export {
-  assertBehaviorCardCatalog,
-  behaviorCardCatalogDigest,
+  assertBehaviorOntology,
+  BEHAVIOR_VERDICTS,
   behaviorCardFamilies,
-  loadDefaultBehaviorCardCatalog,
-  renderBehaviorCardReference,
-} from "./behavior-cards.js";
+  behaviorOntologyDigest,
+  loadDefaultBehaviorOntology,
+  renderBehaviorOntologyReference,
+  resolveBehaviorCard,
+  resolveBehaviorDecision,
+} from "./behavior-ontology.js";
 export type {
   BehaviorCard,
-  BehaviorCardCatalog,
   BehaviorCardFamily,
   BehaviorCardKind,
-  BehaviorCardStatus,
   BehaviorCardValue,
-} from "./behavior-cards.js";
+  BehaviorDecision,
+  BehaviorOntology,
+  BehaviorReference,
+  BehaviorVerdict,
+} from "./behavior-ontology.js";
 export {
   assertCalibrationDestination,
   effectiveReviewOutcome,

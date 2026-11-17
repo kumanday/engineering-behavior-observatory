@@ -306,9 +306,9 @@ export async function createMigrationTargetV2(unit: MigrationUnit, input: JudgeI
 export type MigrationPlanV2 = {
   schemaVersion: "ebo.migration-plan/v1"; studyId: string; inventoryDigest: Hash;
   sourceRuntime: MigrationStudy["analysisRuntime"];
-  target: { datasetSchemaVersion: "ebo.normalized-dataset/v2"; inputSchemaVersion: "ebo.semantic-judge-input/v2"; promptVersion: "2.0.0" };
+  target: { datasetSchemaVersion: "ebo.normalized-dataset/v2"; inputSchemaVersion: "ebo.semantic-judge-input/v2"; promptVersion: "3.0.0" };
   units: Array<{ id: Hash; assertionDigests: Hash[]; disposition: "rejudge-required" | "preserve-frozen-missing-evidence";
-    proof: { dependency: "promptVersion"; previous: string; target: "2.0.0" } | null;
+    proof: { dependency: "promptVersion"; previous: string; target: "3.0.0" } | null;
     ratingDependencyRebuild: boolean; targetPreparation: "prepared" | "pending" | "preserved"; targetInputDigest: Hash | null }>;
   unboundAssertions: MigrationReconciliation["unboundAssertions"];
   summary: { affectedUnits: number; affectedAssertionContents: number; preservedMissingUnits: number; preservedAssertionContents: number;
@@ -327,17 +327,17 @@ export function planMigrationV2(inventory: MigrationInventory, concrete?: Migrat
   const units: MigrationPlanV2["units"] = inventory.units.map((unit) => {
     if (preserved.has(unit.id)) return { id: unit.id, assertionDigests: [...unit.assertionDigests], disposition: "preserve-frozen-missing-evidence", proof: null,
       ratingDependencyRebuild: false, targetPreparation: "preserved", targetInputDigest: null };
-    if (!["1.0.0", "1.1.0", "1.2.0", "1.3.0"].includes(unit.dependencies!.promptVersion)) throw new Error("No supported prompt-version change proof for this migration unit.");
+    if (!["2.0.0", "2.1.0"].includes(unit.dependencies!.promptVersion)) throw new Error("No supported prompt-version change proof for this migration unit.");
     const receipt = receipts.get(unit.id)!.target, prepared = receipt?.inputSchemaVersion === "ebo.semantic-judge-input/v2";
     return { id: unit.id, assertionDigests: [...unit.assertionDigests], disposition: "rejudge-required",
-      proof: { dependency: "promptVersion", previous: unit.dependencies!.promptVersion, target: "2.0.0" },
+      proof: { dependency: "promptVersion", previous: unit.dependencies!.promptVersion, target: "3.0.0" },
       ratingDependencyRebuild: unit.dependencies!.ratingsDigest !== null, targetPreparation: prepared ? "prepared" : "pending", targetInputDigest: prepared ? receipt!.inputDigest : null };
   });
   const affected = units.filter(({ disposition }) => disposition === "rejudge-required"), frozen = units.filter(({ disposition }) => disposition === "preserve-frozen-missing-evidence");
   const affectedIds = new Set(affected.map(({ id }) => id));
   const ratingDependencies = new Set(inventory.units.filter((unit) => affectedIds.has(unit.id)).flatMap((unit) => unit.dependencies!.ratingsDigest ?? []));
   return { schemaVersion: "ebo.migration-plan/v1", studyId: inventory.studyId, inventoryDigest: hash(inventory), sourceRuntime: structuredClone(inventory.analysisRuntime),
-    target: { datasetSchemaVersion: "ebo.normalized-dataset/v2", inputSchemaVersion: "ebo.semantic-judge-input/v2", promptVersion: "2.0.0" }, units, unboundAssertions: baseline.unboundAssertions,
+    target: { datasetSchemaVersion: "ebo.normalized-dataset/v2", inputSchemaVersion: "ebo.semantic-judge-input/v2", promptVersion: "3.0.0" }, units, unboundAssertions: baseline.unboundAssertions,
     summary: { affectedUnits: affected.length, affectedAssertionContents: new Set(affected.flatMap(({ assertionDigests }) => assertionDigests)).size,
       preservedMissingUnits: frozen.length, preservedAssertionContents: new Set([...frozen.flatMap(({ assertionDigests }) => assertionDigests), ...baseline.unboundAssertions.map(({ digest }) => digest)]).size,
       ratingDependencyUnits: affected.filter(({ ratingDependencyRebuild }) => ratingDependencyRebuild).length, distinctRetainedRatingDependencies: ratingDependencies.size,

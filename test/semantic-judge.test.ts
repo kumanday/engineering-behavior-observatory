@@ -30,6 +30,7 @@ import {
   type SemanticJudgeBackend,
   type SemanticJudgeRequest,
 } from "../src/index.js";
+import { loadDefaultBehaviorOntology } from "../src/behavior-ontology.js";
 
 test("request schema admits exactly the supported backend combinations", () => {
   const legacy = judgeRequest("event", "observation");
@@ -137,7 +138,7 @@ test("Claude judge without a deadline reaches its native result and remains canc
     close() {},
     async *[Symbol.asyncIterator]() {
       await delay(30);
-      yield sdkResult({ judgment: { disposition: "abstained", assessment: null, confidence: null,
+      yield sdkResult({ judgment: { verdict: "unknown", value: null, confidence: null,
         reason: "fixture", missingEvidenceCapability: null, rationale: "fixture",
         alternativeExplanation: "fixture", claims: [], citations: [] } });
     },
@@ -178,14 +179,18 @@ test("packages bounded blinded untrusted evidence and retains deterministic prop
       observations.normalization.datasetDigest,
       "claude-test",
     );
-    assert.equal(packaged.behavior.dimensionId, "verification-completion");
+    assert.deepEqual(packaged.behavior, { ontologyVersion: "2.0.0", cardId: "VF-01" });
+    const shipped = loadDefaultBehaviorOntology();
+    const judged = shipped.cards.find(({ id }) => id === "VF-01")!;
+    assert.deepEqual(packaged.card, { id: "VF-01", title: judged.title, kind: "workflow", unit: judged.unit, definition: judged.definition, evidenceTest: judged.evidenceTest, nearMiss: judged.nearMiss });
+    assert.deepEqual(packaged.codingRules, shipped.codingRules);
     assert.equal(packaged.evidence.some(({ kind }) => kind === "event"), true);
     assert.equal(packaged.evidence.some(({ kind }) => kind === "structural-observation"), true);
     assert.equal(packaged.evidence.some(({ truncated }) => truncated), true);
     assert.doesNotMatch(JSON.stringify(packaged), /claude-test/u);
     assert.equal(packaged.blinding.sourceIdentityPreserved, true);
     assert.ok(packaged.blinding.residualClues.length > 0);
-    const abstention = { judgment: { disposition: "abstained", assessment: null, confidence: null,
+    const abstention = { judgment: { verdict: "unknown", value: null, confidence: null,
       reason: "Synthetic fixture.", missingEvidenceCapability: null, rationale: "Synthetic fixture.", alternativeExplanation: "No claim.", claims: [], citations: [] } };
     const evaluatorDigest = (evaluator: SemanticJudgeRequest["evaluator"]) => parseSemanticJudgeResponse(
       abstention, { ...request, evaluator }, packaged, "fixture-runtime").evaluator.configurationDigest;
@@ -273,8 +278,8 @@ test("packages bounded blinded untrusted evidence and retains deterministic prop
 
     const citation = { eventId: event.id, nativeReference: event.source.nativeReference };
     const assessed = {
-      disposition: "assessed",
-      assessment: "constructive",
+      verdict: "present",
+      value: null,
       confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" },
       reason: null,
       missingEvidenceCapability: null,
@@ -292,7 +297,7 @@ test("packages bounded blinded untrusted evidence and retains deterministic prop
     assert.deepEqual(validateArtifact("retained judgment without a deadline", unbounded), []);
     const alternative = await run(root, "proposal-b", bundleRoot, observations, request, completed({
       ...assessed,
-      assessment: "context-dependent",
+      verdict: "present", value: null,
       alternativeExplanation: "The same evidence could reflect a harness constraint.",
     }));
     assert.equal(first.status, "proposed");
@@ -354,8 +359,8 @@ test("packages bounded blinded untrusted evidence and retains deterministic prop
     );
 
     const abstained = await run(root, "abstained", bundleRoot, observations, request, completed({
-      disposition: "abstained",
-      assessment: null,
+      verdict: "unknown",
+      value: null,
       confidence: null,
       reason: "The bounded evidence is insufficient.",
       missingEvidenceCapability: "family:validation",
@@ -366,13 +371,13 @@ test("packages bounded blinded untrusted evidence and retains deterministic prop
     assert.equal(abstained.status, "proposed");
 
     const failures = [
-      ["malformed", { disposition: "assessed", rationale: "missing fields" }],
+      ["malformed", { verdict: "present", rationale: "missing fields" }],
       ["fabricated", { ...assessed, citations: [{ eventId: "fabricated", nativeReference: event.source.nativeReference }] }],
       ["stale", { ...assessed, citations: [{ eventId: event.id, nativeReference: { ...event.source.nativeReference, recordLocator: "line:999" } }] }],
       ["confirmed", { ...assessed, reviewState: "confirmed" }],
       ["invalid-capability", {
-        disposition: "abstained",
-        assessment: null,
+        verdict: "unknown",
+        value: null,
         confidence: null,
         reason: "Evidence is missing.",
         missingEvidenceCapability: "test logs",
@@ -409,8 +414,8 @@ test("packages bounded blinded untrusted evidence and retains deterministic prop
     const bounded = await run(root, "bounded-omissions", bundleRoot, observations, tight, backend(async (prompt) => {
       boundedPromptLength = prompt.length;
       return completed({
-        disposition: "abstained",
-        assessment: null,
+        verdict: "unknown",
+        value: null,
         confidence: null,
         reason: "The bound omitted relevant evidence.",
         missingEvidenceCapability: null,
@@ -488,8 +493,8 @@ test("configures the Claude Agent SDK backend with no tools, settings, plugins, 
       close: () => { throw new Error("close after completion"); },
       async *[Symbol.asyncIterator]() {
         yield sdkResult({ judgment: {
-          disposition: "abstained",
-          assessment: null,
+          verdict: "unknown",
+          value: null,
           confidence: null,
           reason: "insufficient",
           missingEvidenceCapability: null,
@@ -543,8 +548,9 @@ test("configures the Claude Agent SDK backend with no tools, settings, plugins, 
     judgment: { anyOf: Array<{ properties: Record<string, { enum?: unknown[]; minItems?: number }> }> };
   }).judgment;
   assert.equal(judgmentSchema.anyOf[0]!.properties.citations?.minItems, 1);
-  assert.equal(judgmentSchema.anyOf[1]!.properties.missingEvidenceCapability?.enum?.includes("family:validation"), true);
-  assert.equal(judgmentSchema.anyOf[1]!.properties.missingEvidenceCapability?.enum?.includes("test logs"), false);
+  assert.equal(judgmentSchema.anyOf[2]!.properties.missingEvidenceCapability?.enum?.includes("family:validation"), true);
+  assert.equal(judgmentSchema.anyOf[1]!.properties.citations?.minItems, undefined, "an absent verdict may have no citation");
+  assert.equal(judgmentSchema.anyOf[2]!.properties.missingEvidenceCapability?.enum?.includes("test logs"), false);
   assert.equal(existsSync(observedCwd), false, "ephemeral empty cwd is removed after execution");
 });
 
@@ -560,8 +566,8 @@ test("retains bounded received SDK messages and result accounting when the provi
         message: { role: "assistant", content: [{ type: "text", text: "received before disconnect" }] },
       } as unknown as SDKMessage;
       yield sdkResult({ judgment: {
-        disposition: "abstained",
-        assessment: null,
+        verdict: "unknown",
+        value: null,
         confidence: null,
         reason: "insufficient",
         missingEvidenceCapability: null,
@@ -588,12 +594,12 @@ liveTest("approved live semantic judge smoke", { skip: process.env.EBO_LIVE_SEMA
   request.limits.maxWallClockMs = 30_000;
   request.limits.maxBudgetUsd = 0.10;
   const result = await runClaudeAgentSdkSemanticJudge(
-    "Apply the rubric to this tiny fixture: no validation evidence is supplied, so abstain. Return no citations.",
+    "Apply the rubric to this tiny fixture: no validation evidence is supplied, so answer unknown. Return no citations.",
     request,
   );
   assert.equal(result.status, "completed", result.status === "failed" ? result.message : "Expected a completed judge attempt.");
   if (result.status === "completed") {
-    assert.equal((result.response as { judgment?: { disposition?: unknown } }).judgment?.disposition, "abstained");
+    assert.equal((result.response as { judgment?: { verdict?: unknown } }).judgment?.verdict, "unknown");
   }
 });
 
@@ -630,7 +636,7 @@ function judgeRequest(eventId: string, observationId: string): SemanticJudgeRequ
   return {
     schemaVersion: "ebo.semantic-judge-request/v1",
     id: "semantic-judgment",
-    behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+    behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
     rubric: { id: "verification-rubric", version: "1.0.0", instructions: "Assess whether retained evidence shows validation before completion." },
     evaluator: { provider: "anthropic", model: "claude-judge-route", effort: "low" },
     selection: { eventIds: [eventId], structuralObservationIds: [observationId], includeOutcomeObservations: true },

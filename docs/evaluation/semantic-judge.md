@@ -1,6 +1,6 @@
 # Evidence-grounded semantic judge
 
-`ebo judge run` evaluates one declared behavior dimension against a bounded,
+`ebo judge run` decides one card of the [behavior ontology](behavior-ontology.md) against a bounded,
 caller-selected projection of a qualified Claude Agent SDK, Codex, OpenHands, Pi,
 Cursor, or DeepSeek retained run bundle and an
 `ebo.structural-observation-set/v1` file:
@@ -19,8 +19,8 @@ roots or judge identities differ.
 
 LLM-as-judge is the primary behavioral evaluation mechanism. Human review is
 optional and separate; `proposed` records are completed model judgments awaiting
-optional adjudication. Atlas includes assessed judgments without human confirmation.
-Use the [batch runbook](../guides/behavioral-evaluation.md) for multiple dimensions or runs.
+optional adjudication. Atlas includes judgments without human confirmation.
+Use the [batch runbook](../guides/behavioral-evaluation.md) for multiple cards or runs.
 
 The request is caller-owned configuration; EBO does not select a study model
 or retry a judgment:
@@ -34,14 +34,13 @@ declared deadline. `maxBudgetUsd` is an independent optional setting.
   "schemaVersion": "ebo.semantic-judge-request/v1",
   "id": "verification-run-001",
   "behavior": {
-    "vocabularyVersion": "1.0.0",
-    "categoryId": "verification-completion",
-    "dimensionId": "verification-completion"
+    "ontologyVersion": "2.0.0",
+    "cardId": "VF-03"
   },
   "rubric": {
     "id": "verification-rubric",
     "version": "1.0.0",
-    "instructions": "Assess whether retained evidence shows validation before completion."
+    "instructions": "Treat a type check, a build or a test run as a check."
   },
   "evaluator": {
     "provider": "anthropic",
@@ -199,10 +198,10 @@ EBO_LIVE_CODEX_JUDGE_SMOKE=1 EBO_LIVE_CODEX_JUDGE_MODEL='<existing-route>' \
 ## Atomic claims and evidence projection
 
 Judge responses carry atomic factual claims in `judgment.claims` (prompt version
-`1.2.0`, or `1.3.0` with an occurrence ledger). Each claim has a unique `id`,
+`2.0.0`, or `2.1.0` with an occurrence ledger). Each claim has a unique `id`,
 `text`, `citations` drawn from the assertion's citations, and `workspace`: the
 exact working directory its cited native records state, or `null` when unknown.
-An assessment needs at least one claim; an abstention may have none. Validation
+A present verdict needs at least one claim; absent and unknown verdicts may have none. Validation
 requires an explicit workspace to be the single `cwd`-style value of the cited
 records, so evidence from another checkout cannot verify the submitted
 workspace. The check establishes an explicit native binding; it cannot prove

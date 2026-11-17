@@ -24,7 +24,7 @@ import { isSecretFieldName, redactSecrets, SECRET_PLACEHOLDER } from "./redactio
 export const PACKET_BUILDER = { id: "ebo-packet", version: "1.0.0" } as const;
 export type PacketVariant = "internal" | "partner" | "restricted";
 
-const LAYERS = { L0: "narrative", L1: "claims", L2: "behavior evaluations (judge assessments)", L3: "metrics and cohorts",
+const LAYERS = { L0: "narrative", L1: "claims", L2: "behavior evaluations (judge verdicts on cards)", L3: "metrics and cohorts",
   L4: "qualified evidence (native records, audits)", L5: "machine data and viewer" } as const;
 type Layer = keyof typeof LAYERS;
 const MEDIA: Record<string, string> = { ".html": "text/html", ".json": "application/json", ".js": "text/javascript", ".css": "text/css",
@@ -144,13 +144,14 @@ export const sharedText = (s: string) => {
 /** Code in prose: fenced blocks and code spans. */
 const code = (s: string) => s.replace(/```[\s\S]*?```/gu, "[code redacted]").replace(/`[^`\n]+`/gu, "[code redacted]");
 
-type Assessment = { id: string; attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; category: string; dimension: string;
-  outcome: string; confidence: number | null; rationale: string | null; alternative: string | null; review: string; evaluator: string; rubric: string;
+type Count = { numerator: { value: number }; denominator: { value: number } };
+type Assessment = { id: string; attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; card: string; family: string; title: string;
+  outcome: string; value: string | null; confidence: number | null; rationale: string | null; alternative: string | null; review: string; evaluator: string; rubric: string;
   claims?: Array<{ id: string; text: string; workspace: string | null }>;
   citations: Array<{ ordinal: number; event_key: string; unit_kind: string | null; step: number | null; link: string | null; native: { artifact: string; locator: string; resolved: boolean; sha256?: string; chars?: number; text?: string } }> };
 type Claims = { claims: Array<{ id: string; type: string; text: string; source_section: string; cohort?: string; caveat?: string; ok: boolean;
   numbers: Array<{ id: string; label: string; value: number; computed: number | null; kind: string; ok: boolean; how: string }>;
-  support: Array<{ id: string; short: string; condition: string; trial_id: string | null; dimension: string; outcome: string; citations: number }>;
+  support: Array<{ id: string; short: string; condition: string; trial_id: string | null; card: string; outcome: string; value: string | null; citations: number }>;
   citations_resolved: number; citations_total: number; views?: string[] }>; validated: boolean; failures: string[]; source?: { title?: string } };
 
 const CSS = `:root{color-scheme:light dark;--fg:#1d1d1f;--muted:#6e6e73;--bg:#fff;--line:#d2d2d7;--accent:#0b5cad}
@@ -346,7 +347,7 @@ async function writePacket({ bundleRoot, bundle, out, variant, viewerRoot, now }
   const audits = read<{ attempts: Record<string, { short: string; condition: string; trial_id: string | null; verdicts: Array<{ status: string; text: string }>; failure_chains: unknown[]; checks: unknown[]; changes: unknown[] }> }>("audit.json");
   // Source metadata is shared like any other text.
   const study = transform(bundle.title);
-  const outcomeCell = (o: string) => `<span class="tag">${esc(o)}</span>`;
+  const outcomeCell = (o: string, value?: string | null) => `<span class="tag">${esc(value ? `${o}: ${value}` : o)}</span>`;
   const evalHref = (id: string, depth: number) => `${"../".repeat(depth)}evaluations/${pageName(id)}.html`;
   const viewerLink = (fragment: string, depth: number, text: string) => `<a href="${"../".repeat(depth)}viewer/index.html#${esc(fragment)}">${esc(text)}</a>`;
 
@@ -364,18 +365,18 @@ ${claimsDoc ? `<div class="banner">Claims: ${claimsDoc.validated ? `<span class=
     put(`claims/${pageName(c.id)}.html`, "L1", page(`${c.id}: ${c.text}`, `
 <p class="muted">${esc(c.type)} · source section: ${esc(c.source_section)}${c.cohort ? ` · cohort ${esc(c.cohort)}` : ""} · ${c.ok ? `<span class="ok">recomputes</span>` : `<span class="bad">does not hold</span>`}</p>
 <table><tr><th>Number</th><th class="num">Stated</th><th class="num">Computed</th><th>Kind</th><th>How</th></tr>${c.numbers.map((n) => `<tr><td>${esc(n.label)}</td><td class="num">${esc(n.value)}</td><td class="num">${esc(n.computed ?? "unavailable")}${n.ok ? "" : ` <span class="bad">≠</span>`}</td><td>${esc(n.kind)}</td><td class="muted">${esc(n.how)}</td></tr>`).join("")}</table>
-<h2>Supporting evaluations (${esc(c.support.length)})</h2><ul>${c.support.map((s) => `<li><a href="${evalHref(s.id, 1)}">${esc(s.condition)} · trial ${esc(s.trial_id)} · ${esc(s.dimension)}</a> ${outcomeCell(s.outcome)} · ${esc(s.citations)} citations</li>`).join("")}</ul>
+<h2>Supporting evaluations (${esc(c.support.length)})</h2><ul>${c.support.map((s) => `<li><a href="${evalHref(s.id, 1)}">${esc(s.condition)} · trial ${esc(s.trial_id)} · ${esc(s.card)}</a> ${outcomeCell(s.outcome, s.value)} · ${esc(s.citations)} citations</li>`).join("")}</ul>
 <p>Cited native lines: ${esc(c.citations_resolved)} of ${esc(c.citations_total)} re-hashed to their recorded SHA-256 when the bundle was built${variant === "internal" ? "" : `. In this ${esc(variant)} packet, a shared record that redaction or reasoning removal changed carries its own digest, with the original's as <code>source_sha256</code>`}.</p>
 ${(c.views ?? []).length ? `<p>Figures: ${(c.views ?? []).map((v) => viewerLink(`view=${v}`, 1, v)).join(", ")}</p>` : ""}${c.caveat ? `<div class="banner">${esc(c.caveat)}</div>` : ""}
 <p>${viewerLink(`claim=${c.id}`, 1, "Open this claim in the viewer")}</p>`, 1, variant));
   }
 
   const list = assessments?.assessments ?? [];
-  put("evaluations/index.html", "L2", page("Behavior evaluations", `<p class="muted">One judge assessment per attempt and behavior dimension; unreviewed model proposals over selected evidence.</p>
-<table><tr><th>Arm</th><th>Trial</th><th>Attempt</th><th>Behavior</th><th>Outcome</th><th class="num">Citations</th></tr>${list.map((a) => `<tr><td>${esc(a.condition)}</td><td>${esc(a.trial_id)}</td><td>${esc(a.short)}</td><td><a href="${pageName(a.id)}.html">${esc(a.dimension)}</a></td><td>${outcomeCell(a.outcome)}</td><td class="num">${esc(a.citations.length)}</td></tr>`).join("")}</table>`, 1, variant));
+  put("evaluations/index.html", "L2", page("Behavior evaluations", `<p class="muted">One judge verdict per attempt and behavior card: present, absent or unknown, with one named value on a present dimension card. Unreviewed model proposals over selected evidence.</p>
+<table><tr><th>Arm</th><th>Trial</th><th>Attempt</th><th>Card</th><th>Verdict</th><th class="num">Citations</th></tr>${list.map((a) => `<tr><td>${esc(a.condition)}</td><td>${esc(a.trial_id)}</td><td>${esc(a.short)}</td><td><a href="${pageName(a.id)}.html">${esc(a.card)} ${esc(a.title)}</a></td><td>${outcomeCell(a.outcome, a.value)}</td><td class="num">${esc(a.citations.length)}</td></tr>`).join("")}</table>`, 1, variant));
   for (const a of list) {
-    put(`evaluations/${pageName(a.id)}.html`, "L2", page(`${a.dimension}: ${a.condition} trial ${a.trial_id ?? "?"}`, `
-<p>${outcomeCell(a.outcome)}${a.confidence != null ? ` · confidence ${esc(a.confidence)}` : ""} · ${esc(a.evaluator)} · rubric ${esc(a.rubric)} · review: ${esc(a.review)}</p>
+    put(`evaluations/${pageName(a.id)}.html`, "L2", page(`${a.card} ${a.title}: ${a.condition} trial ${a.trial_id ?? "?"}`, `
+<p>${outcomeCell(a.outcome, a.value)}${a.confidence != null ? ` · confidence ${esc(a.confidence)}` : ""} · ${esc(a.evaluator)} · rubric ${esc(a.rubric)} · review: ${esc(a.review)}</p>
 <h2>Rationale</h2><p>${esc(a.rationale ?? "—")}</p>${a.alternative ? `<h2>Alternative explanation</h2><p>${esc(a.alternative)}</p>` : ""}
 ${a.claims?.length ? `<h2>Factual claims</h2><ul>${a.claims.map((c) => `<li>${esc(c.text)}${c.workspace ? ` <span class="muted">(workspace ${esc(c.workspace)})</span>` : ""}</li>`).join("")}</ul>` : ""}
 <h2>Cited evidence (${esc(a.citations.length)})</h2><ol>${a.citations.map((c) => `<li><span class="muted">${esc(c.unit_kind ?? "event")}${c.step ? ` · step ${esc(c.step)}` : ""} · ${esc(c.native.artifact)} ${esc(c.native.locator)}${c.native.sha256 ? ` · sha256 ${esc(c.native.sha256.slice(0, 12))}…` : ""}</span>
@@ -383,10 +384,10 @@ ${c.native.text !== undefined ? `<pre>${esc(c.native.text)}</pre>` : `<p class="
 <p>${viewerLink(`assessment=${a.id}`, 1, "Open in the viewer")}${variant === "restricted" ? "" : ` · <a href="../evidence/${pageName(a.attempt_id)}.html">Attempt audit</a>`}</p>`, 1, variant));
   }
 
-  const reports = bundle.cohorts.map((c) => ({ c, doc: read<{ report: { groups: Array<{ dimensions: Record<string, string>; behaviors?: Array<{ behavior: { categoryId: string }; assessments: Array<{ assessment: string; measurement: { numerator: { value: number }; denominator: { value: number } } }> }> }> } }>(c.report) }));
+  const reports = bundle.cohorts.map((c) => ({ c, doc: read<{ report: { groups: Array<{ dimensions: Record<string, string>; behaviors?: Array<{ behavior: { cardId: string }; family: string; verdicts: Array<{ verdict: string; measurement: Count }>; values?: Array<{ value: string; measurement: Count }> }> }> } }>(c.report) }));
   put("metrics/index.html", "L3", page("Metrics and cohorts", reports.map(({ c, doc }) => `<h2>${esc(transform(c.title))} <span class="tag">${esc(c.id)}</span></h2>
 <p class="muted">${esc(c.attempts)} attempts · ${esc(c.assertions)} assessments · cohort ${esc(c.cohortDigest.slice(0, 19))}… · source ${esc(c.sourceDigest.slice(0, 19))}…</p>
-<table><tr><th>Group</th><th>Behavior</th><th>Assessment</th><th class="num">Count</th><th class="num">Of</th></tr>${(doc?.report.groups ?? []).flatMap((g) => (g.behaviors ?? []).flatMap((b) => b.assessments.map((x) => `<tr><td>${esc(Object.values(g.dimensions).join(" · "))}</td><td>${esc(b.behavior.categoryId)}</td><td>${esc(x.assessment)}</td><td class="num">${esc(x.measurement.numerator.value)}</td><td class="num">${esc(x.measurement.denominator.value)}</td></tr>`))).join("")}</table>`).join(""), 1, variant));
+<table><tr><th>Group</th><th>Family</th><th>Card</th><th>Verdict or value</th><th class="num">Count</th><th class="num">Of</th></tr>${(doc?.report.groups ?? []).flatMap((g) => (g.behaviors ?? []).flatMap((b) => [...b.verdicts.map((x) => ({ label: x.verdict, measurement: x.measurement })), ...(b.values ?? []).map((x) => ({ label: `present: ${x.value}`, measurement: x.measurement }))].map((x) => `<tr><td>${esc(Object.values(g.dimensions).join(" · "))}</td><td>${esc(b.family)}</td><td>${esc(b.behavior.cardId)}</td><td>${esc(x.label)}</td><td class="num">${esc(x.measurement.numerator.value)}</td><td class="num">${esc(x.measurement.denominator.value)}</td></tr>`))).join("")}</table>`).join(""), 1, variant));
 
   if (variant !== "restricted" && audits) {
     put("evidence/index.html", "L4", page("Qualified evidence", `<table><tr><th>Arm</th><th>Trial</th><th>Attempt</th><th>Verdicts</th><th class="num">Failure chains</th></tr>${Object.entries(audits.attempts).map(([id, a]) => `<tr><td>${esc(a.condition)}</td><td>${esc(a.trial_id)}</td><td><a href="${pageName(id)}.html">${esc(a.short)}</a></td><td>${esc(a.verdicts.map((v) => v.status).join(", ") || "—")}</td><td class="num">${esc(a.failure_chains.length)}</td></tr>`).join("")}</table>`, 1, variant));

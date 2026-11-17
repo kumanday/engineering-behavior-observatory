@@ -54,17 +54,26 @@ a terminal-state measure; task-success rates come only from available verified
 attempt outcomes. Duplicate identical inputs are counted once, while conflicting
 records with the same identity fail the build.
 
-Each group's additive `behaviors` array retains constructive, adverse, mixed,
-and context-dependent distributions separately from review agreement. A
-partition names the exact vocabulary/category/dimension, rubric id/version,
-and evaluator identity/version/configuration digest. Missing legacy evaluator
-configuration stays a separate partition. Its denominator is distinct
-judge-assessed attempt-dimensions, not judge calls: agreeing reruns count
-once and conflicting reruns exclude that attempt. Abstentions cannot contribute.
-Human review is optional: unreviewed, disputed, and rejected assessments remain
+Each group's additive `behaviors` array reports one entry per
+[behavior card](behavior-ontology.md), ordered by family and then by card as
+the ontology orders them, separately from review agreement. An entry names the
+card as `{ ontologyVersion, cardId }`, its `family`, the rubric id/version and
+the evaluator identity/version/configuration digest. An evaluator without a
+configuration digest stays a separate entry.
+
+`verdicts` is the distribution over `present`, `absent` and `unknown`. Its
+denominator is distinct judged attempt-cards (`judged-attempt-card`), not
+judge calls: agreeing reruns count once, and reruns that disagree on the
+verdict or on the value exclude that attempt as `conflicting-judge-reruns`. An
+`unknown` verdict counts in the distribution.
+
+A dimension card also has `values`: each named value's count among the
+attempts judged present (`present-attempt-card`), with the absent and unknown
+attempts listed as exclusions.
+
+Human review is optional: unreviewed, disputed, and rejected verdicts remain
 model judgments in this population, not human-endorsed findings. Assertion
 references expose review outcome and inclusion alongside run/attempt/digest.
-Older confirmed-only reports retain their original population label when read.
 An empty denominator is unavailable. These distributions remain descriptive.
 
 Corpus indexing prefers `structuralQualification.status` over legacy

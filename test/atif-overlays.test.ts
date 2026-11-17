@@ -62,7 +62,7 @@ test("verified Pi response aliases reach both judge views without interpreting g
   const observations = await (await import("../src/analysis-v2.js")).createStructuralObservationSetV2(typed.dataset, typed.resolver);
   const ledger = await (await import("../src/occurrences-v2.js")).createOccurrenceLedgerV2(typed.dataset, typed.resolver);
   const { prepareSemanticJudgeInputV2, semanticJudgePromptV2 } = await import("../src/semantic-judge-v2.js");
-  const prepared = await prepareSemanticJudgeInputV2(typed, observations, ledger, { schemaVersion: "ebo.semantic-judge-request/v2", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+  const prepared = await prepareSemanticJudgeInputV2(typed, observations, ledger, { schemaVersion: "ebo.semantic-judge-request/v2", behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
     rubric: { id: "check", version: "1", instructions: "Read retained evidence." }, evaluator: { id: "mock", version: "1", configuration: {} }, eventIds: typed.dataset.events.map(({ id }) => id), limits: { maxRecordChars: 6000, maxInputChars: 1000000 } });
   assert.equal(semanticJudgePromptV2(prepared).includes("served-model"), false);
 });
