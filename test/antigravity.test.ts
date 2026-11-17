@@ -1,5 +1,8 @@
 import { exportAntigravityAtif } from "../src/antigravity-atif.js";
 import { createRetainedBehaviorEvidenceV2 } from "../src/native-v2.js";
+import { operationContentV2 } from "../src/analysis-v2.js";
+import { createOccurrenceLedgerV2 } from "../src/occurrences-v2.js";
+import { prepareOccurrenceRatingInputsV2 } from "../src/ratings-v2.js";
 import { inspectAtifBytes } from "../src/atif-reader.js";
 import assert from "node:assert/strict";
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -121,6 +124,32 @@ test("Antigravity keeps tool failures and unknown native events without inventin
     assert.equal(events.filter(e => e.family === "delegation").length, 2);
     const repeat = await capture(join(root, "repeat"), "message-repeat");
     assert.equal((await normalizeAntigravityCapture(repeat)).events.filter(e => e.family === "message").length, 3);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("Antigravity v2 rating inputs retain tool error diagnostics with and without output", async () => {
+  const root = await temporaryRoot();
+  try {
+    for (const scenario of ["tool-error", "tool-error-no-output"]) {
+      const directory = join(root, scenario), workspace = join(directory, "workspace"), baseline = join(directory, "baseline"), bundle = join(directory, "bundle");
+      await mkdir(workspace, { recursive: true }); await mkdir(baseline);
+      const result = await captureAntigravityCliRun({ definition: definition(bundle), startingWorkspacePath: baseline,
+        workspace: { setup: () => ({ status: "ready", path: workspace, artifactId: "workspace", retained: true }) },
+        configuration: configuration(directory, scenario), prompt: "Run npm test.", maxWallClockMs: 5000 });
+      assert.equal(result.manifest.terminal.state, "completed");
+      const retained = await createRetainedBehaviorEvidenceV2(bundle);
+      const operation = retained.dataset.operations.find(op => op.identity.kind === "tool")!;
+      assert.deepEqual(operation.failure, { status: "known", value: true });
+      const diagnostic = operationContentV2(retained.dataset, operation, retained.resolver, "tool-error");
+      assert.deepEqual(diagnostic.values.map(value => ({ ...(value as Record<string, unknown>) })), [{ type: "execution", message: "failed" }]);
+      assert.equal(diagnostic.citations.length, 1);
+      assert.ok(diagnostic.citations[0]!.nativeReference.recordLocator.endsWith("/tool_info/error"));
+      const ledger = await createOccurrenceLedgerV2(retained.dataset, retained.resolver);
+      const rating = (await prepareOccurrenceRatingInputsV2(retained, ledger)).find(row => row.type === "validation-run")!;
+      assert.ok(rating.state.operations.find(op => op.id === operation.id)!.output.content.includes("failed"));
+      assert.ok(rating.citations.some(c => c.nativeReference.recordLocator === diagnostic.citations[0]!.nativeReference.recordLocator));
+      if (scenario === "tool-error-no-output") assert.deepEqual(operationContentV2(retained.dataset, operation, retained.resolver, "tool-result").values, []);
+    }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

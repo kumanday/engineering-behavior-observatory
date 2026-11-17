@@ -78,7 +78,7 @@ export function messageFact(role: unknown, complete: boolean | undefined, repres
   return { role: ["user", "assistant", "system", "tool"].includes(String(role)) ? known(role as "user" | "assistant" | "system" | "tool") : unreported,
     completeness: complete === undefined ? unreported : known(complete ? "complete" : "partial"), representation, identity };
 }
-export function pointedContent(context: ProjectionContext, pointer: string, role: "tool-input" | "tool-result"): EvidenceValue<readonly ContentReference[]> {
+export function pointedContent(context: ProjectionContext, pointer: string, role: "tool-input" | "tool-result" | "tool-error"): EvidenceValue<readonly ContentReference[]> {
   return known([{ nativeReference: { ...context.event.source.nativeReference,
     recordLocator: subrecordLocator(context.event.source.nativeReference.recordLocator, pointer) }, role, mediaType: "application/json" }]);
 }

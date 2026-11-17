@@ -34,7 +34,9 @@ else {
     step(1, "DONE", "agent_thought", { text_delta: "PRIVATE-AGY-REASONING-SENTINEL" });
     const call = { tool_name: "run_command", tool_info: { name: "run_command", parameters: { CommandLine: "npm test" } } };
     step(2, "ACTIVE", "tool", call); step(2, "ACTIVE", "tool", call);
-    const tool = { ...call, duration_seconds: 0.1, tool_info: { ...call.tool_info, output: "1 test passed", ...(scenario === "tool-error" ? { error: { type: "execution", message: "failed" } } : {}) } };
+    const tool = { ...call, duration_seconds: 0.1, tool_info: { ...call.tool_info,
+      ...(scenario === "tool-error-no-output" ? {} : { output: "1 test passed" }),
+      ...(scenario.startsWith("tool-error") ? { error: { type: "execution", message: "failed" } } : {}) } };
     step(2, "DONE", "tool", scenario === "missing-tool-result" ? { tool_name: "run_command" } : tool); step(2, "DONE", "tool", tool);
     if (scenario === "subagent-start") step(3, "ACTIVE", "tool", { subagent_info: { subagents: [{ conversation_id: "fixture-child" }] } });
     step(3, "DONE", "tool", { subagent_info: { subagents: [{ conversation_id: "fixture-child", type_name: "research", role: "assistant", log_uri: "/private/log", workspace_uris: [process.cwd()] }] } });

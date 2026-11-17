@@ -163,6 +163,8 @@ conversation identity, input, and terminal evidence. Repeated ACTIVE tool
 updates and repeated DONE snapshots retain their native records while yielding
 at most one tool start and result per step. Assistant deltas form one Atlas
 message per native step. Tool errors remain independent of the turn's outcome.
+Native error diagnostics retain pointed `tool-error` content for v2 rating inputs,
+including results that have an error without an output field.
 
 Per-step usage remains native evidence. The final result's cumulative-session
 usage supplies totals once, including input, output, cache reads, and thinking

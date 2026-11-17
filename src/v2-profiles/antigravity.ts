@@ -32,7 +32,8 @@ export const antigravityV2Profile: NativeProjectionProfile = {
     const endpoint = event.phase === "before" ? "call" : "result";
     const content = event.family === "tool" ? mergeContent(
       info.parameters === undefined ? undefined : pointedContent(context, "/payload/step_update/tool_info/parameters", "tool-input"),
-      endpoint === "result" && info.output !== undefined ? pointedContent(context, "/payload/step_update/tool_info/output", "tool-result") : undefined) : undefined;
+      endpoint === "result" && info.output !== undefined ? pointedContent(context, "/payload/step_update/tool_info/output", "tool-result") : undefined,
+      endpoint === "result" && info.error !== undefined ? pointedContent(context, "/payload/step_update/tool_info/error", "tool-error") : undefined) : undefined;
     return { facts, clock, ...(content ? { content } : {}), operation: {
       nativeId: Number.isSafeInteger(step.step_index) ? String(step.step_index) : undefined,
       scope, endpoint, canonical: true, toolName: text(step.tool_name) ?? text(info.name),

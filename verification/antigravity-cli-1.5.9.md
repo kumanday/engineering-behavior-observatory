@@ -7,8 +7,8 @@ and OSV checks. Publisher attestations were not offered.
 
 | Execution boundary | Admitted capture receipt |
 | --- | --- |
-| Local macOS | [Receipt](catalog/receipts/fed3bea96e31eda06fe3f6ee9edb3c23962ea09ea1dcd9331a02e95dbab2fae7.json) |
-| Linux Harbor child | [Receipt](catalog/receipts/d81e372c921079b02193658014f02ecf9a4f3863fd0a70428768355e4f85a0b7.json) |
+| Local macOS | [Receipt](catalog/receipts/8addd09ac894b20517416a4bfa8303249717df7baf0c41889b8734894b27d93c.json) |
+| Linux Harbor child | [Receipt](catalog/receipts/297bf1bd35600eb958910d8b9878524e9d7d70e24cdaa6c6eeaa026e6f2d60c3.json) |
 
 Each boundary ran three distinct owned attempts against the exact frozen CLI:
 
@@ -40,7 +40,7 @@ EBO worker and passed a proof-file task, native v2 readback and ATIF validation.
 The checker confirmed distinct conversations and EBO attempts, an unchanged
 parent workspace, accessible parent keyring and deletion of both children.
 The private branch report has SHA-256
-`d5a2ae03f38faa34661d3889863c501323114e206c75f0de2c16a5ee09100472`.
+`c08649a15d4cbde3b81c0ba0fd10e98791507704ea9c8d7d1e88f45ca78bbae3`.
 Only digests and capability results are published; native source evidence and
 OAuth state remain private.
 
