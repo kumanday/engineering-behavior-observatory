@@ -7,6 +7,8 @@ import {
   assertNoDuplicateJsonKeys,
   digestMetadata,
   readVerifiedArtifact,
+  readVerifiedArtifactChunks,
+  parseNativeJsonlRecords,
   validateArtifact,
 } from "./artifacts.js";
 import type { Digest } from "./contracts.js";
@@ -202,16 +204,20 @@ export async function readQualifiedRunCapture(bundleRoot: string): Promise<Norma
       });
       continue;
     }
-    const bytes = await readVerifiedArtifact(root, descriptor.relativePath, digestFrom(descriptor.digest), MAX_EVIDENCE_BYTES);
     if ((descriptor.kind === "session" || descriptor.kind === "hook")
         && descriptor.mediaType === "application/x-ndjson") {
-      for (const { line, document } of parseJsonl(bytes)) {
+      // The byte bound applies to each record; a trace has no total size limit.
+      const chunks = readVerifiedArtifactChunks(root, descriptor.relativePath, digestFrom(descriptor.digest), descriptor.sizeBytes);
+      for await (const { line, record: document } of parseNativeJsonlRecords(chunks, MAX_EVIDENCE_BYTES)) {
         records.push({
           reference: { artifactId: descriptor.id, recordLocator: `line:${line}` },
           record: { kind: descriptor.kind, document },
         });
       }
-    } else if ((descriptor.kind === "session" || descriptor.kind === "hook")
+      continue;
+    }
+    const bytes = await readVerifiedArtifact(root, descriptor.relativePath, digestFrom(descriptor.digest), MAX_EVIDENCE_BYTES);
+    if ((descriptor.kind === "session" || descriptor.kind === "hook")
         && descriptor.mediaType === "application/json") {
       records.push({
         reference: { artifactId: descriptor.id, recordLocator: "#" },
@@ -930,16 +936,6 @@ async function assertPersistedStructuralQualification(root: string, manifest: Ru
     throw new Error("Agent SDK normalization rejects the persisted unqualified structural capture report.");
   }
   return false;
-}
-
-function parseJsonl(bytes: Buffer): Array<{ line: number; document: unknown }> {
-  const textValue = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  return textValue.split(/\r?\n/u).map((value, index) => ({ value, line: index + 1 }))
-    .filter(({ value }) => value.trim() !== "")
-    .map(({ value, line }) => {
-      assertNoDuplicateJsonKeys(value);
-      return { line, document: JSON.parse(value) as unknown };
-    });
 }
 
 function parseJson(bytes: Buffer): unknown {

@@ -5,10 +5,12 @@ import {versionConfidence} from "./retained-version-policy.js";
 import {markRetainedVersion, legacyV1Profile} from "./legacy-v1-confidence.js";
 import type { OutcomeEvidenceInput } from "./outcome-evidence.js";
 import { isAtifImportSchema, readImportedBehaviorEvidence } from "./atif-import.js";
-import { digestMetadata } from "./artifacts.js";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
+import { digestMetadata, inspectRetainedArtifact } from "./artifacts.js";
 import { factoryModelSelection } from "./factory-model.js";
 import { FACTORY_HARNESS, qualifyFactoryCapture, describeAndValidateFactoryDataset } from "./factory-droid.js";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { CLAUDE_AGENT_SDK_HARNESS, readQualifiedRunCapture, createAgentSdkNativeEvidenceResolver } from "./agent-sdk-normalizer.js";
 import { projectAgentSdkBehaviorEvidence } from "./behavior-assertions.js";
 import { describeAndValidateCodexDataset, CODEX_HARNESS } from "./codex.js";
@@ -46,7 +48,53 @@ export type RetainedBehaviorEvidence = {
   coverage: AdapterCoverageReport;
 };
 
+export type RetainedEvidenceReuseStats = { hits: number; misses: number };
+type EvidenceReuse = { stats: RetainedEvidenceReuseStats; entry?: { key: string; evidence: RetainedBehaviorEvidence } };
+const evidenceReuse = new AsyncLocalStorage<EvidenceReuse>();
+
+/**
+ * Let one operation (a build) reuse the evidence it has just validated instead of rebuilding it for each
+ * assertion of the same attempt. The scope holds one attempt's evidence at a time and ends with the
+ * operation; nothing is shared process-wide. Every lookup hashes the current manifest and retained
+ * artifact bytes, so changed sources are never reused.
+ */
+export async function withRetainedEvidenceReuse<T>(operation: () => Promise<T>,
+  stats: RetainedEvidenceReuseStats = { hits: 0, misses: 0 }): Promise<T> {
+  const state: EvidenceReuse = { stats };
+  try { return await evidenceReuse.run(state, operation); }
+  finally { state.entry = undefined; }
+}
+
+/** Current bytes of a run bundle's manifest and every listed artifact; undefined when they cannot all be hashed. */
+async function evidenceSourceKey(bundleRoot: string): Promise<string | undefined> {
+  try {
+    const manifestBytes = readBoundedFile(join(bundleRoot, "manifest.json"), "Run manifest");
+    const manifest = JSON.parse(manifestBytes.toString("utf8")) as Partial<RunManifest>;
+    if (isAtifImportSchema(manifest.schemaVersion) || !Array.isArray(manifest.evidence)) return undefined;
+    const hash = createHash("sha256").update(resolve(bundleRoot)).update("\0").update(manifestBytes);
+    for (const { relativePath } of manifest.evidence) {
+      const { digest, sizeBytes } = await inspectRetainedArtifact(bundleRoot, relativePath);
+      hash.update(`\0${relativePath}\0${digest.value}\0${String(sizeBytes)}`);
+    }
+    return hash.digest("hex");
+  } catch { return undefined; }
+}
+
 export async function createRetainedBehaviorEvidence(bundleRoot: string): Promise<RetainedBehaviorEvidence> {
+  const reuse = evidenceReuse.getStore();
+  const key = reuse && await evidenceSourceKey(bundleRoot);
+  // Imports and bundles whose bytes cannot all be hashed are always rebuilt, so their failures stay explicit.
+  if (!reuse || key === undefined) return buildRetainedBehaviorEvidence(bundleRoot);
+  if (reuse.entry?.key === key) { reuse.stats.hits++; return reuse.entry.evidence; }
+  reuse.stats.misses++;
+  // Release the previous attempt's capture before constructing the next one.
+  reuse.entry = undefined;
+  const evidence = await buildRetainedBehaviorEvidence(bundleRoot);
+  if (await evidenceSourceKey(bundleRoot) === key) reuse.entry = { key, evidence };
+  return evidence;
+}
+
+async function buildRetainedBehaviorEvidence(bundleRoot: string): Promise<RetainedBehaviorEvidence> {
   const manifest = JSON.parse(readBoundedFile(join(bundleRoot, "manifest.json"), "Run manifest").toString("utf8")) as RunManifest;
   if (isAtifImportSchema(manifest.schemaVersion)) return readRetainedBehaviorEvidence(bundleRoot);
   const recorded = readRunVerification(bundleRoot, manifest);

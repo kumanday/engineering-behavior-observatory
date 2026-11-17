@@ -10,7 +10,7 @@ import { ATLAS_TABLES, buildAtlasBundle, flattenText, verifyAtlasBundle, type At
 import { loadAtlas } from "../src/atlas.js";
 import { laneData } from "../src/atlas-lanes.js";
 import { deriveUnits } from "../src/atlas-units.js";
-import { nativeRecordDigest } from "../src/atlas-evidence.js";
+import { NativeLines, nativeRecordDigest } from "../src/atlas-evidence.js";
 import { validateClaims } from "../src/atlas-claims.js";
 import { createHash } from "node:crypto";
 import { main } from "../src/cli.js";
@@ -37,7 +37,10 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
       texts.forEach((t, i) => { for (const ch of t) out[i * config.dimensions + (ch.charCodeAt(0) % config.dimensions)]! += 1; });
       return out;
     };
-    const manifest = await buildAtlasBundle(requestPath, out, { now: () => new Date("2026-10-07T00:00:00.000Z"), embed });
+    const evidenceReuse = { hits: 0, misses: 0 };
+    const manifest = await buildAtlasBundle(requestPath, out, { now: () => new Date("2026-10-07T00:00:00.000Z"), embed, evidenceReuse });
+    // The build runs inside a reuse scope. This fixture has one assertion per attempt, so every lookup changes attempt.
+    assert.ok(evidenceReuse.misses > 0 && evidenceReuse.hits === 0, JSON.stringify(evidenceReuse));
 
     assert.deepEqual(Object.keys(manifest.tables).sort(), Object.keys(ATLAS_TABLES).sort());
     const runs = source.input.corpusEntries.filter(({ manifestKind }) => manifestKind === "run");
@@ -124,6 +127,25 @@ test("native record digests: a line record hashes its line, any other locator th
   assert.equal(nativeRecordDigest(file, "")!.sha256, createHash("sha256").update(file).digest("hex"));
   assert.equal(nativeRecordDigest(Buffer.from([0x1f, 0x8b, 0, 1]), "#/workspace")!.binary, true, "binary files keep their digest, not their text");
   assert.equal(nativeRecordDigest(null, "line:1"), undefined);
+});
+
+test("native physical lines retain blank lines, CRLF and UTF-8 across read chunks", () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-atlas-native-lines-"));
+  try {
+    writeFileSync(join(root, "manifest.json"), JSON.stringify({ evidence: [{ id: "session", relativePath: "session.jsonl" }] }));
+    // The two-byte and four-byte characters straddle 64 KiB read boundaries.
+    const text = `${"x".repeat(65535)}é\r\n\n${"🙂".repeat(20000)}\n`;
+    writeFileSync(join(root, "session.jsonl"), text);
+    const native = new NativeLines(root, "display");
+    for (const [index, line] of text.split("\n").entries()) {
+      const record = native.record("session", `line:${index + 1}`);
+      assert.equal(record.resolved, true);
+      assert.equal(record.text, line);
+      assert.equal(record.sha256, createHash("sha256").update(line).digest("hex"));
+      assert.equal(record.chars, line.length);
+    }
+    assert.equal(native.record("session", "line:5").resolved, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("claims: a certified filter on a dimension the report does not group by fails instead of widening the population", async () => {

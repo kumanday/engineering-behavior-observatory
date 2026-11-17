@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +12,7 @@ import { buildPacket, refreshSharedEnvironment, sharedJson, sharedText, verifyPa
 import { verifyAtlasBundle as verifyPacketBundle } from "../src/atlas-bundle.js";
 import { createAtlasFixture } from "./atlas-fixture.js";
 
-test("evidence packets: three variants, verification, withholding and claims that must validate", async () => {
+test("evidence packets: three variants, verification, withholding and claims that must validate", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "ebo-atlas-packet-"));
   try {
     await createAtlasFixture(join(root, "study"));
@@ -29,7 +31,22 @@ test("evidence packets: three variants, verification, withholding and claims tha
 
     const built: Record<string, PacketManifest> = {};
     for (const variant of ["internal", "partner", "restricted"] as const) {
-      built[variant] = await buildPacket(join(root, "bundle"), join(root, `packet-${variant}`), { variant, viewerRoot: viewer });
+      if (variant === "restricted") {
+        // A withheld table can exceed what one Buffer holds: its digest comes from the verified bundle manifest.
+        const withheldTable = join(root, "bundle", "tables", "events.parquet");
+        const originalRead = fs.readFileSync;
+        t.mock.method(fs, "readFileSync", (path: unknown, ...args: unknown[]) => {
+          if (String(path) === withheldTable) throw new Error("withheld table cannot be read into one Buffer");
+          return Reflect.apply(originalRead, fs, [path, ...args]);
+        });
+        syncBuiltinESMExports();
+        try {
+          built[variant] = await buildPacket(join(root, "bundle"), join(root, `packet-${variant}`), { variant, viewerRoot: viewer });
+        } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+        const sourceManifest = JSON.parse(readFileSync(join(root, "bundle", "manifest.json"), "utf8")) as { files: Array<{ path: string; sha256: string }> };
+        assert.equal(built[variant]!.withheld.find(({ path }) => path === "viewer/bundle/tables/events.parquet")!.sha256,
+          sourceManifest.files.find(({ path }) => path === "tables/events.parquet")!.sha256);
+      } else built[variant] = await buildPacket(join(root, "bundle"), join(root, `packet-${variant}`), { variant, viewerRoot: viewer });
       assert.deepEqual(verifyPacket(join(root, `packet-${variant}`)), { ok: true, changed: [], missing: [], unlisted: [] }, variant);
       assert.ok(readdirSync(join(root, `packet-${variant}`, "claims")).some((f) => /^C1-[0-9a-f]{10}\.html$/u.test(f)), `${variant}: claim page`);
       for (const page of ["index.html", "claims/index.html", "evaluations/index.html", "metrics/index.html", "verify.html", "viewer/index.html", "ro-crate-metadata.json"])

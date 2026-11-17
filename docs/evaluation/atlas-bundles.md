@@ -114,3 +114,9 @@ unlisted files; it exits non-zero on any.
 The tables are written with DuckDB 1.5.4, the release the viewer's DuckDB-WASM
 runs, so a query or view receipt computes the same rows in Node and in the
 browser.
+
+The export uses one DuckDB thread and a 4 GB memory budget, and spills to the
+build's temporary staging directory, so a study whose event table exceeds
+memory still builds. Within one build, an attempt's validated evidence is
+reused for that attempt's further assertions; every reuse first hashes the
+manifest and each listed artifact again, and changed bytes force a rebuild.
