@@ -41,6 +41,16 @@ test("native judge isolates ambient state, retains failures, matches owned turns
     const success = await runCodexSemanticJudge("success", request);
     assert.equal(success.status, "completed", JSON.stringify(success));
     assert.equal(success.usage, undefined);
+    const noDeadline = structuredClone(request);
+    delete noDeadline.limits.maxWallClockMs;
+    const unboundedSuccess = await runCodexSemanticJudge("success", noDeadline);
+    assert.equal(unboundedSuccess.status, "completed", JSON.stringify(unboundedSuccess));
+    const unboundedController = new AbortController();
+    const interruptUnbounded = setTimeout(() => unboundedController.abort(), 300);
+    const unboundedInterrupted = await runCodexSemanticJudge("timeout", noDeadline, unboundedController.signal);
+    clearTimeout(interruptUnbounded);
+    assert.equal(unboundedInterrupted.status, "failed");
+    if (unboundedInterrupted.status === "failed") assert.equal(unboundedInterrupted.kind, "interrupted");
     const relativeExecutable = await runCodexSemanticJudge("success", { ...request,
       evaluator: { ...request.evaluator, executable: relative(process.cwd(), executable) } });
     assert.equal(relativeExecutable.status, "completed", JSON.stringify(relativeExecutable));

@@ -284,13 +284,12 @@ function assertionMatchesUnit(assertion: MigrationAssertion, unit: MigrationUnit
 function assertArtifact(value: unknown, profiles: readonly ReceiptProfile[] = []): "current-schema" | ReceiptProfile {
   if (!value || typeof value !== "object" || !schemas.has((value as { schemaVersion?: string }).schemaVersion ?? "")) throw new Error("INVALID_MIGRATION_ARTIFACT");
   const errors = validateArtifact("Migration artifact", value);
-  if (!errors.length) return "current-schema";
+  if (errors.length) throw new Error("INVALID_MIGRATION_ARTIFACT");
   const judgment = value as SemanticJudgmentRecord;
   if (profiles.includes("codex-relay-0.162.1-no-wall-limit/v1") && judgment.schemaVersion === "ebo.semantic-judgment/v1"
       && judgment.evaluator?.backend?.id === "codex-app-server" && judgment.evaluator.backend.version === "0.162.1"
-      && judgment.evaluator.limits?.maxWallClockMs === undefined && errors.length === 1
-      && errors[0]!.field === "/evaluator/limits/maxWallClockMs" && errors[0]!.message === "must have required property 'maxWallClockMs'") return "codex-relay-0.162.1-no-wall-limit/v1";
-  throw new Error("INVALID_MIGRATION_ARTIFACT");
+      && judgment.evaluator.limits?.maxWallClockMs === undefined) return "codex-relay-0.162.1-no-wall-limit/v1";
+  return "current-schema";
 }
 
 /** Source readback is mandatory before packaging a v2 migration target. This function dispatches no inference. */

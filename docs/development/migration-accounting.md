@@ -22,12 +22,13 @@ Assertions without a retained judgment receipt receive a separate preservation
 disposition. Complementary copies can recover input and assertion files, and
 the assembled bindings are verified before those units become eligible for reuse.
 
-Historical Codex 0.162.1 relay receipts have an explicit optional reader profile,
+A judgment whose evaluator limits omit `maxWallClockMs` is valid current-schema
+evidence: the judge ran without an execution deadline. Historical Codex 0.162.1
+relay receipts have an explicit optional reader profile,
 `codex-relay-0.162.1-no-wall-limit/v1`. Select it in `receiptProfiles` only for
-studies that used that relay. It admits the single absent `maxWallClockMs`
-field after every other current-schema check passes, and records the profile
-on the artifact row. The original evaluator receipt and its missing limit
-remain unchanged. Failed judgments may omit assertions and remain available
+studies that used that relay. It records the profile on each matching artifact
+row after every current-schema check passes. The original evaluator receipt and
+its absent limit remain unchanged. Failed judgments may omit assertions and remain available
 for frozen preservation.
 
 ```ts

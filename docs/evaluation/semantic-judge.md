@@ -25,6 +25,10 @@ Use the [batch runbook](../guides/behavioral-evaluation.md) for multiple dimensi
 The request is caller-owned configuration; EBO does not select a study model
 or retry a judgment:
 
+`limits.maxWallClockMs` is optional. Omit it to wait for the evaluator's native
+terminal result; cancellation signals remain active. Supplying it enforces the
+declared deadline. `maxBudgetUsd` is an independent optional setting.
+
 ```json
 {
   "schemaVersion": "ebo.semantic-judge-request/v1",

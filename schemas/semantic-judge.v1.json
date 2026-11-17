@@ -41,7 +41,7 @@
     "limits": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["maxEvidenceItems", "maxRecordChars", "maxInputChars", "maxOutputChars", "maxCitations", "maxWallClockMs", "maxTurns"],
+      "required": ["maxEvidenceItems", "maxRecordChars", "maxInputChars", "maxOutputChars", "maxCitations", "maxTurns"],
       "properties": {
         "maxEvidenceItems": { "type": "integer", "minimum": 1, "maximum": 128 },
         "maxRecordChars": { "type": "integer", "minimum": 256, "maximum": 65536 },

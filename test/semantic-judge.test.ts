@@ -34,6 +34,9 @@ import {
 test("request schema admits exactly the supported backend combinations", () => {
   const legacy = judgeRequest("event", "observation");
   assert.deepEqual(validateArtifact("request", legacy), []);
+  const noDeadline = structuredClone(legacy);
+  delete noDeadline.limits.maxWallClockMs;
+  assert.deepEqual(validateArtifact("request without a deadline", noDeadline), []);
   assert.deepEqual(validateArtifact("request", { ...legacy, evaluator: { ...legacy.evaluator, backend: "claude-agent-sdk" } }), []);
   const native: SemanticJudgeRequest = { ...legacy, evaluator: { backend: "codex-app-server", provider: "openai", model: "fixture", effort: "low" } };
   assert.deepEqual(validateArtifact("request", native), []);
@@ -125,6 +128,33 @@ test("Claude judge propagates library cancellation and refuses pre-aborted execu
     (() => { throw new Error("Must not start."); }) as Parameters<typeof runClaudeAgentSdkSemanticJudge>[2], AbortSignal.abort());
   assert.equal(preAborted.status, "failed");
   if (preAborted.status === "failed") assert.equal(preAborted.kind, "interrupted");
+});
+
+test("Claude judge without a deadline reaches its native result and remains cancellable", async () => {
+  const request = judgeRequest("fixture-event", "fixture-observation");
+  delete request.limits.maxWallClockMs;
+  const query = (() => ({
+    close() {},
+    async *[Symbol.asyncIterator]() {
+      await delay(30);
+      yield sdkResult({ judgment: { disposition: "abstained", assessment: null, confidence: null,
+        reason: "fixture", missingEvidenceCapability: null, rationale: "fixture",
+        alternativeExplanation: "fixture", claims: [], citations: [] } });
+    },
+  })) as unknown as Parameters<typeof runClaudeAgentSdkSemanticJudge>[2];
+  const completed = await runClaudeAgentSdkSemanticJudge("fixture", request, query);
+  assert.equal(completed.status, "completed");
+  const controller = new AbortController();
+  const pending = (({ options }: { options: Options }) => ({
+    close() {},
+    async *[Symbol.asyncIterator]() {
+      setTimeout(() => controller.abort(), 30);
+      await new Promise<void>((resolve) => options.abortController!.signal.addEventListener("abort", () => resolve(), { once: true }));
+    },
+  })) as unknown as Parameters<typeof runClaudeAgentSdkSemanticJudge>[2];
+  const interrupted = await runClaudeAgentSdkSemanticJudge("fixture", request, pending, controller.signal);
+  assert.equal(interrupted.status, "failed");
+  if (interrupted.status === "failed") assert.equal(interrupted.kind, "interrupted");
 });
 
 test("packages bounded blinded untrusted evidence and retains deterministic proposals, abstentions, and failures", async () => {
@@ -254,6 +284,12 @@ test("packages bounded blinded untrusted evidence and retains deterministic prop
       citations: [citation],
     };
     const first = await run(root, "proposal-a", bundleRoot, observations, request, completed(assessed));
+    const noDeadline = structuredClone(request);
+    delete noDeadline.limits.maxWallClockMs;
+    const unbounded = await run(root, "proposal-without-deadline", bundleRoot, observations, noDeadline, completed(assessed));
+    assert.equal(unbounded.status, "proposed");
+    assert.equal(unbounded.evaluator.limits.maxWallClockMs, undefined);
+    assert.deepEqual(validateArtifact("retained judgment without a deadline", unbounded), []);
     const alternative = await run(root, "proposal-b", bundleRoot, observations, request, completed({
       ...assessed,
       assessment: "context-dependent",
