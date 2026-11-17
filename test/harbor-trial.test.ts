@@ -11,14 +11,15 @@ import { invokeTrial, runOfficialHarborTrial } from "../src/harbor/official-tria
 import type { HarborAdapter } from "../src/harbor/adapter.js";
 import type { HarborStepExecution } from "../src/harbor/runner.js";
 
-test("Harbor child output is bounded on disk, including multibyte stderr", async () => {
+test("Harbor child spools all output without imposing an execution limit", async () => {
   const root = await mkdtemp(join(tmpdir(), "ebo-harbor-output-"));
   const script = join(root, "emit.cjs");
-  await writeFile(script, `require('node:fs').writeSync(2, 'é'.repeat(3 * 1024 * 1024)); setInterval(() => {}, 1000);`);
-  const result = await invokeTrial(process.execPath, script, "unused", undefined, 5000);
-  assert.equal(result.interrupted, true);
-  assert.equal((await stat(join(root, "stderr.log"))).size, 4 * 1024 * 1024);
-  assert.equal(Buffer.byteLength(result.stderr), 4 * 1024 * 1024);
+  await writeFile(script, `require('node:fs').writeSync(2, 'é'.repeat(3 * 1024 * 1024)); process.stdout.write('{}');`);
+  const result = await invokeTrial(process.execPath, script, "unused", undefined);
+  assert.equal(result.interrupted, false);
+  assert.equal((await stat(join(root, "stderr.log"))).size, 6 * 1024 * 1024);
+  assert.ok(Buffer.byteLength(result.stderr) <= 8 * 1024 * 1024);
+  assert.equal(result.stdout, "{}");
 });
 
 test("Harbor child stdout retains split UTF-8 bytes", async () => {

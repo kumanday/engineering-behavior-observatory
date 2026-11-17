@@ -42,9 +42,10 @@ A frozen task whose snapshot fails content verification reports
 `Harbor task status: changed`. Confirm `EBO_HARBOR_PYTHON`
 is exported before checking the snapshot's contents.
 
-The current runtime profile targets Apple Silicon macOS with Smol's bundled
-libkrun. The environment manifest pins that library's SHA-256. Do not override
-`SMOLVM_LIB_DIR`.
+The local profile targets Apple Silicon macOS with Smol's bundled libkrun.
+Its environment manifest pins that library's SHA-256. Do not override
+`SMOLVM_LIB_DIR`. The [Cloud profile](#smol-cloud) uses the same Harbor provider
+through the Smol Cloud API and needs no local hypervisor.
 Smol prepares workers and executes agents and graders using immutable OCI images.
 `local-fs-test` supports preparation tests only; retained Docker queues remain
 readable but must be explicitly recompiled as new Smol conditions to run.
@@ -61,8 +62,7 @@ gateway configuration belongs to the operator, not to a frozen task or EBO.
 
 An ordinary Harbor task has `task.toml`, `instruction.md` and `environment/`.
 Use task schema **1.4**. Declare `environment.workdir`, such as
-`/workspace`; the agent changes that directory inside the local VM, not a
-lookalike host copy. Multi-step tasks use `[[steps]]` and
+`/workspace`; the agent changes that directory inside the task VM. Multi-step tasks use `[[steps]]` and
 `steps/<name>/instruction.md`. Harbor composes shared and per-step instructions.
 
 ```sh
@@ -273,7 +273,8 @@ setup still runs in each attempt at its normal stage. Verifier files enter
 The public image contains runtime software only. Repository files, prepared
 parents, branch disks and trajectories stay on this computer. Registry privacy
 is relevant only if you choose a private runtime base; authenticated private
-image pulls are not yet qualified with the pinned Smol SDK. Never put credentials
+image pulls are not yet qualified for local machines. The Cloud profile
+[pulls private images](#pull-a-private-image) with a stored credential. Never put credentials
 in frozen contexts, setup scripts or parent state. Harness credentials and
 attempt configuration enter after branching through the worker profile.
 Setup commands have the declared public egress, so their network activity must
@@ -310,7 +311,11 @@ does not erase earlier errors or start a replacement model attempt.
 
 The queue selects the harness. One entry creates one attempt, with no replacement
 attempts or EBO retry loop. Each step gets a fresh native conversation and shares
-the Harbor workspace. The overall wall-clock budget does not reset between steps.
+the Harbor workspace. An explicit coordinator deadline covers the whole trial and does not reset
+between steps. Set `"coordinatorBudget": {}` in a v2 experiment to omit the
+coordinator deadline. The worker and native capture then receive no wall-clock
+limit. Frozen task setup/verifier limits and explicit native harness policies
+remain part of the task condition.
 Resume and imported trajectories fail preflight rather than silently changing
 the experiment.
 
@@ -334,9 +339,275 @@ This runtime profile currently accepts public egress only. No-network image
 import and allowlist networking remain unqualified. Such policies fail before
 creation rather than being broadened. Host-expanded task environment variables,
 GPU/TPU, task MCP services,
-Compose, Cloud and other platforms are also rejected. Worker credential keys
+Compose and other platforms are also rejected. Worker credential keys
 remain the supported injection path. The full image-backed trial gate must pass
 before treating this integration as operationally qualified.
+
+## Smol Cloud
+
+Smol Cloud guests run `linux/amd64`. Freeze the study runtime with the guest
+harness installations for that platform, for example
+`"roleTargets": {"pi-sdk": {"platform": "linux", "architecture": "x64"}}`.
+Harbor and Smol stay host roles in the same lock. `ebo harbor doctor --target cloud`
+checks the host installation only: it performs no network call and provides no
+account, billing or live runtime qualification.
+
+### Build the Cloud guest image
+
+A local Smol VM builds `linux/arm64` worker archives only. For Cloud, the worker
+builder writes an OCI build context, and a native `linux/amd64` builder turns it
+into both the worker archive and the guest image:
+
+```sh
+npm run build
+node scripts/build-harbor-runtime.mjs build/cloud-context \
+  --study study --platform linux/amd64 --context \
+  --node-image <pinned-Node-Linux-amd64-image@sha256:platform-digest>
+```
+
+The context holds a `Dockerfile`, `build-worker.sh`, EBO's built coordinator,
+the study lock with its `linux-x64` installations, the pinned npm release and
+`context.json`. That receipt records the study lock digest, platform, Node image,
+Node and npm versions, the npm artifact, `baseImageDigest` (the Node image) and
+`recipeDigest` (the `Dockerfile` SHA-256). The `worker` stage runs the same
+steps as the local builder and leaves `worker.tgz`, the Node and npm probes and
+the receipt in `/output`. The final stage starts from the same Node image, adds
+Git and CA certificates, and carries the unpacked archive at `/opt/ebo` with its
+digest in `/opt/ebo/runtime.sha256`.
+
+Build both stages on one `linux/amd64` builder so they share the worker layer,
+copy `/output` out of the `worker` stage, and push the final image to a registry
+the guests can pull from. With Docker on the builder:
+
+```sh
+docker build --target worker -t ebo-worker build/cloud-context
+docker build -t <registry>/<repository>:<tag> build/cloud-context
+id=$(docker create ebo-worker) && docker cp "$id:/output" build/cloud-output && docker rm "$id"
+docker push <registry>/<repository>:<tag>
+```
+
+A hosted build service can run the same three steps and store `/output` as build
+artifacts. Record the pushed **platform-specific manifest digest**. Then adopt
+the output on the coordinator host:
+
+```sh
+node scripts/build-harbor-runtime.mjs study/config/runtime \
+  --study study --platform linux/amd64 --adopt build/cloud-output \
+  --node-image <the same Node image digest>
+```
+
+Adoption checks the receipt against the selected study lock, platform and Node
+image, the Node and npm probes, and that the archive retains the study lock. It
+writes `worker.tgz`, `worker.json` and `worker-build.json`; the build record's
+`execution` names the external OCI build with its recipe and base image digests.
+Use `runtimeArchiveDigest`, `recipeDigest`, `baseImageDigest` and the pushed
+image digest in the environment manifest. The builder is a trusted input:
+adoption verifies what the archive contains, not which machine produced it.
+Rebuild and adopt again after changing the study lock or EBO build; the image
+and the adopted archive must come from the same build.
+
+### Pull a private image
+
+A registry that requires authentication needs a pull credential stored with
+Smol Cloud for that registry host before the first machine starts. Register a
+short-lived credential (`PUT /v1/registry/credentials` with the registry host,
+a username and a password or access token), create machines from the complete
+image digest, and delete the credential (`DELETE /v1/registry/credentials/{registry}`)
+when no further start needs it. The credential authenticates Smol's nodes, not
+the coordinator; a registry login on the coordinator host has no effect on
+guests. A credential that expires before a later cold start makes that start
+fail with a pull error, which a new image build does not fix. EBO does not
+register or retire registry credentials. Verify the endpoint against the
+current Smol Cloud registry documentation before use.
+
+The worker layer is about 2.5 GB unpacked, so the first start on a node pulls
+for several minutes. That pull can outlast the node's start deadline: machine
+creation then fails with a retryable `503`, the SDK removes the machine, and the
+owner stops with the allocation recorded as `submitting` and the receipt
+`cleanup-pending`. The pull continues on the node. Confirm through the Cloud
+machine inventory that the named machine is absent, set that allocation intent's
+`state` to `reconciled-absent` in the owner receipt, and start the owner again
+with `--resume`. A start from the node's cache takes seconds. EBO does not
+repeat an allocation by itself after an ambiguous response.
+
+### Cloud environment manifest
+
+Use a v2 environment manifest with the existing task image bindings:
+
+```json
+{
+  "schemaVersion": "ebo.smol-environments/v2",
+  "target": "cloud",
+  "platform": "linux/amd64",
+  "cloud": {
+    "baseUrl": "https://api.smolmachines.com",
+    "tokenEnv": "SMOL_CLOUD_TOKEN"
+  },
+  "runtimeArchiveDigest": "<runtime archive SHA-256>",
+  "tasks": {
+    "<frozen task source ID>": {
+      "agent": {
+        "image": "<registry/image@sha256:platform-specific-digest>",
+        "recipeDigest": "<build recipe SHA-256>",
+        "baseImageDigest": "<base image SHA-256>"
+      }
+    }
+  }
+}
+```
+
+Export the Cloud control token only in the coordinator environment. EBO rejects
+its inclusion in the worker's `environmentKeys`. Provider credentials selected
+for the candidate remain a separate worker allowlist. Build the runtime with the manifest's `--platform` and bind a matching
+image digest. Parent preparation checks the actual guest architecture before
+running setup. Registry access and architecture capacity need live qualification.
+EBO does not infer account identity from a token's presence.
+
+The foreground parent owner and attempt coordinators must share one durable
+filesystem and OS lock domain. They can run on a remote coordinator. This profile
+moves task VMs to Cloud; it does not distribute the Harbor coordinator across
+hosts. Keep its study files, requests, receipts and logs on persistent storage.
+After coordinator loss, jobs and guest evidence remain recoverable through their
+owned machine IDs. An active Harbor trial cannot be resumed by restarting its
+command. Recovery retrieves the existing job and evidence without running agents
+or graders again.
+
+Cloud harness and parent setup commands also use native jobs. The owner receipt's
+`preparationJobs` entries retain submission intent, machine/job IDs and output
+receipt paths. Output is fsynced with byte offsets. An uncertain submission,
+disconnection or lost job retains the affected machine and its ancestors. Inspect
+the native job inventory and reconcile setup receipts before ancestor cleanup;
+worker `job recover` commands below apply to worker evidence retrieval.
+
+Cloud workers use the SDK's detached jobs API. Before submission, EBO writes a
+submission intent; it then records the accepted job ID, boot identity and output
+byte offsets. Receipts and transport logs live beside the retrieved step in
+`steps/<index>-cloud-job/`. These control files are outside the downloaded guest
+content. Output is appended and fsynced while the client is connected. Cloud
+retains output while it is disconnected. An absent coordinator deadline leaves
+the job timeout unset. An explicit deadline or cancellation stops the owned job;
+a connection error retains the machine for recovery.
+
+```sh
+# Snapshot existing output, or retrieve a terminal job's evidence.
+ebo harbor job recover study /durable/attempt/steps/1-cloud-job/smol-job.json
+# Explicitly cancel the existing job, retrieve evidence, then delete its VM.
+ebo harbor job recover study /durable/attempt/steps/1-cloud-job/smol-job.json --cancel --delete
+```
+
+Recovery runs under the study's frozen Harbor and Smol runtime and accepts only
+receipts of that study's preparations. It reconnects the original worker job. Separate native jobs package its retained files for transfer; they do not rerun the worker. If submission lost its response before the ID
+was saved, inspect the recorded machine's native `jobs()` inventory and reconcile
+the original ID in the receipt. Do not rerun the attempt. Recovery records boot
+continuity and any restart gap, uses Harbor's archive extraction with durable packaging jobs and 64 MiB transfer chunks, and leaves missing native terminal
+capture explicit. It does not convert a partial attempt into a completed or
+qualified trial. A lost job can yield partial files without a native terminal.
+A running job is retained unless explicitly canceled; a failed transfer prevents
+deletion. Recovery serializes receipt updates with an exclusive OS lock and refuses to
+race a live Trial coordinator. Archive retrieval shares an owner lock to keep large transfers from exhausting coordinator memory. Declared workspace directory exclusions also apply to the worker's temporary comparison baseline during Cloud transfer, with a retained policy receipt; native bundles transfer intact.
+
+A Cloud branch takes its image identity from its machine record, which names the
+source image reference. EBO compares that reference with the frozen binding. The
+SDK cannot pull an image inside a Cloud guest, so the image config digest is
+recorded as absent on Cloud, and so is the local `libkrunSha256`. The OpenHands
+task-guest boundary requires both values and is not available on Cloud.
+
+Borrowers serialize the readiness check and native fork creation per prepared parent. A warm source can temporarily report unready while Smol snapshots it; EBO waits while its owner remains alive. Stopped sources fail the warm-parent check. Trial children execute in parallel after branching.
+
+Cloud child and parent deletion requests settled usage through
+`delete(include_usage=True)`. Usage and cleanup failures remain in the job or
+owner receipt and child event journal. Retained machines can continue accruing
+charges. Inspect these receipts and the Cloud console when cleanup is pending;
+a command exit does not certify that billing stopped.
+
+Before running a study, verify the selected tenant and billing account in Cloud,
+then qualify the frozen tasks' image, setup, worker, verifier, evidence retrieval,
+job recovery and cleanup paths. Any host recorder must be reachable from the
+Cloud guest through its approved remote endpoint; a laptop loopback address is
+not a remote service. Qualify Docker inside a guest only for tasks that need it.
+The Docker daemon's data root must use persistent guest storage. Campaign hold
+and launch approval belong to the study operations files.
+
+## Hierarchical image families
+
+Use `ebo.smol-environments/v3` for a shared image followed by prepared harness
+parents and isolated trial children. Each compatible family has one OCI image.
+The coordinator creates one meta-parent per used family, branches a parent for
+each task/harness preparation, and lets the official Harbor provider branch the
+trial children. Separate graders branch from a clean meta-parent and share their
+prepared parent across harness conditions when their full identities match.
+
+```json
+{
+  "schemaVersion": "ebo.smol-environments/v3",
+  "target": "cloud",
+  "platform": "linux/amd64",
+  "cloud": {
+    "baseUrl": "https://api.smolmachines.com",
+    "auth": "cli"
+  },
+  "runtimeArchiveDigest": "<worker archive SHA-256>",
+  "families": {
+    "node-bookworm-amd64": {
+      "image": "<private registry/meta-image@sha256:platform-digest>",
+      "recipeDigest": "<meta-image recipe SHA-256>",
+      "baseImageDigest": "<base image SHA-256>"
+    }
+  },
+  "harnesses": {
+    "pi-sdk": {"families": ["node-bookworm-amd64"]},
+    "codex-app-server": {
+      "families": ["node-bookworm-amd64"],
+      "setupRef": {
+        "locator": "config/prepare-codex.sh",
+        "digest": {"algorithm": "sha256", "value": "<script SHA-256>"}
+      }
+    }
+  },
+  "tasks": {
+    "<frozen task source ID>": {
+      "agent": {"family": "node-bookworm-amd64"},
+      "graders": {"single": {"family": "node-bookworm-amd64"}}
+    }
+  }
+}
+```
+
+The image contains common runtimes and pinned harness distributions. A harness
+`setupRef` is optional trusted preparation code, resolved from the study bundle
+and checked by digest before any VM allocation. It runs only in that harness's
+prepared parent, without the coordinator's environment. Preparation must stay
+free of candidate sessions, model calls, credentials and hidden grader data.
+The task binding may select `localSetup`, using the same frozen-context contract
+as the direct-parent profile. The meta-parent receives neither task setup nor
+harness preparation. No derived harness image needs publication to the registry.
+
+A compatible family shares CPU architecture, OS/runtime prerequisites, resource
+requirements and network policy. EBO checks the selected task environments before
+allocation and rejects conflicting resources or network conditions within one
+family. Declare another family when those requirements differ. Each task and
+harness remains part of its prepared parent's identity; model/provider/config
+variants share that parent and receive their attempt configuration after branching.
+
+`auth: "cli"` explicitly reuses the Smol SDK's `smol auth login` session.
+Keep `SMOL_CLOUD_TOKEN` unset in this mode so an ambient token cannot replace that
+session. Expired sessions fail with the SDK's login guidance. For unattended
+work, select `tokenEnv` instead of `auth`; its worker allowlist exclusion remains
+enforced. CLI session credentials are never copied into the image or guest.
+
+Receipts record durable Cloud IDs for meta-parents, harness/grader parents and
+trial children. Display names are retained only as allocation intent labels.
+A lost branch response leaves the lineage `cleanup-pending` for reconciliation;
+it never creates a replacement image or another trial. Teardown deletes
+descendants before ancestors and retains ancestors after a failed or ambiguous
+child deletion. Settled usage remains attached to each deletion receipt.
+
+Cloud placement is verified against the family architecture. Ready Cloud VMs
+can report `started`; EBO also checks readiness and the recorded boot identity.
+Cloud branches are node-local, so node capacity and account quotas apply to the
+whole preparation tree. This profile keeps prepared ancestors running; frozen
+ancestor optimization is not enabled. It imposes no new trial duration or budget
+limit, and does not upgrade the account plan automatically.
 
 ## Inspect and evaluate
 

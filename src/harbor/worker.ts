@@ -23,7 +23,7 @@ export type HarborWorkerInput = {
   queueBinding?: {studyFreeze: import("../study-runtime-bindings.js").StudyFreeze; sourceRunId: string};
   prepared: PreparedHarborExecution; configuration: HarborHarnessConfigurationReferences;
   configurationRoot: string; instruction: string; stepIndex: number; workspacePath: string;
-  outputRoot: string; maxWallClockMs: number;
+  outputRoot: string; maxWallClockMs?: number;
 };
 function configuration<T>(root: string, ref: ArtifactReference): T {
   const text = resolveBundleConfiguration(root, ref).toString("utf8");
@@ -100,7 +100,7 @@ async function runHarborWorkerOwned(input: HarborWorkerInput, executor?: HarborH
   const outputRoot = resolve(input.outputRoot), workspace = resolve(input.workspacePath);
   const relation = relative(workspace, outputRoot);
   if ((relation !== ".." && !relation.startsWith("../")) || workspace === "/") throw new Error("Worker evidence must be outside the candidate workspace.");
-  if (!Number.isSafeInteger(input.maxWallClockMs) || input.maxWallClockMs < 1) throw new Error("Invalid worker budget.");
+  if (input.maxWallClockMs !== undefined && (!Number.isSafeInteger(input.maxWallClockMs) || input.maxWallClockMs < 1)) throw new Error("Invalid worker budget.");
   const originalStep = input.prepared.steps.find(step => step.index === input.stepIndex);
   if (!originalStep) throw new Error("Worker step is not declared by the frozen task.");
   const digest = digestBytes(Buffer.from(input.instruction));

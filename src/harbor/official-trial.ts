@@ -84,7 +84,7 @@ async function runOfficialHarborTrialOwned(input: OfficialHarborTrialInput): Pro
   const request = {
     ...condition, frozenPythonVersions: Object.fromEntries(host.probes.filter((probe) => probe.source === "package-metadata").map((probe) => [probe.package, probe.actualVersion])), smolEvents: join(root, "harbor", "smol-events.jsonl"),
     taskPath: prepared.task.snapshotDirectory, attemptId, trialsDir: join(root, "harbor", "trials"),
-    model: entry.modelId, verified: prepared.verifier.requested, budgetMs: prepared.budget.coordinatorWallClockMs,
+    model: entry.modelId, harnessId: entry.harnessId, verified: prepared.verifier.requested, budgetMs: prepared.budget.coordinatorWallClockMs,
     build: "ebo-harbor-smol-v1", nativeRoot, openhandsGuest: resolveHarnessRuntimeRole(input.studyRoot, prepared.run.harnessId, configuration.harness) === "openhands-agent-server",
     runtime: { ...runtime, archiveDigest: digestBytes(archive).value }, configurationFiles,
     workerInput: { prepared, configuration, configurationRoot: "/tmp/ebo-worker/config", runtimeLock: {studyRoot: "/opt/ebo/study", digest: runtimeLock.digest}, ...(host.studyFreeze && host.sourceRunId ? {queueBinding: {studyFreeze: host.studyFreeze, sourceRunId: host.sourceRunId}} : {}) },
@@ -191,7 +191,7 @@ async function attachHarborEvidence(bundle: string, content: unknown): Promise<v
   await writeMetadataAtomically(bundle, "manifest.json", manifest);
 }
 
-export async function invokeTrial(python: string, script: string, request: string, signal: AbortSignal | undefined, budget: number): Promise<{ stdout: string; stderr: string; code: number | null; interrupted: boolean }> {
+export async function invokeTrial(python: string, script: string, request: string, signal: AbortSignal | undefined, budget?: number): Promise<{ stdout: string; stderr: string; code: number | null; interrupted: boolean }> {
   return new Promise((done) => {
     const out = openSync(join(dirname(script), "result.json"), "wx", 0o600);
     const err = openSync(join(dirname(script), "stderr.log"), "wx", 0o600);
@@ -202,28 +202,26 @@ export async function invokeTrial(python: string, script: string, request: strin
       try { if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGKILL"); else child.kill("SIGKILL"); } catch { /* Already exited. */ }
     };
     const stop = () => { if (interrupted) return; interrupted = true; child.kill("SIGTERM"); force = setTimeout(killGroup, 60_000); };
-    const timer = setTimeout(stop, Math.min(budget + 60_000, 2_147_483_647));
+    const timer = budget === undefined ? undefined : setTimeout(stop, Math.min(budget + 60_000, 2_147_483_647));
     signal?.addEventListener("abort", stop, { once: true });
     if (signal?.aborted) stop();
     const retain = (fd: number, limit: number, append: (text: string) => void) => {
-      let retained = 0;
       const decoder = new StringDecoder("utf8");
       return (chunk: Buffer) => {
-        const bytes = chunk.subarray(0, Math.max(0, limit - retained));
+        const bytes = chunk;
         try {
           for (let offset = 0; offset < bytes.length;) {
             const written = writeSync(fd, bytes, offset, bytes.length - offset);
             if (written === 0) throw new Error("Harbor evidence write made no progress.");
             offset += written;
           }
-          retained += bytes.length;
-          append(decoder.write(bytes));
-          if (bytes.length < chunk.length) stop();
+          // Retain all bytes on disk; keep only a bounded tail in memory.
+          append(decoder.write(bytes).slice(-limit));
         } catch { stop(); }
       };
     };
-    const retainOut = retain(out, 64 * 1024 * 1024, text => { stdout += text; });
-    const retainErr = retain(err, 4 * 1024 * 1024, text => { stderr += text; });
+    const retainOut = retain(out, 64 * 1024 * 1024, text => { stdout = (stdout + text).slice(-64 * 1024 * 1024); });
+    const retainErr = retain(err, 4 * 1024 * 1024, text => { stderr = (stderr + text).slice(-4 * 1024 * 1024); });
     child.stdout.on("data", retainOut);
     child.stderr.on("data", retainErr);
     let closed = false;

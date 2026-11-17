@@ -49,7 +49,7 @@ export type ExperimentConfigurationV2 = {
     nativeToolPolicyRef: ArtifactReference;
   }>;
   trialCount: number;
-  coordinatorBudget: { maxWallClockMs: number };
+  coordinatorBudget: { maxWallClockMs?: number };
   captureProfile: ArtifactReference;
   ordering: ExperimentOrdering;
   execution?: {
@@ -104,7 +104,7 @@ export type RunQueueV2 = {
   experimentDigest: Digest;
   schedulingDigest: Digest;
   captureProfile: ArtifactReference;
-  coordinatorBudget: { maxWallClockMs: number };
+  coordinatorBudget: { maxWallClockMs?: number };
   execution: {
     environmentProfile: HarborExecutionProfile;
     workerRef?: ArtifactReference;
