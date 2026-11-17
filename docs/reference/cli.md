@@ -155,6 +155,18 @@ ebo monitor <campaign-status.json> [--port <port>] [--interval <ms>]
 `--interval` milliseconds (default 2000, minimum 250). It reads the runner's `ebo.campaign-status/v1` file and the
 attempts' run bundles read-only (see the [run monitor guide](../guides/run-monitor.md)).
 
+## Open Responses wire evidence
+
+```sh
+ebo open-responses record <recording-root> <route-id> --upstream <base-url> --upstream-key-env <NAME> --route-key-env <NAME> [--endpoint <responses|chat/completions>] [--model <id>] [--host <address>] [--port <port>]
+ebo open-responses analyze <recording-root> <output.json> [--schema <openapi.json>]
+```
+
+`record` runs a recording proxy for one attempt route, on loopback by default, until it is signalled. Credentials are read from the
+named environment variables; diagnostics go to stderr and nothing is written to stdout. `analyze` checks a recording
+against the pinned Open Responses 2026-04-24 schema, or the document passed with `--schema`, and writes the report to a
+new file. See [Open Responses through Pi](../harnesses/open-responses.md) for retained files, checks and limits.
+
 ## Operational behavior
 
 - A queue-run command executes one entry and creates a new attempt. It does not

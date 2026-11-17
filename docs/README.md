@@ -35,6 +35,9 @@ the `ebo` command is installed as described in the quickstart.
 [DeepSeek Harness](harnesses/deepseek-harness.md) ·
 [Factory Droid](harnesses/factory-droid.md)
 
+[Open Responses through Pi](harnesses/open-responses.md) covers Responses-style
+endpoints, wire recording and specification conformance analysis.
+
 These guides explain runtime selection, configuration, native evidence and known gaps.
 The [verification guide](reference/harness-verification.md) explains admitted
 probe and capture evidence across all eight harnesses.

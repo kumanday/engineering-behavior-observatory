@@ -8,8 +8,10 @@ import { dirname, join } from "node:path";
 import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
 const test = runtimeTest("pi-sdk");
 const liveTest = liveRuntimeTest("pi-sdk");
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { analyzeOpenResponsesRecording } from "../src/open-responses.js";
+import { createOpenResponsesRecorder } from "../src/open-responses-recorder.js";
 
 import {
   buildCorpusIndex,
@@ -599,6 +601,142 @@ test("production Pi session creation preserves explicit xhigh and max mappings",
   }
 });
 
+test("declared gzip request compression reaches the model route and is retained in the composition", async () => {
+  const requests: Array<{ encoding: string | undefined; declaredBytes: string | undefined; native: Buffer }> = [];
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(chunk as Buffer);
+    const encoding = request.headers["content-encoding"];
+    const body = Buffer.concat(chunks);
+    requests.push({ encoding: encoding as string | undefined, declaredBytes: request.headers["x-ebo-native-body-bytes"] as string | undefined, native: encoding === "gzip" ? gunzipSync(body) : body });
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write(`data: ${JSON.stringify({ id: "chatcmpl-fixture", object: "chat.completion.chunk", created: 1, model: "synthetic-model", choices: [{ index: 0, delta: { role: "assistant", content: "done" }, finish_reason: null }] })}\n\n`);
+    response.write(`data: ${JSON.stringify({ id: "chatcmpl-fixture", object: "chat.completion.chunk", created: 1, model: "synthetic-model", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })}\n\n`);
+    response.end("data: [DONE]\n\n");
+  });
+  await new Promise<void>((resolvePromise) => server.listen(0, "127.0.0.1", resolvePromise));
+  const address = server.address() as AddressInfo;
+  const previous = process.env.PI_SYNTHETIC_API_KEY;
+  process.env.PI_SYNTHETIC_API_KEY = "synthetic-local-test-key";
+  try {
+    for (const requestCompression of ["gzip", undefined] as const) {
+      requests.length = 0;
+      const fixture = createPiFixture({ modelBaseUrl: `http://127.0.0.1:${address.port}/v1`, ...(requestCompression === undefined ? {} : { requestCompression }) });
+      try {
+        const summary = await runPiQueueEntry(fixture);
+        assert.equal(summary.classification, "completed");
+        assert.equal(summary.captureQualification, "qualified");
+        assert.equal(requests.length, 1);
+        assert.equal(requests[0]!.encoding, requestCompression);
+        assert.equal(requests[0]!.declaredBytes, requestCompression === undefined ? undefined : String(requests[0]!.native.byteLength));
+        assert.equal(typeof JSON.parse(requests[0]!.native.toString()).model, "string");
+        const composition = readJsonl(join(summary.bundlePath, "pi-events.jsonl")).find(({ nativeType }) => nativeType === "session_created")!.payload as Record<string, any>;
+        assert.equal(composition.requestEnvironment.requestCompression, requestCompression);
+        assert.equal("requestCompression" in composition.requestEnvironment, requestCompression !== undefined);
+      } finally {
+        rmSync(fixture.parent, { recursive: true, force: true });
+      }
+    }
+  } finally {
+    if (previous === undefined) delete process.env.PI_SYNTHETIC_API_KEY;
+    else process.env.PI_SYNTHETIC_API_KEY = previous;
+    await new Promise<void>((resolvePromise, reject) => server.close((error) => error === undefined ? resolvePromise() : reject(error)));
+  }
+});
+
+test("Pi Responses traffic through the wire recorder replays tool results and passes conformance analysis", async () => {
+  // Authored from the Open Responses shapes with synthetic values: one tool round, then a final message.
+  const responseObject = (id: string, status: string, output: unknown[]) => ({
+    id, object: "response", created_at: 1, completed_at: status === "completed" ? 2 : null, status, incomplete_details: null,
+    model: "synthetic-model", previous_response_id: null, instructions: null, output, error: null, tools: [], tool_choice: "auto",
+    truncation: "disabled", parallel_tool_calls: true, text: { format: { type: "text" } }, top_p: 1, presence_penalty: 0, frequency_penalty: 0,
+    top_logprobs: 0, temperature: 1, reasoning: null,
+    usage: status === "completed" ? { input_tokens: 10, output_tokens: 5, total_tokens: 15, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } : null,
+    max_output_tokens: null, max_tool_calls: null, store: false, background: false, service_tier: "default", metadata: {}, safety_identifier: null, prompt_cache_key: null,
+  });
+  const upstreamRequests: Array<Record<string, any>> = [];
+  const upstream = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(chunk as Buffer);
+    assert.equal(request.headers["content-encoding"], undefined);
+    assert.equal(request.headers.authorization, "Bearer synthetic-upstream-credential");
+    upstreamRequests.push(JSON.parse(Buffer.concat(chunks).toString()));
+    const id = `resp_synthetic_${upstreamRequests.length}`;
+    let sequence = 0;
+    const emit = (event: Record<string, unknown>) => response.write(`event: ${String(event.type)}\ndata: ${JSON.stringify({ ...event, sequence_number: sequence++ })}\n\n`);
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    emit({ type: "response.created", response: responseObject(id, "in_progress", []) });
+    let item: Record<string, unknown>;
+    if (upstreamRequests.length === 1) {
+      const args = JSON.stringify({ path: "result.txt", content: "done\n" });
+      item = { type: "function_call", id: "fc_synthetic_1", call_id: "call_synthetic_1", name: "write", arguments: "", status: "in_progress" };
+      emit({ type: "response.output_item.added", output_index: 0, item });
+      emit({ type: "response.function_call_arguments.delta", item_id: item.id, output_index: 0, delta: args });
+      emit({ type: "response.function_call_arguments.done", item_id: item.id, output_index: 0, arguments: args });
+      item = { ...item, arguments: args, status: "completed" };
+    } else {
+      const part = { type: "output_text", text: "Synthetic final answer.", annotations: [], logprobs: [] };
+      item = { type: "message", id: "msg_synthetic_1", status: "in_progress", role: "assistant", content: [] };
+      emit({ type: "response.output_item.added", output_index: 0, item });
+      emit({ type: "response.content_part.added", item_id: item.id, output_index: 0, content_index: 0, part: { ...part, text: "" } });
+      emit({ type: "response.output_text.delta", item_id: item.id, output_index: 0, content_index: 0, delta: part.text, logprobs: [] });
+      emit({ type: "response.output_text.done", item_id: item.id, output_index: 0, content_index: 0, text: part.text, logprobs: [] });
+      emit({ type: "response.content_part.done", item_id: item.id, output_index: 0, content_index: 0, part });
+      item = { ...item, status: "completed", content: [part] };
+    }
+    emit({ type: "response.output_item.done", output_index: 0, item });
+    emit({ type: "response.completed", response: responseObject(id, "completed", [item]) });
+    response.end();
+  });
+  await new Promise<void>((resolvePromise) => upstream.listen(0, "127.0.0.1", resolvePromise));
+  const recordingRoot = mkdtempSync(join(tmpdir(), "ebo-pi-open-responses-"));
+  const recorder = createOpenResponsesRecorder({ root: recordingRoot, upstreamCredential: "synthetic-upstream-credential", upstreamBaseUrl: `http://127.0.0.1:${(upstream.address() as AddressInfo).port}/v1` });
+  const previous = process.env.PI_SYNTHETIC_API_KEY;
+  process.env.PI_SYNTHETIC_API_KEY = recorder.register({ id: "pi-responses", endpoint: "responses", model: "synthetic-model" });
+  const fixture = createPiFixture({ modelApi: "openai-responses", requestCompression: "gzip", modelBaseUrl: `http://127.0.0.1:${await recorder.listen()}/attempt/pi-responses/v1` });
+  try {
+    const summary = await runPiQueueEntry(fixture);
+    await recorder.drain();
+    assert.equal(summary.classification, "completed");
+    assert.equal(summary.captureQualification, "qualified");
+    assert.equal(upstreamRequests.length, 2);
+    assert.ok(upstreamRequests[1]!.input.some((item: Record<string, unknown>) => item.type === "function_call_output" && item.call_id === "call_synthetic_1"));
+    const receipts = ["000001", "000002"].map((name) => JSON.parse(readFileSync(join(recordingRoot, "pi-responses", name, "receipt.json"), "utf8")));
+    assert.deepEqual(receipts.map(({ request, terminal }) => [request.contentEncoding, terminal]), [["gzip", "response.completed"], ["gzip", "response.completed"]]);
+    const { interoperability, conformance, requests } = analyzeOpenResponsesRecording(recordingRoot).routes["pi-responses"]!;
+    assert.deepEqual(interoperability.toolResultReplay, { checked: 1, notApplicable: 1, unavailable: 0, missingToolResults: 0 });
+    assert.deepEqual([interoperability.terminals, interoperability.httpErrors, interoperability.transportErrors], [{ "response.completed": 2 }, 0, 0]);
+    assert.deepEqual([conformance.checked, conformance.terminalResponsesChecked, conformance.responseSchemaViolations, conformance.eventSchemaViolations, conformance.sseEventNameDeviations, conformance.sequenceGaps],
+      [2, 2, 0, 0, 0, 0]);
+    assert.deepEqual(requests.map((request) => request.state === "finished" ? request.request : null), [
+      { store: false, continuesStoredResponse: false }, { store: false, continuesStoredResponse: false },
+    ]);
+  } finally {
+    if (previous === undefined) delete process.env.PI_SYNTHETIC_API_KEY;
+    else process.env.PI_SYNTHETIC_API_KEY = previous;
+    await recorder.close();
+    await new Promise<void>((resolvePromise) => upstream.close(() => resolvePromise()));
+    rmSync(fixture.parent, { recursive: true, force: true });
+    rmSync(recordingRoot, { recursive: true, force: true });
+  }
+});
+
+test("Pi harness configuration accepts only gzip request compression", () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-pi-compression-"));
+  try {
+    const harness = JSON.parse(readFileSync("test/fixtures/pi/configs/harness.json", "utf8"));
+    for (const requestCompression of ["gzip", "zstd", true, null]) {
+      const bytes = Buffer.from(JSON.stringify({ ...harness, requestCompression }));
+      writeFileSync(join(root, "harness.json"), bytes);
+      const resolve = () => resolvePiConfigurationRecord(root, { locator: "harness.json", digest: digestBytes(bytes) }, "harness");
+      if (requestCompression === "gzip") assert.equal(resolve().requestCompression, "gzip");
+      else assert.throws(resolve, /requestCompression must be gzip/u);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("fails closed when a declared digest-pinned skill is not loadable", async () => {
   const fixture = createPiFixture({ malformedSkill: true });
   try {
@@ -832,6 +970,8 @@ function createPiFixture(options: {
   reasoning?: boolean;
   malformedSkill?: boolean;
   modelBaseUrl?: string;
+  requestCompression?: "gzip";
+  modelApi?: "openai-responses";
   declaredToolExtension?: boolean;
   extensionImport?: boolean;
 } = {}): PiFixture {
@@ -896,6 +1036,8 @@ if (value !== "done") process.exitCode = 1;
   records.model.reasoning = options.reasoning ?? records.model.reasoning;
   records.model.baseUrl = options.modelBaseUrl ?? records.model.baseUrl;
   records.limits.shutdownGraceMs = options.shutdownGraceMs ?? records.limits.shutdownGraceMs;
+  if (options.requestCompression !== undefined) records.harness.requestCompression = options.requestCompression;
+  if (options.modelApi !== undefined) records.model.api = options.modelApi;
   if (["xhigh", "max"].includes(records.model.thinkingLevel)) {
     records.model.thinkingLevelMap = { [records.model.thinkingLevel]: records.model.thinkingLevel };
   }

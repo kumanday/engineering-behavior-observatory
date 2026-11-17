@@ -14,6 +14,9 @@ different tools or context policies is a different experimental condition.
 | [DeepSeek Harness](deepseek-harness.md) | Source-specific library API | Durable events, lifecycle, runtime/plugin composition | Prompt response is enqueue acknowledgement; documented status/events determine completion |
 | [Factory Droid](factory-droid.md) | `ebo factory run` | Owned native JSON-RPC child through the official SDK, with recording before validation | Complete child histories, model-request internals and OTLP unsupported; live routes require qualification |
 
+Pi can also run against a Responses-style endpoint. [Open Responses through Pi](open-responses.md)
+covers that route, the wire recorder and the conformance analyzer.
+
 All eight have retained-evidence paths for normalization and behavioral analysis.
 That does not mean their capabilities are identical or every provider route is
 live-qualified. Consult the [release support record](../../release/0.2.1/KNOWN_LIMITATIONS.md)
