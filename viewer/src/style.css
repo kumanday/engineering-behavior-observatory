@@ -166,7 +166,7 @@ table.grid { border-collapse: separate; border-spacing: 2px; font-variant-numeri
 .oc-absent { --oc: var(--div-mid); --oc-border: var(--text-muted); }
 .oc-unknown { --oc: transparent; --oc-border: var(--text-muted); }
 .sw.oc-present, .sw.oc-absent, .sw.oc-unknown { background: var(--oc); border: 1px solid var(--oc-border, transparent); }
-.mxt tr.fam th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-secondary); background: var(--surface-1); }
+.mxt tr.mx-family th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-secondary); background: var(--surface-1); }
 .sbar { display: flex; gap: 2px; height: 10px; margin-bottom: 4px; min-width: 120px; }
 .sb { border-radius: 2px; background: var(--oc); border: 1px solid var(--oc-border, transparent); }
 .mxt td.mx { min-width: 170px; cursor: pointer; background: var(--surface-2); border: 1px solid var(--border); }
