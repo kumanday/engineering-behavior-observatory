@@ -142,7 +142,24 @@ execution/capture/assessment identities and the selected corpus. It requires no
 Python or fetched code. Structural Atlas generation can consume the selected
 `corpus/` through the ordinary imported-evidence path.
 
+To show the leaderboard's task names, trial names and outcomes in
+Atlas, add a `leaderboard` reference to the Atlas bundle request:
 
+```json
+{
+  "leaderboard": {
+    "store": "../leaderboard-store",
+    "cohortId": "sha256:COHORT_DIGEST"
+  }
+}
+```
+
+The store path is relative to the request. Atlas reopens the verified cohort
+and applies those labels only to imports with matching manifest bytes.
+Labels are shown when the source records agree; differing verdicts appear as
+`mixed`. The leaderboard verdict stays separate from EBO's run status and
+behavior assessments. For tasks with no elapsed timing, swimlanes show recorded
+action order on the Steps axis.
 Acquisition contexts are content-addressed separately from cohort identity.
 They are retained before cohort completion and verified during readback. One
 cohort supports up to 128 contexts and 32 MiB of context receipt bytes. A new

@@ -12,7 +12,7 @@ import { describable, provide, register, run, target } from "./registry";
 
 export interface LaneMeta {
   attempt_id: string; task_id: string | null; condition: string; trial_id: string | null; harness_id: string; model_id: string;
-  terminal_state: string | null; failure_class: string | null; capture_qualification: string; t_start_ms: number | null; t_end_ms: number | null;
+  terminal_state: string | null; failure_class: string | null; capture_qualification: string; source_outcome?: string; t_start_ms: number | null; t_end_ms: number | null;
   units: number; tools: number; errors: number | null; compactions: number; cited_units: number;
   usage_semantics: "per-turn" | "per-turn (native)" | "final-only" | "none"; tokens_total: number | null; cost_usd: number | null; context_max: number | null;
 }
@@ -62,7 +62,7 @@ const ROW = { msg: [2, 8], tool: [11, 29], ribbon: [31, 42], mark: [44, 54] } as
 
 export class SwimlanesPanel {
   private task: string | null;
-  private axis: "time" | "step" = "time";
+  private axis: "time" | "step";
   private zoom = 1;
   private ribbon: "context" | "cumulative" | "off" = "context";
   private armFilter = "all";
@@ -86,17 +86,18 @@ export class SwimlanesPanel {
               private onHighlight: (ids: number[] | null) => void) {
     this.tasks = [...new Set(data.attempts.map((a) => a.task_id))].sort();
     this.task = this.tasks[0] ?? null;
+    this.axis = this.hasElapsedTime() ? "time" : "step";
     this.tip = document.createElement("div");
     this.tip.className = "tip"; this.tip.hidden = true;
     document.body.appendChild(this.tip);
     new ResizeObserver(() => { if (this.units.length && this.mode === "lanes") this.drawPlot(); }).observe(root);
     const obj = (properties: Record<string, unknown>, required = Object.keys(properties)) => ({ type: "object", required, properties, additionalProperties: false });
     register<{ task: string | null }>({ name: "setLaneTask", description: "Show the swimlanes of one task.", args: obj({ task: { enum: this.tasks } }),
-      run: async ({ task }) => { this.task = task; this.picked = []; this.mode = "lanes"; if (this.armFilter !== "all" && !this.arms().includes(this.armFilter)) this.armFilter = "all"; await this.load(); return `Swimlanes show task ${task}.`; } });
+      run: async ({ task }) => { this.task = task; if (!this.hasElapsedTime()) this.axis = "step"; this.picked = []; this.mode = "lanes"; if (this.armFilter !== "all" && !this.arms().includes(this.armFilter)) this.armFilter = "all"; await this.load(); return `Swimlanes show task ${task}.`; } });
     register<{ arm: string }>({ name: "setLaneArm", description: "Show one arm's attempts (or all arms).", args: obj({ arm: { type: "string" } }),
       run: ({ arm }) => { this.armFilter = arm; this.render(); return `Swimlanes show ${arm === "all" ? "all arms" : arm}.`; } });
     register<{ axis: "time" | "step" }>({ name: "setLaneAxis", description: "Lay lanes out by elapsed time or by action order.", args: obj({ axis: { enum: ["time", "step"] } }),
-      run: ({ axis }) => { this.axis = axis; this.render(); return `Swimlane axis: ${axis}.`; } });
+      run: ({ axis }) => { this.axis = this.hasElapsedTime() ? axis : "step"; this.render(); return `Swimlane axis: ${this.axis}.`; } });
     register<{ ribbon: "context" | "cumulative" | "off" }>({ name: "setLaneRibbon", description: "Token ribbon: context per request, cumulative tokens, or off.", args: obj({ ribbon: { enum: ["context", "cumulative", "off"] } }),
       run: ({ ribbon }) => { this.ribbon = ribbon; this.render(); return `Token ribbon: ${ribbon}.`; } });
     register<{ zoom: number }>({ name: "setLaneZoom", description: "Horizontal zoom of the swimlanes (1-24).", args: obj({ zoom: { type: "integer", minimum: 1, maximum: 24 } }),
@@ -124,11 +125,15 @@ export class SwimlanesPanel {
       apply: async (st: { task: string | null; arm: string; axis: "time" | "step"; ribbon: "context" | "cumulative" | "off"; zoom: number; mode: "lanes" | "diff" | "totals"; picked: string[];
         cluster: { id: number; label: string } | null; row: number | null; totals: TotalsState; stretch: number | null }) => {
         const reload = st.task !== this.task || !this.units.length;
-        Object.assign(this, { task: st.task, armFilter: st.arm, axis: st.axis, ribbon: st.ribbon, zoom: st.zoom, mode: st.mode, picked: [...st.picked], focus: st.cluster, totals: { ...st.totals }, stretch: st.stretch });
+        Object.assign(this, { task: st.task, armFilter: st.arm, axis: this.hasElapsedTime(st.task) ? st.axis : "step", ribbon: st.ribbon, zoom: st.zoom, mode: st.mode, picked: [...st.picked], focus: st.cluster, totals: { ...st.totals }, stretch: st.stretch });
         if (reload) await this.load(); else this.render();
         await this.selectUnit(st.row, false);
       } });
     describable("lanes", this);
+  }
+
+  private hasElapsedTime(task = this.task) {
+    return this.data.attempts.some((lane) => lane.task_id === task && (laneDurationMs(lane) ?? 0) > 0);
   }
 
   /** What the swimlanes show: visible attempts with their totals, failures and usage source. */
@@ -137,6 +142,7 @@ export class SwimlanesPanel {
     return {
       summary: `${lanes.length} attempts of task ${this.task}${this.armFilter === "all" ? "" : ` in arm ${this.armFilter}`}, ${this.mode} view, ${this.axis} axis${this.focus ? `, cluster ${this.focus.id} emphasized` : ""}.`,
       data: { task: this.task, arm: this.armFilter, mode: this.mode, lanes: lanes.map((l) => ({ attemptId: l.attempt_id, condition: l.condition, trial: l.trial_id, terminal: l.terminal_state,
+        sourceOutcome: l.source_outcome ?? null,
         durationMs: laneDurationMs(l), tools: l.tools, errors: l.errors, compactions: l.compactions, citedUnits: l.cited_units, failureChains: this.ev?.chainsOf(l.attempt_id).length ?? null,
         usage: l.usage_semantics, tokens: l.tokens_total })) },
     };
@@ -231,14 +237,14 @@ export class SwimlanesPanel {
       <div class="panel-head">
         <div>
           <h2>Swimlanes</h2>
-          <p class="sub">${this.mode === "totals" ? `Totals: all ${this.data.attempts.filter((a) => a.task_id === this.task).length} attempts in every arm (arm filter and cloud selection not applied)` : `${lanes.length} attempts`} · ${esc(this.task ?? "task unavailable")} · ${this.axis === "time" ? "elapsed time from each attempt's first unit" : "action order"}${this.predicate ? " · dimmed outside the cloud selection" : ""}
+          <p class="sub">${this.mode === "totals" ? `Totals: all ${this.data.attempts.filter((a) => a.task_id === this.task).length} attempts in every arm (arm filter and cloud selection not applied)` : `${lanes.length} attempts`} · ${esc(this.task ?? "task unavailable")} · ${this.axis === "time" ? "elapsed time from each attempt's first unit" : this.hasElapsedTime() ? "action order" : "recorded action order · elapsed timing unavailable"}${this.predicate ? " · dimmed outside the cloud selection" : ""}
           ${this.focus ? ` · <span class="chip">cluster: ${esc(this.focus.label.replace(/`/g, ""))} (${focusN}) <button class="chip-x" data-unfocus ${target("clearLaneClusterFocus")} aria-label="Clear cluster focus">×</button></span>` : ""}</p>
         </div>
         <div class="controls">
           <label class="field">Task <select data-task ${target("setLaneTask")}>${this.tasks.map((t) => `<option value="${esc(JSON.stringify(t))}" ${t === this.task ? "selected" : ""}>${esc(t ?? "task unavailable")}</option>`).join("")}</select></label>
           <label class="field">Arm <select data-arm ${target("setLaneArm")}><option value="all">All arms</option>${this.arms().map((a) => `<option ${a === this.armFilter ? "selected" : ""}>${esc(a)}</option>`).join("")}</select></label>
           <div class="seg" role="radiogroup" aria-label="X axis">
-            <button role="radio" aria-checked="${this.axis === "time"}" data-axis="time" ${target("setLaneAxis", "time")}>Time</button><button role="radio" aria-checked="${this.axis === "step"}" data-axis="step" ${target("setLaneAxis", "step")}>Steps</button>
+            <button role="radio" aria-checked="${this.axis === "time"}" data-axis="time" ${this.hasElapsedTime() ? "" : 'disabled title="Elapsed timing unavailable for this task"'} ${target("setLaneAxis", "time")}>Time</button><button role="radio" aria-checked="${this.axis === "step"}" data-axis="step" ${target("setLaneAxis", "step")}>Steps</button>
           </div>
           <label class="field">Ribbon <select data-ribbon ${target("setLaneRibbon")}>${(["context", "cumulative", "off"] as const).map((r) => `<option value="${r}" ${r === this.ribbon ? "selected" : ""}>${r === "context" ? "Context per request" : r === "cumulative" ? "Cumulative tokens" : "Off"}</option>`).join("")}</select></label>
           <label class="field">Zoom <input type="range" min="1" max="24" step="1" value="${this.zoom}" data-zoom ${target("setLaneZoom")} aria-label="Horizontal zoom"></label>
@@ -318,9 +324,12 @@ export class SwimlanesPanel {
         const pickedIdx = this.picked.indexOf(l.attempt_id);
         const tok = esc([typeof l.cost_usd === "number" ? `$${l.cost_usd.toFixed(2)}` : "", typeof l.context_max === "number" && l.context_max ? `ctx ≤${fmtTok(l.context_max)}` : ""].filter(Boolean).join(" · "));
         const tokTitle = `${typeof l.tokens_total === "number" ? fmtTok(l.tokens_total) + " tokens processed" : "no token usage reported"}${typeof l.cost_usd === "number" ? ` · $${l.cost_usd.toFixed(2)}` : ""}${typeof l.context_max === "number" && l.context_max ? ` · largest context of one request ${l.context_max.toLocaleString()}` : ""} · usage source: ${l.usage_semantics}`;
+        const prefix = l.task_id ? `${l.task_id}__` : "";
+        const shortTrial = prefix && l.trial_id?.startsWith(prefix) ? l.trial_id.slice(prefix.length) : l.trial_id;
+        const terminal = l.terminal_state ?? (l.capture_qualification === "imported" ? null : "unavailable");
         labels += `<div class="lane-label ${pickedIdx >= 0 ? "picked" : ""}" style="height:${LANE_H}px" data-lane="${esc(l.attempt_id)}">
           <label class="pick"><input type="checkbox" data-pick="${esc(l.attempt_id)}" ${target("toggleLanePick", l.attempt_id)} ${pickedIdx >= 0 ? "checked" : ""} aria-label="Select ${esc(trialLabel(l.trial_id))} for alignment">${pickedIdx >= 0 ? `<b>${"AB"[pickedIdx]}</b>` : ""}</label>
-          <div class="ll-main"><span class="ll-title">${esc(trialLabel(l.trial_id))}${l.terminal_state !== "completed" ? ` <span class="badge">${esc(l.terminal_state ?? "unavailable")}</span>` : ""} <span class="muted" title="${esc(tokTitle)}">${tok}</span></span>
+          <div class="ll-main"><span class="ll-title"><span title="${esc(trialLabel(l.trial_id))}">${esc(trialLabel(shortTrial))}</span>${terminal && terminal !== "completed" ? ` <span class="badge">${esc(terminal)}</span>` : ""}${l.source_outcome ? ` <span class="muted" title="Third-party Harness Leaderboard verdict">Leaderboard: ${esc(l.source_outcome)}</span>` : ""} <span class="muted" title="${esc(tokTitle)}">${tok}</span></span>
           <span class="ll-meta">${fmtDur(laneDurationMs(l))} · ${num(l.tools)} ${l.capture_qualification === "imported" ? "projected tools" : "tools"} · ${num(l.errors)} err${l.compactions ? ` · <span title="${num(l.compactions)} compactions">┆${num(l.compactions)}</span>` : ""}</span>
           <span class="ll-id" title="${esc(`${l.attempt_id} · cohorts: ${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).join(", ") || "—"} · token usage source: ${l.usage_semantics === "none" ? "none recorded (not zero)" : l.usage_semantics}`)}"><span class="mono">${esc(l.attempt_id.slice(0, 8))}</span>${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).map((c) => ` <span class="coh">${esc(c)}</span>`).join("")} · ${l.usage_semantics === "none" ? "<span class=\"no-usage\">no usage recorded</span>" : `usage: ${esc(l.usage_semantics)}`}</span></div>
           ${this.ev?.audit && this.ev.chainsOf(l.attempt_id).length ? `<button class="icon-btn fail-btn" data-chains="${esc(l.attempt_id)}" ${target("openChains", l.attempt_id)} title="Failure chains: failed calls and the next call of the same tool">✕ ${this.ev.chainsOf(l.attempt_id).length}</button>` : ""}

@@ -19,6 +19,7 @@ import { ATLAS_UNITS_VERSION, deriveUnits, type AtlasUnit } from "./atlas-units.
 import { BEHAVIOR_PRODUCER_MODES, isDecisionModelAssertion, producerLabel, type BehaviorAssertion } from "./behavior-assertions.js";
 import { BEHAVIOR_DIRECTIONS, BEHAVIOR_VERDICTS, behaviorDirection, loadDefaultBehaviorOntology, resolveBehaviorCard } from "./behavior-ontology.js";
 import type { CorpusIndexEntry } from "./corpus.js";
+import { readLeaderboardCohort } from "./leaderboard-import.js";
 import { createRetainedBehaviorEvidence, withRetainedEvidenceReuse, type RetainedEvidenceReuseStats } from "./retained-evidence.js";
 import type { StructuralObservationSet } from "./structural-observations.js";
 import type { UniformEvent } from "./uniform-events.js";
@@ -39,6 +40,8 @@ export type AtlasBundleRequest = {
   title: string;
   /** Cohorts by their Atlas requests (each names an aggregation request). Paths are relative to this request. */
   cohorts: ReadonlyArray<{ id: string; atlasRequest: string }>;
+  /** Verified source labels for matching imports. The store is relative to this request. */
+  leaderboard?: { store: string; cohortId: `sha256:${string}` };
   /** Study arms: a regular expression over each run bundle's directory name with a named group `condition`. */
   condition?: { pattern: string };
   /** Study-authored claims (validated, never generated) and a directory of view specs. */
@@ -289,9 +292,34 @@ export async function buildAtlasBundle(requestPath: string, destination: string,
   }
 }
 
+function leaderboardLabels(base: string, source: AtlasBundleRequest["leaderboard"]) {
+  const labels = new Map<string, { taskId?: string; trialId?: string; outcome?: string }>();
+  if (!source) return labels;
+  const { manifest, corpusIndex, facts } = readLeaderboardCohort(resolve(base, source.store), source.cohortId);
+  const digests = new Map(corpusIndex.filter((entry) => entry.manifestKind === "import").map((entry) => [`corpus/${entry.manifestPath}`, entry.manifestDigest]));
+  const consensus = (values: readonly unknown[]) => {
+    const value = values[0];
+    return typeof value === "string" && value.length > 0 && values.every((other) => other === value) ? value : undefined;
+  };
+  for (const member of manifest.members) {
+    const digest = digests.get(`${member.corpusPath}/manifest.json`);
+    if (!digest || labels.has(digest)) throw new Error("Leaderboard Atlas source must bind each execution to one import manifest.");
+    const ids = new Set(member.factIds);
+    const boundFacts = facts.filter(({ id }) => typeof id === "string" && ids.has(id));
+    const outcomes = [...new Set(member.sourceOutcomes.map(({ outcome }) => outcome))];
+    labels.set(digest, {
+      taskId: consensus(boundFacts.map(({ task }) => task)),
+      trialId: consensus(boundFacts.map(({ trial }) => trial)),
+      outcome: outcomes.length > 1 ? "mixed" : outcomes[0],
+    });
+  }
+  return labels;
+}
+
 async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string, outputRoot: string, sink: TableSink,
   options: { now?: () => Date; embed?: typeof embedTexts }): Promise<AtlasBundleManifest> {
   const base = dirname(resolve(requestPath));
+  const sourceLabels = leaderboardLabels(base, request.leaderboard);
   const condition = request.condition ? new RegExp(request.condition.pattern, "u") : undefined; // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
   const tables: Record<string, Row[]> = Object.fromEntries(Object.keys(ATLAS_TABLES).filter((name) => !STREAMED.has(name)).map((name) => [name, []]));
   const stream = (name: string, row: Row) => sink.push(name, row);
@@ -392,7 +420,9 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   const lanes: { attempts: LaneMeta[]; usage: Record<string, Array<[number, number]>>; context: Record<string, Array<[number, number]>> } = { attempts: [], usage: {}, context: {} };
   const attemptMeta: unknown[] = [];
   const assessmentDocs: unknown[] = [];
-  for (const [attemptId, { entry, bundleRoot, cohorts: memberOf }] of [...attempts].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [attemptId, { entry: corpusEntry, bundleRoot, cohorts: memberOf }] of [...attempts].sort(([a], [b]) => a.localeCompare(b))) {
+    const source = corpusEntry.manifestKind === "import" ? sourceLabels.get(corpusEntry.manifestDigest) : undefined;
+    const entry = source ? { ...corpusEntry, taskId: source.taskId, trialId: source.trialId } : corpusEntry;
     const evidence = await createRetainedBehaviorEvidence(bundleRoot);
     const resolveContent = contentResolver(evidence);
     const derived = deriveUnits({ attemptId, evidenceOrigin: evidence.capture.qualification === "imported" ? "imported" : "owned", events: evidence.dataset.events, occurrences: observationSets.get(attemptId)?.occurrences ?? [],
@@ -460,7 +490,8 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     audits[attemptId] = evidenceDocs.audit;
     writeFileSync(join(outputRoot, "native", `${fileName(attemptId)}.json`), JSON.stringify(evidenceDocs.native));
     const attemptRow = { attempt_id: attemptId, task_id: entry.taskId ?? null, condition: arm, trial_id: entry.trialId ?? null, harness_id: entry.harnessId ?? null,
-      model_id: entry.modelId ?? null, terminal_state: entry.terminalState ?? null, failure_class: entry.failureClass ?? null, capture_qualification: entry.captureQualification ?? null };
+      model_id: entry.modelId ?? null, terminal_state: entry.terminalState ?? null, failure_class: entry.failureClass ?? null, capture_qualification: entry.captureQualification ?? null,
+      ...(source?.outcome === undefined ? {} : { source_outcome: source.outcome }) };
     const lane = laneData(attemptRow, rowsOfAttempt, evidence.dataset.events);
     lane.lane.cited_units = rowsOfAttempt.filter((u) => u.cited && u.unit_kind !== "episode").length;
     lanes.attempts.push(lane.lane);

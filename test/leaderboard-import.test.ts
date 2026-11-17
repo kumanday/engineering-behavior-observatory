@@ -71,6 +71,32 @@ test("identical cohort imports reuse byte-identical capture manifests and one ex
     if (reordered.status === "imported") assert.equal(reordered.cohortId, first.cohortId);
   } finally { f.cleanup(); }
 });
+test("Atlas uses verified leaderboard task and trial labels and keeps source verdicts separate", { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    const cohort = await importLeaderboardCohort(f.request, f.store, python);
+    assert.equal(cohort.status, "imported");
+    if (cohort.status !== "imported") return;
+    const aggregation = join(f.root, "aggregation.json"), atlas = join(f.root, "atlas.json");
+    write(aggregation, { schemaVersion: "ebo.aggregation-request/v2", sources: {
+      corpusRoot: join(cohort.cohortRoot, "corpus"), corpusIndex: join(cohort.cohortRoot, "corpus-index.jsonl"),
+      observationSets: [], assertions: [], calibrations: [],
+    }, groupBy: ["harness"], selectedAttemptPolicy: "all-attempts", evidenceOrigins: "imported", recurrence: { minimumOccurrences: 2 }, comparisons: [] });
+    write(atlas, { schemaVersion: "ebo.atlas-request/v1", title: "Imported test", aggregationRequest: aggregation });
+    const request = join(f.root, "bundle.json"), output = join(f.root, "atlas-bundle");
+    write(request, { schemaVersion: "ebo.atlas-bundle-request/v2", id: "imported-test", title: "Imported test",
+      cohorts: [{ id: "test", atlasRequest: atlas }], leaderboard: { store: f.store, cohortId: cohort.cohortId } });
+    const { buildAtlasBundle } = await import("../src/atlas-bundle.js");
+    await buildAtlasBundle(request, output);
+    const lanes = JSON.parse(readFileSync(join(output, "lanes.json"), "utf8")).attempts;
+    assert.equal(lanes.length, 1);
+    assert.equal(lanes[0].task_id, "adaptive-rejection-sampler");
+    assert.equal(lanes[0].trial_id, "trial-0");
+    assert.equal(lanes[0].source_outcome, "fail");
+    assert.equal(lanes[0].terminal_state, null);
+    assert.equal(lanes[0].capture_qualification, "imported");
+  } finally { f.cleanup(); }
+});
 test("ATIF backfills revise capture data while preserving the execution and earlier cohort", { skip: !python }, async () => {
   const f = fixture();
   try {

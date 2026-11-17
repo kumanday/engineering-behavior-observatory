@@ -26,6 +26,10 @@
         },
         "claims": { "$ref": "#/$defs/path" },
         "views": { "$ref": "#/$defs/path" },
+        "leaderboard": {
+          "type": "object", "additionalProperties": false, "required": ["store", "cohortId"],
+          "properties": { "store": { "$ref": "#/$defs/path" }, "cohortId": { "$ref": "#/$defs/digest" } }
+        },
         "embeddings": {
           "type": "object", "additionalProperties": false,
           "properties": {

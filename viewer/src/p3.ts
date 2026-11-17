@@ -29,7 +29,7 @@ export interface Assessment {
   outcome: string; value: string | null; confidence: number | null; rationale: string | null; alternative: string | null; review: string | null;
   evaluator: string; rubric: string | null; cohorts: Record<string, { included?: boolean; disputed?: boolean; review?: string }>; source: string; citations: Citation[];
 }
-export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; harness_id: string; model_id: string; terminal_state: string | null; failure_class: string | null; cohorts: string[]; bundle: string; native_span_seconds: number | null;
+export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; harness_id: string; model_id: string; terminal_state: string | null; failure_class: string | null; source_outcome?: string; cohorts: string[]; bundle: string; native_span_seconds: number | null;
   native_record_count?: number | null; unmapped_record_count?: number | null; event_count?: number | null; event_types?: Record<string, number>; units?: number; tool_calls?: number }
 interface CertCell { group: Record<string, string>; card: string; family?: string; mode?: string; counts: Record<string, number>; values?: Record<string, number>; denominator: number; assertions: string[]; conditions?: string[] }
 export interface AssessDoc {
@@ -278,6 +278,7 @@ export class Evidence {
       <dl class="kv"><dt>Attempt</dt><dd class="mono small">${esc(m.attempt_id)}</dd><dt>Arm</dt><dd>${esc(m.condition)} (${esc(m.harness_id)} · ${esc(m.model_id)})</dd>
         <dt>Task / trial</dt><dd>${esc(m.task_id ?? "task unavailable")} · ${esc(trialLabel(m.trial_id))}</dd><dt>Cohorts</dt><dd>${esc(m.cohorts.join(", ") || "—")}</dd>
         <dt>Terminal</dt><dd>${esc(m.terminal_state ?? "unavailable")}${m.failure_class && m.failure_class !== "none" ? ` (${esc(m.failure_class)})` : ""}</dd>
+        ${m.source_outcome ? `<dt>Leaderboard verdict</dt><dd>${esc(m.source_outcome)} (third-party)</dd>` : ""}
         <dt>Steps</dt><dd>${num(A.steps)} actions (tool calls + compactions)</dd></dl>
       ${asm.length ? `<p>Judge: ${asm.map((a) => `<button class="link" data-assess="${esc(a.id)}" ${target("openAssessment", a.id)}>${esc(a.card)} ${outChip(a.outcome, a.value)}</button>`).join(" ")}</p>` : ""}
       <h4>Final claims vs captured checks</h4>
