@@ -103,3 +103,5 @@ export {
   type HarborConversionOutcome,
   type HarborConversionReport,
 } from "./convert.js";
+
+export { validateSmolProfile, validateSmolHierarchy, recoverSmolJob, serveSmolEnvironments } from "./smol.js";

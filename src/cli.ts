@@ -90,7 +90,7 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo matrix compile <experiment.json> <bundle-root> <queue.json> [--freeze-locator <task-id>=<path>]
        ebo queue inspect <queue.json>
        ebo queue validate <queue.json> [experiment.json] [--bundle-root <bundle-root>]
-       ebo harbor <inspect|prepare|admit|freeze|status|doctor|compile|convert-legacy|environment|run> ...
+       ebo harbor <inspect|prepare|admit|freeze|status|doctor|compile|convert-legacy|environment|job|run> ...
        ebo v2 inspect <retained-bundle> <new-directory>
        ebo v2 prepare-judge <retained-bundle> <new-directory> <request.json>
        ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...
@@ -1486,8 +1486,9 @@ const harborUsage = `Usage: ebo harbor inspect <task-dir>
        ebo harbor admit <study-root> <task-source-id>
        ebo harbor freeze <study-root> <task-source-id>
        ebo harbor status <study-root> <task-source-id>
-       ebo harbor doctor
-       ebo harbor environment serve <study-root> <queue.json>
+       ebo harbor doctor [--target local|cloud]
+       ebo harbor job recover <study-root> <smol-job.json> [--cancel] [--delete]
+       ebo harbor environment serve <study-root> <queue.json> [--resume]
        ebo harbor compile <study-root> <experiment.json> <queue.json>
        ebo harbor convert-legacy <study-root> <packet-locator> [--destination <dir>] [--image <image>] [--freeze <locator>]
        ebo harbor run <study-root> <queue.json> <run-id> <output-root> [--attempt-id <id>]
@@ -1497,10 +1498,15 @@ async function runHarborCommand(args: string[], write: (message: string) => void
   const command = args[0];
   try {
     switch (command) {
+      case "job": {
+        if (args[1] !== "recover" || !args[2] || !args[3] || args.slice(4).some(arg => !["--cancel", "--delete"].includes(arg))) throw new Error("Usage: ebo harbor job recover <study-root> <smol-job.json> [--cancel] [--delete]");
+        const { recoverSmolJob } = await import("./harbor/smol.js");
+        return await recoverSmolJob(args[2], args[3], { cancel: args.includes("--cancel"), delete: args.includes("--delete") });
+      }
       case "environment": {
-        if (args.length !== 4 || args[1] !== "serve") throw new Error("Usage: ebo harbor environment serve <study-root> <queue.json>");
+        if (![4, 5].includes(args.length) || args[1] !== "serve" || args.length === 5 && args[4] !== "--resume") throw new Error("Usage: ebo harbor environment serve <study-root> <queue.json> [--resume]");
         const { serveSmolEnvironments } = await import("./harbor/smol.js");
-        return await serveSmolEnvironments(args[2]!, args[3]!);
+        return await serveSmolEnvironments(args[2]!, args[3]!, { resume: args[4] === "--resume" });
       }
       case "--help": write(harborUsage); return 0;
       case undefined: {
@@ -1524,7 +1530,9 @@ async function runHarborCommand(args: string[], write: (message: string) => void
         return 0;
       }
       case "doctor": {
-        return await harborDoctor(write);
+        const target = flagValue(args.slice(1), "--target") ?? "local";
+        if (!["local", "cloud"].includes(target)) throw new Error("Unknown Smol target.");
+        return await harborDoctor(write, target);
       }
       case "prepare": {
         if (args[1] === undefined || args[2] === undefined) {
@@ -1575,7 +1583,7 @@ async function harborInspect(taskDir: string, write: (message: string) => void):
   return inspection.classification === "valid" ? 0 : 1;
 }
 
-async function harborDoctor(write: (message: string) => void): Promise<number> {
+async function harborDoctor(write: (message: string) => void, target = "local"): Promise<number> {
   const { createHarborAdapter } = await import("./harbor/adapter.js");
   try {
     const adapter = await createHarborAdapter();
@@ -1589,7 +1597,8 @@ async function harborDoctor(write: (message: string) => void): Promise<number> {
     const info = JSON.parse(stdout) as { smol: string; host: string; bundled: boolean; libkrunSha256: string | null };
     write(`Smol SDK: ${info.smol}; host: ${info.host}; bundled libkrun SHA-256: ${info.libkrunSha256 ?? "missing"}; bundled library selected: ${info.bundled}\n`);
     write("This checks installation only. Environment preparation verifies the frozen library/image bindings; live conformance is separate.\n");
-    return info.host === "Darwin/arm64" && info.bundled && info.libkrunSha256 !== null ? 0 : 1;
+    if (target === "cloud") write("Cloud installation check: no API call, machine allocation, account verification or billing verification performed.\n");
+    return target === "cloud" || info.host === "Darwin/arm64" && info.bundled && info.libkrunSha256 !== null ? 0 : 1;
   } catch (error) {
     write(`${error instanceof Error ? error.message : "Harbor adapter is unavailable."}\n`);
     return 1;

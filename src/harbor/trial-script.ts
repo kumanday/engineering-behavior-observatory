@@ -24,7 +24,7 @@ class EboAgent(BaseAgent):
         super().__init__(*args, **kwargs)
         self.request = ebo_request if isinstance(ebo_request, dict) else json.loads(Path(ebo_request).read_text())
         self.index = 0
-        self.deadline = time.monotonic() + self.request['budgetMs'] / 1000
+        self.deadline = None if self.request.get('budgetMs') is None else time.monotonic() + self.request['budgetMs'] / 1000
 
     @staticmethod
     def name(): return 'ebo-native'
@@ -59,9 +59,9 @@ class EboAgent(BaseAgent):
         payload = json.loads(json.dumps(self.request['workerInput']))
         payload['ownedSmolEnvironment'] = {
             'schemaVersion': 'ebo.smol-owned-task/v1', 'image': environment.ebo_image_identity['reference'], 'imageConfigDigest': environment.ebo_image_identity['configDigest'],
-            'machine': environment._machine.name, 'bootId': await boot_identity(environment._machine),
+            'machine': getattr(environment, 'ebo_child_id', environment._machine.name), 'bootId': await boot_identity(environment._machine),
             'engineVersion': importlib.metadata.version('smolmachines'),
-            'libkrunSha256': self.request['environmentManifest']['libkrunSha256'],
+            'libkrunSha256': self.request['environmentManifest'].get('libkrunSha256'),
         }
         if self.request.get('openhandsGuest'):
             # The VM owner creates one cgroup directory for its root coordinator. Native tools can
@@ -82,7 +82,10 @@ class EboAgent(BaseAgent):
         prepared['verifier'] = {'requested': False, 'environmentMode': None, 'timeoutSec': 0, 'multiStepRewardStrategy': 'mean'}
         prepared['evidence'] = {key: root for key in prepared['evidence']}
         payload.update(instruction=instruction, stepIndex=self.index, workspacePath=workdir,
-                       outputRoot=root, maxWallClockMs=max(1, int((self.deadline-time.monotonic())*1000)))
+                       outputRoot=root)
+        if self.deadline is not None:
+            payload['maxWallClockMs'] = max(1, int((self.deadline-time.monotonic())*1000))
+        else: payload.pop('maxWallClockMs', None)
         with tempfile.TemporaryDirectory(prefix='ebo-worker-input-') as temp:
             source = Path(temp) / 'input.json'
             source.write_text(json.dumps(payload))
@@ -95,21 +98,38 @@ class EboAgent(BaseAgent):
         env['TMPDIR'] = scratch
         # Expose only the explicitly selected credential/route keys, not the host environment.
         command = ' '.join(shlex.quote(v) for v in argv)
-        try:
-            result = await self.worker_exec(environment, command, env=env)
-            target = Path(self.request['nativeRoot']) / str(self.index)
-            target.mkdir(parents=True, exist_ok=True)
-            (target / 'worker-stdio.json').write_text(json.dumps({'stdout': result.stdout, 'stderr': result.stderr, 'returnCode': result.return_code}))
-            if result.return_code: raise RuntimeError('EBO native worker failed; inspect retained step evidence')
-        finally:
-            # A canceled Smol exec may leave the Node process running. Bound its drain
-            # before Harbor destroys the environment; never start a replacement attempt.
-            stop = 'if test -f {r}/worker.pid && ! test -f {r}/worker-finished.json; then p=$(cat {r}/worker.pid); case "$p" in *[!0-9]*|"") exit 1;; esac; kill -TERM "$p" 2>/dev/null || true; for i in $(seq 1 20); do kill -0 "$p" 2>/dev/null || break; sleep 0.5; done; kill -KILL "$p" 2>/dev/null || true; fi'.format(r=shlex.quote(root))
-            try: await asyncio.wait_for(self.worker_exec(environment, stop), timeout=15)
+        target = Path(self.request['nativeRoot']) / str(self.index)
+        target.mkdir(parents=True, exist_ok=True)
+        if environment.ebo_manifest.get('target') == 'cloud':
+            # Native Cloud jobs persist independently of this client connection.
+            code = await run_cloud_worker(environment, command, env, workdir, root, target, self.deadline)
+            # The worker's temporary comparison baseline can contain dependency
+            # caches. Apply the declared workspace capture exclusions only to that
+            # baseline during transfer; native bundles and the candidate stay intact.
+            ref = self.request['workerInput'].get('configuration', {}).get('captureProfile')
+            if ref:
+                source = next(item['hostPath'] for item in self.request['configurationFiles'] if item['locator'] == ref['locator'])
+                payload = Path(source).read_bytes()
+                if hashlib.sha256(payload).hexdigest() != ref['digest']['value']: raise ValueError('Capture policy digest changed')
+                policy = json.loads(payload).get('workspaceOutcome', {})
+                names = policy.get('excludeDirectoryNames', [])
+                if any(not isinstance(name, str) or not name or name in {'.', '..'} or '/' in name or '\\' in name for name in names):
+                    raise ValueError('Invalid baseline exclusion segment')
+                environment.ebo_baseline_excludes = names
+                json_write(target.with_name(target.name+'-cloud-job')/'baseline-transfer-policy.json', {'captureProfile': ref, 'excludedDirectoryNames': names, 'scope': 'temporary baseline only; native bundle is transferred intact'})
+            await environment.download_dir(root, target)
+            environment.ebo_transfer_failed = False
+            if code: raise RuntimeError('EBO native worker failed; inspect retained step evidence')
+        else:
+            try:
+                result = await self.worker_exec(environment, command, env=env)
+                (target / 'worker-stdio.json').write_text(json.dumps({'stdout': result.stdout, 'stderr': result.stderr, 'returnCode': result.return_code}))
+                if result.return_code: raise RuntimeError('EBO native worker failed; inspect retained step evidence')
             finally:
-                target = Path(self.request['nativeRoot']) / str(self.index)
-                target.mkdir(parents=True, exist_ok=True)
-                await environment.download_dir(root, target)
+                # Explicit cancellation drains the owned local worker before retrieval.
+                stop = 'if test -f {r}/worker.pid && ! test -f {r}/worker-finished.json; then p=$(cat {r}/worker.pid); case "$p" in *[!0-9]*|"") exit 1;; esac; kill -TERM "$p" 2>/dev/null || true; for i in $(seq 1 20); do kill -0 "$p" 2>/dev/null || break; sleep 0.5; done; kill -KILL "$p" 2>/dev/null || true; fi'.format(r=shlex.quote(root))
+                try: await asyncio.wait_for(self.worker_exec(environment, stop), timeout=15)
+                finally: await environment.download_dir(root, target)
         result_path = Path(self.request['nativeRoot']) / str(self.index) / 'worker-finished.json'
         result = json.loads(result_path.read_text())
         context.metadata = {'ebo_step': self.index, 'ebo_native_bundle': result.get('bundleLocator')}
@@ -125,9 +145,10 @@ async def create_trial(request, prepare=False, request_path=None):
                   'kwargs': {'ebo_request': request if prepare else request_path}, 'resume_trajectory': False},
         'environment': {'import_path': module + ':OwnedSmolEnvironment', 'delete': True,
             'kwargs': {'ebo_owner': request['ownerRoot'], 'ebo_queue': request['queueDigest'],
-                'ebo_prepare': prepare, 'ebo_events': request.get('smolEvents'),
+                'ebo_prepare': prepare, 'ebo_events': request.get('smolEvents'), 'ebo_harness': request.get('harnessId'),
+                'ebo_manifest': request['environmentManifest'], 'ebo_controller_lock': request.get('controllerLock'),
                 'ebo_runtime': {'smol': importlib.metadata.version('smolmachines'), 'harbor': importlib.metadata.version('harbor'),
-                    'build': request['build'], 'libkrun': request['environmentManifest']['libkrunSha256'],
+                    'build': request['build'], 'libkrun': request['environmentManifest'].get('libkrunSha256'),
                     'taskSourceId': request['taskSourceId'],
                     'pack': request['environmentManifest']['runtimeArchiveDigest'],
                     'preparation': fingerprint(request['environmentManifest'])}}},
@@ -137,6 +158,7 @@ async def create_trial(request, prepare=False, request_path=None):
 
 async def main(request_path):
     request = json.loads(Path(request_path).read_text())
+    if request.get('operation') == 'recover-job': return await recover_cloud_job(request)
     if request.get('operation') == 'serve':
         await serve_parents(request)
         return {'state': 'stopped'}
@@ -144,7 +166,10 @@ async def main(request_path):
     provenance = runtime_provenance(request['environmentManifest'], request['frozenPythonVersions'])
     root = Path(request['ownerRoot'])
     # Acquire before rechecking the owner. Shutdown excludes new borrowers.
-    with (root / 'borrowers.lock').open('a+') as lease:
+    request['controllerLock'] = str(Path(request_path).parent / 'controller.lock')
+    with (root / 'borrowers.lock').open('a+') as lease, Path(request['controllerLock']).open('a+') as controller:
+        os.chmod(controller.name, 0o600)
+        fcntl.flock(controller, fcntl.LOCK_EX | fcntl.LOCK_NB)
         os.chmod(root / 'borrowers.lock', 0o600)
         fcntl.flock(lease, fcntl.LOCK_SH)
         if not owner_alive(root): raise RuntimeError('Start ebo harbor environment serve before running attempts')
@@ -155,7 +180,7 @@ async def main(request_path):
         target = Path(request_path).parent / 'execution-task'
         request['taskSourceId'] = request['workerInput']['prepared']['task']['taskSourceId']
         transformation = derive_task(request['taskPath'], target,
-            request['environmentManifest']['tasks'][request['workerInput']['prepared']['task']['taskSourceId']], request['verified'])
+            task_image_binding(request['environmentManifest'], request['workerInput']['prepared']['task']['taskSourceId']), request['verified'])
         request['taskPath'] = str(target)
         json_write(Path(request_path).parent / 'task-transformation.json', transformation)
         trial = await create_trial(request, request_path=request_path)
@@ -166,7 +191,7 @@ async def execute_trial(trial, request):
     current = asyncio.current_task()
     for sig in (signal.SIGTERM, signal.SIGINT): loop.add_signal_handler(sig, current.cancel)
     try:
-        async with asyncio.timeout(request['budgetMs'] / 1000):
+        async with asyncio.timeout(None if request.get('budgetMs') is None else request['budgetMs'] / 1000):
             result = await trial.run()
         return result.model_dump(mode='json')
     except (asyncio.CancelledError, TimeoutError):

@@ -445,6 +445,16 @@ test("run ids are content-addressed and distinct per trial", async () => {
   assert.match(entry.runId, /^run-[0-9a-f]{64}$/);
 });
 
+test("uncapped Harbor queues preserve omission through compilation and preparation", async () => {
+  const { root, taskSourceId, adapter } = await frozenStudyWithTask();
+  const experiment = { ...experimentFor(root, taskSourceId, { environmentProfile: "local-fs-test", contextPolicy: "fresh" }), coordinatorBudget: {} };
+  const queue = await compileHarborRunQueue(experiment as never, { studyRoot: root, adapter });
+  assert.deepEqual(queue.coordinatorBudget, {});
+  const prepared = await prepareHarborExecution({ studyRoot: root, entry: queue.entries[0]!, attemptRoot: join(root, "uncapped"), execution: queue.execution, adapter });
+  assert.equal(prepared.budget.coordinatorWallClockMs, undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(prepared.budget)), {});
+});
+
 /* ------------------------------------ execution gating ------------------------------------ */
 
 test("the docker profile fails preflight with a typed prerequisite error; local-fs-test prepares", async () => {

@@ -252,3 +252,15 @@ validates and admits reviewed evidence. `verification inspect <catalog>` reads
 the catalog; `verification withdraw <catalog> <withdrawal.json>` records an
 explicit withdrawal. See [harness verification](harness-verification.md) for
 request fields, claim definitions and immutable study snapshots.
+
+### Harbor Cloud job recovery
+
+`ebo harbor doctor --target cloud` checks the selected local Python dependencies
+without contacting Cloud. Use `--target local` for the Apple Silicon library check.
+
+`ebo harbor job recover <study-root> <smol-job.json> [--cancel] [--delete]` reattaches to an
+existing Cloud job. A running job yields an output snapshot. A terminal job yields
+retained step files. `--cancel` stops that owned job; `--delete` removes the owned
+VM only after terminal evidence retrieval and records settled usage. No option
+launches a replacement attempt or resumes Harbor verification. See the
+[Harbor guide](../guides/harbor-tasks.md#smol-cloud) for receipts and failure handling.

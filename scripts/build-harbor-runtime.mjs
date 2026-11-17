@@ -1,5 +1,5 @@
 import {spawnSync} from 'node:child_process';
-import {createReadStream, mkdirSync, existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
+import {cpSync, createReadStream, mkdirSync, existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import {mkdtemp, rename, rm} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {dirname, resolve} from 'node:path';
@@ -38,7 +38,10 @@ finally:
         try: machine.stop(timeout_secs=5)
         finally: machine.delete()
 `;
-async function prepareNpm(version, cacheRoot) {
+/** Guest platforms the worker archive can target. Smol Cloud guests are linux/amd64; the local profile is linux/arm64. */
+const PLATFORMS = {'linux/arm64': {lock: 'linux-arm64', node: 'arm64'}, 'linux/amd64': {lock: 'linux-x64', node: 'x64'}};
+
+async function prepareNpm(version, cacheRoot, platform) {
   const {release, selectedAt, cutoff} = selectRuntimeRelease(
     (await fetchRuntimeReleases({source: 'npm', name: 'npm'})).filter(release => release.version === version),
     {now: new Date().toISOString()},
@@ -50,21 +53,28 @@ async function prepareNpm(version, cacheRoot) {
     '': {name: packageJson.name, version: packageJson.version, dependencies: packageJson.dependencies},
     'node_modules/npm': {version, resolved: release.locator, integrity: release.integrity},
   }};
-  const installed = await installRuntime({kind: 'npm', recipe: 'ebo-npm/v1', platform: 'linux-arm64', abi: 'glibc', packageJson,
+  const installed = await installRuntime({kind: 'npm', recipe: 'ebo-npm/v1', platform, abi: 'glibc', packageJson,
     packageLock, verifyRegistryProofs: Boolean(release.proofs?.length)}, {cacheRoot});
   return {directory: resolve(installed.root, 'node_modules/npm'), receipt: {selectedAt, cutoff, locator: release.locator,
     integrity: release.integrity, publishedAt: release.publishedAt, proofs: installed.receipt.proofs, security}};
 }
 
-/** The optional provider is a trusted test boundary; CLI preparation always owns a local Smol VM. */
-export async function buildHarborRuntime({destination, study, nodeImage, fixtures = false}, provider) {
-  if (!study || !nodeImage || !/^[^\s]+@sha256:[a-f0-9]{64}$/.test(nodeImage)) throw new Error('Use <output> --study <frozen-study> --node-image <immutable Linux ARM64 Node image digest>.');
+/**
+ * The optional provider is a trusted test boundary; local preparation always owns a local Smol VM.
+ * A local Smol VM runs linux/arm64 only. For another guest platform, `context: true` writes an OCI build
+ * context for a native builder of that platform, and `adopt` accepts the output directory that build produced.
+ */
+export async function buildHarborRuntime({destination, study, nodeImage, platform = 'linux/arm64', context = false, adopt, fixtures = false}, provider) {
+  if (!study || !nodeImage || !/^[^\s]+@sha256:[a-f0-9]{64}$/.test(nodeImage)) throw new Error('Use <output> --study <frozen-study> --node-image <immutable Linux Node image digest for the guest platform>.');
+  if (!Object.hasOwn(PLATFORMS, platform)) throw new Error('Use --platform linux/arm64 or linux/amd64.');
+  if (context && adopt) throw new Error('Use --context to write a build context or --adopt to accept its output, not both.');
+  if (platform !== 'linux/arm64' && !context && !adopt && !provider) throw new Error('A local Smol VM builds linux/arm64 only. Write a build context with --context, build it on a native builder, then --adopt its output.');
   if (!existsSync('dist/src/harbor/worker.js')) throw new Error('Run npm run build first.');
   destination = resolve(destination);
   mkdirSync(dirname(destination), {recursive: true});
   const staging = await mkdtemp(resolve(dirname(destination), '.ebo-worker-build-'));
   try {
-    const build = await buildWorker({destination: staging, studyRoot: resolve(study), nodeImage, fixtures}, provider);
+    const build = await buildWorker({destination: staging, studyRoot: resolve(study), nodeImage, platform, context, adopt: adopt ? resolve(adopt) : undefined, fixtures}, provider);
     try {await rename(staging, destination);}
     catch (error) {
       if (['EEXIST', 'ENOTEMPTY'].includes(error.code)) throw new Error('Worker output already exists; choose an empty destination.');
@@ -74,14 +84,15 @@ export async function buildHarborRuntime({destination, study, nodeImage, fixture
   } finally {await rm(staging, {recursive: true, force: true});}
 }
 
-async function buildWorker({destination, studyRoot, nodeImage, fixtures}, provider) {
+async function buildWorker({destination, studyRoot, nodeImage, platform, context, adopt, fixtures}, provider) {
+  const target = PLATFORMS[platform];
   const lockPath = resolve(studyRoot, 'runtimes/lock.json');
   const selectedLock = readFileSync(lockPath);
   const lock = await readStudyRuntimeLock(studyRoot);
   if (!selectedLock.equals(readFileSync(lockPath))) throw new Error('Study runtime lock changed during selection.');
   for (const group of lock.groups) if (!existsSync(resolve(studyRoot, 'runtimes/cache', group.installation.key, '.ebo-runtime-receipt.json'))) throw new Error(`Missing frozen installation: ${group.id}`);
-  const guestKeys = lock.groups.filter(group => group.plan.platform === 'linux-arm64').map(group => group.installation.key);
-  if (!guestKeys.length || guestKeys.some(key => !/^[a-f0-9]{64}$/u.test(key))) throw new Error('The study lock must contain Linux ARM64 installations.');
+  const guestKeys = lock.groups.filter(group => group.plan.platform === target.lock).map(group => group.installation.key);
+  if (!guestKeys.length || guestKeys.some(key => !/^[a-f0-9]{64}$/u.test(key))) throw new Error(`The study lock must contain ${target.lock} installations.`);
   const smolKey = lock.groups.find(group => group.roles.includes('smol'))?.installation.key;
   if (smolKey && !/^[a-f0-9]{64}$/u.test(smolKey)) throw new Error('The host Smol receipt must have a frozen cache identity.');
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
@@ -90,10 +101,10 @@ async function buildWorker({destination, studyRoot, nodeImage, fixtures}, provid
   if (!/^\d+\.\d+\.\d+$/.test(nodeVersion)) throw new Error('The coordinating Node version must be exact.');
   if (!npmVersion) throw new Error('The coordinating npm version must be exact.');
   mkdirSync(destination, {recursive: true});
-  const imageBinding = provider ? undefined : await readOciDescriptorBinding(nodeImage, "linux-arm64");
+  const imageBinding = provider || context || adopt ? undefined : await readOciDescriptorBinding(nodeImage, "linux-arm64");
   const request = {image: nodeImage, configDigest: imageBinding?.configDigest, mounts: [{source: process.cwd(), target: '/source', readOnly: true}, {source: studyRoot, target: '/study', readOnly: true}, {source: destination, target: '/output', readOnly: false}], command: `
     test "$(node --version)" = "v${nodeVersion}"
-    test "$(node -p 'process.platform + ":" + process.arch')" = "linux:arm64"
+    test "$(node -p 'process.platform + ":" + process.arch')" = "linux:${target.node}"
     mkdir /runtime
     cp /source/package.json /source/package-lock.json /runtime/
     mkdir /runtime/viewer
@@ -116,11 +127,13 @@ async function buildWorker({destination, studyRoot, nodeImage, fixtures}, provid
     tar czf /output/worker.tgz .
   `};
   let execution, npmArtifact;
-  if (provider) execution = await provider(request);
+  if (context) return writeBuildContext({destination, studyRoot, nodeImage, platform, command: request.command, guestKeys, smolKey, lock, nodeVersion, npmVersion}, provider);
+  if (adopt) ({execution, npmArtifact} = adoptBuildOutput({destination, adopt, nodeImage, platform, lock}));
+  else if (provider) execution = await provider(request);
   else {
     const toolchainRoot = await mkdtemp(resolve(tmpdir(), 'ebo-worker-toolchain-'));
     try {
-      const toolchain = await prepareNpm(npmVersion, toolchainRoot);
+      const toolchain = await prepareNpm(npmVersion, toolchainRoot, target.lock);
       request.mounts.push({source: toolchain.directory, target: '/toolchain', readOnly: true});
       npmArtifact = toolchain.receipt;
       execution = await withStudyRuntime({studyRoot, role: 'smol'}, async () => {
@@ -135,7 +148,7 @@ async function buildWorker({destination, studyRoot, nodeImage, fixtures}, provid
       });
     } finally {await rm(toolchainRoot, {recursive: true, force: true});}
   }
-  if (execution.backend !== 'smolvm' || execution.target !== 'local' || execution.image !== nodeImage || imageBinding && execution.imageConfigDigest !== imageBinding.configDigest) throw new Error('Worker build did not use the frozen local Smol image.');
+  if (!adopt && (execution.backend !== 'smolvm' || execution.target !== 'local' || execution.image !== nodeImage || imageBinding && execution.imageConfigDigest !== imageBinding.configDigest)) throw new Error('Worker build did not use the frozen local Smol image.');
   if (readFileSync(resolve(destination, 'node-version.txt'), 'utf8').trim() !== `v${nodeVersion}`) throw new Error('Worker Node probe disagrees with EBO coordinating runtime.');
   const actualNpm = readFileSync(resolve(destination, 'npm-version.txt'), 'utf8').trim();
   if (actualNpm !== npmVersion) throw new Error('Worker npm probe disagrees with EBO coordinating runtime.');
@@ -146,7 +159,7 @@ async function buildWorker({destination, studyRoot, nodeImage, fixtures}, provid
   const hash = createHash('sha256');
   for await (const bytes of createReadStream(archive)) hash.update(bytes);
   const archiveDigest = hash.digest('hex');
-  const build = {schemaVersion: 'ebo.harbor-worker-build/v3', studyLockDigest: lock.digest, platform: 'linux/arm64', nodeImage, nodeVersion,
+  const build = {schemaVersion: 'ebo.harbor-worker-build/v3', studyLockDigest: lock.digest, platform, nodeImage, nodeVersion,
     npmVersion: actualNpm, ...(npmArtifact ? {npmArtifact} : {}), runtimeArchiveDigest: archiveDigest, execution};
   writeFileSync(resolve(destination, 'worker-build.json'), JSON.stringify(build, null, 2));
   writeFileSync(resolve(destination, 'worker.json'), JSON.stringify({schemaVersion: 'ebo.harbor-worker-runtime/v2', studyLockDigest: lock.digest,
@@ -154,8 +167,57 @@ async function buildWorker({destination, studyRoot, nodeImage, fixtures}, provid
   return build;
 }
 
+const DOCKERFILE = nodeImage => `FROM ${nodeImage} AS worker
+COPY source /source
+COPY study /study
+COPY toolchain /toolchain
+COPY build-worker.sh context.json /
+RUN mkdir /output && sh -eu /build-worker.sh && cp /context.json /output/ \\
+ && mkdir /opt/ebo && tar -xzf /output/worker.tgz -C /opt/ebo \\
+ && sha256sum /output/worker.tgz | cut -d' ' -f1 > /opt/ebo/runtime.sha256
+
+FROM ${nodeImage}
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \\
+ && rm -rf /var/lib/apt/lists/* && git --version
+COPY --from=worker /opt/ebo /opt/ebo
+`;
+
+/** Inputs are copied, not mounted: a remote builder sees only this directory. */
+async function writeBuildContext({destination, studyRoot, nodeImage, platform, command, guestKeys, smolKey, lock, nodeVersion, npmVersion}, provider) {
+  const copy = (from, to) => cpSync(from, resolve(destination, to), {recursive: true, verbatimSymlinks: true});
+  for (const path of ['package.json', 'package-lock.json', 'viewer/package.json', 'dist', 'schemas', 'contracts', 'compatibility', 'ontology', 'verification']) copy(path, `source/${path}`);
+  copy(resolve(studyRoot, 'runtimes/lock.json'), 'study/runtimes/lock.json');
+  for (const key of guestKeys) copy(resolve(studyRoot, 'runtimes/cache', key), `study/runtimes/cache/${key}`);
+  if (smolKey && !guestKeys.includes(smolKey)) copy(resolve(studyRoot, 'runtimes/cache', smolKey, '.ebo-runtime-receipt.json'), `study/runtimes/cache/${smolKey}/.ebo-runtime-receipt.json`);
+  const toolchainRoot = await mkdtemp(resolve(tmpdir(), 'ebo-worker-toolchain-'));
+  let npmArtifact;
+  try {
+    const toolchain = provider ? await provider({toolchain: npmVersion, root: toolchainRoot}) : await prepareNpm(npmVersion, toolchainRoot, PLATFORMS[platform].lock);
+    copy(toolchain.directory, 'toolchain');
+    npmArtifact = toolchain.receipt;
+  } finally {await rm(toolchainRoot, {recursive: true, force: true});}
+  const dockerfile = DOCKERFILE(nodeImage);
+  writeFileSync(resolve(destination, 'Dockerfile'), dockerfile);
+  writeFileSync(resolve(destination, 'build-worker.sh'), command);
+  const receipt = {schemaVersion: 'ebo.harbor-worker-context/v1', studyLockDigest: lock.digest, platform, nodeImage, nodeVersion, npmVersion, npmArtifact,
+    baseImageDigest: nodeImage.split('@sha256:')[1], recipeDigest: createHash('sha256').update(dockerfile).digest('hex'),
+    commandDigest: createHash('sha256').update(command).digest('hex')};
+  writeFileSync(resolve(destination, 'context.json'), JSON.stringify(receipt, null, 2));
+  return receipt;
+}
+
+/** The adopted directory is the worker stage's /output. Its receipt must name this study lock, platform and Node image. */
+function adoptBuildOutput({destination, adopt, nodeImage, platform, lock}) {
+  const receipt = JSON.parse(readFileSync(resolve(adopt, 'context.json'), 'utf8'));
+  if (receipt.schemaVersion !== 'ebo.harbor-worker-context/v1' || receipt.studyLockDigest !== lock.digest || receipt.platform !== platform || receipt.nodeImage !== nodeImage) throw new Error('Adopted worker output was built from a different study lock, platform or Node image.');
+  for (const name of ['worker.tgz', 'node-version.txt', 'npm-version.txt']) cpSync(resolve(adopt, name), resolve(destination, name));
+  return {npmArtifact: receipt.npmArtifact, execution: {backend: 'oci-build', target: 'external', image: nodeImage,
+    baseImageDigest: receipt.baseImageDigest, recipeDigest: receipt.recipeDigest, commandDigest: receipt.commandDigest}};
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const flag = name => {const index = process.argv.indexOf(name); return index < 0 ? undefined : process.argv[index + 1];};
   if (['--factory', '--base', '--image'].some(flag => process.argv.includes(flag))) throw new Error('Select harnesses in the study lock. Use a verified OCI image and localSetup for task preparation.');
-  await buildHarborRuntime({destination: process.argv[2] ?? '.ebo/harbor-runtime', study: flag('--study'), nodeImage: flag('--node-image'), fixtures: process.argv.includes('--fixtures')});
+  await buildHarborRuntime({destination: process.argv[2] ?? '.ebo/harbor-runtime', study: flag('--study'), nodeImage: flag('--node-image'), platform: flag('--platform') ?? 'linux/arm64',
+    context: process.argv.includes('--context'), adopt: flag('--adopt'), fixtures: process.argv.includes('--fixtures')});
 }

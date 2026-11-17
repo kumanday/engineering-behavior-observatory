@@ -662,7 +662,7 @@ function normalizeOrdering(ordering: ExperimentOrdering): RunQueue["ordering"] {
 function digestScheduling(
   experimentDigest: Digest,
   captureProfile: ArtifactReference,
-  coordinatorBudget: { maxWallClockMs: number },
+  coordinatorBudget: { maxWallClockMs?: number },
   matrix: RunQueueMatrix,
   seed: string,
   ordering: RunQueue["ordering"],

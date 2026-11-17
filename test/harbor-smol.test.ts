@@ -130,7 +130,7 @@ async def check():
         assert owned['image'] == image['image'] and owned['imageConfigDigest'] == 'sha256:'+'f'*64
         assert owned['machine'] == 'fixture-child' and owned['bootId'] == 'fixture-boot'
         assert owned['libkrunSha256'] == manifest['libkrunSha256']
-    environment = SimpleNamespace(exec=AsyncMock(side_effect=execute), upload_file=AsyncMock(side_effect=upload), download_dir=AsyncMock(side_effect=download),
+    environment = SimpleNamespace(ebo_manifest={}, exec=AsyncMock(side_effect=execute), upload_file=AsyncMock(side_effect=upload), download_dir=AsyncMock(side_effect=download),
         ebo_image_identity={'reference':image['image'],'configDigest':'sha256:'+'f'*64},
         _machine=SimpleNamespace(name='fixture-child',exec=AsyncMock(return_value=SimpleNamespace(exit_code=0,stdout='fixture-boot'))))
     await runner.run('fixture', environment, SimpleNamespace())

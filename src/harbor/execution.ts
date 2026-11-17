@@ -41,7 +41,7 @@ export type PreparedHarborExecution = {
     /** Aggregate policy declared by the task; execution derives per-step rewards through Harbor. */
     multiStepRewardStrategy: "mean" | "final";
   };
-  budget: { coordinatorWallClockMs: number };
+  budget: { coordinatorWallClockMs?: number };
   evidence: {
     attemptRoot: string;
     harborDir: string;
@@ -175,7 +175,7 @@ async function finishPreparation(
       timeoutSec: resolution.verifier.timeoutSec,
       multiStepRewardStrategy: resolution.multiStepRewardStrategy ?? "mean",
     },
-    budget: { coordinatorWallClockMs: options.coordinatorWallClockMs ?? Number.MAX_SAFE_INTEGER },
+    budget: { coordinatorWallClockMs: options.coordinatorWallClockMs },
     evidence: {
       attemptRoot,
       harborDir: join(attemptRoot, "harbor"),

@@ -36,9 +36,6 @@
     "coordinatorBudget": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "maxWallClockMs"
-      ],
       "properties": {
         "maxWallClockMs": {
           "type": "integer",
