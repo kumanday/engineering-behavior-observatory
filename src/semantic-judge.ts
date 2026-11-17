@@ -97,7 +97,7 @@ export type SemanticJudgeRequest = {
     maxInputChars: number;
     maxOutputChars: number;
     maxCitations: number;
-    maxWallClockMs: number;
+    maxWallClockMs?: number;
     maxTurns: number;
     maxBudgetUsd?: number;
   };
@@ -447,7 +447,7 @@ async function runClaudeAgentSdkSemanticJudgeOwned(prompt: string, request: Sema
     try { handle?.close(); } catch { /* Preserve the interruption result. */ }
   };
   signal?.addEventListener("abort", abort, { once: true });
-  const timer = setTimeout(() => {
+  const timer = request.limits.maxWallClockMs === undefined ? undefined : setTimeout(() => {
     timedOut = true;
     controller.abort();
     try {
@@ -954,7 +954,8 @@ function validateRequest(request: SemanticJudgeRequest): void {
   stringList(request.selection.structuralObservationIds, "structuralObservationIds");
   if (typeof request.selection.includeOutcomeObservations !== "boolean") throw new Error("includeOutcomeObservations must be boolean.");
   const limits = record(request.limits, "Semantic judge limits");
-  const limitKeys = ["maxEvidenceItems", "maxRecordChars", "maxInputChars", "maxOutputChars", "maxCitations", "maxWallClockMs", "maxTurns"];
+  const limitKeys = ["maxEvidenceItems", "maxRecordChars", "maxInputChars", "maxOutputChars", "maxCitations", "maxTurns"];
+  if (request.limits.maxWallClockMs !== undefined) limitKeys.push("maxWallClockMs");
   if (request.limits.maxBudgetUsd !== undefined) limitKeys.push("maxBudgetUsd");
   exactKeys(limits, limitKeys, "Semantic judge limits");
   integerInRange(request.limits.maxEvidenceItems, "maxEvidenceItems", 1, 128);
@@ -962,7 +963,7 @@ function validateRequest(request: SemanticJudgeRequest): void {
   integerInRange(request.limits.maxInputChars, "maxInputChars", 1_024, 1_000_000);
   integerInRange(request.limits.maxOutputChars, "maxOutputChars", 256, 65_536);
   integerInRange(request.limits.maxCitations, "maxCitations", 1, 64);
-  integerInRange(request.limits.maxWallClockMs, "maxWallClockMs", 100, 300_000);
+  if (request.limits.maxWallClockMs !== undefined) integerInRange(request.limits.maxWallClockMs, "maxWallClockMs", 100, 300_000);
   integerInRange(request.limits.maxTurns, "maxTurns", 1, 10);
   if (request.limits.maxBudgetUsd !== undefined
       && (!Number.isFinite(request.limits.maxBudgetUsd) || request.limits.maxBudgetUsd <= 0 || request.limits.maxBudgetUsd > 100)) {

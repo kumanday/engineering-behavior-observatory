@@ -39,7 +39,7 @@ export function runCodexSemanticJudgeOwned(prompt: string, request: SemanticJudg
 export type CodexTurnSettings = {
   runtime?: StudyRuntimeBinding;
   evaluator: { model: string; effort: SemanticJudgeRequest["evaluator"]["effort"]; executable?: string };
-  limits: { maxWallClockMs: number; maxInputChars?: number; maxOutputChars: number };
+  limits: { maxWallClockMs?: number; maxInputChars?: number; maxOutputChars: number };
 };
 
 /** One owned, ephemeral app-server turn. Native evidence never enters the child filesystem. */
@@ -60,7 +60,7 @@ export async function runCodexStructuredTurn(
 
 export async function runOwnedCodexStructuredTurn(prompt: string, request: CodexTurnSettings, outputSchema: Record<string, unknown>, instructions: string, signal?: AbortSignal): Promise<SemanticJudgeBackendResult> {
   requireStudyRuntime("codex-judge");
-  const deadline = performance.now() + request.limits.maxWallClockMs;
+  const deadline = request.limits.maxWallClockMs === undefined ? Infinity : performance.now() + request.limits.maxWallClockMs;
   const locked = lockedRuntimeExecutable("codex-judge");
   const executable = locked.path;
   const isolatedRoot = mkdtempSync(join(tmpdir(), "ebo-codex-judge-"));
@@ -99,7 +99,7 @@ export async function runOwnedCodexStructuredTurn(prompt: string, request: Codex
   const remaining = (): number => {
     if (performance.now() >= deadline) timedOut = true;
     if (timedOut || interrupted) throw new Error(timedOut ? "Codex judge exceeded maxWallClockMs." : "Codex judge was interrupted.");
-    return Math.max(1, Math.floor(deadline - performance.now()));
+    return deadline === Infinity ? Infinity : Math.max(1, Math.floor(deadline - performance.now()));
   };
   signal?.addEventListener("abort", abort, { once: true });
   try {
@@ -184,10 +184,11 @@ export async function runOwnedCodexStructuredTurn(prompt: string, request: Codex
       await writeProtocolLine(child!.stdin, { id, method, params });
       return Promise.race([response, exited]);
     };
-    timer = setTimeout(() => {
+    const budget = remaining();
+    if (budget !== Infinity) timer = setTimeout(() => {
       timedOut = true;
       stop();
-    }, remaining());
+    }, budget);
     await send("initialize", { clientInfo: { name: "ebo-semantic-judge", version: "1.0.0" }, capabilities: { experimentalApi: true } });
     await writeProtocolLine(child.stdin, { method: "initialized", params: {} });
     const start = await send("thread/start", { model: request.evaluator.model, modelProvider: "openai", cwd,

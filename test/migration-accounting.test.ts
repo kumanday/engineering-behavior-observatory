@@ -154,7 +154,7 @@ test("assertions without retained judgment receipts receive explicit preservatio
     assert.deepEqual(validateArtifact("report", report), []);
   } finally { f.close(); }
 });
-test("historical relay receipt profile preserves an omitted limit only with explicit pinned admission", () => {
+test("historical relay receipt profile labels its omitted limit on the pinned relay only", () => {
   const f = fixture(); try {
     f.judgment.evaluator = { ...f.judgment.evaluator, provider: "openai", backend: { id: "codex-app-server", version: "0.162.1" },
       environment: { parentPreserved: false, mode: "replace", allowedKeys: ["HOME", "CODEX_HOME", "PATH", "LANG", "LC_ALL", "TMPDIR"], authentication: "existing-auth-json-only", modelEffortOverrides: "removed", ambientTelemetry: "removed", removedKeys: ["*"] } };
@@ -162,13 +162,15 @@ test("historical relay receipt profile preserves an omitted limit only with expl
     f.assertion.evaluator.id = "openai/fixture-model"; f.assertion.evaluator.version = "0.162.1";
     f.judgment.assertion!.digest = hash(f.assertion);
     writeFileSync(join(f.root, "judgment.json"), JSON.stringify(f.judgment)); writeFileSync(join(f.root, "assertion.json"), JSON.stringify(f.assertion));
-    assert.equal(inventoryMigrationStudy(f.study).failures.length, 1);
+    const unlabelled = inventoryMigrationStudy(f.study); assert.equal(unlabelled.failures.length, 0);
+    assert.equal(unlabelled.records.find(({ path }) => path === "judgment.json")!.validationProfile, "current-schema");
     const study = { ...f.study, receiptProfiles: ["codex-relay-0.162.1-no-wall-limit/v1" as const] };
     const inventory = inventoryMigrationStudy(study); assert.equal(inventory.failures.length, 0);
     assert.equal(inventory.records.find(({ path }) => path === "judgment.json")!.validationProfile, study.receiptProfiles[0]);
     assert.equal(reconcileMigration(inventory).summary.pendingUnits, 1);
     f.judgment.evaluator.backend.version = "unqualified"; writeFileSync(join(f.root, "judgment.json"), JSON.stringify(f.judgment));
-    assert.equal(inventoryMigrationStudy(study).failures.length, 1);
+    const other = inventoryMigrationStudy(study); assert.equal(other.failures.length, 0);
+    assert.equal(other.records.find(({ path }) => path === "judgment.json")!.validationProfile, "current-schema");
   } finally { f.close(); }
 });
 test("migration reads reject unsafe paths, links, duplicate JSON and unsupported runtime pins", () => {
