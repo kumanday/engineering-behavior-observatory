@@ -1,6 +1,7 @@
 import { bindActiveQueueEntry, queueEntryMatches, assertActiveRuntimeQueue, currentStudyRuntime, requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, type RuntimeExecutionSummary, type StudyRuntimeBinding, studyRuntimeModule, studyRuntimeVersion } from "./runtime-context.js";
 import * as developmentSdk from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
+import { createPiGzipFetch } from "./pi-http-transport.js";
 import { renameSync } from "node:fs";
 import { cp, lstat, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,7 +15,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 
-import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact, validateRunManifestEvidence } from "./artifacts.js";
+import { assertNoDuplicateJsonKeys, digestMetadata, inspectRetainedArtifact, parseNativeJsonlRecords, readVerifiedArtifactChunks, validateArtifact, validateRunManifestEvidence } from "./artifacts.js";
 import { isSafeArtifactRelativePath, resolveBundleConfiguration, type ArtifactReference } from "./contracts.js";
 import {
   createAttemptIdentity,
@@ -102,6 +103,7 @@ export type PiHarnessConfiguration = {
   kind: "harness";
   adapter: typeof PI_HARNESS;
   version: string;
+  requestCompression?: "gzip";
   extensions?: ArtifactReference[];
   skills?: ArtifactReference[];
   prompts?: ArtifactReference[];
@@ -607,9 +609,8 @@ export async function capturePiSdkRunOwned(options: CapturePiSdkRunOptions): Pro
   const terminal = structuredClone(attempt.terminal);
   if (workspaceOutcome === undefined) delete terminal.workspaceArtifactId;
   try {
-    const native = await readPiNativeArtifacts(assembler.bundleRoot, options.definition.run.id, options.definition.attempt.id);
-    qualifyRetainedPiCapture(native, sessionId, terminal.state === "completed" || terminal.failureClass === "task");
-    await describeAndValidatePiDataset(native);
+    await qualifyRetainedPiArtifacts(assembler.bundleRoot, options.definition.run.id, options.definition.attempt.id,
+      sessionId, terminal.state === "completed" || terminal.failureClass === "task");
   } catch (error) {
     missingEvidence.push({
       kind: "session",
@@ -652,6 +653,17 @@ async function createProductionPiSession(input: PiSessionFactoryInput): Promise<
     }],
   };
   modelRuntime.registerProvider(input.model.provider, provider);
+  if (input.harness.requestCompression === "gzip") {
+    const nativeProvider = modelRuntime.getProvider(input.model.provider);
+    if (nativeProvider === undefined) throw new Error("Pi native provider is unavailable for compressed transport.");
+    modelRuntime.registerProvider(input.model.provider, {
+      ...provider,
+      streamSimple: (model, context, options) => nativeProvider.streamSimple(model, context, {
+        ...options,
+        fetch: createPiGzipFetch(input.model.baseUrl, options?.fetch),
+      }),
+    });
+  }
   const model = modelRuntime.getModel(input.model.provider, input.model.model);
   if (model === undefined) throw new Error(`Pi model ${input.model.provider}/${input.model.model} is unavailable after explicit registration.`);
 
@@ -925,24 +937,76 @@ export async function describeAndValidatePiDataset(
   return { dataset, coverage, resolver };
 }
 
-async function readPiNativeArtifacts(bundleRoot: string, runId: string, attemptId: string): Promise<NormalizationInput<PiNativeRecord>> {
+const MAX_PI_NATIVE_RECORD_BYTES = 64 * 1024 * 1024;
+
+/** Validate full native bytes while retaining only identities and projection metadata in memory. */
+export async function qualifyRetainedPiArtifacts(
+  bundleRoot: string, runId: string, attemptId: string, sessionId: string | undefined, expectsCompletion: boolean,
+): Promise<{ dataset: NormalizedDataset; coverage: AdapterCoverageReport }> {
   const records: CapturedNativeRecord<PiNativeRecord>[] = [];
+  const events: UniformEvent[] = [];
+  const unmapped: NormalizationResult["unmapped"][number][] = [];
+  const nativeRecords: NormalizedDataset["nativeRecords"][number][] = [];
+  const contentReferences: NormalizedDataset["contentReferences"][number][] = [];
+  const resolutions = new Map<string, { runId: string; attemptId: string; digest: `sha256:${string}` }>();
+  const input = { runId, attemptId, qualification: "qualified" as const, records };
+  let retainedSessionId: string | undefined;
   for (const [artifactId, relativePath] of [
-    ["pi-session", "pi-session.jsonl"],
-    ["pi-events", "pi-events.jsonl"],
-    ["pi-observer", "pi-observer.jsonl"],
+    ["pi-session", "pi-session.jsonl"], ["pi-events", "pi-events.jsonl"], ["pi-observer", "pi-observer.jsonl"],
   ] as const) {
-    const path = join(bundleRoot, relativePath);
-    if (!await nonempty(path)) continue;
-    const source = new TextDecoder("utf-8", { fatal: true }).decode(readBoundedFile(path, `Pi ${artifactId} evidence`));
-    for (const [index, line] of source.split(/\r?\n/u).filter((candidate) => candidate.trim() !== "").entries()) {
-      assertNoDuplicateJsonKeys(line);
-      const record: unknown = JSON.parse(line);
-      assertPiNativeRecord(record, index + 1);
-      records.push({ reference: { artifactId, recordLocator: `line:${index + 1}` }, record });
+    if (!await nonempty(join(bundleRoot, relativePath))) continue;
+    const inspected = await inspectRetainedArtifact(bundleRoot, relativePath);
+    const chunks = readVerifiedArtifactChunks(bundleRoot, relativePath, inspected.digest, inspected.sizeBytes);
+    // `line:N` counts records, as the bounded Pi readers do; blank physical lines are not records.
+    let line = 0;
+    for await (const { record } of parseNativeJsonlRecords(chunks, MAX_PI_NATIVE_RECORD_BYTES)) {
+      line += 1;
+      assertPiNativeRecord(record, line);
+      const reference = { artifactId, recordLocator: `line:${line}` };
+      // History precedes the envelopes, whose own session identity takes priority when mapped.
+      retainedSessionId ??= record.type === "session" ? text(record.id) : text(record.sessionId);
+      // Digests and mapped attributes always derive from the complete native record.
+      const digest = `sha256:${digestMetadata(record).value}` as const;
+      const mapped = mapPiRecord(input, { reference, record }, retainedSessionId);
+      nativeRecords.push({ reference, nativeType: piNativeType(record), digest });
+      resolutions.set(JSON.stringify([reference.artifactId, reference.recordLocator]), { runId, attemptId, digest });
+      if (mapped.length === 0) unmapped.push({ reference, reason: piUnmappedReason(record) });
+      else {
+        events.push(...mapped);
+        if (mapped.some((event) => event.content.status === "known")) contentReferences.push({ reference, digest });
+      }
+      records.push({ reference, record: piQualificationIdentity(record) });
     }
   }
-  return { runId, attemptId, qualification: "qualified", records };
+  qualifyRetainedPiCapture(input, sessionId, expectsCompletion);
+  const dataset: NormalizedDataset = {
+    schemaVersion: "ebo.normalized-dataset/v1", runId, attemptId,
+    adapter: { id: piCapabilityProfile.adapterId, version: PI_NORMALIZATION_ADAPTER_VERSION, harness: PI_HARNESS },
+    capabilityProfile: structuredClone(piCapabilityProfile), nativeRecords, contentReferences,
+    events: correlateHistoryWithStream(events, records), unmapped,
+  };
+  const coverage = await validateNormalizedDataset(dataset, {
+    async resolve(reference) { return resolutions.get(JSON.stringify([reference.artifactId, reference.recordLocator])) ?? false; },
+  });
+  return { dataset, coverage };
+}
+
+/** Only fields consumed by native identity/terminal checks and history correlation survive here. */
+function piQualificationIdentity(record: PiNativeRecord): PiNativeRecord {
+  if (record.schemaVersion === "ebo.pi-native-record/v1") {
+    const payload = isRecord(record.payload) ? record.payload : {};
+    return { schemaVersion: record.schemaVersion, sequence: record.sequence, channel: record.channel,
+      nativeType: record.nativeType, receivedAt: record.receivedAt, sessionId: record.sessionId,
+      payload: { sessionId: payload.sessionId, aborted: payload.aborted, toolCallId: payload.toolCallId } };
+  }
+  const message = isRecord(record.message) ? record.message : undefined;
+  return { type: record.type, version: record.version, id: record.id, cwd: record.cwd,
+    parentId: record.parentId, timestamp: record.timestamp,
+    ...(message === undefined ? {} : { message: { role: message.role, stopReason: message.stopReason,
+      timestamp: message.timestamp, responseId: message.responseId, toolCallId: message.toolCallId,
+      content: Array.isArray(message.content) ? message.content.flatMap((block) =>
+        isRecord(block) && block.type === "toolCall" ? [{ type: "toolCall", id: block.id }] : []) : [] } }),
+  };
 }
 
 function mapPiRecord(
@@ -1338,7 +1402,8 @@ function validatePiConfiguration(record: Record<string, unknown>, kind: PiConfig
     keys(record.cost, ["input", "output", "cacheRead", "cacheWrite"], ["input", "output", "cacheRead", "cacheWrite"], reference);
     for (const [name, value] of Object.entries(record.cost)) if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw piConfigError(reference, `cost.${name} must be nonnegative`);
   } else if (kind === "harness") {
-    keys(record, ["schemaVersion", "kind", "adapter", "version", "extensions", "skills", "prompts", "contextFiles", "systemPrompt"], ["adapter", "version"], reference);
+    keys(record, ["schemaVersion", "kind", "adapter", "version", "requestCompression", "extensions", "skills", "prompts", "contextFiles", "systemPrompt"], ["adapter", "version"], reference);
+    if (record.requestCompression !== undefined && record.requestCompression !== "gzip") throw piConfigError(reference, "requestCompression must be gzip when configured");
     if (record.adapter !== PI_HARNESS || typeof record.version !== "string" || !record.version) throw piConfigError(reference, "adapter and nonempty exact version are required");
     for (const field of ["extensions", "skills", "prompts", "contextFiles"] as const) if (record[field] !== undefined) assertReferences(record[field], field, reference);
     if (record.systemPrompt !== undefined) assertReference(record.systemPrompt, "systemPrompt", reference);
@@ -1441,6 +1506,7 @@ function piComposition(options: CapturePiSdkRunOptions, activeTools: string[]): 
     },
     requestEnvironment: {
       piCacheRetention: process.env.PI_CACHE_RETENTION === "long" ? "long" : "short",
+      ...(options.harness.requestCompression === undefined ? {} : { requestCompression: options.harness.requestCompression }),
     },
     tools: {
       active: [...activeTools],

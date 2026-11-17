@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { liveRuntimeTest, runtimeTest } from "./with-runtime-fixture.js";
 const test = runtimeTest("pi-sdk");
 const liveTest = liveRuntimeTest("pi-sdk");
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
 import {
@@ -599,6 +599,65 @@ test("production Pi session creation preserves explicit xhigh and max mappings",
   }
 });
 
+test("declared gzip request compression reaches the model route and is retained in the composition", async () => {
+  const requests: Array<{ encoding: string | undefined; declaredBytes: string | undefined; native: Buffer }> = [];
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(chunk as Buffer);
+    const encoding = request.headers["content-encoding"];
+    const body = Buffer.concat(chunks);
+    requests.push({ encoding: encoding as string | undefined, declaredBytes: request.headers["x-ebo-native-body-bytes"] as string | undefined, native: encoding === "gzip" ? gunzipSync(body) : body });
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write(`data: ${JSON.stringify({ id: "chatcmpl-fixture", object: "chat.completion.chunk", created: 1, model: "synthetic-model", choices: [{ index: 0, delta: { role: "assistant", content: "done" }, finish_reason: null }] })}\n\n`);
+    response.write(`data: ${JSON.stringify({ id: "chatcmpl-fixture", object: "chat.completion.chunk", created: 1, model: "synthetic-model", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })}\n\n`);
+    response.end("data: [DONE]\n\n");
+  });
+  await new Promise<void>((resolvePromise) => server.listen(0, "127.0.0.1", resolvePromise));
+  const address = server.address() as AddressInfo;
+  const previous = process.env.PI_SYNTHETIC_API_KEY;
+  process.env.PI_SYNTHETIC_API_KEY = "synthetic-local-test-key";
+  try {
+    for (const requestCompression of ["gzip", undefined] as const) {
+      requests.length = 0;
+      const fixture = createPiFixture({ modelBaseUrl: `http://127.0.0.1:${address.port}/v1`, ...(requestCompression === undefined ? {} : { requestCompression }) });
+      try {
+        const summary = await runPiQueueEntry(fixture);
+        assert.equal(summary.classification, "completed");
+        assert.equal(summary.captureQualification, "qualified");
+        assert.equal(requests.length, 1);
+        assert.equal(requests[0]!.encoding, requestCompression);
+        assert.equal(requests[0]!.declaredBytes, requestCompression === undefined ? undefined : String(requests[0]!.native.byteLength));
+        assert.equal(typeof JSON.parse(requests[0]!.native.toString()).model, "string");
+        const composition = readJsonl(join(summary.bundlePath, "pi-events.jsonl")).find(({ nativeType }) => nativeType === "session_created")!.payload as Record<string, any>;
+        assert.equal(composition.requestEnvironment.requestCompression, requestCompression);
+        assert.equal("requestCompression" in composition.requestEnvironment, requestCompression !== undefined);
+      } finally {
+        rmSync(fixture.parent, { recursive: true, force: true });
+      }
+    }
+  } finally {
+    if (previous === undefined) delete process.env.PI_SYNTHETIC_API_KEY;
+    else process.env.PI_SYNTHETIC_API_KEY = previous;
+    await new Promise<void>((resolvePromise, reject) => server.close((error) => error === undefined ? resolvePromise() : reject(error)));
+  }
+});
+
+test("Pi harness configuration accepts only gzip request compression", () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-pi-compression-"));
+  try {
+    const harness = JSON.parse(readFileSync("test/fixtures/pi/configs/harness.json", "utf8"));
+    for (const requestCompression of ["gzip", "zstd", true, null]) {
+      const bytes = Buffer.from(JSON.stringify({ ...harness, requestCompression }));
+      writeFileSync(join(root, "harness.json"), bytes);
+      const resolve = () => resolvePiConfigurationRecord(root, { locator: "harness.json", digest: digestBytes(bytes) }, "harness");
+      if (requestCompression === "gzip") assert.equal(resolve().requestCompression, "gzip");
+      else assert.throws(resolve, /requestCompression must be gzip/u);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("fails closed when a declared digest-pinned skill is not loadable", async () => {
   const fixture = createPiFixture({ malformedSkill: true });
   try {
@@ -832,6 +891,7 @@ function createPiFixture(options: {
   reasoning?: boolean;
   malformedSkill?: boolean;
   modelBaseUrl?: string;
+  requestCompression?: "gzip";
   declaredToolExtension?: boolean;
   extensionImport?: boolean;
 } = {}): PiFixture {
@@ -896,6 +956,7 @@ if (value !== "done") process.exitCode = 1;
   records.model.reasoning = options.reasoning ?? records.model.reasoning;
   records.model.baseUrl = options.modelBaseUrl ?? records.model.baseUrl;
   records.limits.shutdownGraceMs = options.shutdownGraceMs ?? records.limits.shutdownGraceMs;
+  if (options.requestCompression !== undefined) records.harness.requestCompression = options.requestCompression;
   if (["xhigh", "max"].includes(records.model.thinkingLevel)) {
     records.model.thinkingLevelMap = { [records.model.thinkingLevel]: records.model.thinkingLevel };
   }
