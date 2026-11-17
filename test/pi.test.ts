@@ -78,6 +78,7 @@ test("runs a frozen observational Pi entry through capture, export, retained eva
     const composition = readJsonl(join(summary.bundlePath, "pi-events.jsonl")).find(({ nativeType }) => nativeType === "session_created")!.payload as Record<string, any>;
     assert.equal(composition.schemaVersion, "ebo.pi-composition/v1");
     assert.equal(composition.model.queueModelId, "synthetic-model");
+    assert.equal("compat" in composition.model, false);
     assert.deepEqual(composition.tools.active, ["read", "bash", "edit", "write"]);
 
     const evidence = await createRetainedBehaviorEvidence(summary.bundlePath);
@@ -540,6 +541,64 @@ test("Pi model configuration preserves provider-qualified identifiers and reject
   }
 });
 
+test("Pi model compatibility accepts only explicit native boolean flags", () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-pi-compat-"));
+  const model = JSON.parse(readFileSync("test/fixtures/pi/configs/model.json", "utf8"));
+  try {
+    for (const compat of [{ forceAdaptiveThinking: true, allowEmptySignature: false }, {}, { forceAdaptiveThinking: "true" }, { arbitraryOption: true }, [true], null]) {
+      const bytes = Buffer.from(JSON.stringify({ ...model, compat }));
+      writeFileSync(join(root, "model.json"), bytes);
+      const resolve = () => resolvePiConfigurationRecord(root, { locator: "model.json", digest: digestBytes(bytes) }, "model");
+      if (compat !== null && !Array.isArray(compat) && Object.values(compat).every((value) => typeof value === "boolean") && !("arbitraryOption" in compat)) {
+        assert.deepEqual(resolve().compat, compat);
+      } else assert.throws(resolve, /compat must contain supported native boolean/u);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("production Pi session creation applies and retains explicit model compatibility flags", async () => {
+  let payload: Record<string, any> | undefined;
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(chunk as Buffer);
+    payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    const emit = (type: string, fields: object) => response.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...fields })}\n\n`);
+    emit("message_start", { message: { id: "msg-compat", type: "message", role: "assistant", model: "synthetic-model", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 0 } } });
+    emit("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
+    emit("content_block_delta", { index: 0, delta: { type: "text_delta", text: "done" } });
+    emit("content_block_stop", { index: 0 });
+    emit("message_delta", { delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } });
+    emit("message_stop", {});
+    response.end();
+  });
+  await new Promise<void>((resolvePromise) => server.listen(0, "127.0.0.1", resolvePromise));
+  const previous = process.env.PI_SYNTHETIC_API_KEY;
+  process.env.PI_SYNTHETIC_API_KEY = "synthetic-local-test-key";
+  const modelCompat = { forceAdaptiveThinking: true, allowEmptySignature: true, supportsCacheControlOnTools: false, supportsEagerToolInputStreaming: false };
+  const fixture = createPiFixture({
+    thinkingLevel: "high", reasoning: true, modelApi: "anthropic-messages", modelCompat,
+    modelBaseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+  });
+  try {
+    const summary = await runPiQueueEntry(fixture);
+    assert.equal(summary.classification, "completed");
+    assert.equal(payload?.thinking.type, "adaptive");
+    assert.equal(payload?.thinking.budget_tokens, undefined);
+    assert.equal(payload?.output_config.effort, "high");
+    assert.ok(payload?.tools.every((tool: any) => tool.cache_control === undefined && tool.eager_input_streaming === undefined));
+    const composition = readJsonl(join(summary.bundlePath, "pi-events.jsonl")).find(({ nativeType }) => nativeType === "session_created")!.payload as Record<string, any>;
+    assert.deepEqual(composition.model.compat, modelCompat);
+  } finally {
+    if (previous === undefined) delete process.env.PI_SYNTHETIC_API_KEY;
+    else process.env.PI_SYNTHETIC_API_KEY = previous;
+    rmSync(fixture.parent, { recursive: true, force: true });
+    await new Promise<void>((resolvePromise, reject) => server.close((error) => error === undefined ? resolvePromise() : reject(error)));
+  }
+});
+
 test("rejects mismatched queue model identity and silently clamped thinking configuration", async () => {
   for (const options of [
     { configQueueModelId: "different-model" },
@@ -971,7 +1030,8 @@ function createPiFixture(options: {
   malformedSkill?: boolean;
   modelBaseUrl?: string;
   requestCompression?: "gzip";
-  modelApi?: "openai-responses";
+  modelApi?: "openai-responses" | "anthropic-messages";
+  modelCompat?: Record<string, boolean>;
   declaredToolExtension?: boolean;
   extensionImport?: boolean;
 } = {}): PiFixture {
@@ -1035,6 +1095,8 @@ if (value !== "done") process.exitCode = 1;
   records.model.thinkingLevel = options.thinkingLevel ?? records.model.thinkingLevel;
   records.model.reasoning = options.reasoning ?? records.model.reasoning;
   records.model.baseUrl = options.modelBaseUrl ?? records.model.baseUrl;
+  if (options.modelApi !== undefined) records.model.api = options.modelApi;
+  if (options.modelCompat !== undefined) records.model.compat = options.modelCompat;
   records.limits.shutdownGraceMs = options.shutdownGraceMs ?? records.limits.shutdownGraceMs;
   if (options.requestCompression !== undefined) records.harness.requestCompression = options.requestCompression;
   if (options.modelApi !== undefined) records.model.api = options.modelApi;

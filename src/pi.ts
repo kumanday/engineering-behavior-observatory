@@ -76,6 +76,12 @@ const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const PI_APIS = ["anthropic-messages", "openai-completions", "openai-responses", "google-generative-ai"] as const;
 const PI_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const PI_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
+/** Boolean flags of Pi's native model `compat` type that a model record may set explicitly. */
+const PI_MODEL_COMPATIBILITY_FLAGS = [
+  "forceAdaptiveThinking", "allowEmptySignature", "sendSessionAffinityHeaders", "supportsEagerToolInputStreaming",
+  "supportsCacheControlOnTools", "supportsLongCacheRetention", "supportsStore", "supportsDeveloperRole",
+  "requiresReasoningContentOnAssistantMessages", "supportsReasoningEffort",
+] as const;
 
 type PiCost = { input: number; output: number; cacheRead: number; cacheWrite: number };
 type PiThinkingLevel = typeof PI_THINKING_LEVELS[number];
@@ -91,6 +97,7 @@ export type PiModelConfiguration = {
   apiKeyEnv: string;
   thinkingLevel: typeof PI_THINKING_LEVELS[number];
   thinkingLevelMap?: Partial<Record<PiThinkingLevel, string | null>>;
+  compat?: Partial<Record<typeof PI_MODEL_COMPATIBILITY_FLAGS[number], boolean>>;
   reasoning: boolean;
   input: Array<"text" | "image">;
   contextWindow: number;
@@ -646,6 +653,7 @@ async function createProductionPiSession(input: PiSessionFactoryInput): Promise<
       api: input.model.api,
       reasoning: input.model.reasoning,
       ...(input.model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: { ...input.model.thinkingLevelMap } }),
+      ...(input.model.compat === undefined ? {} : { compat: { ...input.model.compat } }),
       input: [...input.model.input],
       cost: { ...input.model.cost },
       contextWindow: input.model.contextWindow,
@@ -1376,7 +1384,7 @@ export function resolvePiConfigurationRecord<Kind extends PiConfigurationKind>(
 
 function validatePiConfiguration(record: Record<string, unknown>, kind: PiConfigurationKind, reference: ArtifactReference): void {
   if (kind === "model") {
-    keys(record, ["schemaVersion", "kind", "provider", "queueModelId", "model", "api", "baseUrl", "apiKeyEnv", "thinkingLevel", "thinkingLevelMap", "reasoning", "input", "contextWindow", "maxTokens", "cost"],
+    keys(record, ["schemaVersion", "kind", "provider", "queueModelId", "model", "api", "baseUrl", "apiKeyEnv", "thinkingLevel", "thinkingLevelMap", "compat", "reasoning", "input", "contextWindow", "maxTokens", "cost"],
       ["provider", "queueModelId", "model", "api", "baseUrl", "apiKeyEnv", "thinkingLevel", "reasoning", "input", "contextWindow", "maxTokens", "cost"], reference);
     requiredText(record.provider, "provider", reference); requiredText(record.model, "model", reference);
     requiredText(record.queueModelId, "queueModelId", reference);
@@ -1389,6 +1397,10 @@ function validatePiConfiguration(record: Record<string, unknown>, kind: PiConfig
           || Object.values(record.thinkingLevelMap).some((value) => value !== null && (typeof value !== "string" || value.trim() === ""))) {
         throw piConfigError(reference, "thinkingLevelMap must map supported levels to nonempty provider values or null");
       }
+    }
+    if (record.compat !== undefined && (!isRecord(record.compat) || Object.entries(record.compat).some(([name, value]) =>
+      !(PI_MODEL_COMPATIBILITY_FLAGS as readonly string[]).includes(name) || typeof value !== "boolean"))) {
+      throw piConfigError(reference, "compat must contain supported native boolean compatibility flags");
     }
     if (["xhigh", "max"].includes(String(record.thinkingLevel))
         && (!isRecord(record.thinkingLevelMap) || typeof record.thinkingLevelMap[String(record.thinkingLevel)] !== "string")) {
@@ -1502,6 +1514,7 @@ function piComposition(options: CapturePiSdkRunOptions, activeTools: string[]): 
       credentialEnvironment: options.model.apiKeyEnv,
       thinkingLevel: options.model.thinkingLevel,
       ...(options.model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: { ...options.model.thinkingLevelMap } }),
+      ...(options.model.compat === undefined ? {} : { compat: { ...options.model.compat } }),
       reasoning: options.model.reasoning,
     },
     requestEnvironment: {
