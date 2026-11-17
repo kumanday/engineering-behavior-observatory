@@ -25,6 +25,7 @@ flowchart TD
 | 2. Extract exact facts | [Structural observations](structural-observations.md) | Counts, resource observations, occurrences, explicit denominators and missing values |
 | Optional: rate occurrences | [Occurrence ratings](occurrence-ratings.md) | Typed decision-model ratings per occurrence, and judge requests with a complete occurrence ledger |
 | 3. Evaluate behavior with an LLM judge | [Assertions](behavior-assertions.md), [semantic judge](semantic-judge.md), [batch runbook](../guides/behavioral-evaluation.md) | Evidence-grounded model assessment or abstention |
+| Optional: pick behaviors to look for | [Behavior cards](behavior-cards.md), [card reference](../reference/behavior-cards.md) | 93 draft cards with a definition, evidence test and near miss each |
 | Optional: human-intervention experiment | [Human calibration](human-calibration.md) | Separately attributed human decisions and agreement populations |
 | 5. Compare declared conditions | [Aggregation](aggregation.md) | Descriptive distributions, matched differences, exclusions and caveats |
 | 6. Explore or report | [Behavior Atlas](../guides/atlas.md), [Atlas bundles](atlas-bundles.md), [evidence packets](evidence-packets.md) | Local drilldown, reproducible report, the tables behind the interactive viewer, and verifiable partner packets |

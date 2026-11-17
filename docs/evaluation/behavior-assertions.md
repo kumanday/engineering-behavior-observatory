@@ -5,7 +5,9 @@ one declared behavior dimension. The initial `ebo.behavior-vocabulary/v1` is a
 small data file at
 [`ontology/behavior-categories.v1.json`](../../ontology/behavior-categories.v1.json).
 Its eight entries are the categories in the canonical specification; unmapped
-observations do not force a new category.
+observations do not force a new category. The finer-grained
+[behavior cards](behavior-cards.md) ship beside this vocabulary; an assertion
+names a vocabulary category and dimension.
 
 Each assertion binds the normalized-dataset schema version and canonical
 digest, run and attempt IDs, vocabulary version, one category/dimension pair,

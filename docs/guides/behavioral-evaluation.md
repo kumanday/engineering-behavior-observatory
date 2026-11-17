@@ -15,7 +15,9 @@ For each retained attempt, produce the structural observation set using the
 Create one [judge request](../evaluation/semantic-judge.md) per desired dimension.
 The [ontology](../../ontology/behavior-categories.v1.json) lists the eight
 available categories. Select the dimensions relevant to your study; running
-all eight is not a software requirement.
+all eight is not a software requirement. When a rubric targets one specific
+behavior, the [behavior cards](../evaluation/behavior-cards.md) give a
+definition, evidence test and near miss to copy into its instructions.
 
 Keep the evaluator, effort, rubric version, and evidence-selection method
 consistent across compared runs. Configure those in the request files rather

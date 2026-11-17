@@ -453,6 +453,21 @@ export type {
   ResolvedBehaviorCitation,
 } from "./behavior-assertions.js";
 export {
+  assertBehaviorCardCatalog,
+  behaviorCardCatalogDigest,
+  behaviorCardFamilies,
+  loadDefaultBehaviorCardCatalog,
+  renderBehaviorCardReference,
+} from "./behavior-cards.js";
+export type {
+  BehaviorCard,
+  BehaviorCardCatalog,
+  BehaviorCardFamily,
+  BehaviorCardKind,
+  BehaviorCardStatus,
+  BehaviorCardValue,
+} from "./behavior-cards.js";
+export {
   assertCalibrationDestination,
   effectiveReviewOutcome,
   isDisputedReviewOutcome,
