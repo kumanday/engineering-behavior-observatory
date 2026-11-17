@@ -25,6 +25,10 @@ be reviewed.
 See [harness guides](../harnesses/README.md) for pins and exact capabilities.
 Availability changes by runtime; record what was observed for each attempt.
 
+Antigravity CLI retains stream-json steps and terminal cumulative token usage.
+Its adapter records native OTLP as unqualified; the product telemetry setting
+does not establish EBO collector receipt. See the [harness guide](../harnesses/antigravity-cli.md).
+
 ## Configuration is not receipt
 
 Short export intervals **and** clean shutdown reduce loss from buffered

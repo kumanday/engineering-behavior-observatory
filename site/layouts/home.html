@@ -4,7 +4,7 @@
       <div class="wrap hero-grid">
         <div class="hero-copy">
           <h1>Every finding traced to the native line behind&nbsp;it.</h1>
-          <p class="lede">The Engineering Behavior Observatory captures how an engineering agent did the work: native sessions, tool calls, hooks and workspace changes, across eight harnesses. Each behavioral assessment cites the records it rests on, and each published number recomputes from the study's own data.</p>
+          <p class="lede">The Engineering Behavior Observatory captures how an engineering agent did the work: native sessions, tool calls, hooks and workspace changes, across nine harnesses. Each behavioral assessment cites the records it rests on, and each published number recomputes from the study's own data.</p>
           <div class="actions">
             <a class="btn primary" href="#tour">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4.5 2.6v10.8L13 8z"/></svg>
@@ -21,7 +21,7 @@
         <table class="spec">
           <caption>Instrument specification</caption>
           <tbody>
-            <tr style="--i:0"><th scope="row">Capture</th><td>8 harnesses, each through its own official boundary</td></tr>
+            <tr style="--i:0"><th scope="row">Capture</th><td>9 harnesses, each through its own official boundary</td></tr>
             <tr style="--i:1"><th scope="row">Qualification</th><td>before normalization; unqualified bundles rejected</td></tr>
             <tr style="--i:2"><th scope="row">Schema</th><td><code>ebo.uniform-event/v1</code>, 10 families × 4 phases</td></tr>
             <tr style="--i:3"><th scope="row">Judgment</th><td>cited evidence, an alternative explanation, may abstain</td></tr>
@@ -189,6 +189,7 @@
               <tr><th scope="row"><img src="https://github.com/CognitionAI.png?size=40" alt="" width="20" height="20" loading="lazy">Devin CLI</th><td>Owned <span class="nowrap">devin acp</span>, JSON-RPC stdio<code>ebo devin run</code></td><td>ACP session, tool-call and permission records, stop reason and usage, agent-stop statistics</td></tr>
               <tr><th scope="row"><img src="https://github.com/cursor.png?size=40" alt="" width="20" height="20" loading="lazy">Cursor</th><td>Direct TypeScript SDK<code>ebo cursor run</code></td><td>Stream, callbacks, conversation, official JSONL store, terminal and separate billing evidence</td></tr>
               <tr><th scope="row"><img src="https://github.com/earendil-works.png?size=40" alt="" width="20" height="20" loading="lazy">Pi</th><td>TypeScript session and extension APIs<code>ebo pi run</code></td><td>Session tree, tool and message lifecycle, passive observer, compaction, retries, usage</td></tr>
+              <tr><th scope="row">Google Antigravity CLI</th><td>Owned standalone agy, stream-json<code>ebo antigravity run</code></td><td>Conversation and step identities, tools, child metadata, cumulative usage and workspace</td></tr>
               <tr><th scope="row"><img src="https://github.com/Factory-AI.png?size=40" alt="" width="20" height="20" loading="lazy">Factory Droid</th><td>Official TypeScript SDK, owned <span class="nowrap">droid exec</span> stream-jsonrpc<code>ebo factory run</code></td><td>Both protocol directions recorded before SDK parsing: messages, tool calls and results, permission decisions, hooks, compaction, child sessions, turn and session usage</td></tr>
               <tr><th scope="row"><img src="https://github.com/OpenHands.png?size=40" alt="" width="20" height="20" loading="lazy">OpenHands</th><td>Agent Server REST and WebSocket<code>library API</code></td><td>Stream and final event reconciliation, conversation state, exposed hooks, workspace</td></tr>
               <tr><th scope="row"><img src="https://github.com/deepseek-ai.png?size=40" alt="" width="20" height="20" loading="lazy">DeepSeek Harness</th><td>Official TypeScript JSON-RPC client<code>library API</code></td><td>Durable session events, lifecycle notifications, selected runtime and plugin composition</td></tr>

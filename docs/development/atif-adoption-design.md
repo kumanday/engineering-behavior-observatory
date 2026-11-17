@@ -38,8 +38,8 @@ Harbor validation is an optional cross-check with its installed version recorded
 
 ## Native evidence reading
 
-EBO maintains Claude Agent SDK, Codex, Devin CLI, Cursor, Pi, Factory Droid,
-OpenHands and DeepSeek Harness. Retained evidence from unfamiliar runtime or
+EBO maintains Claude Agent SDK, Codex, Devin CLI, Antigravity CLI, Cursor, Pi,
+Factory Droid, OpenHands and DeepSeek Harness. Retained evidence from unfamiliar runtime or
 capture-adapter versions is read through each adapter's format contract with a
 version-confidence limitation. Version disagreement remains visible as a
 conflict. Actual malformed data, digest corruption and contradictory session or

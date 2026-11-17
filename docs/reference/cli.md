@@ -59,11 +59,14 @@ Execute one selected frozen entry. Use the matching harness configuration and au
 ```sh
 ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
 ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
+ebo antigravity run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
 ebo devin run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
 ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
 ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
 ebo pi run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>]
 ```
+
+Antigravity also accepts `ebo agy run`. Its [harness guide](../harnesses/antigravity-cli.md) owns runtime pins, Google-account login, and headless permission policy.
 
 ## Inspect and share evidence
 

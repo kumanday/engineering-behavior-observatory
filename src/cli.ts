@@ -32,6 +32,7 @@ import { runAgentSdkQueueEntry } from "./agent-sdk-runner.js";
 import { validateRetainedBehaviorAssertion, type BehaviorAssertion, type BehaviorReview } from "./behavior-assertions.js";
 import { runCodexQueueEntry } from "./codex-run.js";
 import { runFactoryQueueEntry } from "./factory-run.js";
+import { runAntigravityQueueEntry } from "./antigravity-run.js";
 import { runDevinQueueEntry } from "./devin-run.js";
 import { runCursorSdkQueueEntry } from "./cursor-sdk-runner.js";
 import { runPiQueueEntry } from "./pi.js";
@@ -102,6 +103,7 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
+       ebo antigravity run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo devin run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo cursor run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo pi run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
@@ -214,6 +216,7 @@ export function main(
   }
 
   if (args[0] === "factory" && args[1] === "run") return runFactoryCommand(args.slice(2), write, dependencies.runtime);
+  if ((args[0] === "antigravity" || args[0] === "agy") && args[1] === "run") return runAntigravityCommand(args.slice(2), write, dependencies.runtime);
   if (args[0] === "devin" && args[1] === "run") {
     return runDevinCommand(args.slice(2), write, dependencies.runtime);
   }
@@ -1706,4 +1709,53 @@ if (isDirectExecution()) {
     process.stderr.write(`${errorMessage(error)}\n`);
     process.exitCode = 1;
   });
+}
+
+async function runAntigravityCommand(
+  args: string[],
+  write: (message: string) => void,
+  runtime?: StudyRuntimeBinding,
+): Promise<number> {
+  const commandUsage = "Usage: ebo antigravity run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]\n";
+  const positional: string[] = [];
+  let workspaceRoot: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "--workspace-root") {
+      const value = args[++index];
+      if (value === undefined || value.startsWith("--")) {
+        write(commandUsage);
+        return 1;
+      }
+      workspaceRoot = value;
+    } else positional.push(args[index]!);
+  }
+  const [bundleRoot, queuePath, runId, outputRoot] = positional;
+  if (bundleRoot === undefined || queuePath === undefined || runId === undefined
+      || outputRoot === undefined || positional.length !== 4) {
+    write(commandUsage);
+    return 1;
+  }
+  const controller = new AbortController();
+  const abort = (): void => controller.abort();
+  process.on("SIGINT", abort);
+  process.on("SIGTERM", abort);
+  try {
+    const summary = await runAntigravityQueueEntry({
+      runtime,
+      bundleRoot,
+      queuePath,
+      runId,
+      outputRoot,
+      signal: controller.signal,
+      ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+    });
+    write(`${canonicalizeMetadata(summary)}\n`);
+    return 0;
+  } catch (error) {
+    write(`${errorMessage(error)}\n`);
+    return 1;
+  } finally {
+    process.off("SIGINT", abort);
+    process.off("SIGTERM", abort);
+  }
 }

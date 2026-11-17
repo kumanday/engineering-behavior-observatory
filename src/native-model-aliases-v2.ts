@@ -44,6 +44,7 @@ export function nativeModelAliasesV2(evidence: RetainedBehaviorEvidence, records
         if (event.type === "assistant/message") { const message = object(data.message); add(message.model); add(object(message.source).model); }
         break;
       }
+      case "antigravity-cli": add(object(payload.init).model); break;
       case "devin-cli": add(object(payload.models).currentModelId); break;
     }
   }

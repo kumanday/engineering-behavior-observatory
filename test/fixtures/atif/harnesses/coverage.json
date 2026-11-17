@@ -50,7 +50,7 @@
       "upstream": "devin / Devin chat messages",
       "privateFixture": null,
       "fixtureKind": "Authored native chat messages converted by Harbor.",
-      "surface": "No retained Devin chat-message export accepted by the converter was located. EBO’s native boundary is ACP; the converter consumes chat messages.",
+      "surface": "No retained Devin chat-message export accepted by the converter was located. EBO\u2019s native boundary is ACP; the converter consumes chat messages.",
       "equivalence": "Unproven: no real same-run pair.",
       "overlay": "None. Missing inference counts and tool failure fields remain unknown.",
       "fixture": "devin-cli.json"
@@ -102,8 +102,8 @@
       "upstream": "openhands / OpenHands event export",
       "privateFixture": null,
       "fixtureKind": "Authored legacy event records converted by Harbor.",
-      "surface": "Retained Agent Server REST/WebSocket payloads did not convert: hook records violate the converter’s source vocabulary, and selected agent records produced no legacy-format steps.",
-      "equivalence": "Unproven: native Agent Server and the converter’s legacy event export differ.",
+      "surface": "Retained Agent Server REST/WebSocket payloads did not convert: hook records violate the converter\u2019s source vocabulary, and selected agent records produced no legacy-format steps.",
+      "equivalence": "Unproven: native Agent Server and the converter\u2019s legacy event export differ.",
       "overlay": "None. Core preserves recorded observations and declared metrics.",
       "fixture": "openhands-agent-server.json"
     },
@@ -114,13 +114,25 @@
       "upstream": null,
       "privateFixture": "capture-derived-authored/deepseek-harness.json",
       "fixtureKind": "Authored ATIF selection of actual messages, bash call and result from a retained native capture; fictional public counterpart.",
-      "surface": "The authored selection parses the native JSON argument string into ATIF’s argument object.",
+      "surface": "The authored selection parses the native JSON argument string into ATIF\u2019s argument object.",
       "equivalence": "Not independent equivalence evidence: the ATIF selection was authored from native content.",
       "overlay": "None. Missing inference and tool failure declarations remain unknown.",
       "fixture": "deepseek-harness.json",
       "privateFixtureSha256": "3351ae9bde199d3f6d28fa8be4fe493b9a3cba0ce9a78bb8d2c7ad0d9a216ebf",
       "captureManifestSha256": "696f1bb365b13b4aef37e3a6f6cfa9bf1fa48e2179984dae3545424817825319",
       "captureSessionSha256": "9edf6d897008ebdc5321191446d1ad104176ea7a896a5ac1d55620cd49aa46ae"
+    },
+    {
+      "harness": "antigravity-cli",
+      "name": "Google Antigravity CLI",
+      "guide": "antigravity-cli.md",
+      "upstream": null,
+      "privateFixture": null,
+      "fixtureKind": "Authored fictional ATIF derivative matching the tested stream-json tool shape.",
+      "surface": "EBO exports a source-specific stream-json derivative and validates it through the common ATIF reader.",
+      "equivalence": "Native tool endpoints and derivative calls/results are checked on the same live run; this is not independent converter evidence.",
+      "overlay": "None. Private reasoning, complete child histories, inference identities and converted token totals are omitted.",
+      "fixture": "antigravity-cli.json"
     }
   ]
 }

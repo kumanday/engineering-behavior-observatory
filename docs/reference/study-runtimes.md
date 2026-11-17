@@ -35,10 +35,17 @@ retained lock. `check` rereads withdrawal metadata, queries OSV, verifies the
 installed files and checks the selected SDK's API exports. These commands do not
 submit an agent or judge turn.
 
-The harness roles are `claude-agent-sdk`, `codex-app-server`, `devin-cli`,
+The harness roles are `claude-agent-sdk`, `codex-app-server`, `devin-cli`, `antigravity-cli`,
 `cursor-sdk`, `pi-sdk`, `factory-droid`, `openhands-agent-server` and
 `deepseek-harness`. `codex-judge`, `harbor` and `smol` select supporting runtimes.
 The `list` output names each role's components and upstream package sources.
+
+Antigravity uses publisher GitHub releases and platform-specific archive digests.
+The maintained conformance pin is CLI 1.5.9; a study can select it exactly with
+`"overrides": { "agy": "1.5.9" }`. New freezes still apply the release-age,
+withdrawal, artifact-integrity, publisher-proof and OSV checks. The native
+executable comes from that freeze; a configuration path cannot override it.
+Personal OAuth belongs to the execution environment's native keyring.
 
 ## Verification evidence
 

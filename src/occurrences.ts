@@ -290,7 +290,7 @@ function reportedExitCode(operation: OccurrenceOperation, resolveContent: Occurr
 export function findCommand(value: unknown, depth = 0): string | undefined {
   if (depth > 5 || value === null || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
-  for (const key of ["command", "cmd"]) {
+  for (const key of ["command", "cmd", "CommandLine"]) {
     const candidate = record[key];
     if (typeof candidate === "string" && candidate.trim() !== "") return candidate;
     if (Array.isArray(candidate) && candidate.length > 0 && candidate.every((part) => typeof part === "string")) return candidate.join(" ");

@@ -2,7 +2,7 @@
 
 A runtime can install, report the expected version and expose the expected API
 without delivering every piece of capture evidence. EBO records these checks
-separately. One verification catalog supplies confidence for all eight native
+separately. One verification catalog supplies confidence for all nine native
 harnesses, retained analysis and launch summaries. Development dependency pins
 and historical fixture inventories do not decide confidence.
 

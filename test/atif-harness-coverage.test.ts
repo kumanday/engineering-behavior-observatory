@@ -6,9 +6,9 @@ import { coverage, coverageDirectory, coverageResults, renderCoverageMatrix } fr
 import { inspectAtifBytes } from "../src/atif-reader.js";
 import { projectAtifCore } from "../src/atif-core.js";
 
-test("the eight-harness matrix is generated from native adapter membership and real core import results", async () => {
+test("the nine-harness matrix is generated from native adapter membership and real core import results", async () => {
   const rows = await coverageResults();
-  assert.equal(rows.length, 8);
+  assert.equal(rows.length, 9);
   for (const { row, evidence, calls, results } of rows) {
     assert.ok(calls > 0 && results > 0, row.harness);
     assert.ok(evidence.dataset.events.some(({ facts }) => facts.message), row.harness);

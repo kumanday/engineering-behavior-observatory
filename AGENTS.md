@@ -34,6 +34,11 @@ or implement beyond the assigned issue.
   EBO-owned native JSON-RPC child and recording before SDK validation. Bind
   terminal session/turn identities; keep cumulative usage and child contributions
   separate from the owned turn total.
+- Integrate Google Antigravity CLI through a pinned standalone `agy` child over
+  stream-json. Own one fresh conversation and one input per attempt; retain native
+  step updates before projection, match the result conversation identity, and
+  count final cumulative usage once. Authentication stays with the native
+  Google-account login and OS keyring in the execution environment.
 - Keep source control protocols separate from EBO's small uniform event
   projection. Each adapter retains its own methods, identities, lifecycle, and
   completion semantics.

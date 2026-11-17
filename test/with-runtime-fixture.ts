@@ -1,3 +1,4 @@
+import { fakeAntigravityRuntimeOptions } from "./antigravity-runtime-fixture.js";
 import { fakeOciRuntimeOptions } from "./runtime-oci-fixture.js";
 import { fakeVendorRuntimeOptions } from "./runtime-vendor-fixture.js";
 import nodeTest, { after, type TestContext } from "node:test";
@@ -14,6 +15,11 @@ export async function createConformanceRuntimeFixture(role: string, deprecatedDe
   if (role === "openhands-agent-server") {
     const studyRoot = await mkdtemp(join(tmpdir(), "ebo-openhands-runtime-")), options = fakeOciRuntimeOptions();
     await freezeStudyRuntimes(studyRoot, {studyId: "conformance-openhands", roles: [role]}, options);
+    return {studyRoot, options};
+  }
+  if (role === "antigravity-cli") {
+    const studyRoot = await mkdtemp(join(tmpdir(), "ebo-agy-runtime-")), options = fakeAntigravityRuntimeOptions(cliFallback);
+    await freezeStudyRuntimes(studyRoot, {studyId: "conformance-antigravity", roles: [role]}, options);
     return {studyRoot, options};
   }
   if (role === "devin-cli") {

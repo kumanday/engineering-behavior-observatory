@@ -35,6 +35,13 @@ def rows(path, values):
 
 for receipt in receipts:
     harness = receipt["harness"]
+    if harness == "antigravity-cli":
+        from harbor.models.trajectories.trajectory import Trajectory
+        source = (args.root / "antigravity-cli.json").read_bytes()
+        if hashlib.sha256(source).hexdigest() != receipt['trajectorySha256']:
+            raise SystemExit('Antigravity ATIF fixture drift')
+        Trajectory.model_validate_json(source)
+        print('PASS: antigravity-cli; authored derivative independently validates as ATIF')
     if harness not in classes:
         continue  # Capture-derived authored ATIF is checked against retained values locally.
     cls = classes[harness]

@@ -22,6 +22,7 @@ export function v1MessageRole(event: UniformEvent): string | undefined {
       if (type === "assistant" && event.actor.kind === "model") return "assistant";
       if (type === "user" && event.actor.kind === "harness") return "harness";
       return type === "UserPromptSubmit" ? "user" : undefined;
+    case "antigravity-cli": return type === "user" ? "user" : a.stepType === "agent_response" ? "assistant" : undefined;
     case "devin-cli": return a.sessionUpdate === "agent_message_chunk" ? "assistant" : a.sessionUpdate === "user_message_chunk" || type === "session/prompt" ? "user" : undefined;
     default:
       if (event.phase === "before" || event.phase === "during" || /chunk|delta|start/u.test(type)) return undefined;

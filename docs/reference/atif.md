@@ -72,7 +72,7 @@ An overlay can interpret extensions, qualify particular facts and record each
 adjustment with its reason and evidence pointers. Outside verified ranges, core
 content and counts remain available with conservative limitations. See
 [ATIF interpretation](../development/atif-producer-profiles.md) for the measured
-Pi and Codex gaps, and the [eight-harness coverage matrix](atif-harness-coverage.md)
+Pi and Codex gaps, and the [nine-harness coverage matrix](atif-harness-coverage.md)
 for converter availability and same-run evidence.
 
 ## Admission and reopening

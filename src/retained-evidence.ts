@@ -8,6 +8,7 @@ import { isAtifImportSchema, readImportedBehaviorEvidence } from "./atif-import.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { digestMetadata, inspectRetainedArtifact } from "./artifacts.js";
+import { ANTIGRAVITY_HARNESS, ANTIGRAVITY_CLIENT, ANTIGRAVITY_ADAPTER_VERSION, ANTIGRAVITY_CONTRACT_DIGEST, qualifyRetainedAntigravityCapture, describeAndValidateAntigravityDataset } from "./antigravity.js";
 import { factoryModelSelection } from "./factory-model.js";
 import { FACTORY_HARNESS, qualifyFactoryCapture, describeAndValidateFactoryDataset } from "./factory-droid.js";
 import { join, resolve } from "node:path";
@@ -146,7 +147,7 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
     const evidence = await projectAgentSdkBehaviorEvidence(bundleRoot);
     return { ...evidence, outcomeCapture: evidence.capture };
   }
-  if (![CODEX_HARNESS, DEVIN_HARNESS, FACTORY_HARNESS, "openhands-agent-server", DEEPSEEK_HARNESS_ID, PI_HARNESS].includes(harness)) {
+  if (![CODEX_HARNESS, DEVIN_HARNESS, ANTIGRAVITY_HARNESS, FACTORY_HARNESS, "openhands-agent-server", DEEPSEEK_HARNESS_ID, PI_HARNESS].includes(harness)) {
     throw new Error(`Unsupported retained harness ${harness}; refusing Agent SDK fallback normalization.`);
   }
   if (harness === "openhands-agent-server") openHandsCapabilityProfile(manifest.run.harness.version);
@@ -293,6 +294,23 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
       throw new Error("Retained Factory runtime digest differs from native composition.");
     }
     dataset = (await describeAndValidateFactoryDataset(native)).dataset;
+  } else if (harness === ANTIGRAVITY_HARNESS) {
+    const documents = outcomeCapture.records.filter(r => r.record.kind === "telemetry").map(r => r.record.document as Record<string, any>);
+    const runtime = documents[0]?.runtime;
+    const versions = manifest.run.runtime.filter(r => r.name === ANTIGRAVITY_HARNESS);
+    if (documents.length !== 1 || documents[0]?.schemaVersion !== "ebo.antigravity-runtime/v1" || versions.length !== 1
+      || versions[0]!.source !== "Google" || runtime?.adapterVersion !== ANTIGRAVITY_ADAPTER_VERSION
+      || runtime?.contractDigest !== ANTIGRAVITY_CONTRACT_DIGEST || manifest.run.model.provider !== "google"
+      || documents[0]?.effectiveConfiguration?.model !== manifest.run.model.id
+      || documents[0]?.effectiveConfiguration?.authentication !== "google-account") throw new Error("Retained Antigravity runtime document differs from the manifest.");
+    const native = qualifyRetainedAntigravityCapture(capture as NormalizationInput<ProtocolObservation>, {
+      sessionId: manifest.run.native?.sessionId, expectsCompletion, harnessVersion: manifest.run.harness.version,
+      runtimeVersions: [runtime?.version, versions[0]!.version],
+    });
+    const init = native.records.find(r => r.record.kind === "frame" && (r.record.payload as any)?.event === "init")?.record.payload as any;
+    if (init && init.init?.model !== manifest.run.model.id) throw new Error("Retained Antigravity native model differs from the manifest.");
+    if (init && init.init?.permission_mode !== documents[0]?.effectiveConfiguration?.permissionMode) throw new Error("Retained Antigravity permission policy differs from its runtime evidence.");
+    dataset = (await describeAndValidateAntigravityDataset(native, manifest.run.harness.version)).dataset;
   } else if (harness === DEVIN_HARNESS) {
     // The native runtime document is the only runtime-version evidence; never fall back to the manifest pin alone.
     const telemetryDocuments = outcomeCapture.records.filter(({ record }) => record.kind === "telemetry").map(({ record }) => record.document as Record<string, any> | undefined);
@@ -350,6 +368,12 @@ function assertNativeEnvelope(harness: string, value: unknown, line: number): vo
   if (harness === FACTORY_HARNESS) {
     assertProtocolObservation(value, line);
     if (value.source !== FACTORY_HARNESS && value.source !== "ebo-factory-client") fail();
+    return;
+  }
+  if (harness === ANTIGRAVITY_HARNESS) {
+    assertProtocolObservation(value, line);
+    if (value.source !== ANTIGRAVITY_HARNESS && value.source !== ANTIGRAVITY_CLIENT) fail();
+    if (value.source === ANTIGRAVITY_CLIENT && (value.kind !== "request" || value.method !== "user")) fail();
     return;
   }
   if (harness === DEVIN_HARNESS) {

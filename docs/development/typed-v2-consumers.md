@@ -2,7 +2,7 @@
 
 The opt-in v2 lane derives structural observations, occurrence ledgers, rating
 inputs, semantic judge inputs, assertions and Atlas units from typed operations
-and event facts. It accepts all eight registered owned-native projections and
+and event facts. It accepts all nine registered owned-native projections and
 conforming ATIF documents through the generic core, with optional Pi/Codex overlays. Imported evidence
 retains imported qualification; each measurement names its recorded population
 with imported measures scoped to their recorded document.

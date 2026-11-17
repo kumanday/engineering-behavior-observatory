@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "ebo.antigravity-config/v1",
+  "kind": "model",
+  "provider": "google",
+  "model": "gemini-4-argon-high"
+}

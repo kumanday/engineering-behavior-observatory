@@ -82,6 +82,8 @@ export {
   createDeepSeekHarborExecutor,
   createOpenHandsHarborExecutor,
   createPiHarborExecutor,
+  createAntigravityHarborExecutor,
+  type AntigravityHarborExecutorOptions,
   createFactoryHarborExecutor,
   type FactoryHarborExecutorOptions,
   harborStepBundleDefinition,

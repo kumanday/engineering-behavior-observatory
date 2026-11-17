@@ -7,3 +7,8 @@ for preparing evidence, admission and study freezing.
 This catalog contains no authored or mocked verification seeds. Real matching
 probe or capture evidence and an explicit reviewed admission are required for a
 seed receipt. The test suite uses temporary operator catalogs.
+
+Antigravity CLI 1.5.9 has admitted personal OAuth capture evidence for macOS ARM64
+and Linux ARM64. The [qualification record](../antigravity-cli-1.5.9.md) describes
+the owned cases, Harbor branching proof and remaining capability gaps. Each
+receipt applies only to its recorded capture contract, profile and model route.

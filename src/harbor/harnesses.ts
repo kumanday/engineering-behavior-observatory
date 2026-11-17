@@ -1,4 +1,6 @@
 import { lockedRuntimeExecutable, recordRuntimeProbe, studyRuntimeVersion } from "../runtime-context.js";
+import { captureAntigravityCliRun, resolveAntigravityConfigurationRecord } from "../antigravity-run.js";
+import { probeAntigravityRuntime, type AntigravityCliConfiguration } from "../antigravity.js";
 import { captureFactoryDroidRun, resolveFactoryConfigurationRecord } from "../factory-run.js";
 import { captureDevinCliRun, resolveDevinConfigurationRecord } from "../devin-run.js";
 import { probeFactoryRuntime, type FactoryDroidConfiguration } from "../factory-droid.js";
@@ -484,5 +486,66 @@ function workspaceCaptureOptions(policy?: { excludeDirectoryNames?: string[]; re
     workspaceOutcomeExcludedDirectoryNames: policy?.excludeDirectoryNames,
     workspaceOutcomeRespectsGitignore: policy?.respectGitignore,
     workspaceOutcomeOmitsEmptyDirectories: policy?.omitEmptyDirectories,
+  };
+}
+
+export type AntigravityHarborExecutorOptions = {
+  studyRoot: string;
+  configuration: HarborHarnessConfigurationReferences;
+  probeRuntime?: (executable: string) => Promise<{ path: string; version: string }>;
+  executableArgs?: readonly string[];
+  signal?: AbortSignal;
+};
+
+export function createAntigravityHarborExecutor(options: AntigravityHarborExecutorOptions): HarborHarnessStepExecutor {
+  return async (input: HarborStepExecutorInput): Promise<HarborStepExecution> => {
+    const model = resolveAntigravityConfigurationRecord(options.studyRoot, options.configuration.model, "model");
+    const harness = resolveAntigravityConfigurationRecord(options.studyRoot, options.configuration.harness, "harness");
+    const limits = resolveAntigravityConfigurationRecord(options.studyRoot, options.configuration.nativeLimits, "native-limits");
+    const toolPolicy = resolveAntigravityConfigurationRecord(options.studyRoot, options.configuration.nativeToolPolicy, "native-tool-policy");
+    const captureProfile = resolveAntigravityConfigurationRecord(options.studyRoot, options.configuration.captureProfile, "capture-profile");
+    if (input.prepared.run.harnessId !== "antigravity-cli") throw new Error("Antigravity Harbor executor requires the antigravity-cli harness.");
+    const runtime = await (options.probeRuntime ?? probeAntigravityRuntime)(lockedRuntimeExecutable("agy").path);
+    await recordRuntimeProbe("agy", runtime.version, "executable");
+    const definition = harborStepBundleDefinition(input.prepared, input.step, input.stepBundleRoot, {
+      harnessId: "antigravity-cli",
+      harnessVersion: runtime.version,
+      modelId: model.model,
+      provider: model.provider,
+      configurationDigests: {
+        model: options.configuration.model.digest.value,
+        harness: options.configuration.harness.digest.value,
+        captureProfile: options.configuration.captureProfile.digest.value,
+        nativeLimits: options.configuration.nativeLimits.digest.value,
+        nativeToolPolicy: options.configuration.nativeToolPolicy.digest.value,
+      },
+    });
+    const configuration: AntigravityCliConfiguration = {
+      executable: runtime.path,
+      ...(options.executableArgs === undefined ? {} : { executableArgs: options.executableArgs }),
+      version: runtime.version,
+      model: model.model,
+      effort: model.effort,
+      permissionMode: toolPolicy.permissionMode,
+      sandbox: toolPolicy.sandbox,
+      accountHome: harness.accountHome,
+    };
+    const result = await captureAntigravityCliRun({
+      definition,
+      startingWorkspacePath: input.startingWorkspacePath,
+      workspace: harborWorkspaceCoordinator(input.workspacePath),
+      configuration,
+      prompt: input.step.effectiveInstruction,
+      ...workspaceCaptureOptions(captureProfile.workspaceOutcome),
+      maxWallClockMs: input.maxWallClockMs,
+      ...(limits.shutdownGraceMs === undefined ? {} : { shutdownGraceMs: limits.shutdownGraceMs }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
+    });
+    return stepExecutionFromCapture(input, {
+      qualification: result.qualification,
+      attempt: result.attempt,
+      manifest: { terminal: result.manifest.terminal, run: (result.manifest as unknown as { run?: { native?: { sessionId?: string } } }).run },
+    });
   };
 }

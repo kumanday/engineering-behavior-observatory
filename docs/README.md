@@ -33,14 +33,15 @@ the `ebo` command is installed as described in the quickstart.
 [Cursor](harnesses/cursor-sdk.md) ·
 [Pi](harnesses/pi-sdk.md) · [OpenHands](harnesses/openhands-agent-server.md) ·
 [DeepSeek Harness](harnesses/deepseek-harness.md) ·
-[Factory Droid](harnesses/factory-droid.md)
+[Factory Droid](harnesses/factory-droid.md) ·
+[Google Antigravity CLI](harnesses/antigravity-cli.md)
 
 [Open Responses through Pi](harnesses/open-responses.md) covers Responses-style
 endpoints, wire recording and specification conformance analysis.
 
 These guides explain runtime selection, configuration, native evidence and known gaps.
 The [verification guide](reference/harness-verification.md) explains admitted
-probe and capture evidence across all eight harnesses.
+probe and capture evidence across all nine harnesses.
 
 ## Evaluate behavior
 
