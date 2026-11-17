@@ -328,6 +328,16 @@ for (const invalid of [
     },
     message: /unknown field "kind"/,
   },
+  {
+    name: "unsupported-effort",
+    records: { model: { schemaVersion: "ebo.agent-sdk-config/v1", kind: "model", model: "claude-test", effort: "extreme" } },
+    message: /effort must be one of low, medium, high, xhigh, max/,
+  },
+  {
+    name: "unsupported-system-prompt-preset",
+    records: { model: { schemaVersion: "ebo.agent-sdk-config/v1", kind: "model", model: "claude-test", systemPromptPreset: "custom" } },
+    message: /systemPromptPreset must be claude_code/,
+  },
 ] as const) {
   test(`rejects an ${invalid.name} configuration before the SDK query without fabricating a bundle`, async () => {
     const fixture = createRunnerFixture({ records: invalid.records });
@@ -950,4 +960,36 @@ test("a runtime-bound queue gives the captured run a frozen identity and retains
     assert.deepEqual(JSON.parse(readFileSync(join(summary.bundlePath, descriptor.relativePath), "utf8")), bound.studyFreeze);
     await createRetainedBehaviorEvidence(summary.bundlePath);
   } finally {rmSync(fixture.parent, {recursive: true, force: true});}
+});
+
+test("forwards and retains optional model effort and system prompt preset, and omits them by default", async () => {
+  for (const selected of [{}, { effort: "high", systemPromptPreset: "claude_code" }]) {
+    const fixture = createRunnerFixture({
+      assessmentMode: "observational",
+      records: { model: { schemaVersion: "ebo.agent-sdk-config/v1", kind: "model", model: "claude-test", ...selected } },
+    });
+    try {
+      const fake = fakeQuery({ resultContent: "done\n" });
+      let observed: Options | undefined;
+      const summary = await runAgentSdkQueueEntry({
+        bundleRoot: fixture.bundleRoot,
+        queuePath: fixture.queuePath,
+        runId: fixture.runId,
+        outputRoot: fixture.outputRoot,
+        workspaceRoot: fixture.workspaceRoot,
+        query: (input: QueryInput) => { observed = input.options; return fake.query(input); },
+      });
+      assert.equal(observed?.effort, selected.effort);
+      assert.deepEqual(observed?.systemPrompt, selected.systemPromptPreset === undefined ? undefined : { type: "preset", preset: "claude_code" });
+      const manifest = JSON.parse(readFileSync(join(summary.bundlePath, "manifest.json"), "utf8")) as RunManifest;
+      const descriptor = manifest.evidence.find((entry) => entry.kind === "capture-report")!;
+      const report = JSON.parse(readFileSync(join(summary.bundlePath, descriptor.relativePath), "utf8"));
+      assert.equal(report.agentSdk.effectiveConfiguration.effort, selected.effort);
+      assert.equal(report.agentSdk.effectiveConfiguration.systemPromptPreset, selected.systemPromptPreset);
+      assert.equal("effort" in report.agentSdk.effectiveConfiguration, "effort" in selected);
+      await createRetainedBehaviorEvidence(summary.bundlePath);
+    } finally {
+      rmSync(fixture.parent, { recursive: true, force: true });
+    }
+  }
 });

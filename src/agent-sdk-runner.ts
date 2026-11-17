@@ -10,8 +10,12 @@ import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact, validateRu
 import { captureClaudeAgentSdkRunOwned } from "./agent-sdk-run.js";
 import { CLAUDE_AGENT_SDK_HARNESS } from "./agent-sdk-normalizer.js";
 import {
+  CLAUDE_AGENT_SDK_EFFORT_LEVELS,
+  CLAUDE_AGENT_SDK_SYSTEM_PROMPT_PRESETS,
   probeClaudeAgentSdkCapabilities,
   type ClaudeAgentSdkConfiguration,
+  type ClaudeAgentSdkEffort,
+  type ClaudeAgentSdkSystemPromptPreset,
   type ClaudeAgentSdkQuery,
   type ClaudeAgentSdkTelemetryConfiguration,
 } from "./agent-sdk.js";
@@ -29,6 +33,8 @@ export type AgentSdkModelConfiguration = {
   schemaVersion: typeof AGENT_SDK_CONFIG_SCHEMA_VERSION;
   kind: "model";
   model: string;
+  effort?: ClaudeAgentSdkEffort;
+  systemPromptPreset?: ClaudeAgentSdkSystemPromptPreset;
 };
 
 export type AgentSdkHarnessConfiguration = {
@@ -307,8 +313,14 @@ export function resolveAgentSdkConfigurationRecord<Kind extends AgentSdkConfigur
 function validateConfigurationRecord(record: Record<string, unknown>, kind: AgentSdkConfigurationKind, reference: ArtifactReference): void {
   switch (kind) {
     case "model":
-      assertRecordKeys(record, ["model"], ["model"], reference);
+      assertRecordKeys(record, ["model", "effort", "systemPromptPreset"], ["model"], reference);
       assertText(record.model, "model", reference);
+      if (record.effort !== undefined && !(CLAUDE_AGENT_SDK_EFFORT_LEVELS as readonly unknown[]).includes(record.effort)) {
+        throw configurationError(reference, `effort must be one of ${CLAUDE_AGENT_SDK_EFFORT_LEVELS.join(", ")}`);
+      }
+      if (record.systemPromptPreset !== undefined && !(CLAUDE_AGENT_SDK_SYSTEM_PROMPT_PRESETS as readonly unknown[]).includes(record.systemPromptPreset)) {
+        throw configurationError(reference, `systemPromptPreset must be ${CLAUDE_AGENT_SDK_SYSTEM_PROMPT_PRESETS.join(", ")}`);
+      }
       return;
     case "harness":
       assertRecordKeys(record, ["adapter"], ["adapter"], reference);
@@ -402,6 +414,8 @@ export function buildSdkConfiguration(
   return {
     prompt,
     model: model.model,
+    ...(model.effort === undefined ? {} : { effort: model.effort }),
+    ...(model.systemPromptPreset === undefined ? {} : { systemPromptPreset: model.systemPromptPreset }),
     tools: [...toolPolicy.tools],
     allowedTools: [...(toolPolicy.allowedTools ?? [])],
     disallowedTools: [...(toolPolicy.disallowedTools ?? [])],

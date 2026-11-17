@@ -21,9 +21,17 @@ import type {
 } from "./lifecycle.js";
 import { BoundedDiagnosticCapture, openJsonlEvidenceWriter } from "./process-protocol.js";
 
+/** Effort levels and system-prompt presets accepted by the bundled SDK's query options. */
+export const CLAUDE_AGENT_SDK_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export const CLAUDE_AGENT_SDK_SYSTEM_PROMPT_PRESETS = ["claude_code"] as const;
+export type ClaudeAgentSdkEffort = typeof CLAUDE_AGENT_SDK_EFFORT_LEVELS[number];
+export type ClaudeAgentSdkSystemPromptPreset = typeof CLAUDE_AGENT_SDK_SYSTEM_PROMPT_PRESETS[number];
+
 export type ClaudeAgentSdkConfiguration = {
   prompt: string;
   model: string;
+  effort?: ClaudeAgentSdkEffort;
+  systemPromptPreset?: ClaudeAgentSdkSystemPromptPreset;
   tools: string[];
   allowedTools?: string[];
   disallowedTools?: string[];
@@ -220,6 +228,8 @@ export type ClaudeAgentSdkAttemptEvidence = {
   runtime: Array<{ source: "anthropic"; name: "agent-sdk" | "agent-cli"; version: string }>;
   effectiveConfiguration: {
     model: string;
+    effort?: ClaudeAgentSdkEffort;
+    systemPromptPreset?: ClaudeAgentSdkSystemPromptPreset;
     tools: string[];
     allowedTools: string[];
     disallowedTools: string[];
@@ -568,6 +578,8 @@ export async function executeClaudeAgentSdkOwned(context: HarnessExecutionContex
       cwd: context.workspace!.path,
       env: environment.env,
       model: configuration.model,
+      ...(configuration.effort === undefined ? {} : { effort: configuration.effort }),
+      ...(configuration.systemPromptPreset === undefined ? {} : { systemPrompt: { type: "preset" as const, preset: configuration.systemPromptPreset } }),
       tools: [...configuration.tools],
       allowedTools: [...(configuration.allowedTools ?? [])],
       disallowedTools: [...(configuration.disallowedTools ?? [])],
@@ -743,6 +755,8 @@ function executorEvidence(
     ],
     effectiveConfiguration: {
       model: configuration.model,
+      ...(configuration.effort === undefined ? {} : { effort: configuration.effort }),
+      ...(configuration.systemPromptPreset === undefined ? {} : { systemPromptPreset: configuration.systemPromptPreset }),
       tools: [...configuration.tools],
       allowedTools: [...(configuration.allowedTools ?? [])],
       disallowedTools: [...(configuration.disallowedTools ?? [])],
@@ -765,6 +779,12 @@ function validateConfiguration(configuration: ClaudeAgentSdkConfiguration, conte
   if (!isRecord(configuration)) throw new Error("Claude Agent SDK configuration must be an object.");
   assertText(configuration.prompt, "prompt");
   assertText(configuration.model, "model");
+  if (configuration.effort !== undefined && !CLAUDE_AGENT_SDK_EFFORT_LEVELS.includes(configuration.effort)) {
+    throw new Error("Claude Agent SDK effort is invalid.");
+  }
+  if (configuration.systemPromptPreset !== undefined && !CLAUDE_AGENT_SDK_SYSTEM_PROMPT_PRESETS.includes(configuration.systemPromptPreset)) {
+    throw new Error("Claude Agent SDK systemPromptPreset is invalid.");
+  }
   assertStringList(configuration.tools, "tools");
   if (configuration.allowedTools !== undefined) assertStringList(configuration.allowedTools, "allowedTools");
   if (configuration.disallowedTools !== undefined) assertStringList(configuration.disallowedTools, "disallowedTools");

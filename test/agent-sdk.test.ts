@@ -42,6 +42,8 @@ const run = createRunIdentity({
 const configuration: ClaudeAgentSdkConfiguration = {
   prompt: "Inspect the attempt workspace.",
   model: "claude-test",
+  effort: "xhigh",
+  systemPromptPreset: "claude_code",
   tools: ["Read", "Glob"],
   allowedTools: ["Read"],
   disallowedTools: ["Write"],
@@ -149,6 +151,8 @@ test("runs a typed SDK stream in the attempt workspace and records effective man
     assert.equal(input?.prompt, configuration.prompt);
     assert.equal(input?.options?.cwd, root);
     assert.equal(input?.options?.model, configuration.model);
+    assert.equal(input?.options?.effort, "xhigh");
+    assert.deepEqual(input?.options?.systemPrompt, { type: "preset", preset: "claude_code" });
     assert.deepEqual(input?.options?.tools, configuration.tools);
     assert.deepEqual(input?.options?.allowedTools, configuration.allowedTools);
     assert.deepEqual(input?.options?.disallowedTools, configuration.disallowedTools);
@@ -173,6 +177,8 @@ test("runs a typed SDK stream in the attempt workspace and records effective man
     ]);
     assert.deepEqual(evidence.effectiveConfiguration, {
       model: "claude-test",
+      effort: "xhigh",
+      systemPromptPreset: "claude_code",
       tools: ["Read", "Glob"],
       allowedTools: ["Read"],
       disallowedTools: ["Write"],
