@@ -6,7 +6,8 @@ import { pathToFileURL } from "node:url";
 
 import { aggregateEvaluation, evidenceOrigin, selectAggregationAttempts, type BehaviorAggregate, type AggregationInput, type AggregationReport, type AggregationRequest } from "./aggregation.js";
 import { assertNoDuplicateJsonKeys, canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
-import type { BehaviorAssertion } from "./behavior-assertions.js";
+import { isDecisionModelAssertion, producerLabel, type BehaviorAssertion } from "./behavior-assertions.js";
+import { behaviorDirection, resolveBehaviorCard } from "./behavior-ontology.js";
 import type { AgentSdkNativeRecord } from "./agent-sdk-normalizer.js";
 import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
 import { readCorpusIndex, validateCorpusIndex } from "./corpus.js";
@@ -18,7 +19,7 @@ import { renderAtlas } from "./atlas-html.js";
 import { writeAtlasGrafana } from "./atlas-grafana.js";
 
 type Digest = `sha256:${string}`;
-export const ATLAS_FILTERS = ["model", "harness", "task", "trial", "capture", "origin", "outcome", "review", "category", "assessment", "q"] as const;
+export const ATLAS_FILTERS = ["model", "harness", "task", "trial", "capture", "origin", "outcome", "review", "mode", "family", "card", "verdict", "direction", "q"] as const;
 export type AtlasFilters = Partial<Record<typeof ATLAS_FILTERS[number], string>>;
 export type AtlasRequest = {
   schemaVersion: "ebo.atlas-request/v1";
@@ -34,7 +35,11 @@ export type AtlasRequest = {
 };
 export type AtlasCase = {
   key: string; runId: string; attemptId: string; model: string; harness: string; task: string; trial: string;
-  capture: string; outcome: string; review: string; category: string; assessment: string;
+  capture: string; outcome: string; review: string;
+  /** Which producer mode made the result: `llm-judge` or `decision-model`. */
+  mode: string; family: string; card: string; verdict: string;
+  /** The ontology's direction for a present result; `none` when the verdict is absent or unknown. */
+  direction: string;
   harnessVersion?: string;
   origin?: "owned" | "imported";
   sourceFormat?: string;
@@ -65,9 +70,28 @@ export function atlasBehaviorPartitions(view: AtlasView): Array<{ group: string;
   return view.report.groups.flatMap((group) => (group.behaviors ?? []).map((partition) => ({ group: Object.values(group.dimensions).join(" · ") || "Selected cohort", partition })));
 }
 
+/** One row per producer, card and verdict, then one per value of a dimension card, in the report's family and card order. */
 export function atlasBehaviorRows(view: AtlasView) {
-  const rows = atlasBehaviorPartitions(view).flatMap(({ group, partition }) => partition.assessments.map(({ assessment, measurement }) => ({ group, category: partition.behavior.categoryId, dimension: partition.behavior.dimensionId, vocabulary: partition.behavior.vocabularyVersion, rubric: `${partition.rubric.id}@${partition.rubric.version}`, evaluator: canonicalizeMetadata(partition.evaluator), assessment, label: `${group} · ${partition.behavior.categoryId} · ${assessment}`, status: measurement.status, numerator: measurement.status === "available" ? measurement.numerator.value : null, denominator: measurement.denominator.value, unit: measurement.denominator.unit, exclusions: measurement.exclusions.map(({ reason, count }) => `${reason}: ${count}`).join("; "), cohortDigest: view.cohortDigest })));
-  return rows.length ? rows : [{ group: "Selected cohort", category: "unavailable", dimension: "unavailable", vocabulary: "unavailable", rubric: "unavailable", evaluator: "unavailable", assessment: "unavailable", label: "Behavior distribution unavailable", status: "unavailable", numerator: null, denominator: 0, unit: "judge-assessed-attempt-dimension", exclusions: "No behavior assessment partition is available.", cohortDigest: view.cohortDigest }];
+  const rows = atlasBehaviorPartitions(view).flatMap(({ group, partition }) => {
+    const card = resolveBehaviorCard(partition.behavior);
+    const shared = { group, mode: partition.producer.mode, producer: producerLabel(partition.producer), family: partition.family, card: partition.behavior.cardId, ontology: partition.behavior.ontologyVersion,
+      rubric: partition.rubric === undefined ? "none" : `${partition.rubric.id}@${partition.rubric.version}`, evaluator: canonicalizeMetadata(partition.producer), cohortDigest: view.cohortDigest };
+    const row = (verdict: string, value: string | null, direction: string | null, measurement: BehaviorAggregate["verdicts"][number]["measurement"]) => ({ ...shared, verdict, value, direction,
+      label: `${group} · ${partition.producer.mode} · ${partition.behavior.cardId} · ${value ?? verdict}`, status: measurement.status,
+      numerator: measurement.status === "available" ? measurement.numerator.value : null, denominator: measurement.denominator.value, unit: measurement.denominator.unit, exclusions: measurement.exclusions.map(({ reason, count }) => `${reason}: ${count}`).join("; ") });
+    return [...partition.verdicts.map(({ verdict, measurement }) => row(verdict, null, verdict === "present" ? card.direction ?? null : null, measurement)),
+      ...(partition.values ?? []).map(({ value, measurement }) => row("present", value, behaviorDirection(card, { verdict: "present", value }) ?? null, measurement))];
+  });
+  return rows.length ? rows : [{ group: "Selected cohort", mode: "unavailable", producer: "unavailable", family: "unavailable", card: "unavailable", ontology: "unavailable", rubric: "unavailable", evaluator: "unavailable", verdict: "unavailable", value: null, direction: null, label: "Behavior distribution unavailable", status: "unavailable", numerator: null, denominator: 0, unit: "judged-attempt-card", exclusions: "No behavior partition is available.", cohortDigest: view.cohortDigest }];
+}
+
+/** The direction summary: per group, producer and family, present results and attempts by direction. */
+export function atlasDirectionRows(view: AtlasView) {
+  return view.report.groups.flatMap((group) => (group.directions ?? []).flatMap((entry) => (["results", "attempts"] as const).flatMap((measure) => entry[measure].map(({ direction, measurement }) => ({
+    group: Object.values(group.dimensions).join(" · ") || "Selected cohort", mode: entry.producer.mode, producer: producerLabel(entry.producer),
+    rubric: entry.rubric === undefined ? "none" : `${entry.rubric.id}@${entry.rubric.version}`, evaluator: canonicalizeMetadata(entry.producer), family: entry.family, measure, direction,
+    status: measurement.status, numerator: measurement.status === "available" ? measurement.numerator.value : null, denominator: measurement.denominator.value, unit: measurement.denominator.unit,
+    exclusions: measurement.exclusions.map(({ reason, count }) => `${reason}: ${count}`).join("; "), cohortDigest: view.cohortDigest })))));
 }
 const digest = (value: unknown): Digest => `sha256:${digestMetadata(value).value}`;
 const attemptKey = (value: { runId?: string; attemptId?: string }) => `${value.runId}\0${value.attemptId}`;
@@ -125,18 +149,19 @@ export async function loadAtlas(requestPath: string): Promise<AtlasSource> {
         trace = { href: `${localUrl(request.grafanaUrl)}/explore?schemaVersion=1&panes=${encodeURIComponent(JSON.stringify(panes))}`, originalStart: traceSource.originalStart, ...(traceSource.replayStart ? { replayStart: traceSource.replayStart } : {}) };
       }
     }
-    if (!ownAssertions.length) cases.push({ ...context, key: digest(context).slice(7), category: "unavailable", assessment: "unavailable", review: "unavailable", decisions: [], citations: [], ...(trace ? { trace } : {}) });
+    if (!ownAssertions.length) cases.push({ ...context, key: digest(context).slice(7), mode: "unavailable", family: "unavailable", card: "unavailable", verdict: "unavailable", direction: "unavailable", review: "unavailable", decisions: [], citations: [], ...(trace ? { trace } : {}) });
     for (const { document: assertion, bundleRoot } of ownAssertions) {
       const assertionDigest = digest(assertion);
       if (seenAssertions.has(assertionDigest)) continue;
       seenAssertions.add(assertionDigest);
       const reviews = input.calibrations.flatMap(({ selection, history }) => selection.candidates.filter(({ assertion: binding }) => binding.id === assertion.id && binding.digest === assertionDigest).map((candidate) => ({ candidate, history })));
       const latest = reviews[0];
-      const outcome = latest ? effectiveReviewOutcome(latest.candidate, latest.history.decisions) : assertion.judgment.disposition === "abstained" ? "judge-abstained" : "unreviewed";
+      const outcome = latest ? effectiveReviewOutcome(latest.candidate, latest.history.decisions) : assertion.judgment.verdict === "unknown" ? "judge-abstained" : "unreviewed";
       const review = latest && isDisputedReviewOutcome(latest.candidate, latest.history.decisions) ? "disputed" : ({ "judge-abstained": "abstained", unreviewed: "proposed", unresolved: "insufficient-evidence", confirmed: "confirmed", rejected: "rejected" } as const)[outcome];
       const evidence = await createRetainedBehaviorEvidence(bundleRoot);
       const caseKey = assertionDigest.slice(7);
-      const citations = assertion.judgment.citations.map((citation, index) => {
+      // A decision-model result has no citations: it carries probabilities only.
+      const citations = (isDecisionModelAssertion(assertion) ? [] : assertion.judgment.citations).map((citation, index) => {
         const normalizedEvent = evidence.dataset.events.find(({ id }) => id === citation.eventId);
         const native = evidence.capture.records.find(({ reference }) => canonicalizeMetadata(reference) === canonicalizeMetadata(citation.nativeReference));
         if (!normalizedEvent || !native) throw new Error("Atlas citation cannot resolve to normalized and native evidence.");
@@ -144,7 +169,8 @@ export async function loadAtlas(requestPath: string): Promise<AtlasSource> {
         return { ...citation, normalizedEvent: displaySafe(normalizedEvent, located(caseKey, `${location}/normalizedEvent`)), nativeRecord: displaySafe(evidence.dataset.adapter.harness === "claude-agent-sdk" ? (native.record as AgentSdkNativeRecord).document : native.record, located(caseKey, `${location}/nativeRecord`)) };
       });
       const decisions = [...new Map(reviews.flatMap(({ history }) => history.decisions.filter(({ assertion: binding }) => binding.id === assertion.id && binding.digest === assertionDigest)).map((decision) => [digest(decision), decision])).values()];
-      cases.push({ ...context, key: caseKey, assertion: displaySafe(assertion, located(caseKey, "/assertion")) as BehaviorAssertion, assertionDigest, category: assertion.behavior.categoryId, assessment: assertion.judgment.disposition === "assessed" ? assertion.judgment.assessment : "abstained", review, decisions: displaySafe(decisions, located(caseKey, "/decisions")) as ReviewDecision[], citations, ...(trace ? { trace } : {}) });
+      cases.push({ ...context, key: caseKey, assertion: displaySafe(assertion, located(caseKey, "/assertion")) as BehaviorAssertion, assertionDigest, mode: assertion.producer.mode, family: resolveBehaviorCard(assertion.behavior).family, card: assertion.behavior.cardId, verdict: assertion.judgment.verdict,
+        direction: behaviorDirection(resolveBehaviorCard(assertion.behavior), assertion.judgment) ?? "none", review, decisions: displaySafe(decisions, located(caseKey, "/decisions")) as ReviewDecision[], citations, ...(trace ? { trace } : {}) });
     }
   }
   return { request, aggregation, input, corpusRoot, requestPath: resolve(requestPath), cases, sourceDigest: digest({ request, lineage: validated.sourceLineage }), secretFindings };
@@ -156,9 +182,9 @@ export async function queryAtlas(source: AtlasSource, filters: AtlasFilters = {}
   const eligible = selectAggregationAttempts(source.input.corpusEntries, source.aggregation.selectedAttemptPolicy, source.aggregation.evidenceOrigins);
   const eligibleIds = new Set(eligible.map(attemptKey));
   const eligibleCases = source.cases.filter((item) => eligibleIds.has(attemptKey(item)));
-  const matches = eligibleCases.filter((item) => Object.entries(filters).every(([key, value]) => !value || (key === "q" ? [item.runId, item.attemptId, item.model, item.task, item.assertion?.judgment.rationale ?? "", item.category].join(" ").toLocaleLowerCase().includes(value.toLocaleLowerCase()) : item[key as keyof AtlasCase] === value)));
+  const matches = eligibleCases.filter((item) => Object.entries(filters).every(([key, value]) => !value || (key === "q" ? [item.runId, item.attemptId, item.model, item.task, item.assertion?.judgment.basis === "cited-evidence" ? item.assertion.judgment.rationale : "", item.card].join(" ").toLocaleLowerCase().includes(value.toLocaleLowerCase()) : item[key as keyof AtlasCase] === value)));
   // Filters select attempts through matching cases; all judgments on those attempts
-  // remain in aggregation so a constructive filter cannot erase an adverse rerun.
+  // remain in aggregation so a verdict filter cannot erase a disagreeing rerun.
   const ids = new Set(matches.map(attemptKey));
   const corpusEntries = source.input.corpusEntries.filter((entry) => ids.has(attemptKey(entry)));
   const report = await aggregateEvaluation({ ...source.input, lineage: { ...source.input.lineage, corpusIndexDigest: digest(corpusEntries) }, corpusEntries, observationSets: source.input.observationSets.filter(({ document }) => ids.has(attemptKey(document))), assertions: source.input.assertions.filter(({ document }) => ids.has(attemptKey(document))) }, source.aggregation);
@@ -179,7 +205,7 @@ export async function queryAtlas(source: AtlasSource, filters: AtlasFilters = {}
 export async function shareAtlas(source: AtlasSource, view: AtlasView): Promise<AtlasView> {
   const sharing = source.request.sharing;
   if (!sharing) throw new Error("Sharing unavailable: configure approved exports and explicit report fields first.");
-  if (["review", "category", "assessment", "q"].some((key) => view.filters[key as keyof AtlasFilters])) throw new Error("Shareable summaries cannot use semantic, human-review, or free-text evidence filters; their cohort counts would disclose unapproved findings.");
+  if (["review", "mode", "family", "card", "verdict", "direction", "q"].some((key) => view.filters[key as keyof AtlasFilters])) throw new Error("Shareable summaries cannot use semantic, human-review, or free-text evidence filters; their cohort counts would disclose unapproved findings.");
   exactKeys(sharing, ["policy", "approvedExports", "fields"]);
   const supported = ["cohort", "aggregate-metrics", "source-digests"];
   if (sharing.fields.length !== supported.length || !supported.every((field) => sharing.fields.includes(field))) throw new Error("Unsupported report-field sharing; only cohort, aggregate-metrics and source-digests are supported.");
@@ -222,7 +248,7 @@ export async function serveAtlas(requestPath: string, port = 13011): Promise<Ser
       if (!req.headers.host || !["127.0.0.1", "localhost", "[::1]"].includes(new URL(`http://${req.headers.host}`).hostname)) { res.writeHead(403).end(); return; }
       if (req.headers.origin && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(req.headers.origin).hostname)) { res.writeHead(403).end(); return; }
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
-      if (!["/", "/api/view", "/api/metrics", "/api/behaviors", "/api/behavior-chart", "/api/comparisons", "/api/cases", "/report.html", "/report.json"].includes(url.pathname)) { res.writeHead(404).end(); return; }
+      if (!["/", "/api/view", "/api/metrics", "/api/behaviors", "/api/directions", "/api/behavior-chart", "/api/comparisons", "/api/cases", "/report.html", "/report.json"].includes(url.pathname)) { res.writeHead(404).end(); return; }
       const filters: AtlasFilters = {};
       for (const [key, value] of url.searchParams) {
         if (key === "share") continue;
@@ -241,7 +267,7 @@ export async function serveAtlas(requestPath: string, port = 13011): Promise<Ser
           return;
         }
         const rows = url.pathname === "/api/metrics" ? view.report.groups.flatMap((group) => group.metrics.map((metric) => ({ group: Object.values(group.dimensions).join(" · "), metric: metric.id, status: metric.measurement.status, numerator: metric.measurement.numerator.value, denominator: metric.measurement.denominator.value, unit: metric.measurement.denominator.unit, exclusions: metric.measurement.exclusions.map(({ reason, count }) => `${reason}: ${count}`).join("; "), cohortDigest: view.cohortDigest }))) : view;
-        res.end(JSON.stringify(url.pathname === "/api/behavior-chart" ? atlasBehaviorRows(view).map(({ label, numerator }) => ({ label, count: numerator })) : url.pathname === "/api/behaviors" ? atlasBehaviorRows(view) : url.pathname === "/api/cases" ? view.cases.map(({ runId, attemptId, model, harness, task, trial, category, assessment, review, key }) => ({ runId, attemptId, model, harness, task, trial, category, assessment, review, href: `http://${req.headers.host}/?${new URLSearchParams(filters)}#case-${key}` })) : rows));
+        res.end(JSON.stringify(url.pathname === "/api/behavior-chart" ? atlasBehaviorRows(view).map(({ label, numerator }) => ({ label, count: numerator })) : url.pathname === "/api/behaviors" ? atlasBehaviorRows(view) : url.pathname === "/api/directions" ? atlasDirectionRows(view) : url.pathname === "/api/cases" ? view.cases.map(({ runId, attemptId, model, harness, task, trial, mode, family, card, verdict, direction, review, key }) => ({ runId, attemptId, model, harness, task, trial, mode, family, card, verdict, direction, review, href: `http://${req.headers.host}/?${new URLSearchParams(filters)}#case-${key}` })) : rows));
       }
     } catch (error) { res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" }); res.end(error instanceof Error ? error.message : "Atlas query failed."); }
   });

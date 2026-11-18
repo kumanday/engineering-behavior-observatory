@@ -105,5 +105,12 @@ A cohort without a pin uses the current implementation.
 One attempt can belong to current and frozen cohorts when their datasets,
 coverage, qualification, model-blinding aliases and outcome inputs agree. A
 conflicting projection fails the build rather than silently choosing a reader.
-The Atlas tables v1 column contract is preserved. Runtime selection changes no
-source bundle and runs no model judgments.
+Runtime selection changes no source bundle and runs no model judgments.
+
+A pinned cohort supplies attempts, events and structural observations. Its
+aggregation request must list no behavior assertions: a frozen 1.x reader
+accepts only judgments in the category vocabulary it shipped with, and a
+bundle carries verdicts on [behavior cards](../evaluation/behavior-ontology.md)
+only. The build fails with the cohort's name when a pinned cohort lists
+assertions. To show judgments for those attempts, judge them against the
+ontology and put the assertions in a cohort without a pin.

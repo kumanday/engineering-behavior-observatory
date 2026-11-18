@@ -428,7 +428,7 @@ export class SwimlanesPanel {
         <tr><td>At</td><td>${u.t0_ms != null ? fmtDur(u.t0_ms - t0) : "—"}${u.timed ? "" : " (untimed; placed after the previous unit)"}${u.duration_seconds ? ` · ${u.duration_seconds.toFixed(1)} s` : ""}</td></tr>
         <tr><td>Cluster</td><td>${u.cluster_id >= 0 ? esc((u.cluster_label ?? "").replace(/`/g, "")) : "noise"}</td></tr>
         ${u.occ ? `<tr><td>Occurrences</td><td>${esc(u.occ.replace(/,/g, ", "))}</td></tr>` : ""}
-        ${u.cited || this.ev?.citedRows.has(u.row_id) ? `<tr><td>Judge</td><td>cited by ${this.ev ? this.ev.doc.assessments.filter((a) => a.citations.some((c) => c.row_id === u.row_id)).map((a) => `${esc(a.dimension)} (${esc(a.outcome)})`).join(", ") || "an assessment" : "an assessment"}</td></tr>` : ""}
+        ${u.cited || this.ev?.citedRows.has(u.row_id) ? `<tr><td>Judge</td><td>cited by ${this.ev ? this.ev.doc.assessments.filter((a) => a.citations.some((c) => c.row_id === u.row_id)).map((a) => `${esc(a.card)} (${esc(a.outcome)})`).join(", ") || "an assessment" : "an assessment"}</td></tr>` : ""}
       </table>
       <div class="tip-text">${esc(u.text ?? "")}</div>${this.ev ? `<div class="tip-hint">Click for the native record</div>` : ""}`;
     this.tip.hidden = false;

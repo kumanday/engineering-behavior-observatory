@@ -179,19 +179,15 @@ components:
   film-divider:
     backgroundColor: "{colors.projection-rule}"
     height: 1px
-  outcome-constructive:
+  outcome-present:
     backgroundColor: "{colors.div-pos}"
     rounded: "{rounded.sm}"
     size: 10px
-  outcome-constructive-dark:
+  outcome-present-dark:
     backgroundColor: "{colors.div-pos-dark}"
-  outcome-adverse:
-    backgroundColor: "{colors.div-neg}"
-  outcome-adverse-dark:
-    backgroundColor: "{colors.div-neg-dark}"
-  outcome-mixed:
+  outcome-absent:
     backgroundColor: "{colors.div-mid}"
-  outcome-mixed-dark:
+  outcome-absent-dark:
     backgroundColor: "{colors.div-mid-dark}"
   action-inspect:
     backgroundColor: "{colors.cat-inspect}"

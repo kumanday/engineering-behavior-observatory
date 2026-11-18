@@ -7,7 +7,7 @@ import { laneData } from "../src/atlas-lanes.js";
 import { attemptEvidence, NativeLines } from "../src/atlas-evidence.js";
 import { nativeContentResolver } from "../src/structural-observations.js";
 import { createAtlasFixture } from "./atlas-fixture.js";
-import type { BehaviorAssertion } from "../src/behavior-assertions.js";
+import type { LlmJudgeAssertion } from "../src/behavior-assertions.js";
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -106,7 +106,7 @@ test("an unknown producer and owned capture build a mixed Atlas cohort with exac
     assert.equal(importedEntry.producerProfileDigest, undefined);
     assert.equal(importedEntry.harnessId, "acme-agent");
     const evidence = await readImportedBehaviorEvidence(bundleRoot);
-    const assertion = JSON.parse(readFileSync("test/fixtures/behavior-assertions/positive.json", "utf8")) as BehaviorAssertion;
+    const assertion = JSON.parse(readFileSync("test/fixtures/behavior-assertions/positive.json", "utf8")) as LlmJudgeAssertion;
     assertion.runId = "imported-run"; assertion.attemptId = "imported-attempt";
     assertion.dataset.digest = `sha256:${digestMetadata(evidence.dataset).value}`;
     const event = evidence.dataset.events.find(({ family }) => family === "tool")!;
@@ -176,7 +176,7 @@ judgeTest("semantic judging uses every retained model/route alias and never requ
     assert.deepEqual(new Set(imported.evidence.modelAliases), new Set(["provider/Model[route]", "Model[route]", "served-model", "synthetic-model"]));
     const observations = await createRetainedStructuralObservationSet(bundleRoot);
     const event = imported.evidence.dataset.events.find(({ family, attributes }) => family === "message" && attributes.role === "assistant")!;
-    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "test", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "test", behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
       rubric: { id: "r", version: "1", instructions: "Inspect source behavior." }, evaluator: { provider: "anthropic", model: "judge", effort: "low" },
       selection: { eventIds: [event.id], structuralObservationIds: [], includeOutcomeObservations: false },
       limits: { maxEvidenceItems: 10, maxRecordChars: 8_000, maxInputChars: 32_000, maxOutputChars: 8_192, maxCitations: 4, maxWallClockMs: 5_000, maxTurns: 1 }, blinding: { evaluatedModelIdentity: "redact" } };

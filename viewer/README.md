@@ -32,7 +32,7 @@ The viewer reads one bundle directory:
 | `units.arrow` | behavior units: Arrow IPC stream, `row_id` int32 0..n-1, `x`/`y` layout, `neighbors` as `struct<ids: list<int32>, distances: list<float32>>`, `cluster_id` (noise `< 0`, null label), `t0_ms`/`t1_ms`/`timed` |
 | `labels.json` | cluster labels (`x`, `y`, `text`, `level`, `priority`); mapped to Embedding Atlas's `content` field, without which a label is silently dropped |
 | `lanes.json` | swimlane metadata, cumulative token series, context per model request |
-| `assessments.json`, `audit.json`, `claims.json` | judge assessments with native citations, attempt audits, validated claims |
+| `assessments.json`, `audit.json`, `claims.json` | card results with their producer mode (an LLM judge's with native citations, a decision model's with probabilities), attempt audits, validated claims |
 | `native/<attempt>.json` | per-unit native records for the evidence drawer |
 | `views.json` | view specs with their build receipts |
 
@@ -123,10 +123,12 @@ every attempt starts at 0).
 
 ## Panel 3: Assessments (P3)
 
-Data: `assessments.json`. Matrix of behavior category × arm. Each cell counts judge
-assessments (one per attempt × behavior dimension, never cited units): a stacked bar in outcome order (constructive =
-diverging blue, mixed = neutral gray with outline, adverse = diverging red, context-dependent = hatch, abstained = empty
-outline) with the counts printed, then "n judgments · k attempts in arm". Cohort selector (Grok: primary,
+Data: `assessments.json`. Matrix of behavior card × arm, with the cards grouped by family in ontology order. The
+matrix shows one producer mode at a time (LLM judge or decision model, chosen with the "Produced by" selector),
+so a cell never mixes the two. A direction selector limits the counts to present results the ontology marks favourable,
+unfavourable or neutral. Each cell
+counts verdicts (one per attempt × card, never cited units): a stacked bar in verdict order (present = solid
+primary, absent = neutral gray with outline, unknown = empty outline) with the counts printed, then "n judgments · k attempts in arm". Cohort selector (Grok: primary,
 deepseek-matched-timeout, all attempts) and task selector (Opus). Each cell is tagged **EBO certified** when its counts
 equal the EBO Atlas report tally for that cohort and arm (report groups harness × model), **differs from EBO** when not,
 and **exploratory** when the study has no report. Clicking a cell lists its judgments; clicking a judgment opens the
@@ -143,8 +145,10 @@ says whether validation passed (every number recomputes and every cited native l
 
 A right-side drawer with Back/Close (Esc). Views:
 
-- **Assessment**: outcome, dimension, confidence, evaluator, rubric, review status (all unreviewed model proposals),
-  cohorts, the judge's rationale and alternative explanation, and each citation: linked unit (step, unit #; "≈ linked by
+- **Assessment**: card, verdict and value, direction, who produced it and what that producer was shown, review status
+  (all unreviewed model proposals) and cohorts. For an LLM-judge result: confidence, rubric, the judge's rationale and
+  alternative explanation, and each citation. For a decision-model result: the probabilities and thresholds, and no
+  citations. A citation shows its linked unit (step, unit #; "≈ linked by
   time/order" when the cited record is not one of the unit's own events) and the native line (path, line, SHA-256).
 - **Record**: the native lines of one unit (call, result, message…) from `native/<attempt>.json`, pretty-printed when
   complete, head + tail when long; which judgments cite it; buttons to show it in the swimlanes or cloud and to open the

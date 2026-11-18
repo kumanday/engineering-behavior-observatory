@@ -4,9 +4,12 @@
   "assertion": {
     "id": "assertion-positive",
     "schemaVersion": "ebo.behavior-assertion/v1",
-    "digest": "sha256:43f327dd0f0f405b57885b5650d512c58e714fd1a22c79ebda5b4e0f8cf9c2f1"
+    "digest": "sha256:51117500d9229e2054f4e5b0434013abecd47d68d0e16f81d380efa886824ad2"
   },
   "state": "disputed",
-  "reviewer": { "kind": "human", "id": "synthetic-fixture-reviewer" },
+  "reviewer": {
+    "kind": "human",
+    "id": "synthetic-fixture-reviewer"
+  },
   "rationale": "Synthetic fixture: the cited validation does not establish completion quality."
 }

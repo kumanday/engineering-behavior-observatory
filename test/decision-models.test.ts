@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { decide, parseDecisionResponse, type DecisionQuestion } from "../src/decision-models.js";
 import { checkClaims, validateClaimChecks } from "../src/claim-checks.js";
+import { DECISION_THRESHOLDS, decisionModelAssertion, judged, llmEvidence, llmProducer } from "./behavior-fixture.js";
 import { canonicalizeMetadata as canonicalize } from "../src/artifacts.js";
 import {
   acceptedByPolicy,
@@ -201,9 +202,9 @@ test("claim checks route unsupported or uncertain claims to review and bind to t
   const citation = { eventId: "event-1", nativeReference: { artifactId: "session", recordLocator: "line:1" } };
   const assertion = {
     schemaVersion: "ebo.behavior-assertion/v1", id: "a-1", runId: "run", attemptId: "attempt", dataset: { schemaVersion: "ebo.normalized-dataset/v1", digest: `sha256:${"d".repeat(64)}` },
-    behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" }, rubric: { id: "r", version: "1" },
-    evaluator: { id: "openai/x", version: "1", configurationDigest: `sha256:${"e".repeat(64)}` },
-    judgment: { disposition: "assessed", assessment: "constructive", confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" }, rationale: "r", alternativeExplanation: "a", citations: [citation],
+    behavior: judged("VF-01"), rubric: { id: "r", version: "1" }, evidence: llmEvidence(),
+    producer: { ...llmProducer("x"), configurationDigest: `sha256:${"e".repeat(64)}` },
+    judgment: { basis: "cited-evidence", verdict: "present", confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" }, rationale: "r", alternativeExplanation: "a", citations: [citation],
       claims: [{ id: "passed", text: "All tests passed.", citations: [citation], workspace: null }, { id: "typed", text: "Typecheck passed.", citations: [citation], workspace: null }] },
   } as unknown as Parameters<typeof checkClaims>[0];
   const capture = { runId: "run", attemptId: "attempt", qualification: "qualified", records: [{ reference: citation.nativeReference, record: { content: [{ type: "thinking", thinking: "SECRET-THOUGHT" }, { type: "text", text: "Tests: 4 passed" }] } }] } as never;
@@ -223,6 +224,9 @@ test("claim checks route unsupported or uncertain claims to review and bind to t
   assert.deepEqual(checks.coverage, { claims: 2, checked: 2, failedDecisions: 0, supported: 1, flagged: 1 });
   assert.equal(JSON.stringify(seen).includes("SECRET-THOUGHT"), false, "hidden reasoning is not sent");
   validateClaimChecks(checks, assertion);
+  // A decision-model result has no atomic claims, so there is nothing for a claim check to verify.
+  const decided = decisionModelAssertion({ id: "d-1", runId: "run", attemptId: "attempt", dataset: assertion.dataset }, "VF-01", { present: 0.95, nearMiss: 0.03, absent: 0.02 }, DECISION_THRESHOLDS);
+  assert.deepEqual((await checkClaims(decided, capture, { provider: "typesafe" }, { fetch: fetchImpl, env })).checks, []);
   const forged = structuredClone(checks);
   forged.checks[1]!.flagged = false;
   forged.coverage.flagged = 0;

@@ -18,14 +18,21 @@
       "type": "string",
       "pattern": "^sha256:[a-f0-9]{64}$"
     },
-    "behavior": {
+    "behavior": { "$ref": "urn:ebo:schema:behavior-assertions:v1#/$defs/behavior" },
+    "card": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["vocabularyVersion", "categoryId", "dimensionId"],
+      "required": ["id", "title", "kind", "unit", "definition", "evidenceTest", "nearMiss"],
       "properties": {
-        "vocabularyVersion": { "$ref": "#/$defs/identifier" },
-        "categoryId": { "$ref": "#/$defs/identifier" },
-        "dimensionId": { "$ref": "#/$defs/identifier" }
+        "id": { "type": "string", "pattern": "^[A-Z]{2}-[0-9]{2}$" },
+        "title": { "$ref": "#/$defs/identifier" },
+        "kind": { "enum": ["workflow", "dimension", "finding"] },
+        "unit": { "enum": ["call-result", "change", "episode", "trajectory"] },
+        "definition": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "trigger": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "evidenceTest": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "nearMiss": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "values": { "type": "array", "minItems": 2, "maxItems": 16, "items": { "type": "object", "additionalProperties": false, "required": ["name", "test"], "properties": { "name": { "$ref": "#/$defs/identifier" }, "test": { "type": "string", "minLength": 1, "maxLength": 8192 } } } }
       }
     },
     "rubric": {
@@ -164,7 +171,7 @@
     "input": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schemaVersion", "promptVersion", "runId", "attemptId", "dataset", "behavior", "rubric", "selection", "blinding", "limits", "evidence"],
+      "required": ["schemaVersion", "promptVersion", "runId", "attemptId", "dataset", "behavior", "card", "codingRules", "rubric", "selection", "blinding", "limits", "evidence"],
       "properties": {
         "schemaVersion": { "const": "ebo.semantic-judge-input/v1" },
         "sourceEvidence": { "type": "object", "additionalProperties": false, "required": ["qualification", "scope", "completeness", "limitations"], "properties": { "qualification": { "const": "imported" }, "scope": { "const": "retained-source" }, "completeness": { "const": "unproven" }, "limitations": { "type": "array", "items": { "type": "string" } } } },
@@ -181,12 +188,15 @@
           }
         },
         "behavior": { "$ref": "#/$defs/behavior" },
+        "card": { "$ref": "#/$defs/card" },
+        "codingRules": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 8192 } },
         "rubric": { "$ref": "#/$defs/rubric" },
         "selection": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["requestedEventIds", "requestedStructuralObservationIds", "includedEventIds", "includedStructuralObservationIds", "omitted", "truncated"],
+          "required": ["datasetEventCount", "requestedEventIds", "requestedStructuralObservationIds", "includedEventIds", "includedStructuralObservationIds", "omitted", "truncated"],
           "properties": {
+            "datasetEventCount": { "type": "integer", "minimum": 0 },
             "requestedEventIds": { "$ref": "#/$defs/stringList" },
             "requestedStructuralObservationIds": { "$ref": "#/$defs/stringList" },
             "includedEventIds": { "$ref": "#/$defs/stringList" },

@@ -1,4 +1,5 @@
 import { canonicalizeMetadata, digestMetadata } from "./artifacts.js";
+import { resolveBehaviorCard } from "./behavior-ontology.js";
 import { validateOccurrenceRatings, verifyRatingRules, type OccurrenceRatings } from "./occurrence-ratings.js";
 import { OCCURRENCE_TYPES, type Occurrence, type OccurrenceType } from "./occurrences.js";
 import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
@@ -37,6 +38,7 @@ export function prepareJudgeRequest(
   ratings?: OccurrenceRatings,
 ): SemanticJudgeRequest {
   if (spec.schemaVersion !== "ebo.judge-prepare-spec/v1") throw new Error("Judge prepare spec schemaVersion is unsupported.");
+  resolveBehaviorCard(spec.behavior);
   if (spec.occurrenceTypes.length === 0 || spec.occurrenceTypes.some((type) => !OCCURRENCE_TYPES.includes(type))) {
     throw new Error("Judge prepare spec needs known occurrence types.");
   }

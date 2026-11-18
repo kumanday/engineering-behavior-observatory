@@ -57,8 +57,12 @@ or implement beyond the assigned issue.
 - Task authorship, model selection, concrete trial counts, human corpus review,
   study execution, and partner delivery are operations that consume EBO. Do not
   hard-code them into the product.
-- Structural extractors report exact facts only. Semantic claims require cited
-  evidence, an alternative explanation, and the ability to abstain. LLM-as-judge
+- Structural extractors report exact facts only. Semantic claims from an LLM
+  judge require cited evidence, an alternative explanation, and the ability to
+  abstain. A decision-model result carries probabilities, the thresholds that
+  turn them into a verdict, and its producer in place of citations and a
+  rationale; `unknown` is its abstention. Every result names its producer mode,
+  and results of the two modes are never pooled. LLM-as-judge
   is the primary evaluation path; human calibration is optional and recorded separately.
 - Export fails closed on unknown sharing classification and excludes secrets,
   environment values, local identifiers, and hidden reasoning.

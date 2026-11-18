@@ -54,17 +54,59 @@ a terminal-state measure; task-success rates come only from available verified
 attempt outcomes. Duplicate identical inputs are counted once, while conflicting
 records with the same identity fail the build.
 
-Each group's additive `behaviors` array retains constructive, adverse, mixed,
-and context-dependent distributions separately from review agreement. A
-partition names the exact vocabulary/category/dimension, rubric id/version,
-and evaluator identity/version/configuration digest. Missing legacy evaluator
-configuration stays a separate partition. Its denominator is distinct
-judge-assessed attempt-dimensions, not judge calls: agreeing reruns count
-once and conflicting reruns exclude that attempt. Abstentions cannot contribute.
-Human review is optional: unreviewed, disputed, and rejected assessments remain
+The four assertion metrics (`assertion-abstention-rate`,
+`reviewed-assertion-confirmed-rate`, `review-unresolved-rate` and
+`review-disputed-rate`) count results of one producer mode. When a group holds
+results of both modes, those four are `unavailable`, and the group carries
+each of them once per mode with the mode as a suffix, such as
+`assertion-abstention-rate:llm-judge` and
+`assertion-abstention-rate:decision-model`.
+
+Each group's additive `behaviors` array reports one entry per
+[behavior card](behavior-ontology.md), ordered by family and then by card as
+the ontology orders them, separately from review agreement. An entry names the
+card as `{ ontologyVersion, cardId, ontologyDigest }`, its `family` and its
+`producer`: mode, provider, model, version and configuration digest. An
+LLM-judge entry also names its rubric id and version. Each producer gets its
+own entry for a card, so a card judged by an LLM judge and by a decision model
+appears twice and the two sets of counts are never added together. A producer
+without a configuration digest stays a separate entry.
+
+`verdicts` is the distribution over `present`, `absent` and `unknown`. Its
+denominator is distinct judged attempt-cards (`judged-attempt-card`), not
+judge calls: agreeing reruns count once, and reruns that disagree on the
+verdict or on the value exclude that attempt as `conflicting-judge-reruns`. An
+`unknown` verdict counts in the distribution.
+
+A dimension card also has `values`: each named value's count among the
+attempts judged present (`present-attempt-card`), with the absent and unknown
+attempts listed as exclusions.
+
+Each group's `directions` array is the second view of the same results. Its
+producers are the ones of the per-card entries: the full `producer`,
+configuration digest included, and for an LLM judge the `rubric`. It has one
+entry per producer and family, and one more per producer for all families
+together (`family: "all"`). The ontology fixes a
+[direction](behavior-ontology.md#direction) for every present result:
+`favourable`, `unfavourable` or `neutral`. An entry reports two shares for
+each direction:
+
+- `results`: present results of that direction among all present results
+  (`present-attempt-card`);
+- `attempts`: attempts with at least one present result of that direction
+  among the attempts that producer judged (`judged-attempt`). An attempt can
+  count under more than one direction.
+
+Neutral results are counted and never scored: the report gives the three
+shares and does not combine them into one number. Reruns of one attempt and
+card that disagree are excluded as `conflicting-judge-reruns`, as in the
+per-card rates. Read the direction shares next to the per-card rates; the
+shares say how a cohort member's results lean, and the rates say which
+behaviors produce that lean.
+
+Human review is optional: unreviewed, disputed, and rejected verdicts remain
 model judgments in this population, not human-endorsed findings. Assertion
 references expose review outcome and inclusion alongside run/attempt/digest.
-Older confirmed-only reports retain their original population label when read.
 An empty denominator is unavailable. These distributions remain descriptive.
 
 Corpus indexing prefers `structuralQualification.status` over legacy

@@ -1,5 +1,5 @@
 import { canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
-import { validateBehaviorAssertion, type BehaviorAssertion } from "./behavior-assertions.js";
+import { isDecisionModelAssertion, validateBehaviorAssertion, type BehaviorAssertion, type BehaviorClaim } from "./behavior-assertions.js";
 import { decide, verifyDecisionRecord, resolveDecisionModel, type DecideOptions, type DecisionAnswer, type DecisionProviderConfig, type DecisionQuestion, type DecisionRecord } from "./decision-models.js";
 import { boundedEvidence } from "./evidence-projection.js";
 import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
@@ -49,8 +49,13 @@ export type ClaimChecks = {
   decisions: DecisionRecord[];
 };
 
+/** Atomic claims exist on LLM-judge results only; a decision-model result has none. */
+function claimsOf(assertion: BehaviorAssertion | undefined): readonly BehaviorClaim[] {
+  return assertion === undefined || isDecisionModelAssertion(assertion) ? [] : assertion.judgment.claims ?? [];
+}
+
 /** The state for one claim: its text, workspace and the visible, bounded native records it cites. */
-export function claimState(claim: NonNullable<BehaviorAssertion["judgment"]["claims"]>[number], capture: RetainedNormalizationInput<unknown>): Record<string, unknown> {
+export function claimState(claim: BehaviorClaim, capture: RetainedNormalizationInput<unknown>): Record<string, unknown> {
   return {
     claim: { text: claim.text, workspace: claim.workspace },
     citedRecords: claim.citations.map(({ eventId, nativeReference }) => {
@@ -67,7 +72,7 @@ export async function checkClaims(
   options: DecideOptions & { policy?: { choiceConfidence: number }; concurrency?: number; onDecision?: (record: DecisionRecord, claimId: string) => void } = {},
 ): Promise<ClaimChecks> {
   const policy = options.policy ?? DEFAULT_CLAIM_CHECK_POLICY;
-  const claims = assertion.judgment.claims ?? [];
+  const claims = claimsOf(assertion);
   const decisions: DecisionRecord[] = [];
   const checks: Array<ClaimCheck | undefined> = [];
   let next = 0;
@@ -119,7 +124,8 @@ export async function checkRetainedClaims(
 ): Promise<ClaimChecks> {
   const { dataset, resolver, capture } = await createRetainedBehaviorEvidence(bundleRoot);
   await validateBehaviorAssertion(assertion, dataset, resolver, undefined, capture);
-  if ((assertion.judgment.claims ?? []).length === 0) throw new Error("The assertion has no atomic claims to check.");
+  if (isDecisionModelAssertion(assertion)) throw new Error("A decision-model result carries probabilities only and has no atomic claims to check.");
+  if (claimsOf(assertion).length === 0) throw new Error("The assertion has no atomic claims to check.");
   return checkClaims(assertion, capture, config, options);
 }
 
@@ -138,10 +144,10 @@ export function validateClaimChecks(document: ClaimChecks, assertion?: BehaviorA
       || document.runId !== assertion.runId || document.attemptId !== assertion.attemptId)) {
     throw new Error("Claim checks belong to a different assertion.");
   }
-  const claimIds = new Set((assertion?.judgment.claims ?? []).map(({ id }) => id));
+  const claimIds = new Set(claimsOf(assertion).map(({ id }) => id));
   if (assertion !== undefined) {
     // Every claim was asked exactly once, in order, and every completed decision has exactly one check.
-    const claims = assertion.judgment.claims ?? [];
+    const claims = claimsOf(assertion);
     const completed = document.decisions.flatMap((decision, index) => decision?.status === "completed" ? [index] : []);
     if (document.decisions.length !== claims.length || canonicalizeMetadata(document.checks.map(({ decision }) => decision)) !== canonicalizeMetadata(completed)
         || document.checks.some(({ claimId, decision }) => claims[decision]?.id !== claimId)) {
@@ -170,7 +176,7 @@ export function validateClaimChecks(document: ClaimChecks, assertion?: BehaviorA
     const answer = decision?.answers?.support;
     if (assertion !== undefined && !claimIds.has(check.claimId)) throw new Error(`Claim check names unknown claim "${check.claimId}".`);
     // The decision must have been asked about this claim: its text, workspace and cited events.
-    const claim = assertion?.judgment.claims?.find(({ id }) => id === check.claimId);
+    const claim = claimsOf(assertion).find(({ id }) => id === check.claimId);
     const state = decision?.request.state as { claim?: unknown; citedRecords?: Array<{ eventId?: unknown }> } | undefined;
     if (claim !== undefined && (canonicalizeMetadata(state?.claim) !== canonicalizeMetadata({ text: claim.text, workspace: claim.workspace })
         || canonicalizeMetadata(state?.citedRecords?.map(({ eventId }) => eventId)) !== canonicalizeMetadata(claim.citations.map(({ eventId }) => eventId)))) {

@@ -54,7 +54,7 @@ function fixture() {
 const spec = (maxEvidenceItems: number): JudgePrepareSpec => ({
   schemaVersion: "ebo.judge-prepare-spec/v1",
   id: "attempt-verification",
-  behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+  behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
   rubric: { id: "verification", version: "2.0.0", instructions: "Assess validation before completion." },
   evaluator: { provider: "openai", model: "fixture", effort: "low", backend: "codex-app-server" },
   limits: { maxEvidenceItems, maxRecordChars: 4_000, maxInputChars: 200_000, maxOutputChars: 8_192, maxCitations: 24, maxWallClockMs: 5_000, maxTurns: 1 },
@@ -106,7 +106,7 @@ test("the judge input carries every ledger row, ratings bound by digest, and acc
   assert.ok(ledger.every(({ ratings: own }) => (own?.length ?? 0) > 0), "rows carry their ratings");
 
   const row = ledger.find(({ cite }) => !input.selection.includedEventIds.includes(cite.eventId))!;
-  const response = (citation: Record<string, unknown>) => ({ judgment: { disposition: "assessed", assessment: "mixed", confidence: { value: 0.6, scale: "evaluator-reported-0-to-1" }, reason: null, missingEvidenceCapability: null, rationale: "Two runs failed before later runs passed.", alternativeExplanation: "Failures may be flaky tests.", citations: [citation], claims: [{ id: "fact-1", text: "Two runs failed.", citations: [citation], workspace: null }] } });
+  const response = (citation: Record<string, unknown>) => ({ judgment: { verdict: "present", value: null, confidence: { value: 0.6, scale: "evaluator-reported-0-to-1" }, reason: null, missingEvidenceCapability: null, rationale: "Two runs failed before later runs passed.", alternativeExplanation: "Failures may be flaky tests.", citations: [citation], claims: [{ id: "fact-1", text: "Two runs failed.", citations: [citation], workspace: null }] } });
   const assertion = parseSemanticJudgeResponse(response({ eventId: row.cite.eventId, nativeReference: row.cite.nativeReference, occurrenceId: row.id }), request, input, "0.157.0");
   assert.equal(assertion.judgment.citations[0]!.occurrenceId, row.id, "an occurrence known only from its ledger row can be cited");
   assert.throws(() => parseSemanticJudgeResponse(response({ eventId: "event-1", nativeReference: { artifactId: "session", recordLocator: "line:1" }, occurrenceId: row.id }), request, input, "0.157.0"),
@@ -118,7 +118,7 @@ test("the judge input carries every ledger row, ratings bound by digest, and acc
   const classicRequest = { ...request, selection: { eventIds: request.selection.eventIds, structuralObservationIds: [], includeOutcomeObservations: false } };
   const classicInput = packageSemanticJudgeInput(events, capture, boundObservations, classicRequest, `sha256:${"c".repeat(64)}`, "evaluated-model");
   const classic = parseSemanticJudgeResponse({ judgment: { ...response({ eventId: member, nativeReference: { artifactId: "session", recordLocator: `line:${member.slice("event-".length)}` } }).judgment } }, classicRequest, classicInput, "0.157.0");
-  assert.notEqual(classic.evaluator.configurationDigest, memberCitation.evaluator.configurationDigest, "the ledger prompt version is part of the evaluator configuration");
+  assert.notEqual(classic.producer.configurationDigest, memberCitation.producer.configurationDigest, "the ledger prompt version is part of the evaluator configuration");
   const schema = semanticJudgeResponseSchema(24, true) as { properties: { judgment: { anyOf: Array<{ properties: { citations: { maxItems: number; items: { required: string[] } } } }> } } };
   assert.equal(schema.properties.judgment.anyOf[0]!.properties.citations.maxItems, 24);
   assert.deepEqual(schema.properties.judgment.anyOf[0]!.properties.citations.items.required, ["eventId", "nativeReference", "occurrenceId"]);
@@ -130,10 +130,43 @@ test("a ledger request with no occurrences still accepts the ledger citation sha
   const request = prepareJudgeRequest(empty, events, spec(8));
   const input = packageSemanticJudgeInput(events, capture, empty, request, `sha256:${"c".repeat(64)}`, "evaluated-model");
   assert.equal(input.selection.ledgerOccurrenceIds!.length, 0);
-  const assertion = parseSemanticJudgeResponse({ judgment: { disposition: "assessed", assessment: "adverse", confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" }, reason: null, missingEvidenceCapability: null,
+  const assertion = parseSemanticJudgeResponse({ judgment: { verdict: "absent", value: null, confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" }, reason: null, missingEvidenceCapability: null,
     rationale: "No validation ran.", alternativeExplanation: "The run ended early.", citations: [{ eventId: "event-99", nativeReference: { artifactId: "session", recordLocator: "line:99" }, occurrenceId: null }],
     claims: [{ id: "fact-1", text: "The final report claims completion.", citations: [{ eventId: "event-99", nativeReference: { artifactId: "session", recordLocator: "line:99" }, occurrenceId: null }], workspace: null }] } }, request, input, "0.157.0");
   assert.equal(assertion.judgment.citations[0]!.occurrenceId, undefined);
+});
+
+test("a dimension card's judge answer names exactly one declared value when present, and none otherwise", () => {
+  const { events, observations, capture } = fixture();
+  const empty = { ...observations, occurrences: [] } as StructuralObservationSet;
+  const request = prepareJudgeRequest(empty, events, { ...spec(8), behavior: { ontologyVersion: "2.0.0", cardId: "VF-03" } });
+  const input = packageSemanticJudgeInput(events, capture, empty, request, `sha256:${"c".repeat(64)}`, "evaluated-model");
+  assert.equal(input.card.kind, "dimension");
+  assert.deepEqual(input.card.values!.map(({ name }) => name), ["check after the last edit", "last edit after the last check", "no check recorded"]);
+  assert.deepEqual(validateArtifact("input", input), []);
+  const cite = { eventId: "event-99", nativeReference: { artifactId: "session", recordLocator: "line:99" }, occurrenceId: null };
+  const answer = (judgment: Record<string, unknown>) => parseSemanticJudgeResponse({ judgment: { reason: null, missingEvidenceCapability: null, confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" },
+    rationale: "The record shows the last check and the last edit.", alternativeExplanation: "A later check may be unrecorded.", citations: [cite],
+    claims: [{ id: "fact-1", text: "A check ran.", citations: [cite], workspace: null }], ...judgment } }, request, input, "0.157.0");
+  const present = answer({ verdict: "present", value: "no check recorded" });
+  assert.deepEqual([present.judgment.verdict, present.judgment.verdict === "present" ? present.judgment.value : null], ["present", "no check recorded"]);
+  assert.deepEqual(validateArtifact("assertion", present), []);
+  assert.throws(() => answer({ verdict: "present", value: null }), /needs exactly one value/u);
+  assert.throws(() => answer({ verdict: "present", value: "sometimes" }), /is not a value of behavior card "VF-03"/u);
+  assert.throws(() => answer({ verdict: "absent", value: "no check recorded" }), /absent judge response must set value to null/u);
+  const absent = answer({ verdict: "absent", value: null, citations: [], claims: [] });
+  assert.equal(absent.judgment.verdict, "absent");
+  assert.equal("value" in absent.judgment, false);
+  const unknown = answer({ verdict: "unknown", value: null, confidence: null, reason: "The record has no closing message.", citations: [], claims: [] });
+  assert.equal(unknown.judgment.verdict, "unknown");
+  assert.throws(() => answer({ verdict: "unknown", value: "no check recorded", confidence: null, reason: "x" }), /unknown judge response must set value and confidence to null/u);
+  assert.throws(() => answer({ verdict: "constructive", value: null }), /must be one of present, absent, unknown/u);
+  assert.throws(() => answer({ verdict: "present", value: "no check recorded", citations: [], claims: [] }), /atomic factual claims for a present verdict|citations/u);
+  const workflow = prepareJudgeRequest(empty, events, spec(8));
+  const workflowInput = packageSemanticJudgeInput(events, capture, empty, workflow, `sha256:${"c".repeat(64)}`, "evaluated-model");
+  assert.throws(() => parseSemanticJudgeResponse({ judgment: { verdict: "present", value: "no check recorded", reason: null, missingEvidenceCapability: null, confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" },
+    rationale: "r", alternativeExplanation: "a", citations: [cite], claims: [{ id: "fact-1", text: "t", citations: [cite], workspace: null }] } }, workflow, workflowInput, "0.157.0"), /Only a present verdict on a dimension card carries a value/u);
+  assert.throws(() => prepareJudgeRequest(empty, events, { ...spec(8), behavior: { ontologyVersion: "2.0.0", cardId: "verification-completion" } }), /does not identify one card|cardId/u);
 });
 
 test("unavailable occurrence types stay in the frame, and an oversized ledger row fails before the judge", () => {
@@ -178,14 +211,14 @@ test("judge evidence hides reasoning and keeps the tail of long outputs; assessm
   assert.equal(item.truncated, true);
 
   const citation = { eventId: "event-99", nativeReference: { artifactId: "session", recordLocator: "line:99" }, occurrenceId: null };
-  const base = { disposition: "assessed", assessment: "constructive", confidence: { value: 0.7, scale: "evaluator-reported-0-to-1" }, reason: null, missingEvidenceCapability: null,
+  const base = { verdict: "present", value: null, confidence: { value: 0.7, scale: "evaluator-reported-0-to-1" }, reason: null, missingEvidenceCapability: null,
     rationale: "Reported done.", alternativeExplanation: "The report may be wrong.", citations: [citation] };
   assert.throws(() => parseSemanticJudgeResponse({ judgment: { ...base, claims: [] } }, request, input, "0.157.0"), /atomic factual claims/u);
   const other = { eventId: "event-1", nativeReference: { artifactId: "session", recordLocator: "line:1" }, occurrenceId: null };
   assert.throws(() => parseSemanticJudgeResponse({ judgment: { ...base, citations: [citation, other], claims: [{ id: "a", text: "x", citations: [citation], workspace: null }, { id: "a", text: "y", citations: [other], workspace: null }] } }, request, input, "0.157.0"),
     /unique/u);
 
-  const assertion = { judgment: { citations: [{ eventId: "event-1", nativeReference: { artifactId: "session", recordLocator: "line:1" } }],
+  const assertion = { producer: { mode: "llm-judge" }, judgment: { citations: [{ eventId: "event-1", nativeReference: { artifactId: "session", recordLocator: "line:1" } }],
     claims: [{ id: "c", text: "Ran in the repo.", citations: [{ eventId: "event-1", nativeReference: { artifactId: "session", recordLocator: "line:1" } }], workspace: "/repo" }] } } as unknown as BehaviorAssertion;
   validateClaimCitations(assertion);
   const bound = { ...capture, records: capture.records.map((entry) => entry.reference.recordLocator === "line:1" ? { ...entry, record: { cwd: "/repo" } } : entry) } as typeof capture;

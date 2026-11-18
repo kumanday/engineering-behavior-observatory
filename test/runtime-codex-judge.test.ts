@@ -35,7 +35,7 @@ test("the judge uses its frozen executable and coordinating Node for unfamiliar 
     const lock = await freezeStudyRuntimes(root, { studyId: "judge-study", roles: ["codex-judge"] }, options);
     await withStudyRuntime({ studyRoot: root, role: "codex-judge", options }, async () => {
       assert.ok(probeClaudeAgentSdkCapabilities().sdkVersion, "A pure conformance probe does not require a different harness runtime");
-      const request = { evaluator: { backend: "codex-app-server", executable: "/must-not-use-ambient-or-configured-codex", provider: "openai", model: "fixture", effort: "low" }, limits: { maxOutputChars: 16000, maxWallClockMs: 5000, maxCitations: 2 } } as SemanticJudgeRequest;
+      const request = { behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" }, evaluator: { backend: "codex-app-server", executable: "/must-not-use-ambient-or-configured-codex", provider: "openai", model: "fixture", effort: "low" }, limits: { maxOutputChars: 16000, maxWallClockMs: 5000, maxCitations: 2 } } as SemanticJudgeRequest;
       process.env.PATH = decoy;
       const result = await runCodexSemanticJudge("success", request);
       process.env.PATH = savedPath;
@@ -44,7 +44,7 @@ test("the judge uses its frozen executable and coordinating Node for unfamiliar 
       await withRuntimeFixture("claude-agent-sdk", () => createAtlasFixture(captures));
       const bundleRoot = join(captures, "corpus", "synthetic-attempt-0"), observations = await createRetainedStructuralObservationSet(bundleRoot);
       const configured: SemanticJudgeRequest = { ...request, schemaVersion: "ebo.semantic-judge-request/v1", id: "frozen-judge",
-        behavior: {vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion"},
+        behavior: {ontologyVersion: "2.0.0", cardId: "VF-01"},
         rubric: {id: "fixture", version: "1", instructions: "Synthetic fixture"},
         selection: {eventIds: [], structuralObservationIds: [], includeOutcomeObservations: false},
         limits: {...request.limits, maxEvidenceItems: 4, maxRecordChars: 4096, maxInputChars: 20000, maxTurns: 1}, blinding: {evaluatedModelIdentity: "redact"}};
@@ -60,7 +60,7 @@ test("the judge uses its frozen executable and coordinating Node for unfamiliar 
       const second = await runAgentSdkSemanticJudge({bundleRoot, observations, request: {...configured, evaluator: {...configured.evaluator, executable: "/another-ignored-executable"}}, outputRoot: join(root, "judgment-b")});
       const a = JSON.parse(await readFile(join(root, "judgment-a", first.assertion!.path), "utf8"));
       const b = JSON.parse(await readFile(join(root, "judgment-b", second.assertion!.path), "utf8"));
-      assert.equal(a.evaluator.configurationDigest, b.evaluator.configurationDigest, "Fresh receipt IDs and unused executable declarations do not change the frozen evaluator identity");
+      assert.equal(a.producer.configurationDigest, b.producer.configurationDigest, "Fresh receipt IDs and unused executable declarations do not change the frozen evaluator identity");
       malicious = true;
       await assert.rejects(runCodexSemanticJudge("success", request), /RUNTIME_MALICIOUS.*MAL-2026-after-first-turn/);
     });

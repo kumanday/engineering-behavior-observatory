@@ -18,7 +18,7 @@ enableRobotsTXT = false
   sections = ["guides", "harnesses", "evaluation", "reference", "development"]
   [params.docs.order]
     guides = ["quickstart", "operator-guide", "harbor-tasks", "evidence-and-sharing", "telemetry", "atlas", "behavioral-evaluation", "run-monitor"]
-    evaluation = ["uniform-events", "normalization-integrity", "structural-observations", "occurrence-ratings", "behavior-assertions", "semantic-judge", "human-calibration", "aggregation", "atlas-bundles", "evidence-packets"]
+    evaluation = ["uniform-events", "normalization-integrity", "structural-observations", "occurrence-ratings", "behavior-ontology", "behavior-assertions", "semantic-judge", "human-calibration", "aggregation", "atlas-bundles", "evidence-packets"]
     reference = ["cli", "contracts", "run-bundle-contract", "run-lifecycle", "agent-sdk-operational-runner"]
 
 [markup.goldmark.parser]

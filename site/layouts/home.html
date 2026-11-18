@@ -89,8 +89,8 @@
           </li>
           <li>
             <h3>Evaluation</h3>
-            <p>Structural extractors report exact facts. An LLM judge reads an explicit evidence selection, optionally blinded to the evaluated model, weighs an alternative explanation and may abstain.</p>
-            <p class="outcomes" aria-label="Assessment outcomes"><span class="o pos">constructive</span><span class="o neg">adverse</span><span class="o mid">mixed</span><span class="o ctx">context-dependent</span></p>
+            <p>Structural extractors report exact facts. An LLM judge reads an explicit evidence selection, optionally blinded to the evaluated model, weighs an alternative explanation and decides one behavior card: present, absent or unknown. The ontology has 93 cards in 11 families.</p>
+            <p class="outcomes" aria-label="Verdicts on a behavior card"><span class="o pres">present</span><span class="o abs">absent</span><span class="o unk">unknown</span></p>
           </li>
           <li>
             <h3>Claims</h3>
@@ -123,7 +123,7 @@
             </li>
             <li><span class="f"><code>support[]</code></span><span class="d">the judge assessments behind the claim</span>
               <ul>
-                <li><span class="f"><code>outcome</code></span><span class="d">constructive, adverse, mixed or context-dependent</span></li>
+                <li><span class="f"><code>outcome</code></span><span class="d">present, absent or unknown, with one named value on a present dimension card</span></li>
                 <li><span class="f"><code>citations[]</code></span><span class="d">one per cited event</span>
                   <ul>
                     <li><span class="f"><code>event_key</code></span><span class="d"><code>&lt;attempt&gt;/&lt;event&gt;</code>, attempt-scoped</span></li>
@@ -165,7 +165,7 @@
           <dl class="views">
             <div><dt>Clusters × arm</dt><dd>Observed against expected units per cluster and arm, with adjusted residuals.</dd></div>
             <div><dt>Swimlanes</dt><dd>Trials in time or step order, with context per request, failure chains, compactions and an aligned diff.</dd></div>
-            <div><dt>Assessments</dt><dd>Judge outcomes by dimension and attempt, each opening its rationale and cited lines.</dd></div>
+            <div><dt>Assessments</dt><dd>Judge verdicts by behavior card and attempt, grouped by family, each opening its rationale and cited lines.</dd></div>
             <div><dt>Claims</dt><dd>The claims ledger, each number's recomputation, and the attempt audits.</dd></div>
             <div><dt>Figures</dt><dd>View specs rendered live, each with a receipt that its numbers match the build.</dd></div>
           </dl>

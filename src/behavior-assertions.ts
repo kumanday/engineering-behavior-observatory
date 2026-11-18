@@ -1,5 +1,8 @@
 import type { RetainedNormalizationInput } from "./uniform-events.js";
-import { readFileSync } from "node:fs";
+import {
+  behaviorOntologyDigest, decideFromProbabilities, loadDefaultBehaviorOntology, resolveBehaviorDecision,
+  type BehaviorOntology, type BehaviorReference, type BehaviorVerdict, type DecisionModelProbabilities, type DecisionThresholds,
+} from "./behavior-ontology.js";
 import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
 import { evidenceWorkspaces } from "./evidence-projection.js";
 
@@ -27,16 +30,6 @@ import type {
 type DigestString = `sha256:${string}`;
 type VersionedIdentity = { id: string; version: string };
 
-export type BehaviorVocabulary = {
-  schemaVersion: "ebo.behavior-vocabulary/v1";
-  version: string;
-  categories: ReadonlyArray<{
-    id: string;
-    name: string;
-    dimensions: ReadonlyArray<{ id: string; name: string }>;
-  }>;
-};
-
 export type BehaviorCitation = {
   eventId: string;
   nativeReference: NativeEvidenceReference;
@@ -52,37 +45,118 @@ export type BehaviorClaim = {
   workspace: string | null;
 };
 
-type AssessedJudgment = {
-  disposition: "assessed";
-  assessment: "constructive" | "adverse" | "mixed" | "context-dependent";
-  confidence: { value: number; scale: "evaluator-reported-0-to-1" };
+type JudgmentEvidence = {
+  /** An LLM judge's verdict rests on the events it cites and the reasons it gives. */
+  basis: "cited-evidence";
   rationale: string;
   alternativeExplanation: string;
   citations: readonly BehaviorCitation[];
   claims?: readonly BehaviorClaim[];
 };
 
-type AbstainedJudgment = {
-  disposition: "abstained";
+/** The card's situation occurred and its evidence test passed. A dimension card names exactly one of its values. */
+type PresentJudgment = JudgmentEvidence & {
+  verdict: "present";
+  value?: string;
+  confidence: { value: number; scale: "evaluator-reported-0-to-1" };
+};
+
+/** The record shows the card's trigger or test did not occur. Citations are optional: absence may have no event to cite. */
+type AbsentJudgment = JudgmentEvidence & {
+  verdict: "absent";
+  confidence: { value: number; scale: "evaluator-reported-0-to-1" };
+};
+
+/** The abstention: the record lacks the steps the card's test needs. */
+type UnknownJudgment = JudgmentEvidence & {
+  verdict: "unknown";
   reason: string;
   missingEvidenceCapability?: string;
-  rationale: string;
-  alternativeExplanation: string;
-  citations: readonly BehaviorCitation[];
-  claims?: readonly BehaviorClaim[];
 };
 
-export type BehaviorAssertion = {
+export type LlmJudgment = PresentJudgment | AbsentJudgment | UnknownJudgment;
+
+/**
+ * A decision model returns probabilities and nothing else: no cited events, no rationale, no alternative explanation.
+ * The verdict is those probabilities under the thresholds stated here, and `unknown` is the abstention.
+ */
+export type DecisionModelJudgment = {
+  basis: "probabilities";
+  verdict: BehaviorVerdict;
+  value?: string;
+  probabilities: DecisionModelProbabilities;
+  thresholds: DecisionThresholds;
+};
+
+export type BehaviorJudgment = LlmJudgment | DecisionModelJudgment;
+
+/** The two ways a card result is produced. Consumers show the mode with every result and never pool the two. */
+export const BEHAVIOR_PRODUCER_MODES = ["llm-judge", "decision-model"] as const;
+export type BehaviorProducerMode = (typeof BEHAVIOR_PRODUCER_MODES)[number];
+export type BehaviorProducer<Mode extends BehaviorProducerMode = BehaviorProducerMode> = {
+  mode: Mode;
+  provider: string;
+  model: string;
+  version: string;
+  configurationDigest?: DigestString;
+};
+
+/** The card a result is about, with the digest of the exact ontology text it was judged against. */
+export type JudgedBehavior = BehaviorReference & { ontologyDigest: DigestString };
+
+/** What an LLM judge was shown: a selection of the attempt's events under stated limits, never the whole attempt. */
+export type LlmJudgeEvidence = {
+  scope: "selected-events";
+  events: { included: number; total: number };
+  structuralObservations: number;
+  occurrenceLedgerRows: number;
+  omitted: number;
+  truncated: number;
+  limits: { maxEvidenceItems: number; maxRecordChars: number; maxInputChars: number; maxCitations: number };
+};
+
+/** What a decision model was shown: every recorded step (or a stated excerpt), with each field cut to a stated length. */
+export type DecisionModelEvidence = {
+  scope: "all-steps" | "step-excerpt";
+  steps: { included: number; total: number };
+  rendering: { id: string; version: string };
+  fieldChars: { min: number; max: number };
+  budgetChars: number;
+};
+
+type AssertionIdentity = {
   schemaVersion: "ebo.behavior-assertion/v1";
   id: string;
   runId: string;
   attemptId: string;
   dataset: { schemaVersion: "ebo.normalized-dataset/v1"; digest: DigestString };
-  behavior: { vocabularyVersion: string; categoryId: string; dimensionId: string };
-  rubric: VersionedIdentity;
-  evaluator: VersionedIdentity & { configurationDigest?: DigestString };
-  judgment: AssessedJudgment | AbstainedJudgment;
+  behavior: JudgedBehavior;
 };
+
+export type LlmJudgeAssertion = AssertionIdentity & {
+  producer: BehaviorProducer<"llm-judge">;
+  rubric: VersionedIdentity;
+  evidence: LlmJudgeEvidence;
+  judgment: LlmJudgment;
+};
+
+export type DecisionModelAssertion = AssertionIdentity & {
+  producer: BehaviorProducer<"decision-model">;
+  evidence: DecisionModelEvidence;
+  judgment: DecisionModelJudgment;
+};
+
+/** One verdict on one card for one attempt, from either producer mode. */
+export type BehaviorAssertion = LlmJudgeAssertion | DecisionModelAssertion;
+
+export function isDecisionModelAssertion(assertion: BehaviorAssertion): assertion is DecisionModelAssertion {
+  return assertion.producer.mode === "decision-model";
+}
+
+/** A short identity for display and grouping: mode, provider and model. */
+export function producerLabel(producer: BehaviorProducer): string {
+  return `${producer.mode} ${producer.provider}/${producer.model}`;
+}
 
 export type BehaviorReview = {
   schemaVersion: "ebo.behavior-review/v1";
@@ -104,17 +178,31 @@ export type AgentSdkBehaviorEvidence = {
   coverage: AdapterCoverageReport;
 };
 
-export const DEFAULT_BEHAVIOR_VOCABULARY = loadDefaultVocabulary();
-
 export async function validateBehaviorAssertion(
   assertion: BehaviorAssertion,
   dataset: NormalizedDataset,
   resolver: NativeEvidenceResolver,
-  vocabulary: BehaviorVocabulary = DEFAULT_BEHAVIOR_VOCABULARY,
+  ontology: BehaviorOntology = loadDefaultBehaviorOntology(),
   capture?: RetainedNormalizationInput<unknown>,
 ): Promise<readonly ResolvedBehaviorCitation[]> {
   assertValid("behavior assertion", assertion);
-  assertVocabulary(vocabulary);
+  const card = resolveBehaviorDecision(assertion.behavior, assertion.judgment, ontology);
+  if (assertion.behavior.ontologyDigest !== behaviorOntologyDigest(ontology)) throw new Error("Behavior assertion was judged against other card texts: its ontology digest does not match.");
+  if (isDecisionModelAssertion(assertion)) {
+    const { judgment, evidence } = assertion;
+    const decided = decideFromProbabilities(card, judgment.probabilities, judgment.thresholds);
+    const tied = decided.value !== undefined && judgment.value !== undefined && "applies" in judgment.probabilities
+      && judgment.probabilities.values[judgment.value] === judgment.probabilities.values[decided.value];
+    if (decided.verdict !== judgment.verdict || (decided.value !== judgment.value && !tied)) {
+      throw new Error("Decision-model verdict or value does not follow from its probabilities and thresholds.");
+    }
+    if (evidence.steps.included > evidence.steps.total || (evidence.scope === "all-steps") !== (evidence.steps.included === evidence.steps.total)
+        || evidence.fieldChars.min > evidence.fieldChars.max) {
+      throw new Error("Decision-model evidence description is inconsistent.");
+    }
+  } else if (assertion.evidence.events.included > assertion.evidence.events.total) {
+    throw new Error("LLM-judge evidence description is inconsistent.");
+  }
   await validateNormalizedDataset(dataset, resolver);
 
   const datasetDigest = digest(dataset);
@@ -124,19 +212,11 @@ export async function validateBehaviorAssertion(
   if (assertion.runId !== dataset.runId || assertion.attemptId !== dataset.attemptId) {
     throw new Error("Behavior assertion belongs to the wrong run or attempt.");
   }
-  if (assertion.behavior.vocabularyVersion !== vocabulary.version) {
-    throw new Error("Behavior assertion uses the wrong vocabulary version.");
-  }
-  const category = vocabulary.categories.find(({ id }) => id === assertion.behavior.categoryId);
-  if (category === undefined || !category.dimensions.some(({ id }) => id === assertion.behavior.dimensionId)) {
-    throw new Error("Behavior assertion does not identify one declared behavior dimension.");
-  }
-
   const eventIds = new Set<string>();
   const events = new Map(dataset.events.map((event) => [event.id, event]));
   const records = new Map(dataset.nativeRecords.map((record) => [referenceKey(record.reference), record]));
   const resolved: ResolvedBehaviorCitation[] = [];
-  for (const citation of assertion.judgment.citations) {
+  for (const citation of isDecisionModelAssertion(assertion) ? [] : assertion.judgment.citations) {
     if (eventIds.has(citation.eventId)) throw new Error(`Behavior assertion cites event "${citation.eventId}" more than once.`);
     eventIds.add(citation.eventId);
     const event = events.get(citation.eventId);
@@ -162,6 +242,7 @@ export async function validateBehaviorAssertion(
 
 /** A claim's workspace must be the one working directory its cited native records state explicitly. */
 export function validateClaimWorkspaces(assertion: BehaviorAssertion, capture?: RetainedNormalizationInput<unknown>): void {
+  if (isDecisionModelAssertion(assertion)) return;
   for (const claim of assertion.judgment.claims ?? []) {
     if (claim.workspace === null) continue;
     if (capture === undefined) throw new Error("Validating a claim workspace needs the native capture.");
@@ -177,6 +258,7 @@ export function validateClaimWorkspaces(assertion: BehaviorAssertion, capture?: 
 
 /** Claim ids are unique, and each claim cites a subset of the assertion's citations without repeats. */
 export function validateClaimCitations(assertion: BehaviorAssertion): void {
+  if (isDecisionModelAssertion(assertion)) return;
   const seen = new Set<string>();
   const citations = new Set(assertion.judgment.citations.map((citation) => canonicalizeMetadata(citation)));
   for (const claim of assertion.judgment.claims ?? []) {
@@ -203,13 +285,13 @@ export async function isConfirmedBehaviorAssertion(
   dataset: NormalizedDataset,
   resolver: NativeEvidenceResolver,
   review?: BehaviorReview,
-  vocabulary: BehaviorVocabulary = DEFAULT_BEHAVIOR_VOCABULARY,
+  ontology: BehaviorOntology = loadDefaultBehaviorOntology(),
   capture?: RetainedNormalizationInput<unknown>,
 ): Promise<boolean> {
-  await validateBehaviorAssertion(assertion, dataset, resolver, vocabulary, capture);
+  await validateBehaviorAssertion(assertion, dataset, resolver, ontology, capture);
   if (review === undefined) return false;
   validateBehaviorReview(assertion, review);
-  return assertion.judgment.disposition === "assessed" && review.state === "confirmed";
+  return assertion.judgment.verdict !== "unknown" && review.state === "confirmed";
 }
 
 export async function validateAgentSdkBehaviorAssertion(
@@ -251,27 +333,6 @@ export async function validateRetainedBehaviorAssertion(bundleRoot: string, asse
   const citations = await validateBehaviorAssertion(assertion, dataset, resolver, undefined, capture);
   if (review !== undefined) validateBehaviorReview(assertion, review);
   return citations;
-}
-
-function assertVocabulary(vocabulary: BehaviorVocabulary): void {
-  assertValid("behavior vocabulary", vocabulary);
-  const categoryIds = vocabulary.categories.map(({ id }) => id);
-  if (new Set(categoryIds).size !== categoryIds.length) throw new Error("Behavior vocabulary category IDs must be unique.");
-  for (const category of vocabulary.categories) {
-    const dimensionIds = category.dimensions.map(({ id }) => id);
-    if (new Set(dimensionIds).size !== dimensionIds.length) {
-      throw new Error(`Behavior vocabulary dimension IDs in category "${category.id}" must be unique.`);
-    }
-  }
-}
-
-function loadDefaultVocabulary(): BehaviorVocabulary {
-  const vocabulary = JSON.parse(readFileSync(
-    new URL("../../ontology/behavior-categories.v1.json", import.meta.url),
-    "utf8",
-  )) as BehaviorVocabulary;
-  assertVocabulary(vocabulary);
-  return vocabulary;
 }
 
 function digest(value: unknown): DigestString {

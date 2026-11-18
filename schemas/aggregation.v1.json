@@ -150,54 +150,86 @@
         }
       }
     },
-    "behaviorAggregate": {
+    "directionShares": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "allOf": [
+        {"contains":{"properties":{"direction":{"const":"favourable"}},"required":["direction"]},"minContains":1,"maxContains":1},
+        {"contains":{"properties":{"direction":{"const":"unfavourable"}},"required":["direction"]},"minContains":1,"maxContains":1},
+        {"contains":{"properties":{"direction":{"const":"neutral"}},"required":["direction"]},"minContains":1,"maxContains":1}
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["direction","measurement"],
+        "properties": {
+          "direction": {"$ref":"urn:ebo:schema:behavior-ontology:v2#/$defs/direction"},
+          "measurement": {"$ref":"#/$defs/measurement"}
+        }
+      }
+    },
+    "directionAggregate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["behavior","rubric","evaluator","population","assessments","assertions"],
+      "required": ["producer","family","results","attempts"],
       "properties": {
-        "behavior": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["vocabularyVersion","categoryId","dimensionId"],
-          "properties": {
-            "vocabularyVersion": {"$ref":"#/$defs/identifier"},
-            "categoryId": {"$ref":"#/$defs/identifier"},
-            "dimensionId": {"$ref":"#/$defs/identifier"}
-          }
-        },
+        "producer": {"$ref":"urn:ebo:schema:behavior-assertions:v1#/$defs/producer"},
         "rubric": {
           "type": "object",
           "additionalProperties": false,
           "required": ["id","version"],
           "properties": {"id":{"$ref":"#/$defs/identifier"},"version":{"$ref":"#/$defs/identifier"}}
         },
-        "evaluator": {
+        "family": {"type":"string","pattern":"^(?:all|[A-Z]{2})$"},
+        "results": {"$ref":"#/$defs/directionShares"},
+        "attempts": {"$ref":"#/$defs/directionShares"}
+      }
+    },
+    "behaviorAggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["behavior","family","producer","population","verdicts","assertions"],
+      "properties": {
+        "behavior": {"$ref":"urn:ebo:schema:behavior-assertions:v1#/$defs/judgedBehavior"},
+        "family": {"type":"string","pattern":"^[A-Z]{2}$"},
+        "producer": {"$ref":"urn:ebo:schema:behavior-assertions:v1#/$defs/producer"},
+        "rubric": {
           "type": "object",
           "additionalProperties": false,
           "required": ["id","version"],
-          "properties": {
-            "id": {"$ref":"#/$defs/identifier"},
-            "version": {"$ref":"#/$defs/identifier"},
-            "configurationDigest": {"type":"string","pattern":"^sha256:[a-f0-9]{64}$"}
-          }
+          "properties": {"id":{"$ref":"#/$defs/identifier"},"version":{"$ref":"#/$defs/identifier"}}
         },
-        "population": {"enum":["confirmed-attempt-dimension","judge-assessed-attempt-dimension"]},
-        "assessments": {
+        "population": {"const":"judged-attempt-card"},
+        "verdicts": {
           "type": "array",
-          "minItems": 4,
-          "maxItems": 4,
+          "minItems": 3,
+          "maxItems": 3,
           "allOf": [
-            {"contains":{"properties":{"assessment":{"const":"constructive"}},"required":["assessment"]},"minContains":1,"maxContains":1},
-            {"contains":{"properties":{"assessment":{"const":"adverse"}},"required":["assessment"]},"minContains":1,"maxContains":1},
-            {"contains":{"properties":{"assessment":{"const":"mixed"}},"required":["assessment"]},"minContains":1,"maxContains":1},
-            {"contains":{"properties":{"assessment":{"const":"context-dependent"}},"required":["assessment"]},"minContains":1,"maxContains":1}
+            {"contains":{"properties":{"verdict":{"const":"present"}},"required":["verdict"]},"minContains":1,"maxContains":1},
+            {"contains":{"properties":{"verdict":{"const":"absent"}},"required":["verdict"]},"minContains":1,"maxContains":1},
+            {"contains":{"properties":{"verdict":{"const":"unknown"}},"required":["verdict"]},"minContains":1,"maxContains":1}
           ],
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["assessment","measurement"],
+            "required": ["verdict","measurement"],
             "properties": {
-              "assessment": {"enum":["constructive","adverse","mixed","context-dependent"]},
+              "verdict": {"$ref":"urn:ebo:schema:behavior-assertions:v1#/$defs/verdict"},
+              "measurement": {"$ref":"#/$defs/measurement"}
+            }
+          }
+        },
+        "values": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value","measurement"],
+            "properties": {
+              "value": {"$ref":"#/$defs/identifier"},
               "measurement": {"$ref":"#/$defs/measurement"}
             }
           }
@@ -258,6 +290,7 @@
             "properties": {
               "dimensions": { "$ref": "#/$defs/filters" },
               "behaviors": { "type": "array", "items": { "$ref": "#/$defs/behaviorAggregate" } },
+              "directions": { "type": "array", "items": { "$ref": "#/$defs/directionAggregate" } },
               "metrics": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/metric" } },
               "variations": {
                 "type": "array", "maxItems": 2,

@@ -365,7 +365,7 @@ judgeTest("Harbor-only executed model aliases reach retained semantic blinding",
     const evidence = await readImportedBehaviorEvidence(imported.bundleRoot); assert.ok(evidence.modelAliases!.includes(alias));
     const observations = await createRetainedStructuralObservationSet(imported.bundleRoot);
     const event = evidence.dataset.events.findLast(({ family, actor }) => family === "message" && actor.kind === "model")!;
-    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "alias", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "alias", behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
       rubric: { id: "r", version: "1", instructions: "Synthetic blinding check." }, evaluator: { provider: "anthropic", model: "synthetic-judge", effort: "low" },
       selection: { eventIds: [event.id], structuralObservationIds: [], includeOutcomeObservations: false },
       limits: { maxEvidenceItems: 8, maxRecordChars: 8000, maxInputChars: 32000, maxOutputChars: 8192, maxCitations: 4, maxWallClockMs: 5000, maxTurns: 1 }, blinding: { evaluatedModelIdentity: "redact" } };

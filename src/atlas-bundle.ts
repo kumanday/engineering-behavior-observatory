@@ -15,7 +15,8 @@ import { DEFAULT_FIREWORKS_MODEL, embedTexts, LOCAL_EMBEDDING_MODEL } from "./at
 import { assessmentDoc, attemptEvidence, NativeLines, nativeRecordDigest } from "./atlas-evidence.js";
 import { laneData, type LaneMeta } from "./atlas-lanes.js";
 import { ATLAS_UNITS_VERSION, deriveUnits, type AtlasUnit } from "./atlas-units.js";
-import type { BehaviorAssertion } from "./behavior-assertions.js";
+import { BEHAVIOR_PRODUCER_MODES, isDecisionModelAssertion, producerLabel, type BehaviorAssertion } from "./behavior-assertions.js";
+import { BEHAVIOR_DIRECTIONS, BEHAVIOR_VERDICTS, behaviorDirection, loadDefaultBehaviorOntology, resolveBehaviorCard } from "./behavior-ontology.js";
 import type { CorpusIndexEntry } from "./corpus.js";
 import { createRetainedBehaviorEvidence, withRetainedEvidenceReuse, type RetainedBehaviorEvidence, type RetainedEvidenceReuseStats } from "./retained-evidence.js";
 import type { StructuralObservationSet } from "./structural-observations.js";
@@ -27,7 +28,7 @@ import type { NativeEvidenceReference, UniformEvent } from "./uniform-events.js"
  * assertions, citations, reviews); each attempt's retained evidence is read once. Native records stay authoritative:
  * event text is a flattened view of resolved native content for search and embedding, never a replacement.
  */
-export const ATLAS_BUNDLE_BUILDER = { id: "ebo-atlas-bundle", version: "1.0.0" } as const;
+export const ATLAS_BUNDLE_BUILDER = { id: "ebo-atlas-bundle", version: "2.0.0" } as const;
 export const ATLAS_TABLES_VERSION = "1.0.0";
 
 export type AtlasBundleRequest = {
@@ -87,9 +88,10 @@ export const ATLAS_TABLES: Record<string, Column[]> = {
     ["tool_call_id", S], ["is_error", B], ["parent_event_key", S], ["attributes_json", S], ["content_status", S], ["content_ref_count", I],
     ["content_resolution", S], ["text", S], ["text_chars", I], ["text_sha256", S], ["content_json", S], ["content_json_chars", I]],
   event_relations: [["src_event_key", S], ["kind", S], ["dst_event_key", S], ["attempt_id", S]],
-  assessments: [["assertion_id", S], ["attempt_id", S], ["run_id", S], ["category_id", S], ["dimension_id", S], ["vocabulary_version", S],
-    ["rubric_id", S], ["rubric_version", S], ["evaluator_id", S], ["evaluator_version", S], ["evaluator_config_digest", S], ["disposition", S],
-    ["assessment", S], ["confidence", F], ["confidence_scale", S], ["review", S], ["rationale", S], ["alternative_explanation", S],
+  assessments: [["assertion_id", S], ["attempt_id", S], ["run_id", S], ["card_id", S], ["family_id", S], ["ontology_version", S],
+    ["producer_mode", S], ["rubric_id", S], ["rubric_version", S], ["evaluator_id", S], ["evaluator_version", S], ["evaluator_config_digest", S], ["verdict", S],
+    ["value", S], ["direction", S], ["confidence", F], ["confidence_scale", S], ["probability", F], ["probabilities_json", S], ["thresholds_json", S],
+    ["evidence_json", S], ["review", S], ["rationale", S], ["alternative_explanation", S],
     ["assertion_digest", S], ["dataset_digest", S], ["citation_count", I], ["claim_count", I]],
   assessment_cohorts: [["assertion_id", S], ["cohort_id", S], ["included", B], ["disputed", B], ["review_outcome", S]],
   citations: [["assertion_id", S], ["ordinal", I], ["attempt_id", S], ["event_id", S], ["event_key", S], ["occurrence_id", S],
@@ -334,6 +336,9 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     const runtime = cohort.analysisRuntime === undefined ? undefined : await loadAnalysisRuntime(cohort.analysisRuntime.id);
     if (runtime && runtime.identity.manifestDigest !== cohort.analysisRuntime!.manifestDigest) throw new Error("Atlas cohort runtime digest differs from its shipped identity.");
     const source: AtlasSource = await (runtime?.loadAtlas ?? loadAtlas)(atlasPath);
+    // A frozen 1.x reader still supplies evidence and structural observations. Its judgments name a category of the
+    // vocabulary that reader shipped with, and a bundle carries verdicts on behavior cards only.
+    if (runtime && source.input.assertions.length > 0) throw new Error(`Atlas cohort "${cohort.id}" is read through ${runtime.identity.id} and carries ${source.input.assertions.length} judgment(s) in that reader's category vocabulary. Remove the assertions from the cohort's aggregation request, or judge its attempts against the behavior ontology.`);
     const view: AtlasView = await (runtime?.queryAtlas ?? queryAtlas)(source);
     // Keep the report, not the view's cases (they carry native records for display).
     reports.set(cohort.id, { title: view.title, generatedAt: view.generatedAt, report: view.report } as AtlasView);
@@ -382,8 +387,8 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   // Units carry which judgments cite them and which structural observations draw on them.
   const citedBy = new Map<string, Array<{ id: string; label: string }>>();
   for (const { assertion } of assertions.values()) {
-    const label = `${assertion.behavior.categoryId}:${assertion.judgment.disposition === "assessed" ? assertion.judgment.assessment : "abstained"}`;
-    for (const citation of assertion.judgment.citations) {
+    const label = `${assertion.behavior.cardId}:${assertion.judgment.verdict}`;
+    for (const citation of isDecisionModelAssertion(assertion) ? [] : assertion.judgment.citations) {
       const key = `${assertion.attemptId}/${citation.eventId}`;
       citedBy.set(key, [...citedBy.get(key) ?? [], { id: assertion.id, label }]);
     }
@@ -522,21 +527,31 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   }
 
   for (const { assertion, digest, review } of [...assertions.values()].sort((a, b) => a.assertion.id.localeCompare(b.assertion.id))) {
+    const llm = isDecisionModelAssertion(assertion) ? undefined : assertion;
     const j = assertion.judgment;
-    tables.assessments!.push({ assertion_id: assertion.id, attempt_id: assertion.attemptId, run_id: assertion.runId, category_id: assertion.behavior.categoryId,
-      dimension_id: assertion.behavior.dimensionId, vocabulary_version: assertion.behavior.vocabularyVersion, rubric_id: assertion.rubric.id, rubric_version: assertion.rubric.version,
-      evaluator_id: assertion.evaluator.id, evaluator_version: assertion.evaluator.version, evaluator_config_digest: assertion.evaluator.configurationDigest ?? null,
-      disposition: j.disposition, assessment: j.disposition === "assessed" ? j.assessment : null, confidence: j.disposition === "assessed" ? j.confidence?.value ?? null : null,
-      confidence_scale: j.disposition === "assessed" ? j.confidence?.scale ?? null : null, review, rationale: j.rationale ?? null,
-      alternative_explanation: j.alternativeExplanation ?? null, assertion_digest: digest, dataset_digest: assertion.dataset.digest,
-      citation_count: j.citations.length, claim_count: j.claims?.length ?? 0 });
-    j.citations.forEach((citation, ordinal) => {
+    const card = resolveBehaviorCard(assertion.behavior);
+    // A decision model's deciding probability: that the card applies (dimension) or is present.
+    const probability = j.basis !== "probabilities" ? null : "applies" in j.probabilities ? j.probabilities.applies : j.probabilities.present;
+    const citations = llm?.judgment.citations ?? [];
+    const claims = llm?.judgment.claims ?? [];
+    tables.assessments!.push({ assertion_id: assertion.id, attempt_id: assertion.attemptId, run_id: assertion.runId, card_id: assertion.behavior.cardId,
+      family_id: card.family, ontology_version: assertion.behavior.ontologyVersion, producer_mode: assertion.producer.mode,
+      rubric_id: llm?.rubric.id ?? null, rubric_version: llm?.rubric.version ?? null,
+      evaluator_id: `${assertion.producer.provider}/${assertion.producer.model}`, evaluator_version: assertion.producer.version, evaluator_config_digest: assertion.producer.configurationDigest ?? null,
+      verdict: j.verdict, value: j.verdict === "present" ? j.value ?? null : null, direction: behaviorDirection(card, j) ?? null,
+      confidence: j.basis === "probabilities" || j.verdict === "unknown" ? null : j.confidence.value,
+      confidence_scale: j.basis === "probabilities" || j.verdict === "unknown" ? null : j.confidence.scale,
+      probability, probabilities_json: j.basis === "probabilities" ? JSON.stringify(j.probabilities) : null, thresholds_json: j.basis === "probabilities" ? JSON.stringify(j.thresholds) : null,
+      evidence_json: JSON.stringify(assertion.evidence), review, rationale: llm?.judgment.rationale ?? null,
+      alternative_explanation: llm?.judgment.alternativeExplanation ?? null, assertion_digest: digest, dataset_digest: assertion.dataset.digest,
+      citation_count: citations.length, claim_count: claims.length });
+    citations.forEach((citation, ordinal) => {
       const key = `${assertion.attemptId}/${citation.eventId}`;
       tables.citations!.push({ assertion_id: assertion.id, ordinal, attempt_id: assertion.attemptId, event_id: citation.eventId, event_key: key,
         occurrence_id: citation.occurrenceId ?? null, native_artifact: citation.nativeReference.artifactId, native_locator: citation.nativeReference.recordLocator,
         resolved: eventKeys.has(key) });
     });
-    (j.claims ?? []).forEach((claim, ordinal) => {
+    claims.forEach((claim, ordinal) => {
       tables.claims!.push({ assertion_id: assertion.id, claim_id: claim.id, ordinal, text: claim.text, workspace: claim.workspace,
         citation_event_keys: JSON.stringify(claim.citations.map(({ eventId }) => `${assertion.attemptId}/${eventId}`)) });
     });
@@ -583,17 +598,26 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   const armOfAttempt = new Map(tables.attempts!.map((a) => [String(a.attempt_id), String(a.condition)]));
   const certified = Object.fromEntries([...reports].map(([id, view]) => [id, { source: `reports/${id}.json`, generated_at: view.generatedAt,
     group_by: (view.report.policy as { groupBy?: unknown }).groupBy ?? null,
-    cells: view.report.groups.flatMap((group) => (group.behaviors ?? []).map((b) => ({ group: group.dimensions, category: b.behavior.categoryId,
-      counts: Object.fromEntries(b.assessments.map((a) => [a.assessment, a.measurement.numerator.value])),
-      denominator: Math.max(...b.assessments.map((a) => a.measurement.denominator.value)),
+    cells: view.report.groups.flatMap((group) => (group.behaviors ?? []).map((b) => ({ group: group.dimensions, card: b.behavior.cardId, family: b.family, mode: b.producer.mode, producer: producerLabel(b.producer),
+      counts: Object.fromEntries(b.verdicts.map((a) => [a.verdict, a.measurement.numerator.value])),
+      denominator: Math.max(...b.verdicts.map((a) => a.measurement.denominator.value)),
+      // Dimension cards: each value's count among the attempts judged present.
+      ...(b.values === undefined ? {} : { values: Object.fromEntries(b.values.map((a) => [a.value, a.measurement.numerator.value])) }),
       assertions: b.assertions.filter((a) => a.included).map((a) => a.id),
       // The study arms the cell's assessments belong to: the viewer compares a cell with one arm only when it covers that arm alone.
       conditions: [...new Set(b.assertions.filter((a) => a.included).map((a) => armOfAttempt.get(assertions.get(a.id)?.assertion.attemptId ?? "") ?? "unavailable"))].sort() }))) }]));
+  const ontology = loadDefaultBehaviorOntology();
+  const judgedCards = ontology.cards.filter(({ id }) => [...assertions.values()].some(({ assertion }) => assertion.behavior.cardId === id));
   const assessmentsDocument = { study: request.id, generated_by: `${ATLAS_BUNDLE_BUILDER.id} ${ATLAS_BUNDLE_BUILDER.version}`,
-    outcomes: ["constructive", "mixed", "adverse", "context-dependent", "abstained"],
+    outcomes: [...BEHAVIOR_VERDICTS], modes: [...BEHAVIOR_PRODUCER_MODES], directions: [...BEHAVIOR_DIRECTIONS], ontology: ontology.version,
+    // The judged cards and their families in ontology order: the viewer's matrix rows.
+    cards: judgedCards.map(({ id, family, title }) => ({ id, family, title })),
+    families: ontology.families.filter(({ id }) => judgedCards.some(({ family }) => family === id)).map(({ id, name }) => ({ id, name })),
     cohorts: [...reports].map(([id, view]) => ({ id, title: view.title, report: `reports/${id}.json`, certified: true })),
     attempts: attemptMeta, assessments: assessmentDocs, certified,
-    notes: ["Outcome 'abstained' = disposition abstained (no assessment value).",
+    notes: ["An outcome is the verdict on one card: present, absent or unknown. Unknown is the abstention. A present dimension card also names one value.",
+      "Every result names its producer mode. An LLM judge read a selection of events and cites them; a decision model read every step and returns probabilities only. The two are never pooled.",
+      "A present result has a direction fixed by the ontology: favourable, unfavourable or neutral. Neutral results are counted and never scored.",
       "Certified tallies are the cohort aggregation reports in this bundle; counts computed in the viewer are exploratory."] };
   writeFileSync(join(outputRoot, "assessments.json"), JSON.stringify(assessmentsDocument));
 
@@ -607,10 +631,10 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     const c = await db.connect();
     try {
       await c.run(`CREATE TABLE units AS SELECT * FROM ${tablePath("units")} WHERE embed`);
-      await c.run(`CREATE TABLE assessments (id VARCHAR, attempt_id VARCHAR, condition VARCHAR, task_id VARCHAR, trial_id VARCHAR, dimension VARCHAR, outcome VARCHAR, confidence DOUBLE, citations BIGINT, in_primary BOOLEAN)`);
-      for (const a of assessmentDocs as Array<{ id: string; attempt_id: string; condition: string; task_id: string | null; trial_id: string | null; dimension: string; outcome: string; confidence: number | null; citations: unknown[]; cohorts: Record<string, { included?: boolean }> }>) {
-        const prepared = await c.prepare("INSERT INTO assessments VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)");
-        prepared.bind([a.id, a.attempt_id, a.condition, a.task_id, a.trial_id, a.dimension, a.outcome, a.confidence, a.citations.length, a.cohorts.primary?.included === true]);
+      await c.run(`CREATE TABLE assessments (id VARCHAR, attempt_id VARCHAR, condition VARCHAR, task_id VARCHAR, trial_id VARCHAR, mode VARCHAR, card VARCHAR, family VARCHAR, outcome VARCHAR, value VARCHAR, direction VARCHAR, confidence DOUBLE, probability DOUBLE, citations BIGINT, in_primary BOOLEAN)`);
+      for (const a of assessmentDocs as Array<{ id: string; attempt_id: string; condition: string; task_id: string | null; trial_id: string | null; mode: string; card: string; family: string; outcome: string; value: string | null; direction: string | null; confidence: number | null; probability: number | null; citations: unknown[]; cohorts: Record<string, { included?: boolean }> }>) {
+        const prepared = await c.prepare("INSERT INTO assessments VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)");
+        prepared.bind([a.id, a.attempt_id, a.condition, a.task_id, a.trial_id, a.mode, a.card, a.family, a.outcome, a.value, a.direction, a.confidence, a.probability, a.citations.length, a.cohorts.primary?.included === true]);
         await prepared.run();
       }
       const views = await buildViews(resolve(base, request.views), c, request.id);

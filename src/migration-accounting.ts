@@ -6,7 +6,7 @@ import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact } from "./a
 import { isSafeArtifactRelativePath } from "./contracts.js";
 import { listAnalysisRuntimes } from "./analysis-runtime.js";
 import type { SemanticJudgeInput, SemanticJudgmentRecord } from "./semantic-judge.js";
-import type { BehaviorAssertion } from "./behavior-assertions.js";
+import type { LlmJudgeAssertion as BehaviorAssertion } from "./behavior-assertions.js";
 
 type Hash = `sha256:${string}`;
 type ReferenceStatus = "verified" | "missing" | "absent" | "invalid";
@@ -80,6 +80,7 @@ export type MigrationReconciliation = {
     preservedAssertionUnits: number; measuredForecastUsd: number | null; unpricedAffectedUnits: number; authorizedPaidBudgetUsd: 0 };
 };
 const hash = (value: unknown): Hash => `sha256:${digestMetadata(value).value}`;
+const cardReference = ({ ontologyVersion, cardId }: { ontologyVersion: string; cardId: string }) => ({ ontologyVersion, cardId });
 const schemas = new Set(["ebo.behavior-assertion/v1", "ebo.semantic-judgment/v1", "ebo.semantic-judgment/v3", "ebo.semantic-judge-input/v1",
   "ebo.structural-observation-set/v1", "ebo.occurrence-ratings/v1"]);
 const limits = { files: 100_000, fileBytes: 64 * 1024 * 1024, totalBytes: 2 * 1024 * 1024 * 1024 };
@@ -150,8 +151,8 @@ export function inventoryMigrationStudy(study: MigrationStudy): MigrationInvento
     const digest = hash(assertion), existing = assertions.get(digest);
     if (existing) { if (!existing.paths.includes(path)) existing.paths.push(path); return; }
     assertions.set(digest, { digest, runId: assertion.runId, attemptId: assertion.attemptId, datasetDigest: assertion.dataset.digest,
-      behaviorDigest: hash(assertion.behavior), rubricIdentityDigest: hash(assertion.rubric),
-      configurationDigest: assertion.evaluator.configurationDigest ?? null, paths: [path] });
+      behaviorDigest: hash(cardReference(assertion.behavior)), rubricIdentityDigest: hash(assertion.rubric),
+      configurationDigest: assertion.producer.configurationDigest ?? null, paths: [path] });
   };
   for (const path of [...study.artifacts].sort()) {
     try {
@@ -166,11 +167,11 @@ export function inventoryMigrationStudy(study: MigrationStudy): MigrationInvento
       if (assertion.status === "verified" && (assertion.value!.schemaVersion !== "ebo.behavior-assertion/v1" || assertion.value!.id !== judgment.assertion!.id
           || assertion.value!.runId !== judgment.runId || assertion.value!.attemptId !== judgment.attemptId
           || input.status === "verified" && (assertion.value!.dataset.digest !== input.value!.dataset.digest
-            || hash(assertion.value!.behavior) !== hash(input.value!.behavior)
+            || hash(cardReference(assertion.value!.behavior)) !== hash(input.value!.behavior)
             || assertion.value!.rubric.id !== input.value!.rubric.id || assertion.value!.rubric.version !== input.value!.rubric.version))) assertion.status = "invalid";
-      if (assertion.status === "verified" && (assertion.value!.evaluator.id !== `${judgment.evaluator.provider}/${judgment.evaluator.model}`
-          || assertion.value!.evaluator.version !== judgment.evaluator.backend.version)) assertion.status = "invalid";
-      const configurationDigest = assertion.status === "verified" ? assertion.value!.evaluator.configurationDigest ?? null : null;
+      if (assertion.status === "verified" && (assertion.value!.producer.provider !== judgment.evaluator.provider || assertion.value!.producer.model !== judgment.evaluator.model
+          || assertion.value!.producer.version !== judgment.evaluator.backend.version)) assertion.status = "invalid";
+      const configurationDigest = assertion.status === "verified" ? assertion.value!.producer.configurationDigest ?? null : null;
       // An unavailable configuration cannot establish that two separate judgments used the same configuration.
       const id = hash({ inputDigest: judgment.input.digest, evaluator: judgment.evaluator, configurationDigest,
         ...(configurationDigest === null ? { unverifiedConfigurationJudgment: digest } : {}) });
@@ -306,9 +307,9 @@ export async function createMigrationTargetV2(unit: MigrationUnit, input: JudgeI
 export type MigrationPlanV2 = {
   schemaVersion: "ebo.migration-plan/v1"; studyId: string; inventoryDigest: Hash;
   sourceRuntime: MigrationStudy["analysisRuntime"];
-  target: { datasetSchemaVersion: "ebo.normalized-dataset/v2"; inputSchemaVersion: "ebo.semantic-judge-input/v2"; promptVersion: "2.0.0" };
+  target: { datasetSchemaVersion: "ebo.normalized-dataset/v2"; inputSchemaVersion: "ebo.semantic-judge-input/v2"; promptVersion: "3.0.0" };
   units: Array<{ id: Hash; assertionDigests: Hash[]; disposition: "rejudge-required" | "preserve-frozen-missing-evidence";
-    proof: { dependency: "promptVersion"; previous: string; target: "2.0.0" } | null;
+    proof: { dependency: "promptVersion"; previous: string; target: "3.0.0" } | null;
     ratingDependencyRebuild: boolean; targetPreparation: "prepared" | "pending" | "preserved"; targetInputDigest: Hash | null }>;
   unboundAssertions: MigrationReconciliation["unboundAssertions"];
   summary: { affectedUnits: number; affectedAssertionContents: number; preservedMissingUnits: number; preservedAssertionContents: number;
@@ -327,17 +328,17 @@ export function planMigrationV2(inventory: MigrationInventory, concrete?: Migrat
   const units: MigrationPlanV2["units"] = inventory.units.map((unit) => {
     if (preserved.has(unit.id)) return { id: unit.id, assertionDigests: [...unit.assertionDigests], disposition: "preserve-frozen-missing-evidence", proof: null,
       ratingDependencyRebuild: false, targetPreparation: "preserved", targetInputDigest: null };
-    if (!["1.0.0", "1.1.0", "1.2.0", "1.3.0"].includes(unit.dependencies!.promptVersion)) throw new Error("No supported prompt-version change proof for this migration unit.");
+    if (!["2.0.0", "2.1.0"].includes(unit.dependencies!.promptVersion)) throw new Error("No supported prompt-version change proof for this migration unit.");
     const receipt = receipts.get(unit.id)!.target, prepared = receipt?.inputSchemaVersion === "ebo.semantic-judge-input/v2";
     return { id: unit.id, assertionDigests: [...unit.assertionDigests], disposition: "rejudge-required",
-      proof: { dependency: "promptVersion", previous: unit.dependencies!.promptVersion, target: "2.0.0" },
+      proof: { dependency: "promptVersion", previous: unit.dependencies!.promptVersion, target: "3.0.0" },
       ratingDependencyRebuild: unit.dependencies!.ratingsDigest !== null, targetPreparation: prepared ? "prepared" : "pending", targetInputDigest: prepared ? receipt!.inputDigest : null };
   });
   const affected = units.filter(({ disposition }) => disposition === "rejudge-required"), frozen = units.filter(({ disposition }) => disposition === "preserve-frozen-missing-evidence");
   const affectedIds = new Set(affected.map(({ id }) => id));
   const ratingDependencies = new Set(inventory.units.filter((unit) => affectedIds.has(unit.id)).flatMap((unit) => unit.dependencies!.ratingsDigest ?? []));
   return { schemaVersion: "ebo.migration-plan/v1", studyId: inventory.studyId, inventoryDigest: hash(inventory), sourceRuntime: structuredClone(inventory.analysisRuntime),
-    target: { datasetSchemaVersion: "ebo.normalized-dataset/v2", inputSchemaVersion: "ebo.semantic-judge-input/v2", promptVersion: "2.0.0" }, units, unboundAssertions: baseline.unboundAssertions,
+    target: { datasetSchemaVersion: "ebo.normalized-dataset/v2", inputSchemaVersion: "ebo.semantic-judge-input/v2", promptVersion: "3.0.0" }, units, unboundAssertions: baseline.unboundAssertions,
     summary: { affectedUnits: affected.length, affectedAssertionContents: new Set(affected.flatMap(({ assertionDigests }) => assertionDigests)).size,
       preservedMissingUnits: frozen.length, preservedAssertionContents: new Set([...frozen.flatMap(({ assertionDigests }) => assertionDigests), ...baseline.unboundAssertions.map(({ digest }) => digest)]).size,
       ratingDependencyUnits: affected.filter(({ ratingDependencyRebuild }) => ratingDependencyRebuild).length, distinctRetainedRatingDependencies: ratingDependencies.size,

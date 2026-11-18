@@ -5,9 +5,13 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import lockfile from "proper-lockfile";
 
 import {
+  BEHAVIOR_PRODUCER_MODES,
+  isDecisionModelAssertion,
+  producerLabel,
   validateBehaviorAssertion,
   validateBehaviorReview,
   type BehaviorAssertion,
+  type BehaviorProducerMode,
   type BehaviorReview,
 } from "./behavior-assertions.js";
 import { createRetainedBehaviorEvidence, type RetainedBehaviorEvidence } from "./retained-evidence.js";
@@ -37,7 +41,9 @@ export type ReviewFilters = {
   harnessIds?: readonly string[];
   outcomes?: readonly Outcome[];
   terminalStates?: readonly string[];
-  categoryIds?: readonly string[];
+  cardIds?: readonly string[];
+  /** Sample results of one producer mode: `llm-judge` or `decision-model`. */
+  modes?: readonly BehaviorProducerMode[];
   abstentions?: readonly boolean[];
   confidence?: { min?: number; max?: number };
 };
@@ -60,7 +66,9 @@ export type ReviewCandidate = {
     harnessId: string;
     terminalState: string;
     outcome: Outcome;
-    categoryId: string;
+    cardId: string;
+    /** Which producer mode made the result. */
+    mode: BehaviorProducerMode;
     abstained: boolean;
     confidence: number | null;
   };
@@ -109,7 +117,9 @@ export type CalibrationSummary = {
   selection: { schemaVersion: "ebo.review-sample/v1"; digest: DigestString };
   history: { schemaVersion: "ebo.review-history/v1"; digest: DigestString };
   totals: CalibrationCounts;
-  categories: ReadonlyArray<{ categoryId: string; counts: CalibrationCounts }>;
+  /** Counts per producer mode, so LLM-judge and decision-model results are never read as one population. */
+  modes: ReadonlyArray<{ mode: BehaviorProducerMode; counts: CalibrationCounts }>;
+  cards: ReadonlyArray<{ cardId: string; mode: BehaviorProducerMode; counts: CalibrationCounts }>;
 };
 
 type CalibrationCounts = {
@@ -303,20 +313,28 @@ export async function importReviewDecision(
 export async function summarizeCalibration(selection: ReviewSample, history: ReviewHistory): Promise<CalibrationSummary> {
   await revalidateReviewSample(selection);
   validateReviewHistory(selection, history);
-  const byCategory = new Map<string, ReviewCandidate[]>();
+  const byCard = new Map<string, ReviewCandidate[]>();
   for (const candidate of selection.candidates) {
-    const group = byCategory.get(candidate.context.categoryId) ?? [];
+    const key = `${candidate.context.cardId}\0${candidate.context.mode}`;
+    const group = byCard.get(key) ?? [];
     group.push(candidate);
-    byCategory.set(candidate.context.categoryId, group);
+    byCard.set(key, group);
   }
   const summary: CalibrationSummary = {
     schemaVersion: "ebo.calibration-summary/v1",
     selection: { schemaVersion: selection.schemaVersion, digest: digest(selection) },
     history: { schemaVersion: history.schemaVersion, digest: digest(history) },
     totals: counts(selection.candidates, history.decisions),
-    categories: [...byCategory].sort(([left], [right]) => left.localeCompare(right))
-      .map(([categoryId, candidates]) => ({ categoryId, counts: counts(candidates, history.decisions) })),
+    modes: BEHAVIOR_PRODUCER_MODES.filter((mode) => selection.candidates.some(({ context }) => context.mode === mode))
+      .map((mode) => ({ mode, counts: counts(selection.candidates.filter(({ context }) => context.mode === mode), history.decisions) })),
+    cards: [...byCard].sort(([left], [right]) => left.localeCompare(right))
+      .map(([, candidates]) => ({ cardId: candidates[0]!.context.cardId, mode: candidates[0]!.context.mode, counts: counts(candidates, history.decisions) })),
   };
+  // Agreement with an LLM judge and agreement with a decision model are different populations, so a mixed sample has no pooled rate.
+  if (summary.modes.length > 1) {
+    summary.totals.judgeHumanAgreement = { status: "unavailable", denominator: 0, population: summary.totals.judgeHumanAgreement.population,
+      reason: "The sample holds results of more than one producer mode; read judge-human agreement per mode." };
+  }
   assertValid("calibration summary", summary);
   return summary;
 }
@@ -454,9 +472,11 @@ async function loadCandidate(
       harnessId: resolvedManifest.run.harness.id,
       terminalState: resolvedManifest.terminal.state,
       outcome,
-      categoryId: assertionDocument.behavior.categoryId,
-      abstained: assertionDocument.judgment.disposition === "abstained",
-      confidence: assertionDocument.judgment.disposition === "assessed" ? assertionDocument.judgment.confidence.value : null,
+      cardId: assertionDocument.behavior.cardId,
+      mode: assertionDocument.producer.mode,
+      abstained: assertionDocument.judgment.verdict === "unknown",
+      // Evaluator-reported confidence exists on LLM-judge results only; a decision model's probabilities stay in the result.
+      confidence: assertionDocument.judgment.basis === "probabilities" || assertionDocument.judgment.verdict === "unknown" ? null : assertionDocument.judgment.confidence.value,
     },
     assertionDocument,
     manifest: resolvedManifest,
@@ -484,7 +504,8 @@ function matchesFilters(candidate: ReviewCandidate, filters: ReviewFilters): boo
     [filters.harnessIds, candidate.context.harnessId],
     [filters.outcomes, candidate.context.outcome],
     [filters.terminalStates, candidate.context.terminalState],
-    [filters.categoryIds, candidate.context.categoryId],
+    [filters.cardIds, candidate.context.cardId],
+    [filters.modes, candidate.context.mode],
     [filters.abstentions, candidate.context.abstained],
   ];
   if (values.some(([allowed, value]) => allowed !== undefined && !allowed.includes(value))) return false;
@@ -495,6 +516,12 @@ function matchesFilters(candidate: ReviewCandidate, filters: ReviewFilters): boo
     && (filters.confidence.max === undefined || confidence <= filters.confidence.max);
 }
 
+function judgmentText(assertion: BehaviorAssertion): string {
+  const { judgment } = assertion;
+  if (judgment.basis === "cited-evidence" && judgment.verdict === "unknown") return `unknown: ${judgment.reason}`;
+  return judgment.verdict === "present" && judgment.value !== undefined ? `present: ${judgment.value}` : judgment.verdict;
+}
+
 function packetItem(root: string, candidate: LoadedCandidate): any {
   const descriptors = new Map(candidate.manifest.evidence.map((descriptor) => [descriptor.id, descriptor]));
   return {
@@ -502,7 +529,7 @@ function packetItem(root: string, candidate: LoadedCandidate): any {
     assertionBinding: structuredClone(candidate.assertion),
     context: structuredClone(candidate.context),
     source: { evidenceRoot: toPosix(relative(root, candidate.source.bundleRoot)) || "." },
-    citations: candidate.assertionDocument.judgment.citations.map((citation) => {
+    citations: (isDecisionModelAssertion(candidate.assertionDocument) ? [] : candidate.assertionDocument.judgment.citations).map((citation) => {
       const descriptor = descriptors.get(citation.nativeReference.artifactId);
       const relativePath = citation.nativeReference.artifactId === "manifest" ? "manifest.json" : descriptor?.relativePath;
       if (relativePath === undefined) throw new Error(`Assertion "${candidate.assertion.id}" cites an unknown native artifact.`);
@@ -524,7 +551,9 @@ function renderPacketHtml(packet: { createdAt: string; items: readonly any[] }):
     const assertion = item.assertion as BehaviorAssertion;
     const citations = (item.citations as Array<{ eventId: string; href: string; sharingClass: string; nativeReference: { recordLocator: string } }>)
       .map((citation) => `<li><a href="${escapeHtml(citation.href)}">${escapeHtml(citation.eventId)}</a> — ${escapeHtml(citation.nativeReference.recordLocator)} (${escapeHtml(citation.sharingClass)})</li>`).join("");
-    return `<article id="${anchor(assertionKey(item.assertionBinding))}"><h2>${escapeHtml(assertion.id)}</h2><dl><dt>Run / attempt</dt><dd>${escapeHtml(item.context.runId)} / ${escapeHtml(item.context.attemptId)}</dd><dt>Task</dt><dd>${escapeHtml(item.context.taskId)}</dd><dt>Task context</dt><dd>${escapeHtml(item.context.taskContext)}</dd><dt>Model / harness</dt><dd>${escapeHtml(item.context.modelId)} / ${escapeHtml(item.context.harnessId)}</dd><dt>Outcome</dt><dd>${escapeHtml(item.context.outcome)}</dd><dt>Category</dt><dd>${escapeHtml(item.context.categoryId)}</dd></dl><h3>Judgment</h3><p>${escapeHtml(assertion.judgment.disposition === "assessed" ? assertion.judgment.assessment : `abstained: ${assertion.judgment.reason}`)}</p><h3>Rationale</h3><p>${escapeHtml(assertion.judgment.rationale)}</p><h3>Alternative explanation</h3><p>${escapeHtml(assertion.judgment.alternativeExplanation)}</p><h3>Native evidence</h3><ul>${citations || "<li>No citations (judge abstention).</li>"}</ul><p><a href="#top">Back to index</a></p></article>`;
+    return `<article id="${anchor(assertionKey(item.assertionBinding))}"><h2>${escapeHtml(assertion.id)}</h2><dl><dt>Run / attempt</dt><dd>${escapeHtml(item.context.runId)} / ${escapeHtml(item.context.attemptId)}</dd><dt>Task</dt><dd>${escapeHtml(item.context.taskId)}</dd><dt>Task context</dt><dd>${escapeHtml(item.context.taskContext)}</dd><dt>Model / harness</dt><dd>${escapeHtml(item.context.modelId)} / ${escapeHtml(item.context.harnessId)}</dd><dt>Outcome</dt><dd>${escapeHtml(item.context.outcome)}</dd><dt>Card</dt><dd>${escapeHtml(item.context.cardId)}</dd><dt>Produced by</dt><dd>${escapeHtml(producerLabel(assertion.producer))}</dd></dl><h3>Judgment</h3><p>${escapeHtml(judgmentText(assertion))}</p>${isDecisionModelAssertion(assertion)
+      ? `<h3>Probabilities</h3><p>${escapeHtml(JSON.stringify(assertion.judgment.probabilities))} under thresholds ${escapeHtml(JSON.stringify(assertion.judgment.thresholds))}</p><h3>Native evidence</h3><p>A decision model returns probabilities only: this result has no cited events, rationale or alternative explanation. The model was shown ${escapeHtml(String(assertion.evidence.steps.included))} of ${escapeHtml(String(assertion.evidence.steps.total))} recorded steps.</p>`
+      : `<h3>Rationale</h3><p>${escapeHtml(assertion.judgment.rationale)}</p><h3>Alternative explanation</h3><p>${escapeHtml(assertion.judgment.alternativeExplanation)}</p><h3>Native evidence</h3><p>The judge read ${escapeHtml(String(assertion.evidence.events.included))} of the attempt's ${escapeHtml(String(assertion.evidence.events.total))} events.</p><ul>${citations || "<li>No citations.</li>"}</ul>`}<p><a href="#top">Back to index</a></p></article>`;
   }).join("\n");
   const index = packet.items.map((item) => `<li><a href="#${anchor(assertionKey(item.assertionBinding))}">${escapeHtml(item.assertion.id)} — ${escapeHtml(item.context.runId)} / ${escapeHtml(item.context.attemptId)}</a></li>`).join("");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>EBO human review packet</title><style>body{font:16px/1.5 system-ui;max-width:72rem;margin:auto;padding:2rem}article{border-top:1px solid #bbb;margin-top:2rem}dt{font-weight:700}dd{margin-bottom:.5rem}code{overflow-wrap:anywhere}</style></head><body id="top"><h1>EBO human review packet</h1><p>Restricted local evidence. Exact cited records are copied into this packet; links return to the native source artifacts.</p><p>Created ${escapeHtml(packet.createdAt)}</p><nav aria-label="Assertions"><ol>${index}</ol></nav>${items}</body></html>\n`;

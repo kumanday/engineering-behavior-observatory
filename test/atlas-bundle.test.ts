@@ -78,6 +78,22 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
     const assessments = JSON.parse(readFileSync(join(out, "assessments.json"), "utf8")) as { assessments: Array<{ citations: Array<{ native: { resolved: boolean } }> }> };
     assert.equal(assessments.assessments.length, source.input.assertions.length);
     assert.ok(assessments.assessments.every(({ citations }) => citations.every(({ native }) => native.resolved)), "every citation resolves to a native line");
+    // The fixture judges VF-03 (a dimension card) on five attempts and abstains on EN-04 for one.
+    const cards = JSON.parse(readFileSync(join(out, "assessments.json"), "utf8")) as { outcomes: string[]; ontology: string; cards: Array<{ id: string; family: string; title: string }>; families: Array<{ id: string; name: string }>;
+      assessments: Array<{ card: string; family: string; title: string; outcome: string; value: string | null; confidence: number | null }>;
+      certified: Record<string, { cells: Array<{ card: string; family: string; counts: Record<string, number>; values?: Record<string, number>; denominator: number }> }> };
+    assert.deepEqual(cards.outcomes, ["present", "absent", "unknown"]);
+    assert.equal(cards.ontology, "2.0.0");
+    assert.deepEqual(cards.cards.map(({ id, family }) => [id, family]), [["EN-04", "EN"], ["VF-03", "VF"]], "judged cards are listed in ontology order");
+    assert.deepEqual(cards.families.map(({ id }) => id), ["EN", "VF"]);
+    assert.deepEqual(cards.assessments.map(({ card, outcome, value }) => [card, outcome, value]).sort(), [
+      ["EN-04", "unknown", null], ["VF-03", "absent", null], ["VF-03", "present", "check after the last edit"], ["VF-03", "present", "check after the last edit"],
+      ["VF-03", "present", "last edit after the last check"], ["VF-03", "present", "no check recorded"]]);
+    assert.ok(cards.assessments.every(({ outcome, confidence }) => (outcome === "unknown") === (confidence === null)));
+    const cells = Object.values(cards.certified).flatMap(({ cells }) => cells);
+    assert.ok(cells.length > 0 && cells.every(({ card, counts }) => /^[A-Z]{2}-\d{2}$/u.test(card) && Object.keys(counts).join() === "present,absent,unknown"));
+    assert.ok(cells.filter(({ card }) => card === "VF-03").every(({ values, counts }) => values !== undefined && Object.values(values).reduce((sum, count) => sum + count, 0) === counts.present));
+    assert.ok(cells.filter(({ card }) => card === "EN-04").every(({ values }) => values === undefined));
     assert.deepEqual(verifyAtlasBundle(out), { ok: true, changed: [], missing: [], unlisted: [] });
     appendFileSync(join(out, "reports", "all.json"), " ");
     writeFileSync(join(out, "extra.txt"), "not listed");
@@ -109,6 +125,51 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("an Atlas bundle labels every result with its producer mode and direction and certifies each mode on its own", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-atlas-bundle-modes-"));
+  try {
+    await createAtlasFixture(join(root, "study"), { decisionModel: true });
+    const requestPath = join(root, "bundle-request.json");
+    writeFileSync(requestPath, JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v1", id: "synthetic-modes", title: "Synthetic modes",
+      cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], condition: { pattern: "^synthetic-(?<condition>attempt)-\\d+$" } } satisfies AtlasBundleRequest));
+    const out = join(root, "bundle");
+    const embed = async (texts: readonly string[], config: { dimensions: number }) => new Float32Array(texts.length * config.dimensions).fill(1);
+    await buildAtlasBundle(requestPath, out, { now: () => new Date("2026-10-07T00:00:00.000Z"), embed });
+    assert.equal(verifyAtlasBundle(out).ok, true);
+
+    type Doc = { id: string; card: string; outcome: string; value: string | null; mode: string; producer: string; direction: string | null; probability: number | null;
+      probabilities: unknown; thresholds: unknown; rubric: unknown; shown: { scope: string }; citations: unknown[] };
+    const document = JSON.parse(readFileSync(join(out, "assessments.json"), "utf8")) as { modes: string[]; directions: string[]; assessments: Doc[];
+      certified: Record<string, { cells: Array<{ card: string; mode: string; producer: string; counts: Record<string, number>; denominator: number; group: Record<string, string> }> }> };
+    assert.deepEqual(document.modes, ["llm-judge", "decision-model"]);
+    assert.deepEqual(document.directions, ["favourable", "unfavourable", "neutral"]);
+    const decided = document.assessments.filter(({ mode }) => mode === "decision-model");
+    assert.equal(decided.length, 9);
+    assert.equal(document.assessments.length, 15);
+    for (const doc of decided) {
+      assert.deepEqual([doc.citations, doc.rubric, doc.shown.scope], [[], null, "all-steps"], doc.id);
+      assert.ok(doc.probabilities && doc.thresholds && typeof doc.probability === "number", doc.id);
+      assert.equal(doc.direction !== null, doc.outcome === "present", "only a present result has a direction");
+    }
+    for (const doc of document.assessments.filter(({ mode }) => mode === "llm-judge")) assert.deepEqual([doc.probabilities, doc.thresholds, doc.shown.scope], [null, null, "selected-events"], doc.id);
+    assert.equal(decided.find(({ card, outcome }) => card === "TI-03" && outcome === "present")!.direction, "unfavourable");
+    assert.equal(decided.find(({ value }) => value === "no check recorded")!.direction, "unfavourable");
+    // One certified cell per group, card and producer: the same card has an LLM-judge cell and a decision-model cell with their own counts.
+    const cells = document.certified.all!.cells.filter(({ card, group }) => card === "VF-03" && group.model === "synthetic-model-a");
+    assert.deepEqual(cells.map(({ mode, counts, denominator }) => [mode, counts.present, denominator]).sort(), [["decision-model", 2, 2], ["llm-judge", 3, 3]]);
+    assert.ok(document.certified.all!.cells.every(({ mode, producer }) => producer.startsWith(`${mode} `)));
+
+    const db = await DuckDBInstance.create(":memory:", { autoinstall_known_extensions: "false", autoload_known_extensions: "false" });
+    const connection = await db.connect();
+    try {
+      const rows = (await connection.runAndReadAll(`SELECT producer_mode, direction, count(*) AS n, count(probability) AS p FROM '${join(out, "tables", "assessments.parquet")}' GROUP BY ALL ORDER BY ALL`)).getRowObjectsJson();
+      assert.deepEqual(rows.map(({ producer_mode, direction, n, p }) => [producer_mode, direction, Number(n), Number(p)]), [
+        ["decision-model", "favourable", 3, 3], ["decision-model", "neutral", 1, 1], ["decision-model", "unfavourable", 2, 2], ["decision-model", null, 3, 3],
+        ["llm-judge", "favourable", 2, 0], ["llm-judge", "unfavourable", 2, 0], ["llm-judge", null, 2, 0]]);
+    } finally { connection.closeSync(); db.closeSync(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("lane usage: final records without token dimensions are not usage, and their cost still counts", () => {
@@ -153,18 +214,25 @@ test("claims: a certified filter on a dimension the report does not group by fai
   const connection = await db.connect();
   try {
     await connection.run("CREATE TABLE assessments (assertion_id VARCHAR)");
-    const cells = [{ group: { model: "m", task: "t" }, category: "verification", counts: { constructive: 2 }, denominator: 3 }];
+    const cells = [{ group: { model: "m", task: "t" }, card: "VF-01", counts: { present: 2 }, denominator: 3 }];
     const claim = (where: Record<string, string>) => ({ study: "s", source: { file: "f", title: "t" }, number_kinds: {},
-      claims: [{ id: "C1", type: "descriptive", text: "x", source_section: "s", support: [], numbers: [{ id: "n", label: "n", value: 2, kind: "certified" as const, expr: { cohort: "c", where, outcome: "constructive" } }] }] });
+      claims: [{ id: "C1", type: "descriptive", text: "x", source_section: "s", support: [], numbers: [{ id: "n", label: "n", value: 2, kind: "certified" as const, expr: { cohort: "c", where, outcome: "present" } }] }] });
     const context = { connection, certified: { c: { cells } }, reports: {}, assessments: [], audits: {}, attempts: {}, viewIds: new Set<string>(), recordSha256: () => undefined };
     assert.equal((await validateClaims(claim({ model: "m" }), context)).validated, true);
     const bad = await validateClaims(claim({ model: "m", trial: "1" }), context);
     assert.equal(bad.validated, false);
     assert.match(bad.failures[0]!, /not grouped by trial/u);
-    const noCell = await validateClaims({ ...claim({ model: "other" }), claims: [{ ...claim({}).claims[0]!, numbers: [{ ...claim({}).claims[0]!.numbers[0]!, value: 0, expr: { cohort: "c", where: { model: "other" }, outcome: "constructive" } }] }] }, context);
+    const noCell = await validateClaims({ ...claim({ model: "other" }), claims: [{ ...claim({}).claims[0]!, numbers: [{ ...claim({}).claims[0]!.numbers[0]!, value: 0, expr: { cohort: "c", where: { model: "other" }, outcome: "present" } }] }] }, context);
     assert.equal(noCell.validated, false, "a selector matching no cell is unavailable, not a certified zero");
-    const noOutcome = await validateClaims({ ...claim({}), claims: [{ ...claim({}).claims[0]!, numbers: [{ ...claim({}).claims[0]!.numbers[0]!, value: 0, expr: { cohort: "c", outcome: "constructve" } }] }] }, context);
-    assert.match(noOutcome.failures.join(" "), /reports no outcome constructve/u);
+    const noOutcome = await validateClaims({ ...claim({}), claims: [{ ...claim({}).claims[0]!, numbers: [{ ...claim({}).claims[0]!.numbers[0]!, value: 0, expr: { cohort: "c", outcome: "presnt" } }] }] }, context);
+    assert.match(noOutcome.failures.join(" "), /reports no outcome presnt/u);
+    // A cohort holding both producer modes for a card: a number names one mode and never adds the two.
+    const mixed = { ...context, certified: { c: { cells: [{ ...cells[0]!, mode: "llm-judge" }, { ...cells[0]!, mode: "decision-model", counts: { present: 1 }, denominator: 2 }] } } };
+    const pooled = await validateClaims(claim({ model: "m" }), mixed);
+    assert.equal(pooled.validated, false);
+    assert.match(pooled.failures.join(" "), /llm-judge and decision-model.*name one with where\.mode/u);
+    assert.equal((await validateClaims(claim({ model: "m", mode: "llm-judge" }), mixed)).validated, true);
+    assert.equal((await validateClaims(claim({ model: "m", mode: "decision-model" }), mixed)).validated, false, "the decision-model cell holds 1, not the claimed 2");
     const twice = claim({ model: "m" });
     const duplicated = await validateClaims({ ...twice, claims: [twice.claims[0]!, twice.claims[0]!] }, context);
     assert.match(duplicated.failures.join(" "), /claim ids must be unique/u);

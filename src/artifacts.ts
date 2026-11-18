@@ -1292,6 +1292,7 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("atif-overlay.v1.json"));
   ajv.addSchema(readSchema("atif-producer-profile.v1.json"));
   ajv.addSchema(readSchema("behavior-assertions.v1.json"));
+  ajv.addSchema(readSchema("behavior-ontology.v2.json"));
   ajv.addSchema(readSchema("semantic-judge.v1.json"));
   ajv.addSchema(readSchema("semantic-judge-runtime.v1.json"));
   ajv.addSchema(readSchema("study-runtimes.v1.json"));
@@ -1370,7 +1371,7 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.comparison-report/v2", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/comparisonReportV2")],
     ["ebo.structural-observation/v1", requiredValidator(ajv, "urn:ebo:schema:structural-observations:v1#/$defs/observation")],
     ["ebo.structural-observation-set/v1", requiredValidator(ajv, "urn:ebo:schema:structural-observations:v1#/$defs/set")],
-    ["ebo.behavior-vocabulary/v1", requiredValidator(ajv, "urn:ebo:schema:behavior-assertions:v1#/$defs/vocabulary")],
+    ["ebo.behavior-ontology/v2", requiredValidator(ajv, "urn:ebo:schema:behavior-ontology:v2#/$defs/ontology")],
     ["ebo.behavior-assertion/v1", requiredValidator(ajv, "urn:ebo:schema:behavior-assertions:v1#/$defs/assertion")],
     ["ebo.behavior-review/v1", requiredValidator(ajv, "urn:ebo:schema:behavior-assertions:v1#/$defs/review")],
     ["ebo.occurrence-ratings/v1", requiredValidator(ajv, "urn:ebo:schema:occurrence-ratings:v1#/$defs/ratings")],

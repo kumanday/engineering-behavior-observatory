@@ -12,10 +12,19 @@ Capture-only studies can stop before judging.
 
 For each retained attempt, produce the structural observation set using the
 [operator workflow](operator-guide.md#6-normalize-and-extract-structural-observations).
-Create one [judge request](../evaluation/semantic-judge.md) per desired dimension.
-The [ontology](../../ontology/behavior-categories.v1.json) lists the eight
-available categories. Select the dimensions relevant to your study; running
-all eight is not a software requirement.
+Create one [judge request](../evaluation/semantic-judge.md) per card you want
+judged. The [behavior ontology](../evaluation/behavior-ontology.md) has 93
+cards in 11 families, each with a definition, an evidence test and a near
+miss; the [reference](../reference/behavior-ontology.md) lists them. Select
+the cards relevant to your study; judging all 93 is not a software
+requirement. The judge receives the card's text and the coding rules with the
+evidence, so rubric instructions only need to add what is specific to your
+study.
+
+The judge decides each card from the events the request selects, not from
+the whole attempt, and each result records how many of the attempt's events
+it was shown. Choose the selection method with that in mind: a card whose
+evidence can sit anywhere in a long attempt needs a selection that reaches it.
 
 Keep the evaluator, effort, rubric version, and evidence-selection method
 consistent across compared runs. Configure those in the request files rather
@@ -72,7 +81,7 @@ interruption stops the batch; completed outputs remain intact. Resume with a
 new batch containing only remaining jobs and new paths for retried judgments.
 There are no automatic retries, provider fallbacks, or model defaults.
 
-An assessed assertion and an evidence-based abstention are both legitimate
+A present or absent verdict and an evidence-based `unknown` are all legitimate
 evaluation outputs. Malformed output, unavailable evidence, and provider
 failure are not behavioral-quality labels. Inspect `judgment.json` and
 `assertion.json` before including results in aggregation.
@@ -111,7 +120,7 @@ Save this as `study/aggregation.json`, then save `study/atlas.json`:
   "schemaVersion": "ebo.atlas-request/v1",
   "aggregationRequest": "aggregation.json",
   "title": "Behavioral evaluation",
-  "operatorNarrative": "Model assessments with cited evidence. Human adjudication is optional."
+  "operatorNarrative": "Model verdicts on behavior cards with cited evidence. Human adjudication is optional."
 }
 ```
 
@@ -121,16 +130,18 @@ ebo aggregate build study/aggregation.json study/aggregate.json
 ebo atlas build study/atlas.json study/atlas-export
 ```
 
-Open `study/atlas-export/index.html`. Charts count **judge-assessed attempt-dimensions**:
-agreeing repeated judgments count once; conflicting judgments and abstentions
-are excluded with reasons. A single assessed attempt contributes a denominator
+Open `study/atlas-export/index.html`. Charts count **judged attempt-cards**
+per producer, so these LLM-judge results stay separate from any
+decision-model results in the same study:
+agreeing repeated judgments count once, and conflicting judgments
+are excluded with reasons. An `unknown` verdict counts as unknown. A single judged attempt contributes a denominator
 of one, not zero because it lacks human review. Review states remain separate,
 including any later disagreement with the judge. `proposed` means no human
 adjudication, not an unfinished model evaluation. Confidence is evaluator-reported,
 not a calibrated probability.
 
 The export is for restricted local inspection unless it passes the separate
-sharing workflow. A model assessment does not grant approval to share native
+sharing workflow. A model verdict does not grant approval to share native
 records. Keep original capture bundles unchanged.
 
 ## Optional human-intervention experiment

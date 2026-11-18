@@ -161,12 +161,16 @@ table.grid { border-collapse: separate; border-spacing: 2px; font-variant-numeri
 /* P3: outcomes, matrix, claims, evidence drawer */
 .oc { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-weight: 600; color: var(--text-primary); }
 .oc::before { content: ""; width: 10px; height: 10px; border-radius: var(--r-sm); background: var(--oc); border: 1px solid var(--oc-border, transparent); }
-.oc-constructive { --oc: var(--div-pos); }
-.oc-mixed { --oc: var(--div-mid); --oc-border: var(--text-muted); }
-.oc-adverse { --oc: var(--div-neg); }
-.oc-context-dependent { --oc: repeating-linear-gradient(45deg, var(--text-muted) 0 1.5px, transparent 1.5px 4px); --oc-border: var(--text-muted); }
-.oc-abstained { --oc: transparent; --oc-border: var(--text-muted); }
-.sw.oc-constructive, .sw.oc-mixed, .sw.oc-adverse, .sw.oc-context-dependent, .sw.oc-abstained { background: var(--oc); border: 1px solid var(--oc-border, transparent); }
+/* Verdicts are facts about a record, not a rating: present is the solid mark, absent the neutral one, unknown the empty one. */
+.oc-present { --oc: var(--div-pos); }
+.oc-absent { --oc: var(--div-mid); --oc-border: var(--text-muted); }
+.oc-unknown { --oc: transparent; --oc-border: var(--text-muted); }
+.sw.oc-present, .sw.oc-absent, .sw.oc-unknown { background: var(--oc); border: 1px solid var(--oc-border, transparent); }
+/* A direction is the ontology's reading of a present result; neutral is counted and never scored. */
+.dir { display: inline-block; padding: 0 6px; border-radius: var(--r-sm); border: 1px solid var(--border); font-size: 11px; color: var(--text-secondary); }
+.dir-favourable { border-color: var(--div-pos); }
+.dir-unfavourable { border-color: var(--div-neg); }
+.mxt tr.mx-family th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-secondary); background: var(--surface-1); }
 .sbar { display: flex; gap: 2px; height: 10px; margin-bottom: 4px; min-width: 120px; }
 .sb { border-radius: 2px; background: var(--oc); border: 1px solid var(--oc-border, transparent); }
 .mxt td.mx { min-width: 170px; cursor: pointer; background: var(--surface-2); border: 1px solid var(--border); }

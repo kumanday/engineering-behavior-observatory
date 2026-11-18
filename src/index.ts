@@ -438,20 +438,57 @@ export type {
 } from "./structural-observations.js";
 export {
   createAgentSdkBehaviorEvidence,
-  DEFAULT_BEHAVIOR_VOCABULARY,
   isConfirmedBehaviorAssertion,
   validateAgentSdkBehaviorAssertion,
   validateBehaviorAssertion,
   validateBehaviorReview,
+} from "./behavior-assertions.js";
+export { BEHAVIOR_PRODUCER_MODES, isDecisionModelAssertion, producerLabel } from "./behavior-assertions.js";
+export type {
+  BehaviorProducer,
+  BehaviorProducerMode,
+  DecisionModelAssertion,
+  DecisionModelEvidence,
+  DecisionModelJudgment,
+  JudgedBehavior,
+  LlmJudgeAssertion,
+  LlmJudgeEvidence,
+  LlmJudgment,
 } from "./behavior-assertions.js";
 export type {
   AgentSdkBehaviorEvidence,
   BehaviorAssertion,
   BehaviorCitation,
   BehaviorReview,
-  BehaviorVocabulary,
+  BehaviorJudgment,
   ResolvedBehaviorCitation,
 } from "./behavior-assertions.js";
+export {
+  assertBehaviorOntology,
+  BEHAVIOR_DIRECTIONS,
+  BEHAVIOR_VERDICTS,
+  behaviorDirection,
+  decideFromProbabilities,
+  behaviorCardFamilies,
+  behaviorOntologyDigest,
+  loadDefaultBehaviorOntology,
+  renderBehaviorOntologyReference,
+  resolveBehaviorCard,
+  resolveBehaviorDecision,
+} from "./behavior-ontology.js";
+export type {
+  BehaviorCard,
+  BehaviorCardFamily,
+  BehaviorCardKind,
+  BehaviorCardValue,
+  BehaviorDecision,
+  BehaviorDirection,
+  BehaviorOntology,
+  BehaviorReference,
+  BehaviorVerdict,
+  DecisionModelProbabilities,
+  DecisionThresholds,
+} from "./behavior-ontology.js";
 export {
   assertCalibrationDestination,
   effectiveReviewOutcome,
@@ -669,7 +706,7 @@ export { createRetainedStructuralObservationSet } from "./structural-observation
 export { validateRetainedBehaviorAssertion } from "./behavior-assertions.js";
 export { runAgentSdkSemanticJudge as runRetainedSemanticJudge } from "./semantic-judge.js";
 export { runCodexSemanticJudge } from "./codex-judge.js";
-export type { BehaviorAggregate } from "./aggregation.js";
+export type { BehaviorAggregate, DirectionAggregate } from "./aggregation.js";
 export { selectAggregationAttempts } from "./aggregation.js";
 
 export * from "./factory-droid.js";

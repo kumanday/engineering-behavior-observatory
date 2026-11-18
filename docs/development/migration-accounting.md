@@ -57,6 +57,13 @@ An operator must obtain a separate spending authorization before launching
 judgments. Pending targets and missing evidence remain visible alongside the
 forecast; it covers only the explicitly reconciled affected units.
 
+The reader validates artifacts against the current contracts, in which a
+judgment names a [behavior card](../evaluation/behavior-ontology.md) and
+carries a verdict. Assertions, inputs and judgments written by EBO 1.x name a
+category and dimension of the retired vocabulary: they fail validation here
+and cannot be inventoried, reused or carried to a new target. Judge those
+attempts again against cards.
+
 Frozen readers preserve existing studies. Reconciliation accepts verified v1
 inputs and typed v2 targets, and records their dependency identities separately.
 Final reconciliation uses the actual target inputs after their native adapters

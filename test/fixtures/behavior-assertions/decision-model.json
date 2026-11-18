@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "ebo.behavior-assertion/v1",
+  "id": "assertion-decision-model",
+  "runId": "run-behavior-fixture",
+  "attemptId": "attempt-behavior-fixture",
+  "dataset": {
+    "schemaVersion": "ebo.normalized-dataset/v1",
+    "digest": "sha256:855ff7b36acbd7dd94b685e079c27bc1a6b7fae798a9ec2da603784a44a90e27"
+  },
+  "behavior": {
+    "ontologyVersion": "2.0.0",
+    "cardId": "VF-03",
+    "ontologyDigest": "sha256:14569c4cecfce27afc596efbdadd9fef8f94e2616d39729ba7c7ddba12b2a7d4"
+  },
+  "producer": {
+    "mode": "decision-model",
+    "provider": "fixture",
+    "model": "fixture-decision-model",
+    "version": "1.0.0"
+  },
+  "evidence": {
+    "scope": "all-steps",
+    "steps": {
+      "included": 1,
+      "total": 1
+    },
+    "rendering": {
+      "id": "ebo-step-excerpt",
+      "version": "1.0.0"
+    },
+    "fieldChars": {
+      "min": 30,
+      "max": 430
+    },
+    "budgetChars": 37000
+  },
+  "judgment": {
+    "basis": "probabilities",
+    "verdict": "present",
+    "value": "check after the last edit",
+    "probabilities": {
+      "applies": 0.97,
+      "values": {
+        "check after the last edit": 0.91,
+        "last edit after the last check": 0.06,
+        "no check recorded": 0.03
+      }
+    },
+    "thresholds": {
+      "present": 0.9,
+      "absent": 0.1
+    }
+  }
+}

@@ -18,7 +18,7 @@ import { listAtifProducerProfiles } from "../src/atif-profiles.js";
 import { createRetainedBehaviorEvidence } from "../src/retained-evidence.js";
 import { createRetainedStructuralObservationSet, createStructuralObservationSet, toolOperations, nativeContentResolver } from "../src/structural-observations.js";
 import { readCorpusIndex, writeCorpusIndex, buildCorpusIndex } from "../src/corpus.js";
-import { validateBehaviorAssertion, type BehaviorAssertion } from "../src/behavior-assertions.js";
+import { validateBehaviorAssertion, type LlmJudgeAssertion } from "../src/behavior-assertions.js";
 import { boundedEvidence } from "../src/evidence-projection.js";
 import { main } from "../src/cli.js";
 import { assertAdapterContract, type HarnessAdapter } from "../src/uniform-events.js";
@@ -50,7 +50,7 @@ test("hidden reasoning and reversible token arrays stay out of semantic evidence
 
 test("exact call/result pointers validate behavior assertions with canonical value digests", async () => {
   const evidence = await project();
-  const assertion = JSON.parse(readFileSync(join(root, "test/fixtures/behavior-assertions/positive.json"), "utf8")) as BehaviorAssertion;
+  const assertion = JSON.parse(readFileSync(join(root, "test/fixtures/behavior-assertions/positive.json"), "utf8")) as LlmJudgeAssertion;
   const event = evidence.dataset.events.find((event) => event.family === "tool")!;
   assertion.runId = evidence.dataset.runId; assertion.attemptId = evidence.dataset.attemptId;
   assertion.dataset.digest = hash(evidence.dataset);
@@ -158,7 +158,7 @@ judgeTest("semantic judging uses every retained model/route alias and never requ
     assert.deepEqual(new Set(imported.evidence.modelAliases), new Set(["provider/Model[route]", "Model[route]", "served-model", "synthetic-model"]));
     const observations = await createRetainedStructuralObservationSet(bundleRoot);
     const event = imported.evidence.dataset.events.find(({ family, attributes }) => family === "message" && attributes.role === "assistant")!;
-    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "test", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "test", behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
       rubric: { id: "r", version: "1", instructions: "Inspect source behavior." }, evaluator: { provider: "anthropic", model: "judge", effort: "low" },
       selection: { eventIds: [event.id], structuralObservationIds: [], includeOutcomeObservations: false },
       limits: { maxEvidenceItems: 10, maxRecordChars: 8_000, maxInputChars: 32_000, maxOutputChars: 8_192, maxCitations: 4, maxWallClockMs: 5_000, maxTurns: 1 }, blinding: { evaluatedModelIdentity: "redact" } };
@@ -207,7 +207,7 @@ test("occurrence rating state preserves pointed string output and non-shell argu
 
 test("assistant reports remain selected by the existing judge preparation policy", async () => {
   const evidence = await project(), observations = createStructuralObservationSet(evidence.dataset, evidence.coverage, evidence.outcomeCapture);
-  const request = prepareJudgeRequest(observations, evidence.dataset.events, { schemaVersion: "ebo.judge-prepare-spec/v1", id: "p", behavior: { vocabularyVersion: "1.0.0", categoryId: "verification-completion", dimensionId: "verification-completion" },
+  const request = prepareJudgeRequest(observations, evidence.dataset.events, { schemaVersion: "ebo.judge-prepare-spec/v1", id: "p", behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
     rubric: { id: "r", version: "1", instructions: "Inspect source behavior." }, evaluator: { provider: "anthropic", model: "synthetic-judge", effort: "low" },
     occurrenceTypes: ["validation-run", "failure-response"], blinding: { evaluatedModelIdentity: "redact" },
     limits: { maxEvidenceItems: 64, maxRecordChars: 8_000, maxInputChars: 200_000, maxOutputChars: 8_192, maxCitations: 8, maxWallClockMs: 5_000, maxTurns: 1 } });

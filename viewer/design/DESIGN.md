@@ -141,20 +141,16 @@ components:
     typography: "{typography.mono}"
   section-title:
     typography: "{typography.heading}"
-  outcome-constructive:
+  outcome-present:
     backgroundColor: "{colors.div-pos}"
     rounded: "{rounded.sm}"
     size: 10px
-  outcome-constructive-dark:
+  outcome-present-dark:
     backgroundColor: "{colors.div-pos-dark}"
-  outcome-mixed:
+  outcome-absent:
     backgroundColor: "{colors.div-mid}"
-  outcome-mixed-dark:
+  outcome-absent-dark:
     backgroundColor: "{colors.div-mid-dark}"
-  outcome-adverse:
-    backgroundColor: "{colors.div-neg}"
-  outcome-adverse-dark:
-    backgroundColor: "{colors.div-neg-dark}"
   tag-certified:
     backgroundColor: "{colors.surface-2}"
     textColor: "{colors.status-good}"
@@ -232,10 +228,10 @@ Light values use the plain token name; dark-mode values use the same name with `
 - **Surfaces** `surface-0` (page), `surface-1` (panels), `surface-2` (cards, inputs, popovers); `border` for hairlines.
 - **Text** `text-primary`, `text-secondary`, `text-muted`. Text never takes a series color; a colored mark beside the
   text carries identity.
-- **Diverging pair** `div-pos` (blue, over / constructive) and `div-neg` (red, under / adverse) with the neutral
-  midpoint `div-mid` (mixed). Used for observed-vs-expected cells and for judge outcomes, which are polar. Context-
-  dependent outcomes add a hatch texture and abstentions are an outlined empty swatch, so outcomes never rely on color
-  alone; counts are always printed.
+- **Diverging pair** `div-pos` (blue, over) and `div-neg` (red, under) with the neutral midpoint `div-mid`. Used for
+  observed-vs-expected cells. Judge verdicts on a behavior card are facts, not ratings, so they never use red: present
+  is a solid `div-pos` swatch, absent a `div-mid` swatch with an outline, and unknown an outlined empty swatch. Verdicts
+  never rely on color alone; counts are always printed.
 - **Categorical, fixed order** (dataviz slots 1-6, validated light and dark): unit families (`fam-*`) and swimlane action
   categories (`cat-inspect`, `cat-edit`, `cat-read`, `cat-check`, `cat-shell`, `cat-vcs`, then neutral `cat-other`).
   Never cycled; a new category folds into `other`.
