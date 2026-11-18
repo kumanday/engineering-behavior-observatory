@@ -46,9 +46,10 @@ or a verified release archive, see [the quickstart](docs/guides/quickstart.md).
   solution or pass/fail verifier.
 - Inspect a native record from a normalized event or
   behavioral assertion. Missing evidence stays explicit.
-- Extract structural facts and run evidence-grounded
-  [LLM-as-judge evaluations](docs/guides/behavioral-evaluation.md), then compare
-  matched conditions. Add human review when the experiment calls for it.
+- Extract structural facts and judge behavior against a 93-card ontology:
+  [decision-model judging](docs/evaluation/decision-model-judge.md) for whole
+  cohorts, or an [evidence-grounded LLM judge](docs/guides/behavioral-evaluation.md)
+  for audits with cited steps. Then compare matched conditions. Add human review when the experiment calls for it.
 - Browse the local Behavior Atlas, connect Grafana, build
   HTML reports, and create policy-checked portable trajectory archives.
 

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { aggregateEvaluation, evidenceOrigin, selectAggregationAttempts, type BehaviorAggregate, type AggregationInput, type AggregationReport, type AggregationRequest } from "./aggregation.js";
+import { aggregateEvaluation, evidenceOrigin, readAggregationAssertions, selectAggregationAttempts, type BehaviorAggregate, type AggregationInput, type AggregationReport, type AggregationRequest } from "./aggregation.js";
 import { assertNoDuplicateJsonKeys, canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
 import { isDecisionModelAssertion, producerLabel, type BehaviorAssertion } from "./behavior-assertions.js";
 import { behaviorDirection, resolveBehaviorCard } from "./behavior-ontology.js";
@@ -127,7 +127,7 @@ export async function loadAtlas(requestPath: string): Promise<AtlasSource> {
   const input: AggregationInput = {
     lineage: { requestDigest: digest(aggregation), corpusIndexDigest: digest(corpusEntries) }, corpusEntries,
     observationSets: source.observationSets.map(({ bundleRoot, path }) => ({ bundleRoot: resolve(aggregateBase, bundleRoot), document: readArtifact(resolve(aggregateBase, path)) })),
-    assertions: source.assertions.map(({ bundleRoot, path }) => ({ bundleRoot: resolve(aggregateBase, bundleRoot), document: readArtifact(resolve(aggregateBase, path)) })),
+    assertions: readAggregationAssertions(aggregateBase, source),
     calibrations: source.calibrations.map(({ selection, history }) => ({ selection: readArtifact(resolve(aggregateBase, selection)), history: readArtifact(resolve(aggregateBase, history)) })),
     comparisons: aggregation.comparisons.map(({ eligibilityGates, ...comparison }) => ({ ...comparison, eligibility: eligibilityGates.map(({ request, report }) => ({ request: readArtifact(resolve(aggregateBase, request)), report: readArtifact(resolve(aggregateBase, report)) })) })),
   };

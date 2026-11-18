@@ -65,7 +65,7 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
     writeCorpusIndex(`${atlasPrefix}.index.jsonl`, input.corpusEntries);
     writeFileSync(`${atlasPrefix}.selection.json`, JSON.stringify(selection));
     writeFileSync(`${atlasPrefix}.history.json`, JSON.stringify(history));
-    writeFileSync(`${atlasPrefix}.aggregation.json`, JSON.stringify({ schemaVersion: "ebo.aggregation-request/v1", ...policy,
+    writeFileSync(`${atlasPrefix}.aggregation.json`, JSON.stringify({ schemaVersion: "ebo.aggregation-request/v2", ...policy,
       sources: { corpusRoot: bundleRoot, corpusIndex: `${atlasPrefix}.index.jsonl`, observationSets: [{ bundleRoot, path: join(outputRoot, "observations.json") }], assertions: [{ bundleRoot, path: assertPath }], calibrations: [{ selection: `${atlasPrefix}.selection.json`, history: `${atlasPrefix}.history.json` }] }, comparisons: [] }));
     writeFileSync(`${atlasPrefix}.request.json`, JSON.stringify({ schemaVersion: "ebo.atlas-request/v1", aggregationRequest: `${atlasPrefix}.aggregation.json`, title: "Synthetic retained-harness Atlas" }));
     const atlas = await queryAtlas(await loadAtlas(`${atlasPrefix}.request.json`));

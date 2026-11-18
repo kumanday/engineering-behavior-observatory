@@ -94,6 +94,8 @@ ebo claims check <run-bundle-root> <assertion.json> <output.json> --provider <ty
 ebo judge prepare <run-bundle-root> <observations.json> <spec.json> <request.json> [--ratings <ratings.json>]
 ebo judge run <run-bundle-root> <observations.json> <request.json> <output-root> [--ratings <ratings.json>]
 ebo judge batch <batch.json>
+ebo judge decision-model <run.json>
+ebo judge decision-model import <run.json> <results.jsonl>
 ```
 
 `occurrences rate` calls the named decision-model provider (`TYPESAFE_API_KEY`,
@@ -105,9 +107,13 @@ Codex reasoning model; `claims check` routes a judge assertion's unsupported
 claims to review. See
 [occurrence ratings](../evaluation/occurrence-ratings.md).
 
-`judge batch` runs a declared list of jobs sequentially and stops on failure.
-See the [behavioral evaluation runbook](../guides/behavioral-evaluation.md).
-Model judging is the default evaluation path; the evaluator remains explicitly configured.
+`judge decision-model` judges every attempt of a corpus with a decision model,
+writes one card result per attempt and card, and skips finished batches on a
+rerun; `judge decision-model import` validates and writes results produced
+elsewhere. See [decision-model judging](../evaluation/decision-model-judge.md).
+`judge batch` runs a declared list of LLM-judge jobs sequentially and stops on
+failure. See the [behavioral evaluation runbook](../guides/behavioral-evaluation.md).
+The provider and evaluator are always configured explicitly.
 
 ## Record optional human review
 

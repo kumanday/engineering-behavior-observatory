@@ -114,7 +114,7 @@ test("an unknown producer and owned capture build a mixed Atlas cohort with exac
     assertion.judgment.rationale = "Synthetic citation round-trip.";
     writeFileSync(join(root, "assertion.json"), JSON.stringify(assertion));
     writeCorpusIndex(join(root, "index.jsonl"), index);
-    const aggregation: AggregationRequest = { schemaVersion: "ebo.aggregation-request/v1", sources: { corpusRoot: "corpus", corpusIndex: "index.jsonl",
+    const aggregation: AggregationRequest = { schemaVersion: "ebo.aggregation-request/v2", sources: { corpusRoot: "corpus", corpusIndex: "index.jsonl",
       observationSets: [{ bundleRoot: "corpus/pi", path: "observations.json" }], assertions: [
         { bundleRoot: "corpus/pi", path: "assertion.json" }, { bundleRoot: "/excluded-origin-must-not-open", path: join(ownedRoot, "assertion-0.json") }], calibrations: [] },
       ...policy, evidenceOrigins: "imported", comparisons: [] };

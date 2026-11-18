@@ -1297,6 +1297,7 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("study-runtime-bindings.v1.json"));
   ajv.addSchema(readSchema("human-calibration.v1.json"));
   ajv.addSchema(readSchema("aggregation.v1.json"));
+  ajv.addSchema(readSchema("decision-model-judge.v1.json"));
   ajv.addSchema(readSchema("occurrence-ratings.v1.json"));
   ajv.addSchema(readSchema("claim-checks.v1.json"));
   ajv.addSchema(readSchema("atlas-bundle.v1.json"));
@@ -1379,7 +1380,9 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.human-review-decision/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/decision")],
     ["ebo.review-history/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/history")],
     ["ebo.calibration-summary/v2", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/summary")],
-    ["ebo.aggregation-request/v1", requiredValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/request")],
+    ["ebo.aggregation-request/v2", requiredValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/request")],
+    ["ebo.decision-model-run/v1", requiredValidator(ajv, "urn:ebo:schema:decision-model-judge:v1#/$defs/run")],
+    ["ebo.decision-model-result/v1", requiredValidator(ajv, "urn:ebo:schema:decision-model-judge:v1#/$defs/result")],
     ["ebo.aggregation-report/v2", requiredValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/report")],
     ["ebo.deepseek-runtime-composition/v1", requiredValidator(ajv, "https://ebo.dev/schemas/deepseek-runtime-composition.v1.schema.json")],
     ["ebo.harbor-admission/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-admission.v1.schema.json")],

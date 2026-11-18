@@ -24,7 +24,7 @@ flowchart TD
 | 1. Establish what is observable | [Uniform events](uniform-events.md), [integrity gates](normalization-integrity.md) | Source-bound events, unmapped records, capability coverage |
 | 2. Extract exact facts | [Structural observations](structural-observations.md) | Counts, resource observations, occurrences, explicit denominators and missing values |
 | Optional: rate occurrences | [Occurrence ratings](occurrence-ratings.md) | Typed decision-model ratings per occurrence, and judge requests with a complete occurrence ledger |
-| 3. Evaluate behavior | [Behavior ontology](behavior-ontology.md), [assertions](behavior-assertions.md), [semantic judge](semantic-judge.md), [batch runbook](../guides/behavioral-evaluation.md) | For each chosen behavior card, a verdict: present, absent or unknown. An LLM judge reads a selection of the attempt and cites its evidence; a decision-model result carries probabilities over every recorded step. Each result names which produced it |
+| 3. Evaluate behavior | [Behavior ontology](behavior-ontology.md), [assertions](behavior-assertions.md), [decision-model judging](decision-model-judge.md), [semantic judge](semantic-judge.md), [batch runbook](../guides/behavioral-evaluation.md) | For each chosen behavior card, a verdict: present, absent or unknown. An LLM judge reads a selection of the attempt and cites its evidence; a decision-model result carries probabilities over every recorded step. Each result names which produced it |
 | Optional: human-intervention experiment | [Human calibration](human-calibration.md) | Separately attributed human decisions and agreement populations |
 | 5. Compare declared conditions | [Aggregation](aggregation.md) | Descriptive distributions, matched differences, exclusions and caveats |
 | 6. Explore or report | [Behavior Atlas](../guides/atlas.md), [Atlas bundles](atlas-bundles.md), [evidence packets](evidence-packets.md) | Local drilldown, reproducible report, the tables behind the interactive viewer, and verifiable partner packets |
@@ -33,8 +33,8 @@ The judge backend is independent of the evaluated harness: choose the Claude
 Agent SDK or native Codex backend explicitly. EBO retains the evaluator, rubric,
 evidence selection, limits, and configuration identity.
 
-The default evaluation workflow is capture, qualify, extract, LLM judge,
-aggregate, and Atlas. Add human review when the experiment specifies it;
+The evaluation workflow is capture, qualify, extract, judge, aggregate, and
+Atlas. Judge cohorts with a decision model and audits with the LLM judge. Add human review when the experiment specifies it;
 it is not a gate on model assessments. Capture-only operation remains useful
 without invoking an evaluator. Atlas consumes saved judgments rather than
 launching a judge implicitly.

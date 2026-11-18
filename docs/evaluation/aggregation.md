@@ -14,7 +14,7 @@ The request uses paths relative to `request.json`:
 
 ```json
 {
-  "schemaVersion": "ebo.aggregation-request/v1",
+  "schemaVersion": "ebo.aggregation-request/v2",
   "sources": {
     "corpusRoot": "corpus",
     "corpusIndex": "corpus-index.jsonl",
@@ -38,6 +38,11 @@ The request uses paths relative to `request.json`:
   }]
 }
 ```
+
+`sources.assertions` lists single card-result files. `sources.assertionSets`
+lists JSON Lines files with one card result per line, bound to one bundle each;
+[decision-model judging](decision-model-judge.md) writes its results this way
+and lists the files in its run summary.
 
 Grouping dimensions are `task`, `model`, `harness`, `trial`, and
 `capture-qualification`. `all-attempts` is the evidence-preserving default.

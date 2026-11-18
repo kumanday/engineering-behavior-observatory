@@ -21,12 +21,14 @@ export type EvidenceOriginSelection = "owned" | "imported" | "separate";
 export type AttemptSelectionPolicy = "all-attempts" | "latest-attempt-per-run";
 
 export type AggregationRequest = {
-  schemaVersion: "ebo.aggregation-request/v1";
+  schemaVersion: "ebo.aggregation-request/v2";
   sources: {
     corpusRoot: string;
     corpusIndex: string;
     observationSets: ReadonlyArray<{ bundleRoot: string; path: string }>;
     assertions: ReadonlyArray<{ bundleRoot: string; path: string }>;
+    /** JSON Lines files of behavior assertions for one bundle, one assertion per line, as decision-model judging writes them. */
+    assertionSets?: ReadonlyArray<{ bundleRoot: string; path: string }>;
     calibrations: ReadonlyArray<{ selection: string; history: string }>;
   };
   groupBy: readonly AggregationDimension[];
@@ -163,6 +165,26 @@ export type AggregationReport = {
 
 type Attempt = CorpusIndexEntry & { runId: string; attemptId: string };
 type ReviewOutcome = { outcome: ReturnType<typeof effectiveReviewOutcome>; disputed: boolean };
+
+/**
+ * The behavior assertions an aggregation request names: single assertion files and JSON Lines assertion sets, each
+ * bound to its bundle. Paths resolve against `base`. Every assertion is schema-checked here; the aggregation checks it
+ * against its retained bundle.
+ */
+export function readAggregationAssertions(base: string, sources: AggregationRequest["sources"]): Array<{ bundleRoot: string; document: BehaviorAssertion }> {
+  const parse = (text: string, label: string): BehaviorAssertion => {
+    const value = JSON.parse(text) as unknown;
+    const errors = validateArtifact(label, value);
+    if (errors.length > 0) throw new Error(`${label} ${errors[0]!.field}: ${errors[0]!.message}`);
+    return value as BehaviorAssertion;
+  };
+  const read = (path: string, label: string) => new TextDecoder("utf-8", { fatal: true }).decode(readBoundedFile(resolve(base, path), label, undefined, 64 * 1024 * 1024));
+  return [
+    ...sources.assertions.map(({ bundleRoot, path }) => ({ bundleRoot: resolve(base, bundleRoot), document: parse(read(path, "Behavior assertion"), "Behavior assertion") })),
+    ...(sources.assertionSets ?? []).flatMap(({ bundleRoot, path }) => read(path, "Behavior assertion set").split("\n").filter((line) => line.trim() !== "")
+      .map((line, index) => ({ bundleRoot: resolve(base, bundleRoot), document: parse(line, `Behavior assertion set ${path} line ${String(index + 1)}`) }))),
+  ];
+}
 
 export function aggregateEvaluation(
   input: AggregationInput,

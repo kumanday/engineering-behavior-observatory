@@ -14,7 +14,7 @@ for (const name of ['manifest.json', 'trajectory.json', 'inspection.json']) cpSy
 const write = (name, value) => writeFileSync(join(root, name), JSON.stringify(value, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
 write('observations.json', await createRetainedStructuralObservationSet(bundle));
 writeCorpusIndex(join(root, 'index.jsonl'), buildCorpusIndex(join(root, 'corpus')));
-write('aggregation.json', { schemaVersion: 'ebo.aggregation-request/v1', sources: { corpusRoot: 'corpus', corpusIndex: 'index.jsonl', observationSets: [{ bundleRoot: 'corpus/import', path: 'observations.json' }], assertions: [], calibrations: [] }, groupBy: ['harness'], selectedAttemptPolicy: 'all-attempts', evidenceOrigins: 'imported', recurrence: { minimumOccurrences: 2 }, comparisons: [] });
+write('aggregation.json', { schemaVersion: 'ebo.aggregation-request/v2', sources: { corpusRoot: 'corpus', corpusIndex: 'index.jsonl', observationSets: [{ bundleRoot: 'corpus/import', path: 'observations.json' }], assertions: [], calibrations: [] }, groupBy: ['harness'], selectedAttemptPolicy: 'all-attempts', evidenceOrigins: 'imported', recurrence: { minimumOccurrences: 2 }, comparisons: [] });
 write('atlas.json', { schemaVersion: 'ebo.atlas-request/v1', aggregationRequest: 'aggregation.json', title: 'Imported trajectory: structural pilot' });
 write('claims-source.json', { study: 'imported-structural-pilot', source: { file: 'retained import', title: 'Structural import pilot' }, number_kinds: {}, claims: [] });
 write('bundle-request.json', { schemaVersion: 'ebo.atlas-bundle-request/v2', id: 'imported-structural-pilot', title: 'Imported trajectory: structural pilot', claims: 'claims-source.json', cohorts: [{ id: 'imported', atlasRequest: 'atlas.json' }] });

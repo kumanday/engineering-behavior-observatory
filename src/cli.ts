@@ -15,7 +15,8 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { assertNoDuplicateJsonKeys, canonicalizeMetadata, digestMetadata, validateArtifact, validateExportManifest, validateRunManifestEvidence, writeMetadataAtomically } from "./artifacts.js";
-import { aggregateEvaluation, type AggregationRequest } from "./aggregation.js";
+import { aggregateEvaluation, readAggregationAssertions, type AggregationRequest } from "./aggregation.js";
+import { importDecisionModelResults, runDecisionModelJudge, type DecisionModelProvider } from "./decision-model-judge.js";
 import { serveAtlas, writeAtlas, type AtlasFilters } from "./atlas.js";
 import {
   buildCorpusIndex,
@@ -130,6 +131,8 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo judge prepare <run-bundle-root> <observations.json> <spec.json> <request.json> [--ratings <ratings.json>]
        ebo judge run <run-bundle-root> <observations.json> <request.json> <output-root> [--ratings <ratings.json>]
        ebo judge batch <batch.json>
+       ebo judge decision-model <run.json>
+       ebo judge decision-model import <run.json> <results.jsonl>
        ebo calibration sample <sources.json> <criteria.json> <selection.json>
        ebo calibration packet <selection.json> <output-root>
        ebo calibration inspect <packet.json> <assertion-id> [event-id]
@@ -147,7 +150,7 @@ export function main(
   write: (message: string) => void = (message) => {
     process.stdout.write(message);
   },
-  dependencies: { semanticJudgeBackend?: SemanticJudgeBackend; runtime?: StudyRuntimeBinding } = {},
+  dependencies: { semanticJudgeBackend?: SemanticJudgeBackend; runtime?: StudyRuntimeBinding; decisionModel?: DecisionModelProvider } = {},
 ): number | Promise<number> {
   const runtimeFlag = args.indexOf("--runtime-study");
   if (runtimeFlag !== -1) {
@@ -402,6 +405,34 @@ export function main(
       } finally {
         process.off("SIGINT", stop);
         process.off("SIGTERM", stop);
+      }
+    })();
+  }
+
+  if (args[0] === "judge" && args[1] === "decision-model") {
+    const importing = args[2] === "import";
+    const [specPath, resultsPath] = importing ? [args[3], args[4]] : [args[2], undefined];
+    if (specPath === undefined || args.length !== (importing ? 5 : 3)) {
+      write("Usage: ebo judge decision-model <run.json>\n       ebo judge decision-model import <run.json> <results.jsonl>\n");
+      return 1;
+    }
+    return (async () => {
+      try {
+        if (importing) {
+          const imported = await importDecisionModelResults(specPath, resultsPath!);
+          write(`Imported ${String(imported.results)} decision-model result(s) for ${String(imported.attempts)} attempt(s).\n`);
+          write(`${JSON.stringify({ assertionSets: imported.assertionSets }, null, 2)}\n`);
+          return 0;
+        }
+        const summary = await runDecisionModelJudge(specPath, { ...(dependencies.decisionModel === undefined ? {} : { provider: dependencies.decisionModel }) });
+        write(`Judged ${String(summary.attempts)} attempt(s): ${String(summary.batches.written)} batch(es) written, ${String(summary.batches.skipped)} already done, `
+          + `${String(summary.batches.failed)} failed, ${String(summary.attemptsWithoutSteps)} without steps; ${String(summary.results)} card result(s) from ${String(summary.requests)} request(s).\n`);
+        for (const failure of summary.failures.slice(0, 20)) write(`failed ${failure.runId}/${failure.attemptId} ${failure.batch}: ${failure.error}\n`);
+        if (summary.failures.length > 0) write("Run the same command again to retry the failed batches; finished batches are skipped.\n");
+        return summary.failures.length > 0 ? 1 : 0;
+      } catch (error) {
+        write(`${errorMessage(error)}\n`);
+        return 1;
       }
     })();
   }
@@ -662,10 +693,7 @@ async function runAggregationCommand(args: string[], write: (message: string) =>
         bundleRoot: resolve(base, bundleRoot),
         document: resolveJson<StructuralObservationSet>(path, "Structural observation set"),
       })),
-      assertions: source.assertions.map(({ bundleRoot, path }) => ({
-        bundleRoot: resolve(base, bundleRoot),
-        document: resolveJson<BehaviorAssertion>(path, "Behavior assertion"),
-      })),
+      assertions: readAggregationAssertions(base, source),
       calibrations: source.calibrations.map(({ selection, history }) => ({
         selection: resolveJson<ReviewSample>(selection, "Review sample"),
         history: resolveJson<ReviewHistory>(history, "Review history"),

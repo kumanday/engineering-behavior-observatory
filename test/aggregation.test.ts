@@ -181,7 +181,7 @@ test("CLI rebuilds aggregate output from a current local corpus index", async ()
     const requestPath = join(temporary, "request.json");
     const outputPath = join(temporary, "aggregate.json");
     const request: AggregationRequest = {
-      schemaVersion: "ebo.aggregation-request/v1",
+      schemaVersion: "ebo.aggregation-request/v2",
       sources: { corpusRoot, corpusIndex: indexPath, observationSets: [], assertions: [], calibrations: [] },
       groupBy: ["task", "model", "harness"],
       selectedAttemptPolicy: "all-attempts",

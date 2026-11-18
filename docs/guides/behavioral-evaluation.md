@@ -1,8 +1,14 @@
 # Run behavioral evaluation
 
-Use LLM-as-judge for the default evaluation workflow:
-
 **Capture → qualify → extract → judge → aggregate → Atlas.**
+
+EBO judges in two modes, and both write the same card result. For a cohort,
+use [decision-model judging](../evaluation/decision-model-judge.md): one
+command judges every attempt in a corpus on every recorded step, resumes after
+an interruption and can take the cards a few at a time. Use the LLM judge
+described on this page when a result has to cite the steps it rests on, such
+as an audit of selected attempts. The LLM judge reads a selection of each
+attempt's events, not the whole attempt.
 
 Human review is an optional branch for experiments that require intervention,
 calibration, or adjudication. It is not a prerequisite for behavior charts.
@@ -92,7 +98,7 @@ The aggregation request lists retained assertions and leaves calibration empty:
 
 ```json
 {
-  "schemaVersion": "ebo.aggregation-request/v1",
+  "schemaVersion": "ebo.aggregation-request/v2",
   "sources": {
     "corpusRoot": "corpus",
     "corpusIndex": "index.jsonl",

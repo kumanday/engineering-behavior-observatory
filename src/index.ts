@@ -756,3 +756,11 @@ export {readVerificationCatalog, snapshotVerification, evaluateVerification, ass
 export type {HarnessVerificationReceipt, VerificationAdmission, VerificationCatalog, VerificationSubject, VerificationScope, VerificationSnapshot, VerificationResult, VerificationClaim, VerificationClaimResult} from "./harness-verification.js";
 
 export { exportAntigravityAtif } from "./antigravity-atif.js";
+
+export {
+  DECISION_MODEL_JUDGE_VERSION, DEFAULT_CARD_BATCH, decisionModelConfigurationDigest, decisionModelQuestions, decisionModelResult,
+  importDecisionModelResults, probabilitiesFromAnswers, readDecisionModelRunSpec, runDecisionModelJudge, systemOneDecisionModel,
+  type DecisionModelProvider, type DecisionModelResultInput, type DecisionModelResultLine, type DecisionModelRunOptions, type DecisionModelRunSpec, type DecisionModelRunSummary,
+} from "./decision-model-judge.js";
+export { renderStepExcerpt, STEP_EXCERPT_BUDGET_CHARS, STEP_EXCERPT_VERSION, type StepExcerpt, type StepExcerptRow } from "./step-excerpt.js";
+export { readAggregationAssertions } from "./aggregation.js";

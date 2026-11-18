@@ -51,8 +51,11 @@ export type DecideOptions = {
   signal?: AbortSignal;
   env?: Record<string, string | undefined>;
   timeoutMs?: number;
-  /** Retries for 429, 502 and 503 responses, honoring Retry-After up to `maxRetryDelayMs`. */
+  /** Retries for 429, 502 and 503 responses (or `retryStatuses`), honoring Retry-After up to `maxRetryDelayMs`. */
   maxRetries?: number;
+  retryStatuses?: readonly number[];
+  /** Extra request headers, such as a provider's long-context opt-in. Authorization and Content-Type stay EBO's. */
+  headers?: Readonly<Record<string, string>>;
   maxRetryDelayMs?: number;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
@@ -103,7 +106,7 @@ export async function decide(
       const signals = [AbortSignal.timeout(options.timeoutMs ?? 120_000), ...(options.signal === undefined ? [] : [options.signal])];
       const response = await (options.fetch ?? fetch)(provider.endpoint, {
         method: "POST",
-        headers: { Authorization: authorizationHeader, "Content-Type": "application/json" },
+        headers: { ...options.headers, Authorization: authorizationHeader, "Content-Type": "application/json" },
         body,
         signal: AbortSignal.any(signals),
       });
@@ -122,7 +125,7 @@ export async function decide(
         break;
       }
       (record.failedResponses ??= []).push({ attempt: record.attempts, status: response.status, body: redact(text).slice(0, 4096) });
-      if ([429, 502, 503].includes(response.status) && record.attempts <= maxRetries) {
+      if ((options.retryStatuses ?? [429, 502, 503]).includes(response.status) && record.attempts <= maxRetries) {
         const retryAfter = Number(response.headers.get("retry-after"));
         const delay = Math.min(options.maxRetryDelayMs ?? 30_000, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** (record.attempts - 1));
         await (options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))))(delay);

@@ -1,5 +1,5 @@
 import { operationAlias } from "./event-aliases.js";
-import { createPointerEvidenceResolver } from "./evidence-pointers.js";
+import { retainedContentResolver as contentResolver } from "./retained-content.js";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,6 +7,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { DuckDBInstance } from "@duckdb/node-api";
 
 import { canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
+export { ownPointer } from "./retained-content.js";
 import { loadAtlas, queryAtlas, type AtlasSource, type AtlasView } from "./atlas.js";
 import { Field, List, makeVector, Table, tableToIPC, Utf8, vectorFromArray } from "apache-arrow";
 import { buildViews, validateClaims, type ClaimsSource } from "./atlas-claims.js";
@@ -17,9 +18,9 @@ import { ATLAS_UNITS_VERSION, deriveUnits, type AtlasUnit } from "./atlas-units.
 import { BEHAVIOR_PRODUCER_MODES, isDecisionModelAssertion, producerLabel, type BehaviorAssertion } from "./behavior-assertions.js";
 import { BEHAVIOR_DIRECTIONS, BEHAVIOR_VERDICTS, behaviorDirection, loadDefaultBehaviorOntology, resolveBehaviorCard } from "./behavior-ontology.js";
 import type { CorpusIndexEntry } from "./corpus.js";
-import { createRetainedBehaviorEvidence, withRetainedEvidenceReuse, type RetainedBehaviorEvidence, type RetainedEvidenceReuseStats } from "./retained-evidence.js";
+import { createRetainedBehaviorEvidence, withRetainedEvidenceReuse, type RetainedEvidenceReuseStats } from "./retained-evidence.js";
 import type { StructuralObservationSet } from "./structural-observations.js";
-import type { NativeEvidenceReference, UniformEvent } from "./uniform-events.js";
+import type { UniformEvent } from "./uniform-events.js";
 
 /**
  * Atlas bundles (ebo.atlas-bundle/v2): the analytical tables behind the Atlas viewer, built from validated EBO
@@ -159,35 +160,6 @@ function readRequest(path: string): AtlasBundleRequest {
   return request;
 }
 
-/** Native content for one reference: the record (Agent SDK: its document), then the locator's JSON pointer. */
-function contentResolver(evidence: RetainedBehaviorEvidence) {
-  if (evidence.capture.qualification === "imported") {
-    const pointer = createPointerEvidenceResolver(evidence.capture);
-    return (reference: NativeEvidenceReference): { status: "resolved"; value: unknown } | { status: "missing-record" } => {
-      const result = pointer.read(reference);
-      return result === undefined ? { status: "missing-record" } : { status: "resolved", value: result.value };
-    };
-  }
-  const agentSdk = evidence.dataset.adapter.harness === "claude-agent-sdk";
-  const records = new Map(evidence.capture.records.map(({ reference, record }) =>
-    [`${reference.artifactId}\0${reference.recordLocator}`, agentSdk ? (record as { document: unknown }).document : record]));
-  return (reference: NativeEvidenceReference): { status: "resolved"; value: unknown } | { status: "missing-record" | "bad-pointer" } => {
-    const marker = reference.recordLocator.indexOf("#");
-    const base = marker === -1 ? reference.recordLocator : reference.recordLocator.slice(0, marker);
-    const key = `${reference.artifactId}\0${base === "" ? "#" : base}`;
-    if (!records.has(key)) return { status: "missing-record" };
-    const tokens = (marker === -1 ? "" : reference.recordLocator.slice(marker + 1)).split("/").slice(1).map((t) => t.replace(/~1/gu, "/").replace(/~0/gu, "~"));
-    const value = ownPointer(records.get(key), tokens);
-    return value === undefined ? { status: "bad-pointer" } : { status: "resolved", value };
-  };
-}
-
-/** A JSON pointer over own properties only: a segment such as __proto__ never reaches an inherited object. */
-export function ownPointer(value: unknown, tokens: readonly string[]): unknown {
-  if (!tokens.length) return value;
-  const [token, ...rest] = tokens;
-  return value !== null && typeof value === "object" && Object.hasOwn(value, token!) ? ownPointer((value as Record<string, unknown>)[token!], rest) : undefined;
-}
 
 function eventRow(event: UniformEvent, index: number, resolve: ReturnType<typeof contentResolver>): Row {
   const key = `${event.attemptId}/${event.id}`;

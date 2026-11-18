@@ -30,7 +30,7 @@
       "additionalProperties": false,
       "required": ["schemaVersion", "sources", "groupBy", "selectedAttemptPolicy", "recurrence", "comparisons"],
       "properties": {
-        "schemaVersion": { "const": "ebo.aggregation-request/v1" },
+        "schemaVersion": { "const": "ebo.aggregation-request/v2" },
         "sources": {
           "type": "object",
           "additionalProperties": false,
@@ -40,6 +40,7 @@
             "corpusIndex": { "$ref": "#/$defs/path" },
             "observationSets": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/derivedSource" } },
             "assertions": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/derivedSource" } },
+            "assertionSets": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/derivedSource" } },
             "calibrations": {
               "type": "array",
               "maxItems": 100000,
