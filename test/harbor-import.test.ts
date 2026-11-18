@@ -89,7 +89,14 @@ test("identical Harbor imports are no-ops and preserve imported qualification", 
     assert.equal(first.reused, false); assert.equal(second.reused, true);
     assert.equal(first.bundleRoot, second.bundleRoot);
     assert.equal((await readImportedBehaviorEvidence(first.bundleRoot)).capture.qualification, "imported");
-    assert.equal(readdirSync(join(options.store, "captures")).length, 1);
+    // The trial's own record names its task; a model declared by the caller is recorded with its authority.
+    const manifest = JSON.parse(readFileSync(join(first.bundleRoot, "manifest.json"), "utf8")) as { task?: { id: string; authority: string } };
+    assert.deepEqual(manifest.task, { id: first.inspection.execution!.taskName, authority: "harbor-trial" });
+    const declared = await importHarborTrial({ ...options, model: { id: "declared-model", authority: "operator-declared" } });
+    assert.equal(declared.status, "imported"); if (declared.status !== "imported") return;
+    assert.notEqual(declared.bundleRoot, first.bundleRoot, "a declared model is part of the capture revision");
+    assert.deepEqual((JSON.parse(readFileSync(join(declared.bundleRoot, "manifest.json"), "utf8")) as { model?: unknown }).model, { id: "declared-model", authority: "operator-declared" });
+    assert.equal(readdirSync(join(options.store, "captures")).length, 2);
     assert.equal(readdirSync(join(options.store, "assessments")).length, 1);
     assert.equal(readdirSync(join(options.store, "pending")).length, 0);
   } finally { temp.cleanup(); }

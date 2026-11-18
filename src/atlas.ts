@@ -19,7 +19,7 @@ import { renderAtlas } from "./atlas-html.js";
 import { writeAtlasGrafana } from "./atlas-grafana.js";
 
 type Digest = `sha256:${string}`;
-export const ATLAS_FILTERS = ["model", "harness", "task", "trial", "capture", "origin", "outcome", "review", "mode", "family", "card", "verdict", "direction", "q"] as const;
+export const ATLAS_FILTERS = ["model", "route", "harness", "task", "trial", "capture", "origin", "outcome", "review", "mode", "family", "card", "verdict", "direction", "q"] as const;
 export type AtlasFilters = Partial<Record<typeof ATLAS_FILTERS[number], string>>;
 export type AtlasRequest = {
   schemaVersion: "ebo.atlas-request/v1";
@@ -34,7 +34,9 @@ export type AtlasRequest = {
   sharing?: { policy: PortableExportPolicy; approvedExports: readonly string[]; fields: readonly string[] };
 };
 export type AtlasCase = {
-  key: string; runId: string; attemptId: string; model: string; harness: string; task: string; trial: string;
+  key: string; runId: string; attemptId: string; model: string;
+  /** The model string an imported source records (a routed provider path), apart from the model's own name; `none` for captures. */
+  route: string; harness: string; task: string; trial: string;
   capture: string; outcome: string; review: string;
   /** Which producer mode made the result: `llm-judge` or `decision-model`. */
   mode: string; family: string; card: string; verdict: string;
@@ -145,7 +147,7 @@ async function loadAtlasSource(requestPath: string): Promise<AtlasSource> {
   for (const entry of selectAggregationAttempts(corpusEntries, "all-attempts", aggregation.evidenceOrigins)) {
     const ownAssertions = input.assertions.filter(({ document }) => attemptKey(document) === attemptKey(entry));
     const context = { origin: evidenceOrigin(entry), ...(entry.sourceFormat ? { sourceFormat: entry.sourceFormat } : {}),
-      ...(entry.producerProfileDigest ? { producerProfileDigest: entry.producerProfileDigest } : {}), runId: entry.runId!, attemptId: entry.attemptId!, model: entry.modelId ?? "unavailable", harness: entry.harnessId ?? "unavailable", harnessVersion: entry.harnessVersion ?? "unavailable", task: entry.taskId ?? "unavailable", trial: entry.trialId ?? "unavailable", capture: entry.captureQualification ?? "unavailable", outcome: entry.terminalState ?? "unavailable", ...(entry.retryOf ? { retryOf: entry.retryOf } : {}) };
+      ...(entry.producerProfileDigest ? { producerProfileDigest: entry.producerProfileDigest } : {}), runId: entry.runId!, attemptId: entry.attemptId!, model: entry.modelId ?? "unavailable", route: entry.modelRoute ?? "none", harness: entry.harnessId ?? "unavailable", harnessVersion: entry.harnessVersion ?? "unavailable", task: entry.taskId ?? "unavailable", trial: entry.trialId ?? "unavailable", capture: entry.captureQualification ?? "unavailable", outcome: entry.terminalState ?? "unavailable", ...(entry.retryOf ? { retryOf: entry.retryOf } : {}) };
     let trace: AtlasCase["trace"];
     const traceSource = request.traces?.find((item) => attemptKey(item) === attemptKey(entry));
     if (traceSource) {

@@ -80,7 +80,7 @@ const S = "VARCHAR", I = "BIGINT", F = "DOUBLE", B = "BOOLEAN", L = "VARCHAR[]";
 export const ATLAS_TABLES: Record<string, Column[]> = {
   cohorts: [["cohort_id", S], ["title", S], ["atlas_request", S], ["report_mode", S], ["cohort_digest", S], ["source_digest", S],
     ["report_generated_at", S], ["source_attempts", I], ["matching_cases", I], ["group_by", S], ["operator_narrative", S]],
-  attempts: [["attempt_id", S], ["run_id", S], ["bundle_id", S], ["model_id", S], ["model_provider", S], ["harness_id", S], ["harness_version", S],
+  attempts: [["attempt_id", S], ["run_id", S], ["bundle_id", S], ["model_id", S], ["model_route", S], ["model_provider", S], ["harness_id", S], ["harness_version", S],
     ["task_id", S], ["fixture_id", S], ["trial_id", S], ["condition", S], ["assessment_mode", S], ["capture_qualification", S], ["terminal_state", S],
     ["failure_class", S], ["stop_reason", S], ["adapter_id", S], ["adapter_version", S], ["dataset_digest", S], ["manifest_digest", S],
     ["bundle_root", S], ["event_count", I], ["native_record_count", I], ["unmapped_record_count", I], ["first_event_time", S],
@@ -455,7 +455,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
       stream("edges", { src_type: "event", src_id: `${attemptId}/${event.id}`, rel: relation.kind, dst_type: "event", dst_id: `${attemptId}/${relation.eventId}` });
     }
     const name = basename(bundleRoot);
-    tables.attempts!.push({ attempt_id: attemptId, run_id: entry.runId ?? null, bundle_id: entry.bundleId ?? null, model_id: entry.modelId ?? null,
+    tables.attempts!.push({ attempt_id: attemptId, run_id: entry.runId ?? null, bundle_id: entry.bundleId ?? null, model_id: entry.modelId ?? null, model_route: entry.modelRoute ?? null,
       model_provider: entry.modelProvider ?? null, harness_id: entry.harnessId ?? null, harness_version: entry.harnessVersion ?? null, task_id: entry.taskId ?? null,
       fixture_id: entry.fixtureId ?? null, trial_id: entry.trialId ?? null,
       condition: armOf(name, entry),

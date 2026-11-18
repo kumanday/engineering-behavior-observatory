@@ -95,6 +95,14 @@ test("Atlas uses verified leaderboard task and trial labels and keeps source ver
     assert.equal(lanes[0].source_outcome, "fail");
     assert.equal(lanes[0].terminal_state, null);
     assert.equal(lanes[0].capture_qualification, "imported");
+    // The corpus index carries the task from the trial record and the model from the leaderboard's own policy rows.
+    const indexed = readFileSync(join(cohort.cohortRoot, "corpus-index.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line) as { manifestKind: string; manifestPath: string; taskId?: string; modelId?: string });
+    const imported = indexed.find(({ manifestKind }) => manifestKind === "import")!;
+    const manifest = JSON.parse(readFileSync(join(cohort.cohortRoot, "corpus", imported.manifestPath), "utf8")) as { task?: { authority: string }; model?: { id: string; authority: string } };
+    assert.equal(manifest.task?.authority, "harbor-trial");
+    assert.equal(manifest.model?.authority, "leaderboard-policy");
+    assert.equal(imported.modelId, manifest.model?.id);
+    assert.ok(imported.taskId);
   } finally { f.cleanup(); }
 });
 test("ATIF backfills revise capture data while preserving the execution and earlier cohort", { skip: !python }, async () => {

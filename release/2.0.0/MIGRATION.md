@@ -31,7 +31,8 @@ does not read. Write them again with 2.0.0:
 | `ebo.run-queue/v3` | `ebo.study-queue/v1` |
 | `ebo.smol-environments/v1`, `/v2` | `ebo.smol-task-environments/v1` with an explicit `target` |
 | `ebo.smol-environments/v3` | `ebo.smol-family-environments/v1` |
-| `ebo.import-manifest/v1` | `ebo.import-manifest/v2`: import the ATIF source again |
+| `ebo.import-manifest/v1`, `/v2` | `ebo.import-manifest/v3`, which can declare the task and model: import the ATIF source again |
+| `ebo.corpus-index-entry/v1` | `ebo.corpus-index-entry/v2`, with the imported model's route: run `ebo corpus build` again |
 | `ebo.study-runtime-lock/v1`, `ebo.runtime-launch/v1` | `/v2` of each: freeze the study again |
 | `ebo.harbor-worker-runtime/v1` | `ebo.harbor-worker-runtime/v2`, bound to the study lock |
 | `run-manifest/v1` | `run-manifest/v2`, with `runtimeLock` present for study-runtime captures |

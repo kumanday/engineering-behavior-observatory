@@ -13,7 +13,7 @@ export class AtifAdmissionError extends Error { override name = "AtifAdmissionEr
 export const ATIF_IMPORTER_VERSION = "2.0.0";
 export type AtifOverlayReference = { id: string; digest: `sha256:${string}` };
 export type AtifImportManifest = {
-  schemaVersion: "ebo.import-manifest/v2";
+  schemaVersion: "ebo.import-manifest/v3";
   importer: { id: "ebo.atif"; version: string };
   identity: { runId: string; attemptId: string; authority: "operator-declared" };
   qualification: "imported";
@@ -26,13 +26,20 @@ export type AtifImportManifest = {
   blinding?: { authority: "operator-declared"; modelAliases: string[] };
   overlays: AtifOverlayReference[];
   interpretation: { path: "interpretation.json"; digest: `sha256:${string}` };
+  /** The task this attempt worked on and the model that ran it, as declared on import, with who declared them. */
+  task?: ImportDeclaration;
+  model?: ImportDeclaration;
 };
+/** A declared identity and its source: the operator, the Harbor trial record, or the leaderboard's own policy rows. */
+export type ImportDeclaration = { id: string; authority: "operator-declared" | "harbor-trial" | "leaderboard-policy" };
 const bytesDigest = (bytes: Uint8Array): `sha256:${string}` => `sha256:${digestBytes(bytes).value}`;
 const hash = (value: unknown): `sha256:${string}` => `sha256:${digestMetadata(value).value}`;
 const coreIdentity = () => { const { id, version, implementationDigest } = atifCoreIdentity(); return { id, version, digest: implementationDigest }; };
 export type AtifImportOptions = { sourcePath: string; destination: string; runId: string; attemptId: string;
   producer?: AtifProducerFingerprint; converter?: Partial<AtifProducerFingerprint["converter"]>;
-  context?: Partial<AtifProducerFingerprint["context"]>; pythonExecutable?: string; modelAliases?: readonly string[] };
+  context?: Partial<AtifProducerFingerprint["context"]>; pythonExecutable?: string; modelAliases?: readonly string[];
+  /** The task and model to record; the ATIF document's own model string stays recorded as observed. */
+  task?: ImportDeclaration; model?: ImportDeclaration };
 
 /** Retain bytes first. No trajectory-supplied code is executed. */
 export async function importAtifFile(options: AtifImportOptions) {
@@ -45,7 +52,8 @@ export async function importAtifFile(options: AtifImportOptions) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     const manifest = readImportManifest(destination);
     if (manifest.source.digest !== bytesDigest(bytes) || manifest.identity.runId !== options.runId || manifest.identity.attemptId !== options.attemptId
-        || hash(manifest.blinding ?? null) !== hash(blinding ?? null)) throw new Error("Import destination retains another source or identity; use a new destination.");
+        || hash(manifest.blinding ?? null) !== hash(blinding ?? null) || hash(manifest.task ?? null) !== hash(options.task ?? null)
+        || hash(manifest.model ?? null) !== hash(options.model ?? null)) throw new Error("Import destination retains another source or identity; use a new destination.");
     return { manifest, reused: true, evidence: await readImportedBehaviorEvidence(destination) };
   }
   writeFileSync(join(destination, "trajectory.json"), bytes, { flag: "wx", mode: 0o600 });
@@ -65,11 +73,13 @@ export async function importAtifFile(options: AtifImportOptions) {
     context: { kind: context?.kind ?? "unknown", revision: context?.revision ?? null, wrapperDigest: context?.wrapperDigest ?? null } };
   const interpretation = { schemaVersion: "ebo.atif-interpretation/v1", sourceDigest: bytesDigest(bytes), core: coreIdentity(), compatibilityReader: atifCompatibilityIdentity(), overlays: atifOverlayReceipts({ read, producer }) };
   const interpretationBytes = writeJson(destination, "interpretation.json", interpretation);
-  const manifest: AtifImportManifest = { schemaVersion: "ebo.import-manifest/v2", importer: { id: "ebo.atif", version: ATIF_IMPORTER_VERSION },
+  const manifest: AtifImportManifest = { schemaVersion: "ebo.import-manifest/v3", importer: { id: "ebo.atif", version: ATIF_IMPORTER_VERSION },
     identity: { runId: options.runId, attemptId: options.attemptId, authority: "operator-declared" }, qualification: "imported", sharing: "restricted", createdAt: new Date().toISOString(),
     source: { artifactId: "atif-trajectory", path: "trajectory.json", digest: bytesDigest(bytes), bytes: bytes.length },
     inspection: { path: "inspection.json", digest: bytesDigest(inspectionBytes) }, producer, producerAuthority: "document-and-operator", overlays: interpretation.overlays,
-    interpretation: { path: "interpretation.json", digest: bytesDigest(interpretationBytes) }, ...(blinding ? { blinding } : {}) };
+    interpretation: { path: "interpretation.json", digest: bytesDigest(interpretationBytes) }, ...(blinding ? { blinding } : {}),
+    ...(options.task ? { task: { id: options.task.id, authority: options.task.authority } } : {}),
+    ...(options.model ? { model: { id: options.model.id, authority: options.model.authority } } : {}) };
   assertManifest(manifest);
   const projected = await normalizeAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) });
   const mappingErrors = validateArtifact("ATIF mapping", projected.mapping);
@@ -140,5 +150,5 @@ function declaredBlinding(aliases: readonly string[] | undefined): AtifImportMan
 }
 
 export function isAtifImportSchema(schemaVersion: unknown): boolean {
-  return schemaVersion === "ebo.import-manifest/v2";
+  return schemaVersion === "ebo.import-manifest/v3";
 }

@@ -9,13 +9,24 @@ It requires neither a producer profile nor a Python installation.
 
 ```sh
 ebo atif inspect trajectory.json
-ebo atif import trajectory.json private-import --run study-1 --attempt trial-1
+ebo atif import trajectory.json private-import --run study-1 --attempt trial-1 \
+  --task example-task --model Example-Model
 ebo observations create private-import private-import-observations.json
 ```
 
 Use a new destination for each admission. Source files are retained with
 restricted sharing. The run and attempt identifiers bind the import to an
 operator-selected analytical case; they do not prove ownership of execution.
+
+`--task` and `--model` name the task the attempt worked on and the model that
+ran it. The manifest records both as operator-declared. The corpus index uses
+them for grouping, and Atlas uses the model to name the arm. The ATIF
+document's own model string stays recorded as observed and appears in the
+corpus index and Atlas as the route (`modelRoute`, `route`), so one model
+reached through several routes forms one arm. Without `--model`, the observed
+string names the arm. `ebo atif import-harbor` takes the task from the trial
+record and accepts `--model`; a Harness Leaderboard cohort takes the model from
+the leaderboard's own policy rows.
 Imported qualification stays separate from qualified native capture.
 
 Inspection reports EBO structural validation, version policy, pointer digests,
@@ -78,7 +89,7 @@ for converter availability and same-run evidence.
 ## Admission and reopening
 
 An import contains `trajectory.json`, `inspection.json`, `interpretation.json`,
-`mapping.json` and an `ebo.import-manifest/v2` manifest. The manifest binds raw
+`mapping.json` and an `ebo.import-manifest/v3` manifest. The manifest binds raw
 source bytes, inspection, operator context and admission overlay IDs/digests.
 The interpretation receipt binds the core implementation, compatibility projector and overlays used at
 admission. Mapping is a derivation, not an editable source of truth.

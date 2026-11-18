@@ -208,7 +208,7 @@ test("CLI rebuilds aggregate output from a current local corpus index", async ()
 
 function entry(runId: string, attemptId: string, attemptNumber: number, overrides: Partial<CorpusIndexEntry>): CorpusIndexEntry {
   return {
-    schemaVersion: "ebo.corpus-index-entry/v1",
+    schemaVersion: "ebo.corpus-index-entry/v2",
     manifestKind: "run",
     manifestPath: `${runId}/${attemptId}/manifest.json`,
     manifestDigest: digest,

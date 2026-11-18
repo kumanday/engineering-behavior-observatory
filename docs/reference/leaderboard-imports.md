@@ -108,6 +108,12 @@ Native bindings are limited to 64 explicitly selected trials per request. The
 trial UUID, task, harness/version, reward and exception must agree with the
 protected source fact. Protected selected run records and their original-run records supply canonical and route-qualified model aliases. They are bound into capture blinding metadata alongside Harbor/ATIF aliases. Additional blinding context creates a new derived capture revision of the same execution; existing capture bytes remain intact.
 
+Each admitted trial's import manifest declares its task from the Harbor trial
+record (`harbor-trial`) and its model from the leaderboard's own policy rows,
+which group results by model first (`leaderboard-policy`). The corpus index and
+Atlas use that model to name the arm; the trajectory's own model string stays
+the route.
+
 Unresolved context and rejected ATIF admissions stay inspect-only per trial; remaining valid selections continue. Two selected
 capture revisions of one execution require an explicit choice rather than two
 attempt slots.

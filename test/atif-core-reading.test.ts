@@ -52,7 +52,7 @@ test("minimal ATIF admission derives the producer and reopens through both share
         observation: { results: [{ source_call_id: "c1", content: "source" }] } }] }));
     const options = { sourcePath, destination, runId: "core-admission", attemptId: "a" } as Parameters<typeof importAtifFile>[0];
     const imported = await importAtifFile(options);
-    assert.equal(imported.manifest.schemaVersion, "ebo.import-manifest/v2");
+    assert.equal(imported.manifest.schemaVersion, "ebo.import-manifest/v3");
     assert.equal(imported.manifest.producer.agent.name, "acme-agent");
     const manifest = JSON.parse(readFileSync(join(destination, "manifest.json"), "utf8"));
     assert.deepEqual(manifest.overlays, []);
