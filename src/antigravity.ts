@@ -1,4 +1,4 @@
-import { legacyV1Profile, markRetainedVersion } from "./legacy-v1-confidence.js";
+import { markDeclaredVersion } from "./retained-version-policy.js";
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, probeLockedRuntimeExecutable, type StudyRuntimeBinding, type RuntimeExecutionSummary } from "./runtime-context.js";
 import { execFile } from "node:child_process";
@@ -12,7 +12,6 @@ import { spawnProtocolProcess, writeProtocolLine, type ProtocolObservation, type
 import { validateUniformEvents, type AdapterCapabilityProfile, type HarnessAdapter, type NormalizationResult, type QualifiedNativeCapture, type UniformEvent } from "./uniform-events.js";
 
 export const ANTIGRAVITY_CLI_VERSION = "1.5.9";
-export const RETAINED_ANTIGRAVITY_CLI_VERSIONS: readonly string[] = [ANTIGRAVITY_CLI_VERSION];
 export const ANTIGRAVITY_ADAPTER_VERSION = "0.1.0";
 export const ANTIGRAVITY_HARNESS = "antigravity-cli";
 export const ANTIGRAVITY_CLIENT = "ebo-antigravity-client";
@@ -243,7 +242,7 @@ async function inspectAccountSettings(home: string): Promise<{ digest: string; u
 export function qualifyRetainedAntigravityCapture(capture: QualifiedNativeCapture<ProtocolObservation>, options: {
   sessionId: string | undefined; expectsCompletion: boolean; harnessVersion: string; runtimeVersions: readonly unknown[];
 }): QualifiedNativeCapture<ProtocolObservation> & { sessionId?: string } {
-  capture = markRetainedVersion(capture, options.harnessVersion, ANTIGRAVITY_HARNESS, options.runtimeVersions.length ? options.runtimeVersions : [undefined]);
+  capture = markDeclaredVersion(capture, options.harnessVersion, options.runtimeVersions.length ? options.runtimeVersions : [undefined]);
   const records = capture.records.map(r => r.record);
   if (records.some(r => r.source !== ANTIGRAVITY_HARNESS && r.source !== ANTIGRAVITY_CLIENT)) throw new Error("Retained Antigravity contains a foreign source.");
   const compositions = records.filter(r => r.kind === "capability" && r.capability === "runtime-composition");
@@ -355,8 +354,8 @@ export async function normalizeAntigravityCapture(capture: QualifiedNativeCaptur
   return { events, unmapped: capture.records.filter(r => !mapped.has(r.record.sequence)).map(r => ({ reference: r.reference, reason: "Native record has no supported uniform mapping." })) };
 }
 
-export async function describeAndValidateAntigravityDataset(capture: QualifiedNativeCapture<ProtocolObservation>, version: string = ANTIGRAVITY_CLI_VERSION): Promise<{ dataset: NormalizedDataset; coverage: AdapterCoverageReport }> {
-  const dataset = describeNormalizedDataset({ capture, normalization: await normalizeAntigravityCapture(capture), capabilityProfile: legacyV1Profile(ANTIGRAVITY_CLI_CAPABILITIES, ANTIGRAVITY_HARNESS, version), adapterVersion: ANTIGRAVITY_ADAPTER_VERSION, nativeType: antigravityNativeType });
+export async function describeAndValidateAntigravityDataset(capture: QualifiedNativeCapture<ProtocolObservation>): Promise<{ dataset: NormalizedDataset; coverage: AdapterCoverageReport }> {
+  const dataset = describeNormalizedDataset({ capture, normalization: await normalizeAntigravityCapture(capture), capabilityProfile: ANTIGRAVITY_CLI_CAPABILITIES, adapterVersion: ANTIGRAVITY_ADAPTER_VERSION, nativeType: antigravityNativeType });
   return { dataset, coverage: await validateNormalizedDataset(dataset, createCapturedNativeEvidenceResolver(capture)) };
 }
 export function createAntigravityHarnessAdapter(): HarnessAdapter<AntigravityCliCaptureRequest, ProtocolObservation> {

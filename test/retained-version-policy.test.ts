@@ -9,7 +9,7 @@ import type { ProtocolObservation } from "../src/process-protocol.js";
 const capture: NormalizationInput<ProtocolObservation> = { runId: "version-drift", attemptId: "a", qualification: "qualified-with-gaps", records: [] };
 for (const [name, describe] of [["Codex", describeAndValidateCodexDataset], ["Devin", describeAndValidateDevinDataset]] as const) {
   test(`${name} retained format remains readable at an unfamiliar runtime version`, async () => {
-    const result = await describe(capture, "9000.1.0");
+    const result = await describe(capture);
     assert.ok(versionConfidence(name === "Codex" ? "codex-app-server" : "devin-cli", "9000.1.0").includes("HARNESS_VERSION_UNVERIFIED"));
     assert.equal(result.dataset.nativeRecords.length, 0);
   });

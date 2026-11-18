@@ -108,7 +108,7 @@
         "attemptId": { "$ref": "#/$defs/identifier" },
         "observationSetDigest": { "$ref": "#/$defs/digest" },
         "datasetDigest": { "$ref": "#/$defs/digest" },
-        "questionSetVersion": { "enum": ["1.0.0", "1.1.0"] },
+        "questionSetVersion": { "const": "1.1.0" },
         "provider": { "enum": ["typesafe", "fireworks"] },
         "requestedModel": { "$ref": "#/$defs/identifier" },
         "policy": {

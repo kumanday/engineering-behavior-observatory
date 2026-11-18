@@ -1,8 +1,7 @@
 import {readRunVerification} from "./verification-retained.js";
 import {verificationScopeForRun, verificationDigest, type VerificationResult} from "./harness-verification.js";
 import {withVerificationContext, currentVerificationResult} from "./verification-context.js";
-import {versionConfidence} from "./retained-version-policy.js";
-import {markRetainedVersion, legacyV1Profile} from "./legacy-v1-confidence.js";
+import {markDeclaredVersion, versionConfidence} from "./retained-version-policy.js";
 import type { OutcomeEvidenceInput } from "./outcome-evidence.js";
 import { isAtifImportSchema, readImportedBehaviorEvidence } from "./atif-import.js";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -107,19 +106,16 @@ async function buildRetainedBehaviorEvidence(bundleRoot: string): Promise<Retain
     const evidence = await readRetainedBehaviorEvidence(bundleRoot);
     if (evidence.capture.qualification === "imported") return evidence;
     const harness = nativeHarness;
-    const legacyHarness = manifest.run.harness.id;
-    let profile = legacyV1Profile(evidence.dataset.capabilityProfile, legacyHarness, manifest.run.harness.version);
-    const components = legacyHarness === PI_HARNESS ? ["pi-sdk-adapter"] : legacyHarness === FACTORY_HARNESS ? ["factory-adapter", "@factory/droid-sdk"] : [];
-    for (const name of components) for (const runtime of manifest.run.runtime.filter(runtime => runtime.name === name)) profile = legacyV1Profile(profile, name, runtime.version);
-    const componentVersions = manifest.run.runtime.filter(({name, source}) => name === legacyHarness || source === legacyHarness || ["agent-sdk", "claude-agent-sdk"].includes(legacyHarness) && ["agent-sdk", "claude-agent-sdk"].includes(name)).map(({version}) => version);
-    const confidence = markRetainedVersion(evidence.capture, manifest.run.harness.version, legacyHarness, componentVersions);
+    const declaredHarness = manifest.run.harness.id;
+    let profile = evidence.dataset.capabilityProfile;
+    const componentVersions = manifest.run.runtime.filter(({name, source}) => name === declaredHarness || source === declaredHarness || ["agent-sdk", "claude-agent-sdk"].includes(declaredHarness) && ["agent-sdk", "claude-agent-sdk"].includes(name)).map(({version}) => version);
+    const confidence = markDeclaredVersion(evidence.capture, manifest.run.harness.version, componentVersions);
     if (confidence.sourceLimitations?.length) profile = {...profile, limitations: [...new Set([...(profile.limitations ?? []), ...confidence.sourceLimitations])]};
     const probeConflict = retainedRuntimeProbeConflict(bundleRoot, manifest);
     if (probeConflict) profile = {...profile, limitations: [...new Set([...(profile.limitations ?? []), "HARNESS_VERSION_UNVERIFIED", "HARNESS_VERSION_CONFLICT"])]};
     const dataset = {...evidence.dataset, capabilityProfile: profile};
-    // Modern DeepSeek identifies server and client separately. Historical v1
-    // rendering compares the client to its old harness declaration; that label
-    // cannot replace a comparison against the actual retained client component.
+    // DeepSeek identifies server and client separately: compare the client version its composition record states
+    // with the retained client component, not with the harness declaration.
     const clientVersion = manifest.run.runtime.find(component => component.name === "@deepseek-ai/dsh-sdk-client")?.version
       ?? recorded?.subject.components.find(component => component.name === "@deepseek-ai/dsh-sdk-client")?.version ?? manifest.run.harness.version;
     const nativeConflict = harness === DEEPSEEK_HARNESS_ID ? evidence.capture.records.some(({record}) => {
@@ -191,7 +187,7 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
       return value.channel === "adapter" && value.nativeType === "session_created";
     }).map(({ record }) => record as { payload?: { sdk?: { version?: unknown } } });
     if (compositions.length !== 1) throw new Error(`Retained Pi capture has ${String(compositions.length)} native composition records; expected exactly one.`);
-    capture = markRetainedVersion(capture, manifest.run.harness.version, "pi-sdk", [compositions[0]!.payload?.sdk?.version]);
+    capture = markDeclaredVersion(capture, manifest.run.harness.version, [compositions[0]!.payload?.sdk?.version]);
     const native = qualifyRetainedPiCapture(capture as NormalizationInput<PiNativeRecord>, manifest.run.native?.sessionId, expectsCompletion);
     capture.qualification = native.qualification;
     outcomeCapture.qualification = native.qualification;
@@ -210,7 +206,7 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
       const document = record.document as Record<string, any> | undefined;
       return document?.schemaVersion === "ebo.codex-telemetry/v1" ? [document.runtime?.version] : [];
     });
-    native = markRetainedVersion(native, manifest.run.harness.version, "codex-app-server", [...handshakeVersions, ...telemetryVersions,
+    native = markDeclaredVersion(native, manifest.run.harness.version, [...handshakeVersions, ...telemetryVersions,
       ...manifest.run.runtime.filter(({ name }) => name === CODEX_HARNESS).map(({ version }) => version)]);
     capture = native;
     let acceptedStartSequence = 0;
@@ -249,7 +245,7 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
       || expectsCompletion && (terminals[0]?.record.payload as Record<string, any> | undefined)?.turn?.status !== "completed") {
       throw new Error("Retained Codex capture requires unambiguous matching owned terminal evidence.");
     }
-    dataset = (await describeAndValidateCodexDataset(native, manifest.run.harness.version)).dataset;
+    dataset = (await describeAndValidateCodexDataset(native)).dataset;
   } else if (harness === FACTORY_HARNESS) {
     const expected = new Map([[FACTORY_HARNESS, { source: "Factory", version: manifest.run.harness.version }]]);
     for (const [name, identity] of expected) {
@@ -270,9 +266,9 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
       .map(({ record }) => record.document as Record<string, any> | undefined);
     const runtime = runtimeDocuments[0]?.runtime;
     if (runtimeDocuments.length !== 1 || runtimeDocuments[0]?.schemaVersion !== "ebo.factory-runtime/v1" || !runtime || typeof runtime !== "object") throw new Error("Retained Factory runtime document has an invalid capture format.");
-    capture = markRetainedVersion(capture, manifest.run.harness.version, "factory-droid", [runtime.version]);
-    capture = markRetainedVersion(capture, captureSdkVersion, "@factory/droid-sdk", [runtime.sdkVersion]);
-    capture = markRetainedVersion(capture, captureAdapterVersion, "factory-adapter", [runtime.adapterVersion]);
+    capture = markDeclaredVersion(capture, manifest.run.harness.version, [runtime.version]);
+    capture = markDeclaredVersion(capture, captureSdkVersion, [runtime.sdkVersion]);
+    capture = markDeclaredVersion(capture, captureAdapterVersion, [runtime.adapterVersion]);
     if (runtimeDocuments[0]?.effectiveConfiguration?.model !== manifest.run.model.id) throw new Error("Retained Factory model differs from the run manifest.");
     const native = qualifyFactoryCapture(capture as NormalizationInput<ProtocolObservation>, {
       sessionId: manifest.run.native?.sessionId, expectsCompletion, cliVersion: manifest.run.harness.version, sdkVersion: captureSdkVersion,
@@ -310,7 +306,7 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
     const init = native.records.find(r => r.record.kind === "frame" && (r.record.payload as any)?.event === "init")?.record.payload as any;
     if (init && init.init?.model !== manifest.run.model.id) throw new Error("Retained Antigravity native model differs from the manifest.");
     if (init && init.init?.permission_mode !== documents[0]?.effectiveConfiguration?.permissionMode) throw new Error("Retained Antigravity permission policy differs from its runtime evidence.");
-    dataset = (await describeAndValidateAntigravityDataset(native, manifest.run.harness.version)).dataset;
+    dataset = (await describeAndValidateAntigravityDataset(native)).dataset;
   } else if (harness === DEVIN_HARNESS) {
     // The native runtime document is the only runtime-version evidence; never fall back to the manifest pin alone.
     const telemetryDocuments = outcomeCapture.records.filter(({ record }) => record.kind === "telemetry").map(({ record }) => record.document as Record<string, any> | undefined);
@@ -325,14 +321,14 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
       harnessVersion: manifest.run.harness.version,
       runtimeVersions: [telemetryVersion, ...runtimeVersions],
     });
-    dataset = (await describeAndValidateDevinDataset(native, manifest.run.harness.version)).dataset;
+    dataset = (await describeAndValidateDevinDataset(native)).dataset;
   } else if (harness === "openhands-agent-server") {
     const native = capture as NormalizationInput<OpenHandsNativeRecord>;
     const sessionId = manifest.run.native?.sessionId;
     const serverInfo = native.records.filter(({ record }) => record.channel === "server-info");
     if (serverInfo.length !== 1) throw new Error("Retained OpenHands capture requires exactly one native server-info record.");
     for (const { record } of native.records) {
-      if (record.channel === "server-info") capture = markRetainedVersion(capture, manifest.run.harness.version, "openhands-agent-server", [record.payload.version]);
+      if (record.channel === "server-info") capture = markDeclaredVersion(capture, manifest.run.harness.version, [record.payload.version]);
       if (record.session_id !== undefined && record.session_id !== sessionId
         || ["conversation-created", "websocket-status", "websocket-event", "rest-event", "conversation-final"].includes(record.channel)
           && (sessionId === undefined || record.session_id !== sessionId)
@@ -349,7 +345,8 @@ async function readRetainedBehaviorEvidence(bundleRoot: string): Promise<Retaine
       nativeType: (record) => typeof record.payload.kind === "string" ? record.payload.kind : record.channel });
   } else {
     const native = qualifyRetainedDeepSeekCapture(capture as NormalizationInput<DeepSeekNativeObservation>,
-      manifest.run.native?.sessionId, expectsCompletion, manifest.run.harness.version);
+      manifest.run.native?.sessionId, expectsCompletion,
+      manifest.run.runtime.find((component) => component.name === "@deepseek-ai/dsh-sdk-client")?.version ?? manifest.run.harness.version);
     capture.qualification = native.qualification;
     outcomeCapture.qualification = native.qualification;
     dataset = describeNormalizedDataset({ capture: native, normalization: normalizeDeepSeekCapture(native),

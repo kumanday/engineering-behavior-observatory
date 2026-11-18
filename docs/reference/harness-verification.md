@@ -157,18 +157,16 @@ An existing freeze stays immutable when `freeze` is repeated. Create an explicit
 new study revision to adopt new receipts. Offline readback uses the run's frozen
 snapshot and never queries a live catalog, registry or installation. Version
 contradictions remain readable with a confidence limitation. Invalid diagnostic
-bindings fail with a specific integrity error. Lock and launch v1 remain
-readable; captures without a verification snapshot have unverified confidence.
-The frozen rc.1 and rc.2 archives retain their original interpretations.
+bindings fail with a specific integrity error. Captures without a verification
+snapshot have unverified confidence.
 
-Verification is metadata alongside the retained reader result. The immutable
-`compatibility/native-v1-annotations.json` policy reproduces historical v1
-annotations, including unfamiliar-version flags, solely for serialization. Historical
-version membership does not select current confidence, qualification or measure
-availability. Contradictory native declarations remain visible as evidence.
-Current verification and native v2 source confidence come from the catalog. It does not alter
-the normalized 1.x dataset payload, so existing assertion digests and frozen Atlas
-readers keep their original contract. Native v2 sources include verification
+Verification is metadata alongside the retained reader result. The default
+lane's dataset carries a version code only from the bundle's own records:
+`HARNESS_VERSION_UNVERIFIED` when they state no version and
+`HARNESS_VERSION_CONFLICT` when they state another one. Contradictory native
+declarations remain visible as evidence. Confidence in the version itself comes
+from the catalog and appears in the verification result.
+Native v2 sources include verification
 limitations; those interpreted v2 dataset digests can change with a new explicit
 study snapshot.
 

@@ -7,12 +7,10 @@ on:
       - 'schemas/**'
       - 'verification/**'
       - 'test/**'
-      - 'compatibility/**'
       - 'scripts/atif-*'
       - 'scripts/convert-atif-producer-fixtures.py'
       - 'scripts/check-atif-harness-fixtures.py'
       - 'scripts/atif-import-pilot/**'
-      - 'scripts/compatibility/**'
       - 'scripts/freeze-native-baseline.mjs'
       - 'scripts/test_freeze_pi_pairs.py'
       - 'scripts/check-pi-fixture-pairs.mjs'
@@ -66,7 +64,6 @@ jobs:
         run: |
           node --test --test-concurrency=4 \
             dist/test/atif-*.test.js \
-            dist/test/retained-versions.test.js \
             dist/test/retained-version-policy.test.js \
             dist/test/retained-comparison-version.test.js \
             dist/test/occurrences.test.js \
@@ -77,10 +74,7 @@ jobs:
             dist/test/evidence-companions.test.js \
             dist/test/normalization-v2.test.js \
             dist/test/native-v2.test.js \
-            dist/test/consumers-v2.test.js \
-            dist/test/migration-accounting.test.js \
-            dist/test/analysis-runtime.test.js \
-            dist/test/runtime-atlas.test.js
+            dist/test/consumers-v2.test.js
         env:
           EBO_ATIF_TEST_PYTHON: '${{ github.workspace }}/.atif-venv/bin/python'
           EBO_LEADERBOARD_TEST_PYTHON: '${{ github.workspace }}/.atif-venv/bin/python'

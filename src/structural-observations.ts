@@ -1,4 +1,4 @@
-import { v1OperationAlias } from "./v1-consumer-compatibility.js";
+import { operationAlias } from "./event-aliases.js";
 import type { OutcomeEvidenceInput } from "./outcome-evidence.js";
 import { createPointerEvidenceResolver } from "./evidence-pointers.js";
 import { createHash } from "node:crypto";
@@ -768,7 +768,7 @@ function observation(
 
 function operationId(event: UniformEvent, events: readonly UniformEvent[]): string | undefined {
   if (isToolBatch(event)) return undefined;
-  const direct = v1OperationAlias(event, "structural")
+  const direct = operationAlias(event, "structural")
     ?? (event.scope.kind === "operation" ? event.scope.id : undefined);
   if (direct !== undefined) return direct;
   for (const relation of event.relations.known) {
@@ -780,7 +780,7 @@ function operationId(event: UniformEvent, events: readonly UniformEvent[]): stri
 }
 
 function operationIdWithoutRelations(event: UniformEvent): string | undefined {
-  return v1OperationAlias(event, "structural")
+  return operationAlias(event, "structural")
     ?? (event.scope.kind === "operation" ? event.scope.id : undefined);
 }
 

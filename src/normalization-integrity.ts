@@ -133,20 +133,6 @@ export type ComparisonReport = {
   reasons: readonly ComparisonReason[];
 };
 
-export type LegacyComparisonRequest = {
-  schemaVersion: "ebo.comparison-request/v1";
-  left: Omit<ComparisonCandidate, "manifestDigest">;
-  right: Omit<ComparisonCandidate, "manifestDigest">;
-  policy: ComparisonRequest["policy"];
-};
-
-export type LegacyComparisonReport = {
-  schemaVersion: "ebo.comparison-report/v1";
-  status: ComparisonReport["status"];
-  candidates: [string, string];
-  reasons: readonly ComparisonReason[];
-};
-
 export function describeNormalizedDataset<NativeRecord>(
   input: NormalizedDatasetInput<NativeRecord>,
 ): NormalizedDataset {
@@ -381,7 +367,7 @@ export function assessComparisonEligibility(request: ComparisonRequest): Compari
   const blockers: ComparisonReason[] = [];
   const caveats: ComparisonReason[] = [];
   const origin = (candidate: ComparisonCandidate) => candidate.evidenceOrigin?.kind === "imported" || candidate.harness.id.startsWith("atif.") ? "imported" : "owned";
-  // This legacy comparison contract describes complete-attempt instruments.
+  // A comparison describes complete-attempt instruments.
   // Imported documents retain their own independently available document-scoped observations.
   if (origin(request.left) !== origin(request.right)) blockers.push({ code: "evidence-origin-mismatch", dimension: "evidence origin",
     detail: "Complete-attempt comparisons require established capture populations; imported histories retain document scope." });
@@ -442,26 +428,6 @@ export function assessComparisonEligibility(request: ComparisonRequest): Compari
   };
   assertValidArtifact("comparison report", report);
   return report;
-}
-
-export function assessLegacyComparisonEligibility(request: LegacyComparisonRequest): LegacyComparisonReport {
-  assertValidArtifact("comparison request", request);
-  const manifestDigest = `sha256:${"0".repeat(64)}` as DigestString;
-  const report = assessComparisonEligibility({
-    ...structuredClone(request),
-    schemaVersion: "ebo.comparison-request/v2",
-    measure: "legacy-unspecified",
-    left: { ...structuredClone(request.left), manifestDigest },
-    right: { ...structuredClone(request.right), manifestDigest },
-  });
-  const legacy: LegacyComparisonReport = {
-    schemaVersion: "ebo.comparison-report/v1",
-    status: report.status,
-    candidates: report.candidates,
-    reasons: report.reasons,
-  };
-  assertValidArtifact("comparison report", legacy);
-  return legacy;
 }
 
 function coverageReport(

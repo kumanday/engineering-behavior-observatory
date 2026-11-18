@@ -13,6 +13,9 @@ the `ebo` command is installed as described in the quickstart.
 3. [Operator guide](guides/operator-guide.md): prepare, freeze, execute,
    inspect, export, and evaluate a task.
 
+Coming from EBO 1.x? [Upgrading from 1.x](guides/upgrade-from-1x.md): EBO 2
+does not open 1.x studies, and 1.4.0 remains the version for them.
+
 ## Operate and inspect
 
 - [Harbor tasks](guides/harbor-tasks.md): containerized task admission, frozen
@@ -93,9 +96,7 @@ scattered through release history.
 - [Pinned Harness Leaderboard cohorts](reference/leaderboard-imports.md): local
   snapshot receipts, protected facts, execution reuse and quarantine.
 - [Supplemental evidence companions](reference/evidence-companions.md) bind extra evidence to an existing attempt.
-- [Frozen analysis runtime](development/frozen-analysis-runtime.md) preserves a shipped 1.x reader and its receipts.
-- [EBO v2 analytical contracts](development/normalization-v2.md) define the explicit migration boundary.
+- [EBO v2 analytical contracts](development/normalization-v2.md) define the opt-in typed lane.
 - [Native v2 adapters](development/native-v2-adapters.md) derive typed operations and source facts from qualified native bundles.
-- [Migration accounting](development/migration-accounting.md) inventories retained studies and reconciles dependency changes before re-judging.
 
 - [Typed v2 consumers](development/typed-v2-consumers.md) prepare observations, ledgers, evaluation inputs and local Atlas inspection.

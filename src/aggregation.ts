@@ -194,11 +194,7 @@ async function aggregateValidatedEvaluation(
   for (const { bundleRoot, document } of observationSources.values()) {
     assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
     const rebuilt = await createRetainedStructuralObservationSet(bundleRoot);
-    const { capabilityProfile: _capabilityProfile, ...legacyNormalization } = rebuilt.normalization;
-    const comparable = document.normalization.capabilityProfile === undefined
-      ? { ...rebuilt, normalization: legacyNormalization }
-      : rebuilt;
-    if (canonicalizeMetadata(comparable) !== canonicalizeMetadata(document)) throw new Error(`Structural observation set for attempt "${document.attemptId}" is stale.`);
+    if (canonicalizeMetadata(rebuilt) !== canonicalizeMetadata(document)) throw new Error(`Structural observation set for attempt "${document.attemptId}" is stale.`);
     observations.set(`${document.runId}\0${document.attemptId}`, rebuilt);
   }
   const assertionSources = uniqueBy(input.assertions.filter(includedSource), ({ document }) => assertionKey(document), "behavior assertion");

@@ -58,7 +58,7 @@ test("probe admission updates new studies; old freezes and retained interpretati
   } finally {await rm(root, {recursive: true, force: true});}
 });
 
-test("catalog confidence clears an unfamiliar runtime independently of its historical v1 annotation", async () => {
+test("catalog confidence clears an unfamiliar runtime", async () => {
   const root = await mkdtemp(join(tmpdir(), "ebo-verification-v1-boundary-"));
   const options = fakeSdkRuntimeOptions("9.9.9"), install = options.run;
   options.run = async (command, args, cwd) => {
@@ -88,9 +88,9 @@ test("catalog confidence clears an unfamiliar runtime independently of its histo
         yield {type: "result", session_id: "s", uuid: "r", subtype: "success", duration_ms: 1, duration_api_ms: 1, is_error: false, num_turns: 1, stop_reason: null, total_cost_usd: 0, usage: {input_tokens: 1, output_tokens: 1}, modelUsage: {}, permission_denials: [], result: "Fixture"} as any;
       }}),
     });
-    const {createRetainedBehaviorEvidence} = await import("../src/retained-evidence.js"), legacy = await createRetainedBehaviorEvidence(bundleRoot);
-    assert.ok(legacy.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_UNVERIFIED"), "Serialized historical v1 annotation");
-    assert.equal(legacy.verification?.state, "probe-checked", "Current admitted confidence is independent of historical rendering");
+    const {createRetainedBehaviorEvidence} = await import("../src/retained-evidence.js"), retained = await createRetainedBehaviorEvidence(bundleRoot);
+    assert.ok(!retained.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT"), "The bundle's records agree with its declared version");
+    assert.equal(retained.verification?.state, "probe-checked", "Admitted confidence comes from the frozen verification, not from a version list");
     const {createRetainedBehaviorEvidenceV2} = await import("../src/native-v2.js"), native = await createRetainedBehaviorEvidenceV2(bundleRoot);
     assert.ok(!native.dataset.sources[0]!.limitations?.includes("HARNESS_VERSION_UNVERIFIED"));
     assert.ok(native.dataset.sources[0]!.limitations?.includes("HARNESS_CAPTURE_UNVERIFIED"));

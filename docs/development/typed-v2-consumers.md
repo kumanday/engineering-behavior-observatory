@@ -15,9 +15,8 @@ ebo v2 prepare-judge /path/to/retained-bundle /path/to/new-analysis-directory re
 The output includes the v2 dataset, observations, occurrence ledger, individual
 rating inputs and a local Atlas page. Judge preparation also writes
 `judge-input.json`. These commands prepare local artifacts. Backend execution
-requires an explicit callback through the library API. Existing CLI analysis
-commands retain their v1 contracts, and shipped v1 readers remain available
-through their fixed runtime identities.
+requires an explicit callback through the library API. The other CLI analysis
+commands keep the default lane's contracts.
 
 A judge request names one card of the [behavior ontology](../evaluation/behavior-ontology.md) and pins its rubric and
 evaluator configuration:
@@ -91,22 +90,20 @@ and its canonical pointed-value digest must resolve in the same run and attempt.
 Changing the pointer, content, dataset, evaluator or dependent ledger invalidates
 readback.
 
-## Atlas and compatibility
+## Atlas
 
 `buildAtlasViewV2` produces typed operation, canonical message and context units
 with evidence drilldown. Unknown status and duration remain explicit.
-`buildAtlasCohortsV2` combines cohort summaries with declared runtime identities;
-v1 cohorts execute only fixed shipped readers. Cohort measures keep their own
-origin and populations.
+`buildAtlasCohortsV2` returns one summary per cohort. Cohort measures keep their
+own origin and populations.
 
 The local Atlas page and JSON are restricted inspection artifacts. Their source
 content remains private. Sharing and release packet generation retain their
 separate policy and verification gates. The v2 page uses escaped embedded data
 and text nodes for evidence.
 
-The v1 operation aliases and message-role policy live in
-`v1-consumer-compatibility.ts`. Typed v2 consumers use operations and facts.
-Frozen runtime capsules and retained source artifacts remain unchanged.
+The default lane reads operation aliases and message roles through
+`event-aliases.ts`. Typed v2 consumers use operations and facts.
 
 ## Verification
 
@@ -115,8 +112,8 @@ Node version. The authored paired Pi fixtures exercise equal recorded tool
 counts, branch-selection loss, interrupted results, converter status loss and
 independent request/inference measures. Additional checks cover citation
 readback, blinding, bounded inputs, stale ratings, assertion reconstruction,
-mixed v1/v2 cohorts, Atlas escaping and the CLI. Release qualification also
-requires the retained native baseline and migration reconciliation.
+Atlas cohorts, Atlas escaping and the CLI. Release qualification also
+requires the retained native baseline.
 
 Model-facing payloads carry a citation registry with explicit accepted IDs.
 Semantic answers return `citationIds`; EBO resolves them to the original

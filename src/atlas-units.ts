@@ -1,4 +1,4 @@
-import { v1MessageRole as messageRole } from "./v1-consumer-compatibility.js";
+import { messageRole } from "./event-aliases.js";
 import { checkKindsOf, findCommand, shellWrites, unwrap, type Occurrence } from "./occurrences.js";
 import { toolOperations, type ToolOperation } from "./structural-observations.js";
 import type { NativeEvidenceReference, UniformEvent } from "./uniform-events.js";

@@ -59,20 +59,14 @@ Raw sources, old manifests, packets and the qualified rc.1 archive remain
 immutable. New imports use `ebo.import-manifest/v2`, which binds source and
 inspection digests, document-derived producer declarations, optional operator
 context and admission overlay IDs/digests. An interpretation receipt binds core, compatibility projection
-and overlay implementation identities. Existing v1 admissions reopen through
-the current reader while retaining their admission profile data.
+and overlay implementation identities.
 
 A changed core, overlay, native reader or contract changes the derived dataset
 identity. Reopening reports admission and current interpretation identities;
 it does not require an exact-fingerprint registry match. Source corruption still
-fails readback. Observation, ledger, rating and assertion dependencies must be
-reconciled before reuse. Old derivations remain available through frozen
-compatibility readers. No repair silently re-judges evidence.
-
-The rc.1 package is a frozen compatibility artifact. Development repairs produce
-new derivations; rc.2 qualification follows the runtime milestone and uses a new
-source and fixture pin. [Migration accounting](migration-accounting.md) owns
-dependency inventories and selective regeneration.
+fails readback. Observations, ledgers, ratings and assertions derived from the
+earlier dataset do not carry over: derive them again. No repair silently
+re-judges evidence.
 
 ## Runtime milestone
 
@@ -105,8 +99,7 @@ Each launch receipt binds that lock digest to fresh withdrawal and OSV checks.
 SDK modules load from the selected content-addressed directory. Package metadata
 and executable or server probes identify the actual runtime; probe disagreement
 stops execution. `run-manifest/v2` retains the lock and launch receipt as internal
-runtime diagnostics and binds their digests. The v1 reader remains available for
-existing bundles.
+runtime diagnostics and binds their digests.
 
 Harbor's host-side Python environment and its Linux harness worker have distinct
 platform and ABI identities in the study composition. Packaging a worker must

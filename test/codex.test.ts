@@ -139,16 +139,6 @@ test("accepts a third-party provider route and its capacity config", async () =>
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("retained 0.150.1 evidence keeps its original normalized dataset", async () => {
-  const root = resolve("test/fixtures/codex/legacy-0.150.1");
-  const before = await readFile(join(root, "manifest.json"));
-  const evidence = await createRetainedBehaviorEvidence(root);
-  const expected = JSON.parse(await readFile(resolve("test/fixtures/codex/legacy-0.150.1.dataset.json"), "utf8"));
-  assert.deepEqual(evidence.dataset, expected);
-  assert.equal(evidence.dataset.adapter.id, "ebo-codex-app-server-v0.150.1");
-  assert.deepEqual(await readFile(join(root, "manifest.json")), before);
-});
-
 test("new capture rejects an invalid exact version declaration before launching", async () => {
   await assert.rejects(captureCodexAppServer({ runId: "fixture", attemptId: "fixture", workspacePath: tmpdir(), evidencePath: tmpdir(), prompt: "fixture",
     configuration: { ...fakeConfiguration("success"), version: "unsupported" as typeof CODEX_APP_SERVER_VERSION },
@@ -176,18 +166,6 @@ for (const mode of ["history-paginated", "history-summary", "history-not-loaded"
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 }
-
-test("retained Codex runtime versions preserve their adapter identities", async () => {
-  const root = await temporaryRoot();
-  try {
-    const capture = await runFake(root, "success");
-    for (const version of ["0.150.1", "0.153.4", "0.157.0", CODEX_APP_SERVER_VERSION]) {
-      const { dataset } = await describeAndValidateCodexDataset(capture, version);
-      assert.equal(dataset.adapter.id, `ebo-codex-app-server-v${version}`);
-      assert.ok(dataset.events.length > 0);
-    }
-  } finally { await rm(root, { recursive: true, force: true }); }
-});
 
 liveTest("approved existing-auth native capture smoke", { skip: process.env.EBO_LIVE_CODEX_CAPTURE_SMOKE !== "1" }, async (context) => {
   const model = process.env.EBO_LIVE_CODEX_CAPTURE_MODEL;

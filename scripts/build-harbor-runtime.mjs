@@ -115,7 +115,7 @@ async function buildWorker({destination, studyRoot, nodeImage, platform, context
     node /toolchain/bin/npm-cli.js ci --omit=dev --ignore-scripts --no-audit --no-fund --userconfig=/runtime/.ebo-npm-user.rc --globalconfig=/runtime/.ebo-npm-global.rc --registry=https://registry.npmjs.org
     rm .ebo-npm-user.rc .ebo-npm-global.rc
     cp /usr/local/bin/node ./node
-    for path in dist schemas contracts compatibility ontology verification; do cp -R /source/$path ./$path; done
+    for path in dist schemas contracts ontology verification; do cp -R /source/$path ./$path; done
     rm -rf ./dist/test
     ${fixtures ? 'mkdir -p dist/test; cp /source/dist/test/harbor-provider-worker.js dist/test/' : ''}
     mkdir -p study/runtimes/cache
@@ -185,7 +185,7 @@ COPY --from=worker /opt/ebo /opt/ebo
 /** Inputs are copied, not mounted: a remote builder sees only this directory. */
 async function writeBuildContext({destination, studyRoot, nodeImage, platform, command, guestKeys, smolKey, lock, nodeVersion, npmVersion}, provider) {
   const copy = (from, to) => cpSync(from, resolve(destination, to), {recursive: true, verbatimSymlinks: true});
-  for (const path of ['package.json', 'package-lock.json', 'viewer/package.json', 'dist', 'schemas', 'contracts', 'compatibility', 'ontology', 'verification']) copy(path, `source/${path}`);
+  for (const path of ['package.json', 'package-lock.json', 'viewer/package.json', 'dist', 'schemas', 'contracts', 'ontology', 'verification']) copy(path, `source/${path}`);
   copy(resolve(studyRoot, 'runtimes/lock.json'), 'study/runtimes/lock.json');
   for (const key of guestKeys) copy(resolve(studyRoot, 'runtimes/cache', key), `study/runtimes/cache/${key}`);
   if (smolKey && !guestKeys.includes(smolKey)) copy(resolve(studyRoot, 'runtimes/cache', smolKey, '.ebo-runtime-receipt.json'), `study/runtimes/cache/${smolKey}/.ebo-runtime-receipt.json`);

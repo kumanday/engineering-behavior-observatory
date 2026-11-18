@@ -225,7 +225,7 @@ New operational judgments use `ebo.semantic-judgment/v3`. They retain the lock
 and actual launch receipt as restricted artifacts and expose runtime warnings.
 Their evaluator configuration digest binds the stable lock digest. Changing an
 unused executable path or the launch receipt ID does not change that digest.
-The v1 operational judgment and v2 analysis judgment contracts remain readable.
+The typed lane writes `ebo.semantic-judgment/v2`.
 
 A shared npm graph applies each selected root's own age policy. Dependencies
 use the strictest age policy in that graph. Resolution acquires the selected

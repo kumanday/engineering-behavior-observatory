@@ -62,14 +62,8 @@ import { cleanupWorkspace, materializeWorkspace } from "./workspaces.js";
 export const PI_HARNESS = "pi-sdk";
 export const PI_CONFIG_SCHEMA_VERSION = "ebo.pi-config/v1";
 export const PI_ADAPTER_VERSION = "1.0.0";
-/** Capture-time adapter pins remain admitted independently of the current normalizer. */
-/** Historical fixture inventory; not a runtime confidence list. */
-export const RETAINED_PI_ADAPTER_VERSIONS: readonly string[] = ["1.0.0"];
 export const PI_NORMALIZATION_ADAPTER_VERSION = "1.0.0";
 export const PINNED_PI_SDK_VERSION = "1.1.0";
-/** Historical fixture versions; confidence is selected from the frozen verification catalog. */
-/** Historical fixture inventory; not a runtime confidence list. */
-export const RETAINED_PI_SDK_VERSIONS: readonly string[] = [PINNED_PI_SDK_VERSION, "0.87.1", "0.85.1"];
 
 const ATTEMPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;

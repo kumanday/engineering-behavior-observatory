@@ -197,33 +197,22 @@
         "configurationDigest": { "$ref": "#/$defs/digest" }
       }
     },
-    "comparisonRequest": {
+    "comparisonPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schemaVersion", "left", "right", "policy"],
+      "required": ["declaredDifferences", "requiredCapabilities"],
       "properties": {
-        "schemaVersion": { "const": "ebo.comparison-request/v1" },
-        "measure": { "$ref": "#/$defs/identifier" },
-        "left": { "$ref": "#/$defs/comparisonCandidate" },
-        "right": { "$ref": "#/$defs/comparisonCandidate" },
-        "policy": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["declaredDifferences", "requiredCapabilities"],
-          "properties": {
-            "declaredDifferences": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": { "enum": ["model", "harness"] }
-            },
-            "requiredCapabilities": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "pattern": "^(?:family:(?:message|model-request|tool|context|permission|delegation|artifact|validation|runtime|outcome)|evidence:(?:nativeOrder|nativeTime|parentage|content))$"
-              }
-            }
+        "declaredDifferences": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["model", "harness"] }
+        },
+        "requiredCapabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:family:(?:message|model-request|tool|context|permission|delegation|artifact|validation|runtime|outcome)|evidence:(?:nativeOrder|nativeTime|parentage|content))$"
           }
         }
       }
@@ -240,29 +229,6 @@
         "detail": { "type": "string", "minLength": 1, "maxLength": 1024 }
       }
     },
-    "comparisonReport": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["schemaVersion", "status", "candidates", "reasons"],
-      "properties": {
-        "schemaVersion": { "const": "ebo.comparison-report/v1" },
-        "measure": { "$ref": "#/$defs/identifier" },
-        "requestDigest": { "$ref": "#/$defs/digest" },
-        "status": { "enum": ["supported", "qualified-with-caveats", "unsupported"] },
-        "candidates": {
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
-          "items": { "$ref": "#/$defs/identifier" }
-        },
-        "policy": { "$ref": "#/$defs/comparisonRequest/properties/policy" },
-        "reasons": {
-          "type": "array",
-          "maxItems": 64,
-          "items": { "$ref": "#/$defs/comparisonReason" }
-        }
-      }
-    },
     "comparisonRequestV2": {
       "type": "object",
       "additionalProperties": false,
@@ -272,7 +238,7 @@
         "measure": { "$ref": "#/$defs/identifier" },
         "left": { "allOf": [{ "$ref": "#/$defs/comparisonCandidate" }, { "required": ["manifestDigest"] }] },
         "right": { "allOf": [{ "$ref": "#/$defs/comparisonCandidate" }, { "required": ["manifestDigest"] }] },
-        "policy": { "$ref": "#/$defs/comparisonRequest/properties/policy" }
+        "policy": { "$ref": "#/$defs/comparisonPolicy" }
       }
     },
     "comparisonReportV2": {
@@ -288,7 +254,7 @@
           "type": "array", "minItems": 2, "maxItems": 2,
           "items": { "$ref": "#/$defs/identifier" }
         },
-        "policy": { "$ref": "#/$defs/comparisonRequest/properties/policy" },
+        "policy": { "$ref": "#/$defs/comparisonPolicy" },
         "reasons": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/comparisonReason" } }
       }
     }
@@ -296,8 +262,6 @@
   "oneOf": [
     { "$ref": "#/$defs/normalizedDataset" },
     { "$ref": "#/$defs/coverageReport" },
-    { "$ref": "#/$defs/comparisonRequest" },
-    { "$ref": "#/$defs/comparisonReport" },
     { "$ref": "#/$defs/comparisonRequestV2" },
     { "$ref": "#/$defs/comparisonReportV2" }
   ]

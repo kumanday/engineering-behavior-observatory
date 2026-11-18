@@ -223,7 +223,6 @@ export {
   CODEX_ADAPTER_VERSION,
   CODEX_APP_SERVER_CAPABILITIES,
   CODEX_APP_SERVER_VERSION,
-  RETAINED_CODEX_APP_SERVER_VERSIONS,
   CODEX_DEFAULT_SHUTDOWN_GRACE_MS,
   CODEX_HARNESS,
   createCodexHarnessAdapter,
@@ -275,7 +274,6 @@ export {
   DEVIN_HARNESS,
   normalizeDevinCapture,
   qualifyRetainedDevinCapture,
-  RETAINED_DEVIN_CLI_VERSIONS,
 } from "./devin.js";
 export type {
   DevinCaptureGap,
@@ -320,7 +318,6 @@ export {
   DEEPSEEK_CAPABILITY_PROFILE,
   DEEPSEEK_HARNESS_ID,
   DEEPSEEK_SDK_VERSION,
-  RETAINED_DEEPSEEK_SDK_VERSIONS,
   deepSeekCapabilities,
   deepSeekCompositionDigest,
   DeepSeekNativeCapture,
@@ -405,7 +402,6 @@ export type {
 } from "./uniform-events.js";
 export {
   assessComparisonEligibility,
-  assessLegacyComparisonEligibility,
   createCapturedNativeEvidenceResolver,
   describeNormalizedDataset,
   validateNormalizedCorpus,
@@ -548,8 +544,6 @@ export type {
   ComparisonReason,
   ComparisonReport,
   ComparisonRequest,
-  LegacyComparisonReport,
-  LegacyComparisonRequest,
   NormalizedDataset,
   NormalizedDatasetInput,
   NormalizedContentReference,
@@ -561,7 +555,6 @@ export {
   normalizeOpenHandsCapture,
   OPENHANDS_AGENT_SERVER_CAPABILITIES,
   OPENHANDS_AGENT_SERVER_VERSION,
-  RETAINED_OPENHANDS_AGENT_SERVER_VERSIONS,
   OPENHANDS_DEFAULT_MAX_RESPONSE_BYTES,
   OPENHANDS_MAX_RESPONSE_BYTES,
   OPENHANDS_DEFAULT_MAX_CAPTURE_BYTES,
@@ -612,11 +605,9 @@ export {
   runPiQueueEntry,
   PI_ADAPTER_VERSION,
   PI_NORMALIZATION_ADAPTER_VERSION,
-  RETAINED_PI_ADAPTER_VERSIONS,
   PI_CONFIG_SCHEMA_VERSION,
   PI_HARNESS,
   PINNED_PI_SDK_VERSION,
-  RETAINED_PI_SDK_VERSIONS,
 } from "./pi.js";
 export type {
   CapturePiSdkRunOptions,
@@ -669,7 +660,6 @@ export {
   CURSOR_SDK_DEFAULT_SHUTDOWN_GRACE_MS,
   CURSOR_SDK_HARNESS,
   CURSOR_SDK_VERSION,
-  RETAINED_CURSOR_SDK_VERSIONS,
   normalizeCursorSdkCapture,
 } from "./cursor-sdk.js";
 export type {
@@ -740,12 +730,9 @@ export * from "./leaderboard-import.js";
 export { AtifAdmissionError } from "./atif-import.js";
 export { writeEvidenceCompanion, readEvidenceCompanion, companionArtifactId, EVIDENCE_COMPANION_LIMITS, type EvidenceCompanion, type EvidenceCompanionRequest, type CompanionRange } from "./evidence-companions.js";
 
-export { listAnalysisRuntimes, loadAnalysisRuntime, type AnalysisRuntimeIdentity, type AnalysisRuntimeSnapshot, type FrozenAnalysisRuntime } from "./analysis-runtime.js";
 export { NORMALIZATION_V2_VERSION, precedes, executionDurationMs, operationId, datasetV2Digest, validateNormalizedDatasetV2,
   type ClockValue, type ClockEvidence, type ClockPosition, type OrderPosition, type Precedence, type SourceIdentityV2, type OperationIdentity, type Operation,
   type EventFactsV2, type UniformEventV2, type MeasurementV2, type RecordCoverageV2, type NormalizedDatasetV2 } from "./normalization-v2.js";
-export { inventoryMigrationStudy, migrationDependencies, reconcileMigration, planMigrationV2, createMigrationTargetV2, type MigrationStudy, type MigrationDependencies,
-  type MigrationUnit, type MigrationAssertion, type MigrationInventory, type MigrationTarget, type MigrationTargetV2, type MigrationReconciliation, type MigrationPlanV2 } from "./migration-accounting.js";
 export { createRetainedBehaviorEvidenceV2, projectNativeEvidenceV2, createSourceEvidenceResolverV2, listNativeV2Profiles,
   type RetainedBehaviorEvidenceV2, type SourceEvidenceResolverV2 } from "./native-v2.js";
 export { ANALYSIS_V2_VERSION, analysisDigestV2, createStructuralObservationSetV2, validateStructuralObservationSetV2, citeEventV2,
@@ -760,7 +747,6 @@ export * from "./semantic-judge-v2.js";
 export * from "./atlas-v2.js";
 export { loadRetainedAnalysisV2 } from "./analysis-v2-cli.js";
 
-export { prepareMigrationTargetV2 } from "./migration-targets-v2.js";
 export { ratingAnswerSchemaV2, semanticJudgeAnswerSchemaV2 } from "./model-contracts-v2.js";
 
 export { listAdditionalAtifProfilesV2, listAtifProfilesV2, selectAdditionalAtifProfileV2, type AdditionalAtifProfileV2 } from "./atif-producers-v2.js";

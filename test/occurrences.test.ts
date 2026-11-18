@@ -230,10 +230,6 @@ test("rating support facts use source precedence and abstain across clock-only d
   const request = occurrenceRequest(occurrences.find(({ type }) => type === "failure-response")!, [...occurrences, sourceChange],
     new Map([...failed.events, ...response.events, change].map((value) => [value.id, value])), () => undefined);
   assert.equal((request.state!.facts as Record<string, unknown>).sourceChangesBetween, "unknown");
-  const legacy = { ...occurrences.find(({ type }) => type === "failure-response")!, rule: { ...occurrences[0]!.rule, version: "1.1.0" as const } };
-  const retainedRequest = occurrenceRequest(legacy, [...occurrences, sourceChange],
-    new Map([...failed.events, ...response.events, change].map((value) => [value.id, value])), () => undefined);
-  assert.equal((retainedRequest.state!.facts as Record<string, unknown>).sourceChangesBetween, 1, "retained rating inputs preserve their recorded rule semantics");
 });
 
 test("classifies every check a command runs per segment and the source paths it writes", () => {

@@ -1,4 +1,3 @@
-import {legacyV1Profile} from "./legacy-v1-confidence.js";
 import { requireStudyRuntime, runInStudyRuntime, runtimeExecutionSummary, probeLockedRuntimeExecutable, type RuntimeExecutionSummary, type StudyRuntimeBinding } from "./runtime-context.js";
 import { isExactRuntimeVersion } from "./runtime-resolution.js";
 import { createServer, type IncomingMessage, type Server } from "node:http";
@@ -41,9 +40,6 @@ import {
 } from "./uniform-events.js";
 
 export const CODEX_APP_SERVER_VERSION = "0.162.1";
-/** App-server versions whose retained bundles EBO reads back; the pinned version alone is used for capture. */
-/** Historical fixture inventory; not a runtime confidence list. */
-export const RETAINED_CODEX_APP_SERVER_VERSIONS: readonly string[] = [CODEX_APP_SERVER_VERSION, "0.157.0", "0.153.4", "0.150.1"];
 export const CODEX_ADAPTER_VERSION = "0.1.0";
 export const CODEX_HARNESS = "codex-app-server";
 export const CODEX_DEFAULT_SHUTDOWN_GRACE_MS = 2_000;
@@ -173,9 +169,9 @@ export type CodexAppServerCapture = QualifiedNativeCapture<ProtocolObservation> 
   telemetry: CodexTelemetryEvidence;
 };
 
-const CODEX_0_150_1_CAPABILITIES = {
+export const CODEX_APP_SERVER_CAPABILITIES = {
   schemaVersion: "ebo.adapter-capability-profile/v1",
-  adapterId: "ebo-codex-app-server-v0.150.1",
+  adapterId: `ebo-codex-app-server-v${CODEX_APP_SERVER_VERSION}`,
   harness: CODEX_HARNESS,
   nativeTypes: [
     "item/completed",
@@ -205,21 +201,6 @@ const CODEX_0_150_1_CAPABILITIES = {
     parentage: { status: "partial", detail: "Thread and turn scopes are retained; item relations remain source-specific." },
     content: { status: "partial", detail: "Mapped content references retained native payloads without copying bodies." },
   },
-} as const satisfies AdapterCapabilityProfile;
-
-const CODEX_0_153_4_CAPABILITIES = {
-  ...CODEX_0_150_1_CAPABILITIES,
-  adapterId: "ebo-codex-app-server-v0.153.4",
-} as const satisfies AdapterCapabilityProfile;
-
-const CODEX_0_157_0_CAPABILITIES = {
-  ...CODEX_0_153_4_CAPABILITIES,
-  adapterId: "ebo-codex-app-server-v0.157.0",
-} as const satisfies AdapterCapabilityProfile;
-
-export const CODEX_APP_SERVER_CAPABILITIES = {
-  ...CODEX_0_153_4_CAPABILITIES,
-  adapterId: `ebo-codex-app-server-v${CODEX_APP_SERVER_VERSION}`,
 } as const satisfies AdapterCapabilityProfile;
 
 export function createCodexHarnessAdapter(): HarnessAdapter<CodexAppServerCaptureRequest, ProtocolObservation> {
@@ -676,15 +657,12 @@ export async function normalizeCodexCapture(
 
 export async function describeAndValidateCodexDataset(
   capture: QualifiedNativeCapture<ProtocolObservation>,
-  runtimeVersion = (capture as Partial<CodexAppServerCapture>).telemetry?.runtime?.version ?? CODEX_APP_SERVER_VERSION,
 ): Promise<{ dataset: NormalizedDataset; coverage: AdapterCoverageReport }> {
   const normalization = await normalizeCodexCapture(capture);
   const dataset = describeNormalizedDataset({
     capture,
     normalization,
-    capabilityProfile: legacyV1Profile(runtimeVersion === "0.150.1" ? CODEX_0_150_1_CAPABILITIES
-      : runtimeVersion === "0.153.4" ? CODEX_0_153_4_CAPABILITIES
-      : runtimeVersion === "0.157.0" ? CODEX_0_157_0_CAPABILITIES : CODEX_APP_SERVER_CAPABILITIES, "codex-app-server", runtimeVersion),
+    capabilityProfile: CODEX_APP_SERVER_CAPABILITIES,
     adapterVersion: CODEX_ADAPTER_VERSION,
     nativeType: codexNativeType,
   });

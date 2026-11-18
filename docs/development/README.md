@@ -31,19 +31,21 @@ consume external capacity, and require approved credentials. Their instructions
 belong in the relevant harness guide. Do not treat a skipped live test as proof
 of provider access.
 
-A harness runtime pin governs new captures only. Retained bundles from every
-released pin stay readable: when you bump a pin, add the new version to the
-adapter's `RETAINED_*_VERSIONS` list and keep the older ones. Readback also
-requires the manifest's version to match the version the capture's single
-native composition record names (Pi `session_created`, DeepSeek composition, Factory `runtime-composition`). Remove a version
-only with a migration for its retained bundles. `test/retained-versions.test.ts`
-fails if any version pinned in `release/*/reproducibility.json` is rejected.
+A study's runtime lock selects the harness version for its captures. Reading a
+bundle never depends on a list of known versions: readback compares the version
+the manifest declares with the version the capture's own native records state
+(Pi `session_created`, DeepSeek composition, Factory `runtime-composition`,
+Codex handshake, OpenHands server info) and reports a disagreement as
+`HARNESS_VERSION_CONFLICT` without rejecting the bundle.
+
+EBO reads what the current release writes. It carries no reader for studies,
+records or bundles produced by EBO 1.x; [upgrading from 1.x](../guides/upgrade-from-1x.md)
+says what that means for an existing study.
 
 Capture adapter identity and normalization version are separate pins. Pi uses
 `PI_ADAPTER_VERSION` for new capture provenance and
 `PI_NORMALIZATION_ADAPTER_VERSION` for derived datasets; Factory has the matching
-`FACTORY_*` constants. Append released capture versions to their
-`RETAINED_*_ADAPTER_VERSIONS` lists. Retained Factory composition and telemetry
+`FACTORY_*` constants. Retained Factory composition and telemetry
 must agree with the version in the source manifest, while normalization keeps
 its own version. A normalizer update never relabels an old capture.
 
@@ -101,7 +103,7 @@ visible to the shared export scanner. The source home-path scan recognizes the
 generic root segment in statically namespaced session/document identifiers.
 Filesystem home paths and credential literals retain their release checks.
 
-The ATIF conformance workflow runs the typed v2 native projection, consumer and
-migration-accounting regressions on authored fixtures. It uses the pinned Node
+The ATIF conformance workflow runs the typed v2 native projection and consumer
+regressions on authored fixtures. It uses the pinned Node
 and Python runtimes and does not dispatch model inference. Private paired-source
 checks and optional live capture checks remain separate verification lanes.
