@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import type { StudyRuntimeBinding } from "./runtime-context.js";
 import { runRuntimeCommandLine } from "./runtime-cli.js";
-import { runAnalysisV2Command } from "./analysis-v2-cli.js";
 
 import { importLeaderboardCohort, readLeaderboardCohort, type LeaderboardCohortRequest } from "./leaderboard-import.js";
 import { parseImportJson, readClosedImportFile, type Hash as ImportHash } from "./leaderboard-source.js";
@@ -92,8 +91,6 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo queue inspect <queue.json>
        ebo queue validate <queue.json> [experiment.json] [--bundle-root <bundle-root>]
        ebo harbor <inspect|prepare|admit|freeze|status|doctor|compile|convert-legacy|environment|job|run> ...
-       ebo v2 inspect <retained-bundle> <new-directory>
-       ebo v2 prepare-judge <retained-bundle> <new-directory> <request.json>
        ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...
        ebo atif overlays
        ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--profile <overlay-context-id>] [--python <executable>]
@@ -174,7 +171,6 @@ export function main(
 
   if (args[0] === "runtime") return runRuntimeCommandLine(args.slice(1), write);
 
-  if (args[0] === "v2") return runAnalysisV2Command(args.slice(1), write);
 
   if (args[0] === "atif") return runAtifInspection(args.slice(1), write);
 

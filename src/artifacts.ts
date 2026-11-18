@@ -1280,8 +1280,6 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("uniform-events/v1.json"));
   ajv.addSchema(readSchema("normalization-integrity.v1.json"));
   ajv.addSchema(readSchema("normalization.v2.json"));
-  ajv.addSchema(readSchema("analysis.v2.json"));
-  ajv.addSchema(readSchema("consumers.v2.json"));
   ajv.addSchema(readSchema("structural-observations.v1.json"));
   ajv.addSchema(readSchema("atif-inspection.v1.json"));
   ajv.addSchema(readSchema("evidence-companion.v1.json"));
@@ -1380,18 +1378,6 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.study-runtime-lock/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/lock")],
     ["ebo.runtime-launch/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/launch")],
     ["ebo.semantic-judgment/v3", requiredValidator(ajv, "urn:ebo:schema:semantic-judge-runtime:v1#/$defs/judgment")],
-    ["ebo.semantic-judge-answer/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeAnswer")],
-    ["ebo.semantic-judgment/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgment")],
-    ["ebo.atlas-view/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/atlasView")],
-    ["ebo.occurrence/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/occurrence")],
-    ["ebo.occurrence-ledger/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/ledger")],
-    ["ebo.occurrence-rating-input/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/ratingInput")],
-    ["ebo.occurrence-rating/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/rating")],
-    ["ebo.semantic-judge-request/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeRequest")],
-    ["ebo.semantic-judge-input/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeInput")],
-    ["ebo.behavior-assertion/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/assertion")],
-    ["ebo.structural-observation/v2", requiredValidator(ajv, "urn:ebo:schema:analysis:v2#/$defs/observation")],
-    ["ebo.structural-observation-set/v2", requiredValidator(ajv, "urn:ebo:schema:analysis:v2#/$defs/observationSet")],
     ["ebo.review-source-set/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sourceSet")],
     ["ebo.review-sample-criteria/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/criteria")],
     ["ebo.review-sample/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sample")],
