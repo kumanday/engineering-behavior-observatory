@@ -420,6 +420,15 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   const lanes: { attempts: LaneMeta[]; usage: Record<string, Array<[number, number]>>; context: Record<string, Array<[number, number]>> } = { attempts: [], usage: {}, context: {} };
   const attemptMeta: unknown[] = [];
   const assessmentDocs: unknown[] = [];
+  // Indexes for the per-attempt loop: scanning every unit, assertion or cohort row per attempt is quadratic in the corpus.
+  const assertionsOfAttempt = new Map<string, Array<typeof assertions extends Map<string, infer V> ? V : never>>();
+  for (const entry of assertions.values()) {
+    const list = assertionsOfAttempt.get(entry.assertion.attemptId) ?? [];
+    if (!list.length) assertionsOfAttempt.set(entry.assertion.attemptId, list);
+    list.push(entry);
+  }
+  const cohortRowsOf = new Map<string, Row[]>();
+  for (const row of tables.assessment_cohorts!) cohortRowsOf.set(String(row.assertion_id), [...cohortRowsOf.get(String(row.assertion_id)) ?? [], row]);
   for (const [attemptId, { entry: corpusEntry, bundleRoot, cohorts: memberOf }] of [...attempts].sort(([a], [b]) => a.localeCompare(b))) {
     const source = corpusEntry.manifestKind === "import" ? sourceLabels.get(corpusEntry.manifestDigest) : undefined;
     const entry = source ? { ...corpusEntry, taskId: source.taskId, trialId: source.trialId } : corpusEntry;
@@ -429,12 +438,21 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
       resolveContent: (reference) => { const r = resolveContent(reference); return r.status === "resolved" ? r.value : undefined; } });
     const linksOf = new Map<string, string[]>();
     for (const link of derived.links) linksOf.set(link.unit_id, [...linksOf.get(link.unit_id) ?? [], link.event_key]);
+    const membersOf = new Map<string, string[]>();
+    for (const u of derived.units) if (u.episode_id) {
+      const list = membersOf.get(u.episode_id) ?? [];
+      if (!list.length) membersOf.set(u.episode_id, list);
+      list.push(u.unit_id);
+    }
+    const ownUnits: Array<AtlasUnit & Row> = [];
     for (const unit of derived.units) {
-      const keys = unit.unit_kind === "episode" ? derived.units.filter((u) => u.episode_id === unit.unit_id).flatMap((u) => linksOf.get(u.unit_id) ?? []) : linksOf.get(unit.unit_id) ?? [];
+      const keys = unit.unit_kind === "episode" ? (membersOf.get(unit.unit_id) ?? []).flatMap((id) => linksOf.get(id) ?? []) : linksOf.get(unit.unit_id) ?? [];
       const cites = [...new Map(keys.flatMap((k) => citedBy.get(k) ?? []).map((c) => [c.id, c])).values()].sort((a, b) => a.id.localeCompare(b.id));
-      tables.units!.push({ ...unit, model_id: entry.modelId ?? null, harness_id: entry.harnessId ?? null, task_id: entry.taskId ?? null, trial_id: entry.trialId ?? null,
+      const row = { ...unit, model_id: entry.modelId ?? null, harness_id: entry.harnessId ?? null, task_id: entry.taskId ?? null, trial_id: entry.trialId ?? null,
         condition: null, terminal_state: entry.terminalState ?? null, cited_assertions: cites.map(({ id }) => id), cited_assessments: cites.map(({ label }) => label),
-        cited: cites.length > 0, observation_extractors: [...new Set(keys.flatMap((k) => [...extractorsOf.get(k) ?? []]))].sort() });
+        cited: cites.length > 0, observation_extractors: [...new Set(keys.flatMap((k) => [...extractorsOf.get(k) ?? []]))].sort() } as unknown as AtlasUnit & Row;
+      tables.units!.push(row);
+      ownUnits.push(row);
     }
     for (const link of derived.links) stream("unit_events", link);
     // Event rows carry the resolved native content; each is written as soon as it is built, never held.
@@ -467,11 +485,10 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
       native_span_seconds: first && last ? (Date.parse(last) - Date.parse(first)) / 1000 : null });
     for (const cohortId of [...memberOf].sort()) tables.attempt_cohorts!.push({ attempt_id: attemptId, cohort_id: cohortId });
     const arm = tables.attempts!.at(-1)!.condition as string;
-    for (const unit of tables.units!) if (unit.attempt_id === attemptId) unit.condition = arm;
+    for (const unit of ownUnits) unit.condition = arm;
 
     // Viewer documents for this attempt: cloud rows, swimlane, audit, native records and assessments.
     const short = attemptId.slice(0, 8);
-    const ownUnits = tables.units!.filter((u) => u.attempt_id === attemptId) as unknown as Array<AtlasUnit & Row>;
     let carriedTime: number | null = null;
     const rowsOfAttempt: Array<AtlasUnit & Row & { row_id: number }> = [];
     for (const unit of ownUnits.filter((u) => u.embed).sort((a, b) => Number(a.seq) - Number(b.seq))) {
@@ -502,8 +519,8 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     attemptMeta.push({ ...attemptRow, short, cohorts: [...memberOf].sort(), bundle: relative(base, bundleRoot), native_span_seconds: tables.attempts!.at(-1)!.native_span_seconds,
       native_record_count: evidence.coverage.records.total, unmapped_record_count: evidence.coverage.records.unmapped, event_count: evidence.dataset.events.length,
       event_types: eventTypes, units: ownUnits.filter((u) => u.unit_kind !== "episode").length, tool_calls: ownUnits.filter((u) => u.unit_kind === "tool").length });
-    for (const { assertion, review } of [...assertions.values()].filter(({ assertion: a }) => a.attemptId === attemptId)) {
-      const flags = Object.fromEntries(tables.assessment_cohorts!.filter((r) => r.assertion_id === assertion.id)
+    for (const { assertion, review } of assertionsOfAttempt.get(attemptId) ?? []) {
+      const flags = Object.fromEntries((cohortRowsOf.get(assertion.id) ?? [])
         .map((r) => [String(r.cohort_id), { included: r.included === true, disputed: r.disputed === true, review: String(r.review_outcome ?? "") }]));
       assessmentDocs.push(assessmentDoc(assertion, { short, condition: arm, taskId: entry.taskId ?? null, trialId: entry.trialId ?? null, review,
         cohorts: Object.keys(flags).length ? flags : Object.fromEntries([...memberOf].map((c) => [c, { included: true }])) }, evidenceDocs.linkCitation, native));

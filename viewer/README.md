@@ -55,10 +55,12 @@ assistant issued it.
   The smoke test fails when a visible control outside the cloud has no registered command.
 - **The cloud**: Embedding Atlas registers its own tools through `modelContext` (chart state, SQL, layouts,
   screenshots). `setViewport`, `selectRange` (rectangle or lasso), `setLegendSelection` and `clearSelection` use its
-  `chart_set_state`; `cloudTool` runs any of its tools. A programmatic brush filters the linked panels exactly as a
-  drawn one does.
+  `chart_set_state`; `cloudTool` runs any of its tools and replies with the tool's result as JSON (cut at 20,000
+  characters). A programmatic brush filters the linked panels exactly as a drawn one does.
 - **Describe**: each panel's `describe()` returns a summary and the numbers it shows, from the same queries it renders.
-- `window.ebo` exposes `run`, `commands`, `getState`, `setState`, `describe`, `subscribe` and `listCloudTools`.
+- `window.ebo` exposes `run`, `commands`, `getState`, `setState`, `encodeState`, `decodeState`, `describe`,
+  `subscribe`, `listCloudTools`, `cloudResult` (the whole result of the last `cloudTool` run, for example `data_query`
+  rows) and `drawerViews`.
 - `#assistant` is an empty mount point for the Agent Mode chat panel.
 
 The browser registers the table as `units`. Panels query it with SQL through the shared coordinator.
@@ -68,10 +70,13 @@ The browser registers the table as `units`. Panels query it with SQL through the
 One row per cluster, one column per arm (condition). Within each family (messages, episodes, tools):
 
 - **share**: the arm's units in the cluster ÷ the arm's units in that family
-- **expected** E = n_cluster · n_arm,family / n_family (the count if arms were pooled). When the study has more than
-  one harness, the default is **Expected from: arms on the same harness**: cluster and family counts are taken within
+- **expected** E = n_cluster · n_arm,family / n_family (the count if arms were pooled). When some harness has two or
+  more arms, the default is **Expected from: arms on the same harness**: cluster and family counts are taken within
   the arm's harness, so Grok 4.7 is compared with Grok 4.6 on the same harness rather than with other harnesses'
-  tool surfaces (pooled: 60 clusters at |z| ≥ 3, mostly harness vocabulary; within harness: 23; units v0.3, uncapped text)
+  tool surfaces (pooled: 60 clusters at |z| ≥ 3, mostly harness vocabulary; within harness: 23; units v0.3, uncapped text).
+  An arm alone on its harness has expected = observed there, so its z is 0 and the panel says how many such arms
+  there are. When every harness has one arm, as in a leaderboard cohort, expected counts are pooled and the
+  same-harness choice is not offered.
 - **adjusted residual** z = (O − E) / √(E · (1 − n_cluster/n_family) · (1 − n_arm,family/n_family))
 - **attempts**: attempts with ≥ 1 unit in the cluster / attempts in the arm
 

@@ -69,6 +69,24 @@ can inventory explicitly admitted local files with `--retain relative/path`.
 The reader does not fetch remote references. Hidden reasoning and reversible
 token arrays remain protected by EBO's evidence projection.
 
+## Time, usage and failures in Atlas
+
+A step's `timestamp` is the time of its message, inference and call events,
+labelled `nativeTimeSource: "producer-step"`. Atlas uses it for the lane time
+axis and unit start times. Results stay untimed, because a folded result does
+not record when it arrived; tool units therefore have no duration. A step's
+`metrics` form one declared usage increment: `prompt_tokens` (which include
+cached tokens) as input and `completion_tokens` as output, plus `cost_usd`. The
+root document's `final_metrics` form the attempt's final totals; subagent
+documents keep their own populations. Lanes show this usage as declared by the
+source, and an import without metrics shows none recorded, not zero.
+
+Tool failures are unavailable for imports. ATIF core has no tool-failure field,
+and converter flags in `extra` (such as an `is_error` or `status` entry) follow
+each converter's conventions. Only an overlay verified for a converter
+interprets them, so Atlas lanes show imported error counts as unavailable
+rather than zero.
+
 ## Optional interpretation
 
 Pi and Codex have optional producer overlays for fixture-backed converter

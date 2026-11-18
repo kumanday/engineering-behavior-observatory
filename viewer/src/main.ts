@@ -270,9 +270,13 @@ async function main() {
       await new Promise((r) => setTimeout(r, 50));   // a tool that changes the predicate settles like the named cloud commands
       await refreshing;
       lastCloudResult = result;
-      return `Ran Embedding Atlas tool ${tool}.`;
+      // The result travels with the command's reply; a long one is cut here and stays whole in window.ebo.cloudResult().
+      const json = result === undefined ? "" : JSON.stringify(result) ?? "";
+      const shown = json.length > CLOUD_RESULT_CHARS ? `${json.slice(0, CLOUD_RESULT_CHARS)}… (${json.length.toLocaleString()} characters; the whole result is in window.ebo.cloudResult())` : json;
+      return `Ran Embedding Atlas tool ${tool}.${shown ? ` Result: ${shown}` : ""}`;
     } });
   let lastCloudResult: unknown = null;
+  const CLOUD_RESULT_CHARS = 20_000;
   provide({ key: "highlight", get: () => ({ rows: highlighted }), apply: (st: { rows: number[] | null }) => { highlight(st.rows); } });
   provide({ key: "cloud", get: () => {
       const st = cloudState();

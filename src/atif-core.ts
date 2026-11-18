@@ -23,6 +23,32 @@ export function atifCoreIdentity() {
 }
 
 /** Interpret only the standard document. Operator producer declarations never select this projector. */
+/**
+ * Usage attributes of the v1 view, read by Atlas lanes. A step's metrics are one declared increment: prompt tokens
+ * (which include cached tokens in ATIF) as input, completion tokens as output. Only the root document is the main
+ * agent's context. These are the document's declarations, not a proven billing population.
+ */
+function stepUsage(values: Readonly<Record<string, number>>, pointer: string): UniformEvent["attributes"] {
+  const { prompt_tokens: input, completion_tokens: output, cached_tokens: cached, cost_usd: cost } = values;
+  if (input === undefined && output === undefined && cost === undefined) return {};
+  return { resourceSemantics: "increment", usageAuthority: "source-declared", usageScope: pointer === "#" ? "assistant" : "subagent",
+    ...(input === undefined ? {} : { inputTokens: input }), ...(output === undefined ? {} : { outputTokens: output }),
+    ...(input !== undefined && output !== undefined ? { totalTokens: input + output } : {}),
+    ...(cached === undefined ? {} : { declaredCachedTokens: cached }), ...(cost === undefined ? {} : { totalCostUsd: cost }) };
+}
+
+/** The root document's declared totals as one final usage record (on the prompt total) and one final cost. */
+function finalUsage(key: string, finals: Readonly<Record<string, unknown>>, pointer: string): UniformEvent["attributes"] {
+  const number = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  if (pointer !== "#") return {};
+  if (key === "total_prompt_tokens" && number(finals.total_prompt_tokens) && number(finals.total_completion_tokens)) {
+    return { resourceSemantics: "cumulative-final", usageAuthority: "source-declared", inputTokens: finals.total_prompt_tokens, outputTokens: finals.total_completion_tokens,
+      totalTokens: finals.total_prompt_tokens + finals.total_completion_tokens };
+  }
+  if (key === "total_cost_usd" && number(finals.total_cost_usd)) return { resourceSemantics: "cumulative-final", usageAuthority: "source-declared", totalCostUsd: finals.total_cost_usd };
+  return {};
+}
+
 export async function projectAtifCore(input: AtifCoreInput): Promise<{ v1: RetainedBehaviorEvidence; v2: RetainedBehaviorEvidenceV2 }> {
   const { inspection, document } = input.read;
   if (!document || inspection.versionPolicy.status === "unsupported" || inspection.versionPolicy.status === "unavailable" || inspection.structural.status !== "valid") {
@@ -53,7 +79,14 @@ export async function projectAtifCore(input: AtifCoreInput): Promise<{ v1: Retai
         ...(typeof trajectory.session_id === "string" ? { sessionId: trajectory.session_id } : {}),
         ...(typeof trajectory.trajectory_id === "string" ? { agentId: trajectory.trajectory_id } : {}) },
       content: contentPointer === undefined ? unreported : known([{ nativeReference: reference(contentPointer), role: family === "tool" ? phase === "before" ? "tool-input" : "tool-result" : "message" }]) };
-    if (phase !== "after") projection.clock = recordedClock({ event: original, record: step, records: [] }, step.timestamp, "producer-observation", sourceId);
+    if (phase !== "after") {
+      projection.clock = recordedClock({ event: original, record: step, records: [] }, step.timestamp, "producer-observation", sourceId);
+      // Consumers of the v1 view (Atlas lanes and units) read the same step timestamp. Folded results stay untimed.
+      if (projection.clock.status === "known") {
+        original.nativeTime = known(projection.clock.value.timestamp);
+        original.attributes = { ...original.attributes, nativeTimeSource: "producer-step" };
+      }
+    }
     if (family === "message" && projection.facts.message?.role.status === "known") original.attributes = { ...original.attributes, role: projection.facts.message.role.value };
     legacy.push(original);
     const { nativeTime: _time, source: _source, ...rest } = original;
@@ -88,7 +121,7 @@ export async function projectAtifCore(input: AtifCoreInput): Promise<{ v1: Retai
         const values = Object.fromEntries(Object.entries(object(step.metrics)).filter(([key, value]) =>
           ["prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd"].includes(key) && typeof value === "number" && Number.isFinite(value) && value >= 0)) as Record<string, number>;
         if (Object.keys(values).length) emit(`${sp}/metrics`, sp, pointer, step, "runtime", "instant", { clock: unreported,
-          facts: { resource: { scope: "step", populationId: known(sp), authority: "source-declared", semantics: "unknown", values } } });
+          facts: { resource: { scope: "step", populationId: known(sp), authority: "source-declared", semantics: "unknown", values } } }, undefined, stepUsage(values, pointer));
       }
       if (Array.isArray(step.tool_calls)) explicitCalls = true;
       const names = new Map<string, string | undefined>();
@@ -144,7 +177,8 @@ export async function projectAtifCore(input: AtifCoreInput): Promise<{ v1: Retai
         && ["total_prompt_tokens", "total_completion_tokens", "total_cached_tokens", "total_cost_usd", "total_steps"].includes(key)) {
       const location = `${pointer}/final_metrics/${key}`;
       emit(location, pointer, pointer, {}, "runtime", "instant", { clock: unreported, facts: key === "total_steps" ? {} : {
-        resource: { scope: "session", populationId: known(pointer), authority: "source-declared", semantics: "cumulative-final", values: { [key]: value } } } }, location, { declaredMetric: key });
+        resource: { scope: "session", populationId: known(pointer), authority: "source-declared", semantics: "cumulative-final", values: { [key]: value } } } }, location,
+        { declaredMetric: key, ...finalUsage(key, object(trajectory.final_metrics), pointer) });
       finalEvents.set(key, events.at(-1)!.id);
     }
     const ids = events.slice(firstEvent).map(({ id }) => id);
