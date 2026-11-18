@@ -79,6 +79,7 @@
     "scripts/atlas-grafana.sh",
     "release/2.0.0-rc.1/",
     "release/2.0.0-rc.2/",
+    "release/2.0.0/",
     "verification/"
   ],
   "dependencies": {

@@ -1,12 +1,13 @@
 # Release records
 
 For downloads and published artifacts, see
-[GitHub Releases](https://github.com/trilogy-group/engineering-behavior-observatory/releases).
+[GitHub Releases](https://github.com/kumanday/engineering-behavior-observatory/releases).
 
 | Version | Changes and verification | Support boundary |
 | :--- | :--- | :--- |
-| [2.0.0-rc.2](2.0.0-rc.2/README.md) | Unpublished candidate: generic ATIF, version-agnostic retained reading and study-frozen runtimes | [Candidate qualification](2.0.0-rc.2/QUALIFICATION.md) |
-| [2.0.0-rc.1](2.0.0-rc.1/README.md) | Unpublished candidate: retained ATIF sources, typed v2 analysis and migration accounting | [Candidate qualification](2.0.0-rc.1/QUALIFICATION.md) |
+| [2.0.0](2.0.0/README.md) | Behavior ontology 2.0.0 with decision-model and LLM judging in one record, ATIF import, study runtimes, Smol Cloud workers, Open Responses and the Antigravity CLI harness; no 1.x compatibility | [Qualification](2.0.0/QUALIFICATION.md), [migration](2.0.0/MIGRATION.md) |
+| [2.0.0-rc.2](2.0.0-rc.2/README.md) | Unpublished candidate, superseded by 2.0.0: generic ATIF, version-agnostic retained reading and study-frozen runtimes | [Candidate qualification](2.0.0-rc.2/QUALIFICATION.md) |
+| [2.0.0-rc.1](2.0.0-rc.1/README.md) | Unpublished candidate, superseded by 2.0.0: retained ATIF sources, typed v2 analysis and migration accounting | [Candidate qualification](2.0.0-rc.1/QUALIFICATION.md) |
 | [1.4.0](1.4.0/README.md) | Live campaign monitor and retained Pi provider-error session qualification | [Runtime qualification](1.3.0/runtime-qualification.md) |
 | [1.3.0](1.3.0/README.md) | Factory Droid eighth harness, managed/BYOK routing, harness pin updates and Smol 1.26.1 / Harbor 0.24.0 | [Runtime qualification](1.3.0/runtime-qualification.md) |
 | [1.2.0](1.2.0/README.md) | Devin CLI harness; per-request usage and labeled timing (normalization changed in place); occurrences, occurrence ratings and judge preparation; context-classified secret redaction | [Support boundary](1.0.0/KNOWN_LIMITATIONS.md) |
