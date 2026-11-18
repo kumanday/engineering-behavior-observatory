@@ -55,6 +55,28 @@ test("scoped evidence reuse returns the validated evidence, rebuilds on changed 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("a same-size rewrite of a bound artifact is hashed again, so its evidence is not reused", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-evidence-reuse-rewrite-"));
+  try {
+    await createAtlasFixture(root);
+    const bundle = join(root, "corpus/synthetic-attempt-0");
+    const manifest = JSON.parse(readFileSync(join(bundle, "manifest.json"), "utf8")) as { evidence: Array<{ relativePath: string }> };
+    const path = join(bundle, manifest.evidence.find(({ relativePath }) => relativePath.endsWith(".jsonl"))!.relativePath);
+    const stats = { hits: 0, misses: 0 };
+    await withRetainedEvidenceReuse(async () => {
+      await createRetainedBehaviorEvidence(bundle);
+      await createRetainedBehaviorEvidence(bundle);
+      assert.deepEqual(stats, { hits: 1, misses: 1 });
+      // Same length, one byte different: only the content digest can tell.
+      const bytes = readFileSync(path), at = bytes.indexOf("\"");
+      bytes[at + 1] = bytes[at + 1] === 0x61 ? 0x62 : 0x61;
+      writeFileSync(path, bytes);
+      await assert.rejects(createRetainedBehaviorEvidence(bundle));
+      assert.equal(stats.hits, 1);
+    }, stats);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("a bundle whose listed bytes cannot be hashed is rebuilt and reports its own failure", async () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-evidence-reuse-missing-"));
   try {
