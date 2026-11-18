@@ -252,11 +252,12 @@ export class Evidence {
         <span class="mono small">${esc(c.native.artifact)} ${esc(c.native.locator)}</span>
         ${c.native.resolved ? `<span class="ok">resolved</span>` : `<span class="bad">unresolved</span>`}
         <details><summary>native line</summary>${this.recordHtml({ ...c.native, part: "" })}</details></li>`).join("")}</ol>
-      <div class="dr-actions"><button class="btn" data-lanes ${target("focusAttempt", a.attempt_id)}>Show attempt in swimlanes</button> <button class="btn" data-cloud ${target("highlightRows", `cited:${a.id}`)}>Highlight cited units in cloud</button> <button class="btn" data-audit ${target("openAudit", a.attempt_id)}>Attempt audit</button></div>`,
+      <div class="dr-actions"><button class="btn" data-lanes ${target("focusAttempt", a.attempt_id)}>Show attempt in swimlanes</button> ${a.citations.some((c) => c.row_id != null) ? `<button class="btn" data-cloud ${target("highlightRows", `cited:${a.id}`)}>Highlight cited units in cloud</button> ` : ""}<button class="btn" data-audit ${target("openAudit", a.attempt_id)}>Attempt audit</button></div>`,
       (el) => {
         el.querySelectorAll<HTMLElement>("button[data-row]").forEach((b) => b.addEventListener("click", () => { if (b.dataset.row) run("openUnit", { attemptId: a.attempt_id, row: Number(b.dataset.row) }); }));
         el.querySelector("[data-lanes]")!.addEventListener("click", () => run("focusAttempt", { attemptId: a.attempt_id, row: null }));
-        el.querySelector("[data-cloud]")!.addEventListener("click", () => run("highlightRows", { rows: a.citations.map((c) => c.row_id).filter((r): r is number => r != null) }));
+        // Only a result with cited units offers to highlight them; a decision-model result cites none.
+        el.querySelector("[data-cloud]")?.addEventListener("click", () => run("highlightRows", { rows: a.citations.map((c) => c.row_id).filter((r): r is number => r != null) }));
         el.querySelector("[data-audit]")!.addEventListener("click", () => run("openAudit", { attemptId: a.attempt_id }));
       });
   }
@@ -531,7 +532,9 @@ export class MatrixPanel {
         A present dimension card names one value, shown in the judgment list. A present result has a direction fixed by the ontology
         (${dirChip("favourable")} ${dirChip("unfavourable")} ${dirChip("neutral")}); neutral results are counted and never scored.
         ${anyCert ? "<b>EBO certified</b>: the cell equals the tally in the EBO Atlas report for the chosen cohort; <b>exploratory</b>: computed here." : "This study has no EBO Atlas report, so every number here is <b>exploratory</b> (computed from the judge assertions)."}
-        Judgments are unreviewed model proposals over sampled evidence. Click a cell for its judgments; click a judgment for rationale and cited native records.</p>
+        ${this.mode === "decision-model"
+          ? "Results are unreviewed model proposals over every recorded step. Click a cell for its results; click a result for its probabilities, thresholds and what the model was shown."
+          : "Judgments are unreviewed model proposals over a selection of each attempt's events. Click a cell for its judgments; click a judgment for rationale and cited native records."}</p>
       <div class="p3-split">
         <div class="table-wrap mx-wrap"><table class="grid mxt"><thead><tr><th scope="col">Behavior card</th>${arms.map((a) => `<th scope="col" class="arm"><span class="arm-name">${esc(a)}</span></th>`).join("")}</tr></thead>
           <tbody>${cats.map((c, i) => `${i === 0 || this.familyOf(c) !== this.familyOf(cats[i - 1]!) ? `<tr class="mx-family"><th scope="colgroup" colspan="${arms.length + 1}">${esc(this.familyOf(c))}${this.familyName(this.familyOf(c)) ? ` · ${esc(this.familyName(this.familyOf(c)))}` : ""}</th></tr>` : ""}<tr><th scope="row" class="c-label"><span class="lbl">${esc(c)} ${esc(this.titleOf(c))}</span></th>${arms.map((a) => cell(c, a)).join("")}</tr>`).join("")}</tbody></table></div>
