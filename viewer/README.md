@@ -18,6 +18,10 @@ URL parameters: `bundle` (bundle URL, default `./bundle/`), `panel` (`clusters` 
 `figures`), `labels` (`facet` = the bundle's cluster labels, `auto` = Embedding Atlas auto-labels with our stop words),
 `color` (column the cloud is colored by; default `condition`, `none` for uncolored).
 
+`npm run build` builds the CLI only. Each viewer build writes `viewer/dist/build-stamp.json` with the digest of the
+viewer sources. In a source checkout, `ebo atlas serve --bundle` and `ebo packet build` warn when `viewer/dist` was
+built from other sources or has no stamp; an installed package ships the build without its sources and is not checked.
+
 While iterating: `npm run dev --workspace viewer` serves the viewer with hot reload; put a bundle at
 `viewer/public/bundle/` or pass `?bundle=<url>` to a served one. Asset names are stable, so a rebuild overwrites
 `dist/` in place.
@@ -104,6 +108,8 @@ One lane per attempt for the selected task, grouped by arm. Rows inside a lane:
 - **messages** as ticks; **tool calls** as bars on the elapsed-time axis (or one slot per action on the Steps axis),
   colored by action category (inspect, edit/write, read tool, check, other shell, git, other; fixed order, palette
   validated for light and dark);
+  a lane whose source records no step times shows "no times recorded" on the time axis, and its actions in order on
+  the Steps axis;
 - **token ribbon**: context tokens per model request (input + cache read + cache write; shows growth and compaction
   drops) or cumulative tokens; scaled to the largest lane shown. Sources: pi-sdk per-message usage and Codex
   cumulative snapshots from the normalized events; Claude Agent SDK per-message usage from the native `session.jsonl`

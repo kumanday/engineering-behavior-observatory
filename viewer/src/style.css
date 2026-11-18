@@ -115,6 +115,7 @@ table.grid { border-collapse: separate; border-spacing: 2px; font-variant-numeri
 .badge { font-size: 10px; border: 1px solid var(--status-critical); color: var(--status-critical); border-radius: 4px; padding: 0 3px; }
 .icon-btn { border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary); border-radius: 4px; cursor: pointer; padding: 0 5px; }
 .icon-btn:hover { color: var(--primary); border-color: var(--primary); }
+.untimed-t { fill: var(--text-muted); font-size: 10px; font-style: italic; }
 .ax { stroke: var(--text-muted); } .ax-t { fill: var(--text-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 .group-bg { fill: var(--surface-1); }
 .lane-bg { fill: transparent; stroke: var(--border); stroke-width: 0.5; }

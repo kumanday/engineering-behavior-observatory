@@ -49,6 +49,8 @@ export const cls = (s: unknown) => String(s ?? "").replace(/[^A-Za-z0-9_-]/g, "_
 /** A number from bundle data for markup; a missing or non-numeric value renders as "—" (unavailable), never 0 or markup. */
 /** A UUID or hex id reads by its first eight characters; any other id (a leaderboard trial name) reads whole. */
 export const shortId = (id: string) => (/^[0-9a-f]{8}(?:-?[0-9a-f]{4,})+$/iu.test(id) || /^[0-9a-f]{16,}$/iu.test(id) ? id.slice(0, 8) : id);
+/** A lane none of whose units has a recorded time (a source that writes no step timestamps). */
+export const untimedLane = (us: readonly Pick<Unit, "timed" | "t0_ms" | "unit_kind">[]) => us.length > 0 && !us.some((u) => u.unit_kind !== "episode" && u.timed && u.t0_ms != null);
 export const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? String(x) : "—");
 const fmtTok = (n: number | null) => n == null ? "" : n >= 1e9 ? (n / 1e9).toFixed(1) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "k" : String(n);
 export const laneDurationMs = (lane: Pick<LaneMeta, "t_start_ms" | "t_end_ms">): number | null => lane.t_start_ms === null || lane.t_end_ms === null ? null : lane.t_end_ms - lane.t_start_ms;
@@ -140,14 +142,16 @@ export class SwimlanesPanel {
   }
 
   /** What the swimlanes show: visible attempts with their totals, failures and usage source. */
+  private untimedCount(lanes: LaneMeta[]) { return lanes.filter((l) => untimedLane(this.byLane.get(l.attempt_id) ?? [])).length; }
+
   describe() {
     const lanes = this.lanes();
     if (this.mode === "diff" && this.lastDiff) return { summary: `Aligned diff of task ${this.task}: ${this.lastDiff.summary}`, data: { task: this.task, mode: this.mode, stretch: this.stretch, ...this.lastDiff.data } as unknown as Json };
     return {
-      summary: `${lanes.length} attempts of task ${this.task}${this.armFilter === "all" ? "" : ` in arm ${this.armFilter}`}, ${this.mode} view, ${this.axis} axis${this.focus ? `, cluster ${this.focus.id} emphasized` : ""}.`,
+      summary: `${lanes.length} attempts of task ${this.task}${this.armFilter === "all" ? "" : ` in arm ${this.armFilter}`}, ${this.mode} view, ${this.axis} axis${this.axis === "time" && this.untimedCount(lanes) ? ` (${this.untimedCount(lanes)} without recorded times, drawn as a note; the Steps axis shows their actions)` : ""}${this.focus ? `, cluster ${this.focus.id} emphasized` : ""}.`,
       data: { task: this.task, arm: this.armFilter, mode: this.mode, lanes: lanes.map((l) => ({ attemptId: l.attempt_id, condition: l.condition, trial: l.trial_id, terminal: l.terminal_state,
         sourceOutcome: l.source_outcome ?? null,
-        durationMs: laneDurationMs(l), tools: l.tools, errors: l.errors, compactions: l.compactions, citedUnits: l.cited_units, failureChains: this.ev?.chainsOf(l.attempt_id).length ?? null,
+        durationMs: laneDurationMs(l), timesRecorded: !untimedLane(this.byLane.get(l.attempt_id) ?? []), tools: l.tools, errors: l.errors, compactions: l.compactions, citedUnits: l.cited_units, failureChains: this.ev?.chainsOf(l.attempt_id).length ?? null,
         usage: l.usage_semantics, tokens: l.tokens_total })) },
     };
   }
@@ -241,7 +245,7 @@ export class SwimlanesPanel {
       <div class="panel-head">
         <div>
           <h2>Swimlanes</h2>
-          <p class="sub">${this.mode === "totals" ? `Totals: all ${this.data.attempts.filter((a) => a.task_id === this.task).length} attempts in every arm (arm filter and cloud selection not applied)` : `${lanes.length} attempts`} · ${esc(this.task ?? "task unavailable")} · ${this.axis === "time" ? "elapsed time from each attempt's first unit" : this.hasElapsedTime() ? "action order" : "recorded action order · elapsed timing unavailable"}${this.predicate ? " · dimmed outside the cloud selection" : ""}
+          <p class="sub">${this.mode === "totals" ? `Totals: all ${this.data.attempts.filter((a) => a.task_id === this.task).length} attempts in every arm (arm filter and cloud selection not applied)` : `${lanes.length} attempts`} · ${esc(this.task ?? "task unavailable")} · ${this.axis === "time" ? `elapsed time from each attempt's first unit${this.untimedCount(lanes) ? ` · ${this.untimedCount(lanes)} without recorded times` : ""}` : this.hasElapsedTime() ? "action order" : "recorded action order · elapsed timing unavailable"}${this.predicate ? " · dimmed outside the cloud selection" : ""}
           ${this.focus ? ` · <span class="chip">cluster: ${esc(this.focus.label.replace(/`/g, ""))} (${focusN}) <button class="chip-x" data-unfocus ${target("clearLaneClusterFocus")} aria-label="Clear cluster focus">×</button></span>` : ""}</p>
         </div>
         <div class="controls">
@@ -351,6 +355,13 @@ export class SwimlanesPanel {
         let failRun: number[] | null = null, failRows: number[] = [];
         const failBand = (r: number[]) => `<rect class="band-fail-svg hit-fail" data-fail="${esc(l.attempt_id)}|${failRows.map(num).join(",")}" x="${r[0].toFixed(1)}" y="${ROW.mark[1] - 4}" width="${Math.max(4, r[1] - r[0]).toFixed(1)}" height="6"><title>Failure chain: click for the failed call vs the next call of that tool</title></rect>`;
         let nextStep = 0;                       // messages on the Steps axis go before the next action
+        // On the time axis a lane with no recorded unit time has no place to draw its actions: it says so instead of
+        // stacking them at 0 m beside the timed lanes. The Steps axis shows its actions in order.
+        if (this.axis === "time" && untimedLane(us)) {
+          body += `<text class="untimed-t" x="6" y="${ROW.tool[1]}">no times recorded · Steps shows its ${num(steps(l.attempt_id).length)} actions in order</text></g>`;
+          y += LANE_H;
+          continue;
+        }
         for (const u of us) {
           if (stepIdx.has(u.row_id)) nextStep = stepIdx.get(u.row_id)! + 1;
           const dim = this.emphasized(u) ? "" : " dim";

@@ -58,7 +58,7 @@ import {
   type SemanticJudgeRequest,
 } from "./semantic-judge.js";
 import { createRetainedStructuralObservationSet } from "./structural-observations.js";
-import { serveAtlasBundle } from "./atlas-viewer.js";
+import { atlasViewerFreshness, serveAtlasBundle } from "./atlas-viewer.js";
 import { serveRunMonitor } from "./run-monitor.js";
 import { runOpenResponsesCommand } from "./open-responses-cli.js";
 import { buildAtlasBundle, verifyAtlasBundle } from "./atlas-bundle.js";
@@ -255,6 +255,8 @@ export function main(
     return (async () => {
     try {
       if (args[1] === "build" && args.length === 6 && args[4] === "--variant") {
+        const freshness = atlasViewerFreshness();
+        if (freshness.warning) process.stderr.write(`${freshness.warning}\n`);
         const manifest = await buildPacket(args[2]!, args[3]!, { variant: args[5] as PacketVariant });
         write(`Built ${manifest.packet.variant} packet ${manifest.packet.id}: ${manifest.files.length} files, ${manifest.withheld.length} withheld\n`);
         return 0;
@@ -304,6 +306,8 @@ export function main(
       }
       if (args[1] === "serve" && args[2] === "--bundle" && args[3] && (args.length === 4 || (args.length === 6 && args[4] === "--port"))) {
         const server = await serveAtlasBundle(args[3], args[5] === undefined ? 13012 : Number(args[5]));
+        const freshness = atlasViewerFreshness();
+        if (freshness.warning) process.stderr.write(`${freshness.warning}\n`);
         const address = server.address();
         write(`Atlas viewer listening at http://127.0.0.1:${typeof address === "object" && address ? address.port : 13012}\n`);
         return 0;

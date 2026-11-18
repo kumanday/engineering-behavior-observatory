@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { resolveContained, serveAtlasBundle } from "../src/atlas-viewer.js";
+import { atlasViewerFreshness, resolveContained, serveAtlasBundle, viewerSourceDigest } from "../src/atlas-viewer.js";
 
 test("the Atlas viewer server serves the viewer and one bundle, read-only and contained", async () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-atlas-viewer-"));
@@ -58,4 +59,31 @@ test("the Atlas viewer server serves the viewer and one bundle, read-only and co
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a source checkout's viewer build is checked against its stamp; an installed package is not", async () => {
+  const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const viewer = join(repo, "viewer");
+  // The build-time stamp and the serve-time check compute the same digest.
+  const stamp = await import(pathToFileURL(join(viewer, "source-digest.mjs")).href) as { viewerSourceDigest: (dir: string) => string };
+  assert.equal(viewerSourceDigest(viewer), stamp.viewerSourceDigest(viewer));
+
+  const root = mkdtempSync(join(tmpdir(), "ebo-viewer-stamp-"));
+  try {
+    const dir = join(root, "viewer"), dist = join(dir, "dist");
+    mkdirSync(dist, { recursive: true });
+    writeFileSync(join(dist, "index.html"), "<!doctype html>");
+    mkdirSync(join(dir, "src"));
+    writeFileSync(join(dir, "src", "tokens.css"), ":root{}");
+    assert.equal(atlasViewerFreshness(dist).status, "packaged", "the package ships the build and tokens.css, not the sources");
+    for (const file of ["index.html", "package.json", "vite.config.ts", "source-digest.mjs"]) cpSync(join(viewer, file), join(dir, file));
+    writeFileSync(join(dir, "src", "main.ts"), "export {};\n");
+    const unstamped = atlasViewerFreshness(dist);
+    assert.equal(unstamped.status, "unstamped");
+    assert.match(unstamped.warning!, /npm run build:viewer/u);
+    writeFileSync(join(dist, "build-stamp.json"), JSON.stringify({ sourceDigest: stamp.viewerSourceDigest(dir) }));
+    assert.deepEqual(atlasViewerFreshness(dist), { status: "current" });
+    appendFileSync(join(dir, "src", "main.ts"), "// changed\n");
+    assert.equal(atlasViewerFreshness(dist).status, "stale");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
