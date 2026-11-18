@@ -167,8 +167,13 @@ owned-only behavior and output shape.
 
 Imported qualification never contributes to the capture-qualified numerator.
 Missing imported failure classes and terminal states are excluded from those
-rates with explicit reasons; they are not observed zeroes. Exact structural
-attempt measures retain the importer's coverage limits.
+rates with explicit reasons; they are not observed zeroes. Structural metrics
+(latency, tokens, cost, tool operations, failures, repetitions and validation
+order) are attempt-level counts, and an imported document does not prove that
+the attempt was captured whole. They are unavailable for imported attempts, and
+each such metric gives the reason `CAPTURE_COMPLETENESS_UNPROVEN`. The counts
+of the recorded document stay in each import's mapping, and Atlas shows its
+units and occurrences.
 
 Comparison candidates bind imported origin to their indexed manifest and
 observation set. Admission overlay digests remain audit metadata rather than

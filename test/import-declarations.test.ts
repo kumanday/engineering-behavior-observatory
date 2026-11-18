@@ -95,3 +95,52 @@ test("an ATIF import's step timestamps and metrics give Atlas lanes and cloud ro
     } finally { connection.closeSync(); db.closeSync(); }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("a placeholder message on a tool-calling step is not a message unit, and a trial-named attempt keeps its whole id", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-import-placeholder-"));
+  try {
+    const base = JSON.parse(readFileSync(new URL("../../test/fixtures/atif/core/acme.json", import.meta.url), "utf8")) as { steps: Array<Record<string, unknown>> };
+    const steps = base.steps.map((step) => (Array.isArray(step.tool_calls) ? { ...step, message: "[tool call]" } : step));
+    writeFileSync(join(root, "source.json"), JSON.stringify({ ...base, steps }));
+    mkdirSync(join(root, "corpus"));
+    const attempt = "example-task__Abc1234";
+    const run = async (...args: string[]) => { let output = ""; const status = await main(args, (text) => { output += text; }); assert.equal(status, 0, output); return output; };
+    await run("atif", "import", join(root, "source.json"), join(root, "corpus", attempt), "--run", "run-0", "--attempt", attempt, "--task", "example-task", "--model", "Example-Model");
+    await run("corpus", "build", join(root, "corpus"), join(root, "index.jsonl"));
+    writeFileSync(join(root, "aggregation.json"), JSON.stringify({ schemaVersion: "ebo.aggregation-request/v2",
+      sources: { corpusRoot: "corpus", corpusIndex: "index.jsonl", observationSets: [], assertions: [], calibrations: [] },
+      groupBy: ["task", "model"], evidenceOrigins: "imported", selectedAttemptPolicy: "all-attempts", recurrence: { minimumOccurrences: 2 }, comparisons: [] }));
+    writeFileSync(join(root, "atlas.json"), JSON.stringify({ schemaVersion: "ebo.atlas-request/v1", title: "Placeholder", aggregationRequest: "aggregation.json" }));
+    writeFileSync(join(root, "bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "placeholder", title: "Placeholder", cohorts: [{ id: "all", atlasRequest: "atlas.json" }] }));
+    const { buildAtlasBundle } = await import("../src/atlas-bundle.js");
+    await buildAtlasBundle(join(root, "bundle.json"), join(root, "bundle"), { embed: async (texts: readonly string[], config: { dimensions: number }) => new Float32Array(texts.length * config.dimensions).fill(1) });
+    const { DuckDBInstance } = await import("@duckdb/node-api");
+    const db = await DuckDBInstance.create(":memory:", { autoinstall_known_extensions: "false", autoload_known_extensions: "false" });
+    const connection = await db.connect();
+    try {
+      const units = (await connection.runAndReadAll(`SELECT unit_kind, embed_text FROM '${join(root, "bundle", "tables", "units.parquet")}' ORDER BY seq`)).getRowObjectsJson();
+      assert.ok(!units.some(({ embed_text }) => String(embed_text).includes("[tool call]")), "no unit is the placeholder");
+      assert.equal(units.filter(({ unit_kind }) => unit_kind === "tool").length, 2, "the placeholder turns' calls stay tool units");
+      assert.ok(units.some(({ unit_kind, embed_text }) => unit_kind === "message" && embed_text === "Fixture inspection complete."), "a turn with text stays a message");
+    } finally { connection.closeSync(); db.closeSync(); }
+    const audit = JSON.parse(readFileSync(join(root, "bundle", "audit.json"), "utf8")) as { attempts: Record<string, { short: string }> };
+    assert.equal(audit.attempts[attempt]!.short, attempt, "a trial name is shown whole, not cut to its task prefix");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("an imported group's structural metrics say why they are unavailable", async () => {
+  const { emptyStructuralReason } = await import("../src/aggregation.js");
+  const imported = { status: "unavailable", reason: "CAPTURE_COMPLETENESS_UNPROVEN" };
+  assert.match(emptyStructuralReason([imported, imported]), /does not prove the attempt was captured whole.*CAPTURE_COMPLETENESS_UNPROVEN/u);
+  assert.equal(emptyStructuralReason([undefined]), "No attempt in the group has an observation set.");
+  assert.equal(emptyStructuralReason([{ status: "unavailable", reason: "SOURCE_UNREPORTED" }]), "Every attempt's observation is unavailable: SOURCE_UNREPORTED");
+  assert.equal(emptyStructuralReason([imported, undefined]), "The eligible denominator is empty.");
+});
+
+test("attempt ids read whole unless they are UUID or hex ids", async () => {
+  const { shortAttemptId } = await import("../src/atlas-bundle.js");
+  assert.equal(shortAttemptId("gcode-to-text__tC7K2Rc"), "gcode-to-text__tC7K2Rc");
+  assert.equal(shortAttemptId("3f2a9c1e-7b4d-4e2a-9c1e-7b4d4e2a9c1e"), "3f2a9c1e");
+  assert.equal(shortAttemptId("3f2a9c1e7b4d4e2a9c1e"), "3f2a9c1e");
+});
+

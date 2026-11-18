@@ -87,6 +87,8 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
     assert.equal(cards.ontology, "2.0.0");
     assert.deepEqual(cards.cards.map(({ id, family }) => [id, family]), [["EN-04", "EN"], ["VF-03", "VF"]], "judged cards are listed in ontology order");
     assert.deepEqual(cards.families.map(({ id }) => id), ["EN", "VF"]);
+    assert.ok(cards.cards.every((card) => { const { directions } = card as { directions?: string[] }; return Array.isArray(directions) && directions.length > 0
+      && directions.every((d) => ["favourable", "unfavourable", "neutral"].includes(d)); }), "each card lists the directions a present result can have");
     assert.deepEqual(cards.assessments.map(({ card, outcome, value }) => [card, outcome, value]).sort(), [
       ["EN-04", "unknown", null], ["VF-03", "absent", null], ["VF-03", "present", "check after the last edit"], ["VF-03", "present", "check after the last edit"],
       ["VF-03", "present", "last edit after the last check"], ["VF-03", "present", "no check recorded"]]);

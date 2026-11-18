@@ -73,6 +73,11 @@ export type AtlasBundleManifest = {
 };
 
 type Row = Record<string, string | number | boolean | null | string[]>;
+
+/** A UUID or hex id reads by its first eight characters; any other id (a leaderboard trial name) reads whole. */
+export function shortAttemptId(id: string): string {
+  return /^[0-9a-f]{8}(?:-?[0-9a-f]{4,})+$/iu.test(id) || /^[0-9a-f]{16,}$/iu.test(id) ? id.slice(0, 8) : id;
+}
 type Column = [name: string, type: "VARCHAR" | "BIGINT" | "DOUBLE" | "BOOLEAN" | "VARCHAR[]"];
 const S = "VARCHAR", I = "BIGINT", F = "DOUBLE", B = "BOOLEAN", L = "VARCHAR[]";
 
@@ -488,7 +493,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     for (const unit of ownUnits) unit.condition = arm;
 
     // Viewer documents for this attempt: cloud rows, swimlane, audit, native records and assessments.
-    const short = attemptId.slice(0, 8);
+    const short = shortAttemptId(attemptId);
     let carriedTime: number | null = null;
     const rowsOfAttempt: Array<AtlasUnit & Row & { row_id: number }> = [];
     for (const unit of ownUnits.filter((u) => u.embed).sort((a, b) => Number(a.seq) - Number(b.seq))) {
@@ -634,7 +639,8 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   const assessmentsDocument = { study: request.id, generated_by: `${ATLAS_BUNDLE_BUILDER.id} ${ATLAS_BUNDLE_BUILDER.version}`,
     outcomes: [...BEHAVIOR_VERDICTS], modes: [...BEHAVIOR_PRODUCER_MODES], directions: [...BEHAVIOR_DIRECTIONS], ontology: ontology.version,
     // The judged cards and their families in ontology order: the viewer's matrix rows.
-    cards: judgedCards.map(({ id, family, title }) => ({ id, family, title })),
+    cards: judgedCards.map((card) => ({ id: card.id, family: card.family, title: card.title,
+      directions: [...new Set(card.kind === "dimension" ? (card.values ?? []).map(({ direction }) => direction) : [card.direction])].filter((d): d is NonNullable<typeof d> => d !== undefined).sort() })),
     families: ontology.families.filter(({ id }) => judgedCards.some(({ family }) => family === id)).map(({ id, name }) => ({ id, name })),
     cohorts: [...reports].map(([id, view]) => ({ id, title: view.title, report: `reports/${id}.json`, certified: true })),
     attempts: attemptMeta, assessments: assessmentDocs, certified,
