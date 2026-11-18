@@ -182,7 +182,7 @@ availability and provider entitlement are separate prerequisites.
 
 ## Compile and run
 
-Use `ebo.experiment/v2`. Its `taskSet` entry is
+Use `ebo.harbor-experiment/v1`. Its `taskSet` entry is
 `{"kind":"harbor-task","taskSourceId":"<id>"}`. Model, harness,
 native-limit, tool-policy and capture-profile references retain their existing
 source-specific formats for Claude, Codex, Cursor and Pi. OpenHands and DeepSeek
@@ -200,7 +200,8 @@ integers; `{}` uses the native defaults. Their capture profile accepts
 Unsupported fields are rejected. Native telemetry gaps remain explicit, including
 Claude collector receipts that have not been independently checked.
 
-Save a `config/environments.json` manifest. Keys under `tasks` are the frozen
+Save a `config/environments.json` manifest (`ebo.smol-task-environments/v1`,
+one image binding per task). Keys under `tasks` are the frozen
 task-source IDs; grader keys are step names, or `single` for a single-step task.
 Each image binding records `image`, `baseImageDigest` and `recipeDigest` from
 the reusable runtime build. Task code does not need to enter a registry.
@@ -208,7 +209,8 @@ Use `localSetup` to prepare a private local parent from that image.
 
 ```json
 {
-  "schemaVersion": "ebo.smol-environments/v1",
+  "schemaVersion": "ebo.smol-task-environments/v1",
+  "target": "local",
   "platform": "linux/arm64",
   "runtimeArchiveDigest": "<worker.tgz SHA-256>",
   "libkrunSha256": "<bundled libkrun.dylib SHA-256>",
@@ -433,11 +435,11 @@ repeat an allocation by itself after an ambiguous response.
 
 ### Cloud environment manifest
 
-Use a v2 environment manifest with the existing task image bindings:
+Use the same task-environment manifest with a Cloud target:
 
 ```json
 {
-  "schemaVersion": "ebo.smol-environments/v2",
+  "schemaVersion": "ebo.smol-task-environments/v1",
   "target": "cloud",
   "platform": "linux/amd64",
   "cloud": {
@@ -531,7 +533,7 @@ and launch approval belong to the study operations files.
 
 ## Hierarchical image families
 
-Use `ebo.smol-environments/v3` for a shared image followed by prepared harness
+Use `ebo.smol-family-environments/v1` for a shared image followed by prepared harness
 parents and isolated trial children. Each compatible family has one OCI image.
 The coordinator creates one meta-parent per used family, branches a parent for
 each task/harness preparation, and lets the official Harbor provider branch the
@@ -540,7 +542,7 @@ prepared parent across harness conditions when their full identities match.
 
 ```json
 {
-  "schemaVersion": "ebo.smol-environments/v3",
+  "schemaVersion": "ebo.smol-family-environments/v1",
   "target": "cloud",
   "platform": "linux/amd64",
   "cloud": {

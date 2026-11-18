@@ -1132,7 +1132,7 @@ export default function (pi) {
   }
   const modelKey = String(records.model.model).replaceAll(".", "-");
   const experiment: ExperimentConfiguration = {
-    schemaVersion: "ebo.experiment/v1",
+    schemaVersion: "ebo.task-packet-experiment/v1",
     id: "pi-runner-fixture",
     taskSet: { task: { packetRef: { locator: "packets/task.json", digest: digestMetadata(packet) } } },
     modelSet: { [modelKey]: { configurationRef: { locator: "configs/model.json", digest: digestBytes(Buffer.alloc(0)) } } },

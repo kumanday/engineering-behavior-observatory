@@ -59,7 +59,7 @@ export async function createAtlasFixture(root: string, options: {decisionModel?:
     const { dataset } = await createAgentSdkBehaviorEvidence(bundleRoot);
     const event = dataset.events.find(({ source }) => source.nativeReference.artifactId === "session")!;
     const assertion: BehaviorAssertion = {
-      schemaVersion: "ebo.behavior-assertion/v1", id: `synthetic-assertion-${index}`, runId, attemptId,
+      schemaVersion: "ebo.behavior-assertion/v2", id: `synthetic-assertion-${index}`, runId, attemptId,
       dataset: { schemaVersion: dataset.schemaVersion, digest: sha(dataset) },
       // Attempts 0 to 4 judge one dimension card: three present with two different values, one absent. Attempt 5 is an abstention on another card.
       behavior: judged(index === 5 ? "EN-04" : "VF-03"), producer: llmProducer("synthetic-judge"),
@@ -77,7 +77,7 @@ export async function createAtlasFixture(root: string, options: {decisionModel?:
       const resultPath = join(root, `decision-${index}-${cardId}.json`); json(resultPath, result); assertions.push({ bundleRoot, path: resultPath });
     }
   }
-  const selection = await selectReviewSample({ schemaVersion: "ebo.review-source-set/v1", sources: reviewSources }, { schemaVersion: "ebo.review-sample-criteria/v1", seed: "atlas-synthetic", strata: [{ id: "all", sampleSize: 6, filters: {} }] });
+  const selection = await selectReviewSample({ schemaVersion: "ebo.review-source-set/v1", sources: reviewSources }, { schemaVersion: "ebo.review-sample-criteria/v2", seed: "atlas-synthetic", strata: [{ id: "all", sampleSize: 6, filters: {} }] });
   const historyPath = join(root, "history.json");
   let history: ReviewHistory | undefined;
   for (let index = 0; index < 4; index++) {

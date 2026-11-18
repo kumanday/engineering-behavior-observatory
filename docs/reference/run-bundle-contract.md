@@ -1,12 +1,12 @@
 # Run-bundle contract
 
 Run bundles retain the evidence needed to inspect one attempt without copying
-native harness payloads into a common event model. This contract is versioned
-as [`run-manifest/v1`](../../schemas/run-bundles/v1.json) and
-[`run-manifest/v2`](../../schemas/run-bundles/v2.json). Captures made inside a
-study runtime, which is every CLI capture, use v2 to retain their frozen runtime
-lock and launch receipt. A library capture outside a study runtime has no lock
-and writes v1. Queue-bound captures
+native harness payloads into a common event model. Its manifest is
+[`run-manifest/v2`](../../schemas/run-bundles/v2.json); the shared definitions
+and the export manifest are in [`schemas/run-bundles/v1.json`](../../schemas/run-bundles/v1.json).
+A capture made inside a study runtime, which is every CLI capture, retains its
+frozen runtime lock and launch receipt in `runtimeLock`. A library capture
+outside a study runtime has no lock and omits `runtimeLock`. Queue-bound captures
 also retain the study freeze and source assignment ID. Their executable run ID
 includes that freeze. The [runtime guide](study-runtimes.md) describes preparation
 and queue binding.

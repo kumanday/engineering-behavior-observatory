@@ -7,7 +7,7 @@ behavioral assessments to the evidence behind them. Use it to investigate a
 refactor, compare repeated trials, examine failures, or share a reviewable
 record of an open-ended engineering task.
 
-[Quickstart](docs/guides/quickstart.md) · [Documentation](https://ebo.kumanday.ai/docs/) ·
+[Map of EBO 2.0](docs/guides/ebo-2-map.md) · [Quickstart](docs/guides/quickstart.md) · [Documentation](https://ebo.kumanday.ai/docs/) ·
 [CLI reference](docs/reference/cli.md) ·
 [Releases](https://github.com/kumanday/engineering-behavior-observatory/releases) ·
 [Website](https://ebo.kumanday.ai/)

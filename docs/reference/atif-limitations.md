@@ -23,8 +23,8 @@ measures remain available alongside limitations on completeness or native semant
 
 ## Native version confidence
 
-Confidence appears in the retained verification result and native v2 source
-limitations. The default lane's dataset adds a version code only when the
+Confidence appears in the retained verification result and typed projection's source
+limitations. The analysis dataset adds a version code only when the
 bundle's own records fail to state the declared version or state another one.
 
 | Code | Meaning |

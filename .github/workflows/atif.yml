@@ -73,8 +73,7 @@ jobs:
             dist/test/leaderboard-*.test.js \
             dist/test/evidence-companions.test.js \
             dist/test/normalization-v2.test.js \
-            dist/test/native-v2.test.js \
-            dist/test/consumers-v2.test.js
+            dist/test/native-v2.test.js
         env:
           EBO_ATIF_TEST_PYTHON: '${{ github.workspace }}/.atif-venv/bin/python'
           EBO_LEADERBOARD_TEST_PYTHON: '${{ github.workspace }}/.atif-venv/bin/python'

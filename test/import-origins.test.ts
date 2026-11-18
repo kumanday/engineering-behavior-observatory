@@ -128,7 +128,7 @@ test("an unknown producer and owned capture build a mixed Atlas cohort with exac
     assert.match(renderAtlas(view, false), /output includes reasoning and tool calls/u);
     writeFileSync(join(root, "claims-source.json"), JSON.stringify({ study: "imported-test", source: { file: "synthetic", title: "Synthetic" }, number_kinds: {},
       claims: [{ id: "C1", type: "descriptive", text: "Synthetic citation test.", source_section: "fixture", numbers: [], support: [assertion.id] }] }));
-    writeFileSync(join(root, "bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v1", id: "imported-test", title: "Imported Pi", claims: "claims-source.json", cohorts: [{ id: "pi", atlasRequest: "atlas.json" }] }));
+    writeFileSync(join(root, "bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "imported-test", title: "Imported Pi", claims: "claims-source.json", cohorts: [{ id: "pi", atlasRequest: "atlas.json" }] }));
     const out = join(root, "atlas-bundle");
     const manifest = await buildAtlasBundle(join(root, "bundle.json"), out);
     assert.equal(manifest.tables.attempts!.rows, 1);
@@ -150,7 +150,7 @@ test("an unknown producer and owned capture build a mixed Atlas cohort with exac
     aggregation.sources.observationSets = [...aggregation.sources.observationSets, { bundleRoot: "corpus/pi-owned", path: join(ownedRoot, "observations-0.json") }];
     writeFileSync(join(root, "mixed-aggregation.json"), JSON.stringify(aggregation));
     writeFileSync(join(root, "mixed-atlas.json"), JSON.stringify({ schemaVersion: "ebo.atlas-request/v1", aggregationRequest: "mixed-aggregation.json", title: "Mixed origins" }));
-    writeFileSync(join(root, "mixed-bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v1", id: "mixed-test", title: "Mixed origins", claims: "claims-source.json", condition: { pattern: "(?<condition>pi)" }, cohorts: [{ id: "mixed", atlasRequest: "mixed-atlas.json" }] }));
+    writeFileSync(join(root, "mixed-bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "mixed-test", title: "Mixed origins", claims: "claims-source.json", condition: { pattern: "(?<condition>pi)" }, cohorts: [{ id: "mixed", atlasRequest: "mixed-atlas.json" }] }));
     const mixedOut = join(root, "mixed-atlas-bundle"); await buildAtlasBundle(join(root, "mixed-bundle.json"), mixedOut);
     const mixedDoc = JSON.parse(readFileSync(join(mixedOut, "assessments.json"), "utf8"));
     assert.deepEqual(new Set(mixedDoc.attempts.map(({ condition }: { condition: string }) => condition)), new Set(["Owned · pi", "Imported · pi"]));
@@ -176,7 +176,7 @@ judgeTest("semantic judging uses every retained model/route alias and never requ
     assert.deepEqual(new Set(imported.evidence.modelAliases), new Set(["provider/Model[route]", "Model[route]", "served-model", "synthetic-model"]));
     const observations = await createRetainedStructuralObservationSet(bundleRoot);
     const event = imported.evidence.dataset.events.find(({ family, attributes }) => family === "message" && attributes.role === "assistant")!;
-    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "test", behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
+    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v2", id: "test", behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
       rubric: { id: "r", version: "1", instructions: "Inspect source behavior." }, evaluator: { provider: "anthropic", model: "judge", effort: "low" },
       selection: { eventIds: [event.id], structuralObservationIds: [], includeOutcomeObservations: false },
       limits: { maxEvidenceItems: 10, maxRecordChars: 8_000, maxInputChars: 32_000, maxOutputChars: 8_192, maxCitations: 4, maxWallClockMs: 5_000, maxTurns: 1 }, blinding: { evaluatedModelIdentity: "redact" } };

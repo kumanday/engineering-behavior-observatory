@@ -12,7 +12,7 @@
       "required": ["id", "schemaVersion", "digest"],
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
-        "schemaVersion": { "const": "ebo.behavior-assertion/v1" },
+        "schemaVersion": { "const": "ebo.behavior-assertion/v2" },
         "digest": { "$ref": "#/$defs/digest" }
       }
     },
@@ -73,7 +73,7 @@
       "additionalProperties": false,
       "required": ["schemaVersion", "seed", "strata"],
       "properties": {
-        "schemaVersion": { "const": "ebo.review-sample-criteria/v1" },
+        "schemaVersion": { "const": "ebo.review-sample-criteria/v2" },
         "seed": { "$ref": "#/$defs/identifier" },
         "strata": {
           "type": "array",
@@ -126,7 +126,7 @@
       "additionalProperties": false,
       "required": ["schemaVersion", "createdAt", "sources", "criteria", "population", "candidates"],
       "properties": {
-        "schemaVersion": { "const": "ebo.review-sample/v1" },
+        "schemaVersion": { "const": "ebo.review-sample/v2" },
         "createdAt": { "type": "string", "format": "date-time" },
         "sources": { "$ref": "#/$defs/sourceSet" },
         "criteria": { "$ref": "#/$defs/criteria" },
@@ -196,7 +196,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["schemaVersion", "digest"],
-      "properties": { "schemaVersion": { "const": "ebo.review-sample/v1" }, "digest": { "$ref": "#/$defs/digest" } }
+      "properties": { "schemaVersion": { "const": "ebo.review-sample/v2" }, "digest": { "$ref": "#/$defs/digest" } }
     },
     "history": {
       "type": "object",
@@ -253,7 +253,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["schemaVersion", "selection", "history", "totals", "modes", "cards"],
       "properties": {
-        "schemaVersion": { "const": "ebo.calibration-summary/v1" },
+        "schemaVersion": { "const": "ebo.calibration-summary/v2" },
         "selection": { "$ref": "#/$defs/selectionBinding" },
         "history": {
           "type": "object", "additionalProperties": false, "required": ["schemaVersion", "digest"],
@@ -275,7 +275,7 @@
       "additionalProperties": false,
       "required": ["schemaVersion", "createdAt", "selection", "evidenceBoundary", "items"],
       "properties": {
-        "schemaVersion": { "const": "ebo.review-packet/v1" },
+        "schemaVersion": { "const": "ebo.review-packet/v2" },
         "createdAt": { "type": "string", "format": "date-time" },
         "selection": { "$ref": "#/$defs/selectionBinding" },
         "evidenceBoundary": {

@@ -1,5 +1,5 @@
 // EBO Atlas viewer: Embedding Atlas + EBO panels on one Mosaic coordinator over DuckDB-WASM.
-// Data: one Atlas bundle (ebo.atlas-bundle/v1) at ?bundle=<url> (default ./bundle/, as `ebo atlas serve` and packets
+// Data: one Atlas bundle (ebo.atlas-bundle/v2) at ?bundle=<url> (default ./bundle/, as `ebo atlas serve` and packets
 // lay it out). Other parameters: labels=facet|auto, color=<column>|none, panel=<tab>.
 // Everything that changes on screen goes through the command registry (registry.ts); the state serializes to the URL.
 import "./tokens.css";

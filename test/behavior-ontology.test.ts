@@ -20,7 +20,6 @@ import {
 } from "../src/index.js";
 import { containsPortableLocalHomePath, containsPortableSecretPattern } from "../src/exports.js";
 import { semanticJudgeResponseSchema } from "../src/semantic-judge.js";
-import { semanticJudgeAnswerSchemaV2 } from "../src/model-contracts-v2.js";
 
 const ontologyText = readFileSync(new URL("../../ontology/behavior-ontology.v2.json", import.meta.url), "utf8");
 const referenceText = readFileSync(new URL("../../docs/reference/behavior-ontology.md", import.meta.url), "utf8");
@@ -177,10 +176,6 @@ test("every schema and model contract states the same verdicts", () => {
   assert.deepEqual(assertions.llmJudgment.oneOf.map(({ $ref }: { $ref: string }) => assertions[$ref.split("/").at(-1)!].properties.verdict.const), verdicts);
   assert.equal(assertions.decisionModelJudgment.properties.verdict.$ref, "#/$defs/verdict");
   assert.deepEqual(assertions.producerMode.enum, [...BEHAVIOR_PRODUCER_MODES]);
-  const consumers = schema("consumers.v2.json").$defs;
-  assert.deepEqual(consumers.judgeAnswer.properties.verdict.enum, verdicts, "the typed answer schema is sent to a model, so it states the list inline");
-  assert.equal(consumers.assertion.properties.verdict.$ref, "urn:ebo:schema:behavior-assertions:v1#/$defs/verdict");
-  assert.deepEqual((semanticJudgeAnswerSchemaV2().properties as Record<string, { enum?: string[] }>).verdict!.enum, verdicts);
   assert.deepEqual(schema("aggregation.v1.json").$defs.behaviorAggregate.properties.verdicts.allOf.map((rule: any) => rule.contains.properties.verdict.const), verdicts);
   const branches = (values?: string[]) => (semanticJudgeResponseSchema(4, false, values).properties as any).judgment.anyOf as Array<{ properties: Record<string, any> }>;
   assert.deepEqual(branches().map(({ properties }) => properties.verdict.const), verdicts);

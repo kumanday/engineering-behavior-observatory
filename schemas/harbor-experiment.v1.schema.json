@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ebo.dev/schemas/experiment.v2.schema.json",
-  "title": "EBO experiment v2 (discriminated task sources)",
+  "$id": "https://ebo.dev/schemas/harbor-experiment.v1.schema.json",
+  "title": "EBO Harbor experiment (discriminated task sources)",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -17,7 +17,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": "ebo.experiment/v2"
+      "const": "ebo.harbor-experiment/v1"
     },
     "id": {
       "type": "string",

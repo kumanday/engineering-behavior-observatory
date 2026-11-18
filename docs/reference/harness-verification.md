@@ -145,7 +145,7 @@ Selection is deterministic and independent of timestamps. Withdrawal of a
 replacement never reactivates its superseded receipts. Neither action changes
 snapshots already frozen into studies.
 
-New freezes use `ebo.study-runtime-lock/v2` and retain the selected receipts,
+Freezes use `ebo.study-runtime-lock/v2` and retain the selected receipts,
 admissions and catalog digest. Runs use `ebo.runtime-launch/v2`; their
 `run-manifest/v2` retains `runtime/harness-verification.json` alongside its lock
 and launch receipt. The run selects capture claims by capture-profile digest

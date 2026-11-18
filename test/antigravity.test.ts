@@ -1,8 +1,5 @@
 import { exportAntigravityAtif } from "../src/antigravity-atif.js";
 import { createRetainedBehaviorEvidenceV2 } from "../src/native-v2.js";
-import { operationContentV2 } from "../src/analysis-v2.js";
-import { createOccurrenceLedgerV2 } from "../src/occurrences-v2.js";
-import { prepareOccurrenceRatingInputsV2 } from "../src/ratings-v2.js";
 import { inspectAtifBytes } from "../src/atif-reader.js";
 import assert from "node:assert/strict";
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -127,7 +124,7 @@ test("Antigravity keeps tool failures and unknown native events without inventin
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("Antigravity v2 rating inputs retain tool error diagnostics with and without output", async () => {
+test("Antigravity typed projection retains tool error diagnostics with and without output", async () => {
   const root = await temporaryRoot();
   try {
     for (const scenario of ["tool-error", "tool-error-no-output"]) {
@@ -140,15 +137,9 @@ test("Antigravity v2 rating inputs retain tool error diagnostics with and withou
       const retained = await createRetainedBehaviorEvidenceV2(bundle);
       const operation = retained.dataset.operations.find(op => op.identity.kind === "tool")!;
       assert.deepEqual(operation.failure, { status: "known", value: true });
-      const diagnostic = operationContentV2(retained.dataset, operation, retained.resolver, "tool-error");
-      assert.deepEqual(diagnostic.values.map(value => ({ ...(value as Record<string, unknown>) })), [{ type: "execution", message: "failed" }]);
-      assert.equal(diagnostic.citations.length, 1);
-      assert.ok(diagnostic.citations[0]!.nativeReference.recordLocator.endsWith("/tool_info/error"));
-      const ledger = await createOccurrenceLedgerV2(retained.dataset, retained.resolver);
-      const rating = (await prepareOccurrenceRatingInputsV2(retained, ledger)).find(row => row.type === "validation-run")!;
-      assert.ok(rating.state.operations.find(op => op.id === operation.id)!.output.content.includes("failed"));
-      assert.ok(rating.citations.some(c => c.nativeReference.recordLocator === diagnostic.citations[0]!.nativeReference.recordLocator));
-      if (scenario === "tool-error-no-output") assert.deepEqual(operationContentV2(retained.dataset, operation, retained.resolver, "tool-result").values, []);
+      // The typed projection keeps the native error record as evidence of the failed operation.
+      const scoped = retained.dataset.events.filter(event => event.scope.kind === "operation" && event.scope.id === operation.id);
+      assert.ok(scoped.some(event => event.content.status === "known" && event.content.value.some(({ role, nativeReference }) => role === "tool-error" && nativeReference.recordLocator.endsWith("/tool_info/error"))));
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });

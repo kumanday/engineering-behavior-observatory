@@ -95,7 +95,7 @@ ebo judge prepare <run-bundle-root> <observations.json> <spec.json> <request.jso
 ebo judge run <run-bundle-root> <observations.json> <request.json> <output-root> [--ratings <ratings.json>]
 ```
 
-The spec (`ebo.judge-prepare-spec/v1`) holds the request fields (behavior,
+The spec (`ebo.judge-prepare-spec/v2`) holds the request fields (behavior,
 rubric, evaluator, limits, blinding) and the occurrence types for the ledger.
 The prepared request records:
 

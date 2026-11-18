@@ -104,7 +104,7 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
   const sourceId = `native:${harness}`;
   const events: UniformEventV2[] = expanded.map((event, index) => {
     const { nativeTime: _nativeTime, source: _source, ...rest } = structuredClone(event), projected = projections[index]!;
-    return { ...rest, schemaVersion: "ebo.uniform-event/v2", source: { sourceId, nativeType: event.source.nativeType, nativeReference: event.source.nativeReference },
+    return { ...rest, schemaVersion: "ebo.typed-event/v1", source: { sourceId, nativeType: event.source.nativeType, nativeReference: event.source.nativeReference },
       clock: projected.clock, facts: projected.facts, family: projected.family ?? event.family, phase: projected.phase ?? event.phase,
       nativeOrder: projected.nativeOrder ?? event.nativeOrder, content: projected.content ?? event.content };
   });
@@ -133,7 +133,7 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
   if (evidence.dataset.capabilityProfile.limitations?.includes("HARNESS_VERSION_CONFLICT")) fallback.limitations.push("HARNESS_VERSION_CONFLICT");
   const verification = evidence.verification ?? fallback;
   const sourceLimitations = [...new Set([...(evidence.dataset.capabilityProfile.limitations ?? []).filter(code => !["HARNESS_VERSION_UNVERIFIED", "HARNESS_CAPTURE_UNVERIFIED", "HARNESS_VERIFICATION_CONFLICT", "HARNESS_VERSION_CONFLICT"].includes(code)), ...verification.limitations])];
-  const dataset: NormalizedDatasetV2 = { schemaVersion: "ebo.normalized-dataset/v2", runId: population.runId, attemptId: population.attemptId,
+  const dataset: NormalizedDatasetV2 = { schemaVersion: "ebo.typed-dataset/v1", runId: population.runId, attemptId: population.attemptId,
     normalizer: { id: profile.id, version: profile.version, implementationDigest },
     origin: { kind: "owned", qualification: evidence.capture.qualification, manifestDigest: binding.manifestDigest },
     sources: [{ id: sourceId, format: { kind: "native", version: "ebo.run-bundle/v1" }, reader: { id: profile.id, version: profile.version, implementationDigest },
@@ -153,7 +153,7 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
 export async function createRetainedBehaviorEvidenceV2(bundleRoot: string): Promise<RetainedBehaviorEvidenceV2> {
   const bytes = readBoundedFile(join(bundleRoot, "manifest.json"), "Retained v2 manifest");
   const manifest = JSON.parse(bytes.toString("utf8")) as { schemaVersion?: string; run?: { harness?: { version?: string }; model?: { id?: string } } };
-  if (["ebo.import-manifest/v1", "ebo.import-manifest/v2"].includes(manifest.schemaVersion ?? "")) return (await import("./atif-v2.js")).readImportedBehaviorEvidenceV2(bundleRoot);
+  if (manifest.schemaVersion === "ebo.import-manifest/v2") return (await import("./atif-v2.js")).readImportedBehaviorEvidenceV2(bundleRoot);
   const evidence = await createRetainedBehaviorEvidence(bundleRoot);
   if (!manifest.run?.harness?.version) throw new Error("Native v2 manifest has no executed harness version.");
   return projectNativeEvidenceV2(evidence, { manifestDigest: `sha256:${digestBytes(bytes).value}`, harnessVersion: manifest.run.harness.version, modelAliases: manifest.run.model?.id ? [manifest.run.model.id] : [] });

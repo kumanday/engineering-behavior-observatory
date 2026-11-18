@@ -6,7 +6,7 @@ import json
 import os
 import pathlib
 
-SCHEMAS = {"ebo.behavior-assertion/v1", "ebo.structural-observation-set/v1",
+SCHEMAS = {"ebo.behavior-assertion/v2", "ebo.structural-observation-set/v1",
            "ebo.occurrence-ratings/v1", "ebo.semantic-judgment/v1"}
 SKIP = {"node_modules", ".git", ".venv", "workspace", "baseline", "repository", "repo",
         "environment", "source", "staging", "__pycache__", "screenshots"}

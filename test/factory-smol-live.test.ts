@@ -55,13 +55,13 @@ name = "proof"
   const workerRef = ref("worker", { schemaVersion: "ebo.harbor-worker-runtime/v2", studyLockDigest: lock.digest, archive, node: "node", entrypoint: "dist/src/harbor/worker.js", environmentKeys: [credential] });
   const build = JSON.parse(readFileSync(join(dirname(process.env.EBO_HARBOR_RUNTIME!), "image-build.json"), "utf8"));
   const binding = { image: process.env.EBO_SMOL_IMAGE!, recipeDigest: build.recipeDigest, baseImageDigest: build.baseImageDigest };
-  const environmentRef = ref("environments", { schemaVersion: "ebo.smol-environments/v1", platform: "linux/arm64", runtimeArchiveDigest: archive.digest.value,
+  const environmentRef = ref("environments", { schemaVersion: "ebo.smol-task-environments/v1", target: "local", platform: "linux/arm64", runtimeArchiveDigest: archive.digest.value,
     libkrunSha256: process.env.EBO_SMOL_LIBKRUN_SHA256, tasks: { [id]: { agent: binding, graders: { proof: binding } } } });
   const schemaVersion = "ebo.factory-config/v1";
   const model = { schemaVersion, kind: "model", provider: byok ? "fireworks" : "factory", model: process.env.EBO_LIVE_FACTORY_MODEL!,
     reasoningEffort: process.env.EBO_LIVE_FACTORY_EFFORT ?? "low", credentialEnv: credential,
     ...(byok ? { route: { kind: "byok", provider: "generic-chat-completion-api", baseUrl: "https://api.fireworks.ai/inference/v1", maxOutputTokens: 4096 } } : {}) };
-  const queue = await compileHarborRunQueue({ schemaVersion: "ebo.experiment/v2", id: "factory-live-smol",
+  const queue = await compileHarborRunQueue({ schemaVersion: "ebo.harbor-experiment/v1", id: "factory-live-smol",
     taskSet: { task: { kind: "harbor-task", taskSourceId: id } }, modelSet: { model: { configurationRef: ref("model", model) } },
     harnessSet: { "factory-droid": { configurationRef: ref("harness", { schemaVersion, kind: "harness", adapter: "factory-droid",
       executable: "/opt/ebo/factory-cli/node_modules/.bin/droid", version: lock.groups.flatMap(g => g.roots).find(r => r.id === "droid-cli")!.selection.release.version, sdkVersion: lock.groups.flatMap(g => g.roots).find(r => r.id === "droid-sdk")!.selection.release.version, contractDigest: FACTORY_CONTRACT_DIGEST }),

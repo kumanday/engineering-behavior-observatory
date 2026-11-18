@@ -10,7 +10,6 @@ import { importAtifFile, readImportedBehaviorEvidence } from "../src/atif-import
 import { readImportedBehaviorEvidenceV2 } from "../src/atif-v2.js";
 import { createHash } from "node:crypto";
 import { main } from "../src/cli.js";
-import { loadRetainedAnalysisV2 } from "../src/analysis-v2-cli.js";
 import { createRetainedBehaviorEvidence } from "../src/retained-evidence.js";
 
 test("EBO validates a conforming unknown producer without a Harbor installation", async () => {
@@ -39,7 +38,7 @@ test("the public CLI and retained loaders accept an unknown producer without a p
     const status = await main(["atif", "import", source, destination, "--run", "cli", "--attempt", "a"], (text) => { output += text; });
     assert.equal(status, 0, output);
     assert.ok((await createRetainedBehaviorEvidence(destination)).dataset.events.length > 0);
-    assert.ok((await loadRetainedAnalysisV2(destination)).dataset.events.length > 0);
+    assert.ok((await readImportedBehaviorEvidenceV2(destination)).dataset.events.length > 0);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -178,28 +177,24 @@ test("standard metrics, timestamps, references and different-version children pr
   assert.ok(evidence.dataset.measurements.every(({ scope }) => scope.kind === "recorded-document"));
 });
 
-test("typed structural measures stay document-scoped across embedded source documents", async () => {
-  const { createStructuralObservationSetV2 } = await import("../src/analysis-v2.js");
+test("typed measurements stay document-scoped across embedded source documents", async () => {
   const source = { schema_version: "ATIF-v1.8", agent: { name: "acme-agent" }, steps: [{ step_id: 1, source: "agent", message: "Parent.", llm_call_count: 1 }],
     subagent_trajectories: [{ schema_version: "ATIF-v1.7", trajectory_id: "child", agent: { name: "child" }, steps: [{ step_id: 1, source: "agent", message: "Child.", llm_call_count: 1 }] }] };
   const evidence = await projectAtifV2({ read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "document-measures", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` });
-  const observations = await createStructuralObservationSetV2(evidence.dataset, evidence.resolver);
-  assert.ok(observations.observations.every(({ scope }) => scope.kind === "recorded-document"));
-  assert.equal(observations.observations.filter(({ measure }) => measure === "declared-inference-count").length, 2);
+  assert.ok(evidence.dataset.measurements.every(({ scope }) => scope.kind === "recorded-document"));
+  assert.equal(evidence.dataset.measurements.filter(({ id }) => id === "source-declared-inference-count").length, 2);
 });
 
-test("legacy entry points and Atlas resolve an unknown producer through the same core", async () => {
+test("legacy entry points resolve an unknown producer through the same core", async () => {
   const { normalizePiAtif } = await import("../src/atif-pi.js");
   const { projectAdditionalAtifV2 } = await import("../src/atif-additional-v2.js");
-  const { buildAtlasViewV2 } = await import("../src/atlas-v2.js");
   const source = { schema_version: "ATIF-v1.7", agent: { name: "acme-agent", version: "9.9.9" }, steps: [{ step_id: 1, source: "agent", message: "Visible record.", llm_call_count: 1,
     tool_calls: [{ tool_call_id: "c", function_name: "read", arguments: {} }], observation: { results: [{ source_call_id: "c", content: "retained" }] } }] };
   const input = { read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "all-entrypoints", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` as const };
-  const legacy = await normalizePiAtif(input), typed = await projectAdditionalAtifV2(input), view = await buildAtlasViewV2(typed);
+  const legacy = await normalizePiAtif(input), typed = await projectAdditionalAtifV2(input);
   assert.ok(legacy.dataset.events.length > 0);
   assert.equal(typed.dataset.operations.length, 1);
-  assert.ok(view.units.some(({ kind }) => kind === "tool"));
-  assert.ok(view.units.some(({ kind }) => kind === "message"));
+  assert.ok(typed.dataset.events.some(({ family }) => family === "message"));
 });
 
 test("blank source identifiers retain recorded content without inventing native identities", async () => {
@@ -223,7 +218,7 @@ test("declared final metrics cite their recorded fields with spec units", async 
   assert.ok(measure.sourceEventIds.some((id) => evidence.dataset.events.find((event) => event.id === id)?.source.nativeReference.recordLocator === "#/final_metrics/total_cost_usd"));
 });
 
-test("legacy v1 admission profile data never gates current core reinterpretation", async () => {
+test("an import manifest of an earlier version is refused as unsupported", async () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-v1-admission-"));
   try {
     const sourcePath = join(root, "source.json"), destination = join(root, "import");
@@ -233,14 +228,10 @@ test("legacy v1 admission profile data never gates current core reinterpretation
     manifest.schemaVersion = "ebo.import-manifest/v1"; manifest.producerAuthority = "operator-declared";
     manifest.profile = { status: "supported", id: "retired-exact-fingerprint", digest: `sha256:${"1".repeat(64)}` };
     delete manifest.overlays; delete manifest.interpretation;
-    const frozen = Buffer.from(`${JSON.stringify(manifest)}\n`);writeFileSync(join(destination, "manifest.json"), frozen);
-    assert.ok((await readImportedBehaviorEvidence(destination)).dataset.events.length > 0);
-    const evidence = await readImportedBehaviorEvidenceV2(destination);
-    assert.equal(evidence.dataset.operations.length, 2); assert.equal(evidence.interpretationRevision?.changed, true);
-    assert.deepEqual(readFileSync(join(destination, "manifest.json")), frozen);
+    writeFileSync(join(destination, "manifest.json"), `${JSON.stringify(manifest)}\n`);
+    await assert.rejects(readImportedBehaviorEvidenceV2(destination), /unsupported|Unsupported/u);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
-
 
 test("standard semantic projection is independent of arbitrary producer names and operator fingerprints", async () => {
   const original = JSON.parse(readFileSync(new URL("../../test/fixtures/atif/core/acme.json", import.meta.url), "utf8"));
@@ -261,9 +252,7 @@ test("duplicate IDs within one step retain call records without inventing logica
   assert.equal(evidence.dataset.events.filter(({ family, phase }) => family === "tool" && phase === "before").length, 2);
   assert.ok(evidence.dataset.operations.every(({ scope }) => scope.status === "unknown"));
   assert.equal(evidence.dataset.operations.some(({ callEventIds, resultEventIds }) => callEventIds.length > 0 && resultEventIds.length > 0), false);
-  const set = await (await import("../src/analysis-v2.js")).createStructuralObservationSetV2(evidence.dataset, evidence.resolver);
-  assert.equal(set.observations.find(({ measure }) => measure === "tool-operation-count")!.value.status, "unknown");
-  assert.deepEqual(set.observations.find(({ measure }) => measure === "source-tool-operation-count")!.value, { status: "known", value: 2 });
+  assert.deepEqual(evidence.dataset.measurements.find(({ id }) => id === "source-tool-operation-count")!.value, { status: "known", value: 2 });
 });
 
 test("the admission interpretation binds changes to the compatibility projector independently of core", async () => {
@@ -292,11 +281,11 @@ test("generic token values retain ATIF source definitions separately from common
     final_metrics: { total_prompt_tokens: 22, total_completion_tokens: 4, total_cached_tokens: 8 } };
   const input = { read: inspectAtifBytes(Buffer.from(JSON.stringify(source))), runId: "token-definitions", attemptId: "a", manifestDigest: `sha256:${"0".repeat(64)}` as const };
   const evidence = await projectAtifV2(input);
-  const { createStructuralObservationSetV2 } = await import("../src/analysis-v2.js");
-  const observations = await createStructuralObservationSetV2(evidence.dataset, evidence.resolver);
-  const prompt = observations.observations.filter(({ measure }) => measure === "resource-prompt_tokens-unknown-source-declared");
-  assert.deepEqual(prompt.map(({ value }) => value.status === "known" ? value.value : null).sort((a, b) => Number(a) - Number(b)), [10, 12]);
-  assert.ok(prompt.every(({ scope, citations }) => scope.kind === "recorded-document" && citations.length > 0));
+  // Each step's token values stay source-declared resource facts with their own native record.
+  const prompt = evidence.dataset.events.flatMap(({ facts, source }) => facts.resource?.authority === "source-declared" && facts.resource.semantics !== "cumulative-final"
+    && typeof facts.resource.values.prompt_tokens === "number" ? [{ value: facts.resource.values.prompt_tokens, locator: source.nativeReference.recordLocator }] : []);
+  assert.deepEqual(prompt.map(({ value }) => value).sort((a, b) => a - b), [10, 12]);
+  assert.ok(prompt.every(({ locator }) => locator.length > 0));
   const { normalizeAtif } = await import("../src/atif-normalizer.js");
   const normalized = await normalizeAtif(input);
   assert.equal(normalized.mapping.producerStatus, "supported");

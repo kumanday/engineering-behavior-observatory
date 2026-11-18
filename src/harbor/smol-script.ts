@@ -130,15 +130,14 @@ def runtime_provenance(manifest, frozen_versions):
             'python': platform.python_version(), 'host': platform.node(), 'platform': 'linux/arm64'}
 
 def validate_environment_manifest(manifest):
-    if manifest.get('schemaVersion') in {'ebo.smol-environments/v2', 'ebo.smol-environments/v3'} and 'target' not in manifest:
-        raise ValueError('Smol manifest v2 requires an explicit target')
-    local = manifest.get('target', 'local') == 'local'
-    if manifest.get('schemaVersion') not in {'ebo.smol-environments/v1', 'ebo.smol-environments/v2', 'ebo.smol-environments/v3'}:
+    if manifest.get('schemaVersion') not in {'ebo.smol-task-environments/v1', 'ebo.smol-family-environments/v1'}:
         raise ValueError('Expected versioned Smol environment manifest')
+    if 'target' not in manifest:
+        raise ValueError('Smol environment manifest requires an explicit target')
+    local = manifest.get('target') == 'local'
     if manifest.get('target', 'local') not in {'local', 'cloud'}: raise ValueError('Invalid Smol target')
     if local and manifest.get('platform') != 'linux/arm64': raise ValueError('Local Smol requires linux/arm64')
     if not local:
-        if manifest['schemaVersion'] not in {'ebo.smol-environments/v2', 'ebo.smol-environments/v3'}: raise ValueError('Cloud requires manifest v2')
         if manifest.get('platform') not in {'linux/arm64', 'linux/amd64'}: raise ValueError('Unsupported Cloud architecture')
         from urllib.parse import urlsplit
         import re

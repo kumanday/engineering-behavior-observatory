@@ -258,7 +258,7 @@
       "additionalProperties": false,
       "required": ["schemaVersion", "policy", "sourcePopulation", "sourceLineage", "groups", "comparisons", "limitations"],
       "properties": {
-        "schemaVersion": { "const": "ebo.aggregation-report/v1" },
+        "schemaVersion": { "const": "ebo.aggregation-report/v2" },
         "policy": {
           "type": "object", "additionalProperties": false, "required": ["groupBy", "selectedAttemptPolicy", "recurrence"],
           "properties": {

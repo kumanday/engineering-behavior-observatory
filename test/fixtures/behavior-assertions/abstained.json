@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "ebo.behavior-assertion/v1",
+  "schemaVersion": "ebo.behavior-assertion/v2",
   "id": "assertion-abstained",
   "runId": "run-behavior-fixture",
   "attemptId": "attempt-behavior-fixture",

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import type { StudyRuntimeBinding } from "./runtime-context.js";
 import { runRuntimeCommandLine } from "./runtime-cli.js";
-import { runAnalysisV2Command } from "./analysis-v2-cli.js";
 
 import { importLeaderboardCohort, readLeaderboardCohort, type LeaderboardCohortRequest } from "./leaderboard-import.js";
 import { parseImportJson, readClosedImportFile, type Hash as ImportHash } from "./leaderboard-source.js";
@@ -92,8 +91,6 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo queue inspect <queue.json>
        ebo queue validate <queue.json> [experiment.json] [--bundle-root <bundle-root>]
        ebo harbor <inspect|prepare|admit|freeze|status|doctor|compile|convert-legacy|environment|job|run> ...
-       ebo v2 inspect <retained-bundle> <new-directory>
-       ebo v2 prepare-judge <retained-bundle> <new-directory> <request.json>
        ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...
        ebo atif overlays
        ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--profile <overlay-context-id>] [--python <executable>]
@@ -174,7 +171,6 @@ export function main(
 
   if (args[0] === "runtime") return runRuntimeCommandLine(args.slice(1), write);
 
-  if (args[0] === "v2") return runAnalysisV2Command(args.slice(1), write);
 
   if (args[0] === "atif") return runAtifInspection(args.slice(1), write);
 
@@ -495,12 +491,12 @@ export function main(
     const errors = artifacts.flatMap(({ artifact, document, error }) => {
       if (error !== undefined) return [error];
       if (document !== undefined && typeof document === "object" && document !== null
-          && (document as { schemaVersion?: unknown }).schemaVersion === "ebo.run-queue/v1") {
+          && (document as { schemaVersion?: unknown }).schemaVersion === "ebo.task-packet-queue/v1") {
         return validateRunQueue(document, undefined, artifact);
       }
       const validation = validateArtifact(artifact, document);
       return document !== undefined && typeof document === "object" && document !== null
-        && ["run-manifest/v1", "run-manifest/v2"].includes(String((document as { schemaVersion?: unknown }).schemaVersion))
+        && "run-manifest/v2" === (String((document as { schemaVersion?: unknown }).schemaVersion))
         ? [...validation, ...validateRunManifestEvidence(artifact, document, dirname(artifact))]
         : validation;
     });
@@ -509,7 +505,7 @@ export function main(
           || (document as { schemaVersion?: unknown }).schemaVersion !== "export-manifest/v1") continue;
       const bundleId = (document as { bundleId?: unknown }).bundleId;
       const containingEntry = artifacts.find(({ document: candidate }) => candidate !== undefined && typeof candidate === "object" && candidate !== null
-        && ["run-manifest/v1", "run-manifest/v2"].includes(String((candidate as { schemaVersion?: unknown }).schemaVersion))
+        && "run-manifest/v2" === (String((candidate as { schemaVersion?: unknown }).schemaVersion))
         && (candidate as { bundleId?: unknown }).bundleId === bundleId);
       errors.push(...validateExportManifest(
         artifact,

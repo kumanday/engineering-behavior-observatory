@@ -277,7 +277,7 @@ function projectManifest(root: string, manifestPath: string): CorpusIndexEntry {
     return entry;
   }
   const schemaVersion = isRecord(document) ? document.schemaVersion : undefined;
-  entry.manifestKind = ["run-manifest/v1", "run-manifest/v2"].includes(String(schemaVersion)) ? "run"
+  entry.manifestKind = schemaVersion === "run-manifest/v2" ? "run"
     : schemaVersion === "export-manifest/v1" ? "export" : isAtifImportSchema(schemaVersion) ? "import" : "unknown";
   entry.issues.push(...validateArtifact(manifestPath, document).map(({ field, message }) => ({ field, message })));
   if (!isRecord(document)) return entry;
@@ -295,8 +295,7 @@ function projectManifest(root: string, manifestPath: string): CorpusIndexEntry {
       entry.captureQualification = "imported"; entry.sharingClass = "restricted";
       entry.evidenceOrigin = "imported"; entry.sourceFormat = manifest.producer.formatVersion;
       entry.captureArtifactIds = [manifest.source.artifactId];
-      if (manifest.schemaVersion === "ebo.import-manifest/v2" && manifest.overlays.length) entry.producerProfileDigest = `sha256:${digestMetadata(manifest.overlays).value}`;
-      else if (manifest.schemaVersion === "ebo.import-manifest/v1" && manifest.profile.status === "supported") entry.producerProfileDigest = manifest.profile.digest;
+      if (manifest.overlays.length) entry.producerProfileDigest = `sha256:${digestMetadata(manifest.overlays).value}`;
     } catch (error) { entry.issues.push({ field: "/source", message: errorMessage(error) }); }
   }
   entry.issues = uniqueSourceIssues(entry.issues);

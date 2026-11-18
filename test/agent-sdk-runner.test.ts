@@ -789,7 +789,7 @@ function createRunnerFixture(options: RunnerFixtureOptions = {}): RunnerFixture 
   };
 
   const experiment: ExperimentConfiguration = {
-    schemaVersion: "ebo.experiment/v1",
+    schemaVersion: "ebo.task-packet-experiment/v1",
     id: "agent-sdk-runner-fixture",
     taskSet: { "task-a": { packetRef: { locator: "packets/task-a.json", digest: digestMetadata(packet) } } },
     modelSet: { [modelId]: { configurationRef: { locator: "configs/model.json", digest: digestBytes(Buffer.alloc(0)) } } },

@@ -22,17 +22,17 @@ export type StudyRuntimeRequest = { studyId: string; roles: string[]; openhandsB
   harnessPolicies?: Record<string, RuntimePolicy>; overrides?: Record<string, string>; roleTargets?: Record<string, {platform: string; architecture: string}>; target?: { platform: string; architecture: string } };
 export type StudyRuntimeGroup = { id: string; roles: string[]; roots: SelectedRuntimeComponent[]; components: LockedRuntimeDependency[];
   plan: RuntimeInstallPlan; executionEnvironment?: {role: "smol"; version: string; boundary: "host-vm" | "task-guest"; coordinatorPlatform: string; platform: string; abi: string; componentDigest: Hash; pythonBinaryIntegrity: string; coordinatorAbi: string}; verification?: Record<string, VerificationSnapshot>; installation: { key: string; receiptDigest: Hash } };
-export type StudyRuntimeLock = { schemaVersion: "ebo.study-runtime-lock/v1" | "ebo.study-runtime-lock/v2"; studyId: string; request: StudyRuntimeRequest; requestDigest: Hash;
+export type StudyRuntimeLock = { schemaVersion: "ebo.study-runtime-lock/v2"; studyId: string; request: StudyRuntimeRequest; requestDigest: Hash;
   createdAt: string; artifactInputs?: {pythonWheelhouseDigest: Hash}; target: { platform: string; architecture: string }; groups: StudyRuntimeGroup[]; security: RuntimeSecurityReceipt; digest: Hash };
 export type StudyRuntimeOptions = RuntimeRegistryOptions & RuntimeSecurityOptions & { run?: RuntimeCommandRunner; python?: string; pythonAbi?: string; uv?: string; pythonWheelhouse?: string; verificationCatalogRoot?: string; startOpenHandsSmol?: import("./openhands-smol.js").OpenHandsSmolStarter };
-export type RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v1" | "ebo.runtime-launch/v2"; verification?: VerificationSnapshot; verificationSubject?: VerificationSubject; contractChecks?: string[]; lockDigest: Hash; role: string; runtimeRoot: string;
+export type RuntimeLaunch = { schemaVersion: "ebo.runtime-launch/v2"; verification?: VerificationSnapshot; verificationSubject?: VerificationSubject; contractChecks?: string[]; lockDigest: Hash; role: string; runtimeRoot: string;
   roots: SelectedRuntimeComponent[]; platform: string; abi: string; security: RuntimeSecurityReceipt; warnings: string[]; receiptLocator: string };
 const hash = (value: unknown): Hash => `sha256:${digestMetadata(value).value}`;
 const paths = (root: string) => ({ lock: join(resolve(root), "runtimes", "lock.json"), cache: join(resolve(root), "runtimes", "cache"), receipts: join(resolve(root), "runtimes", "launches") });
 const withoutDigest = (lock: StudyRuntimeLock): Omit<StudyRuntimeLock, "digest"> => { const { digest: _digest, ...value } = lock; return value; };
 export async function readStudyRuntimeLock(studyRoot: string): Promise<StudyRuntimeLock> {
   const lock = JSON.parse(await readFile(paths(studyRoot).lock, "utf8")) as StudyRuntimeLock;
-  if (!["ebo.study-runtime-lock/v1", "ebo.study-runtime-lock/v2"].includes(lock.schemaVersion) || !Array.isArray(lock.groups) || hash(withoutDigest(lock)) !== lock.digest || hash(lock.request) !== lock.requestDigest) throw new RuntimePolicyError("RUNTIME_LOCK_INTEGRITY", "Study runtime lock is malformed or changed.");
+  if (lock.schemaVersion !== "ebo.study-runtime-lock/v2" || !Array.isArray(lock.groups) || hash(withoutDigest(lock)) !== lock.digest || hash(lock.request) !== lock.requestDigest) throw new RuntimePolicyError("RUNTIME_LOCK_INTEGRITY", "Study runtime lock is malformed or changed.");
   if (lock.schemaVersion === "ebo.study-runtime-lock/v2") for (const group of lock.groups) {
     if (group.executionEnvironment) {
       const engine = lock.groups.find(candidate => candidate.roles.includes("smol"));
@@ -164,7 +164,7 @@ export async function prepareRuntimeLaunch(studyRoot: string, role: string, opti
   await mkdir(locations.receipts, { recursive: true, mode: 0o700 });
   await writeFile(join(resolve(studyRoot), receiptLocator), canonicalizeMetadata(launch), { flag: "wx", mode: 0o600 }); return launch;
   } catch (error) {
-    await writeFile(join(resolve(studyRoot), receiptLocator), canonicalizeMetadata({ schemaVersion: "ebo.runtime-launch/v1", status: "blocked", lockDigest: lock.digest, role,
+    await writeFile(join(resolve(studyRoot), receiptLocator), canonicalizeMetadata({ schemaVersion: "ebo.runtime-launch/v2", status: "blocked", lockDigest: lock.digest, role,
       checkedAt: (options.now ?? (() => new Date().toISOString()))(), code: error instanceof RuntimePolicyError ? error.code : "RUNTIME_LAUNCH_FAILED",
       security: error instanceof RuntimePolicyError ? error.receipt ?? null : null, error: error instanceof Error ? error.message : String(error) }), { flag: "wx", mode: 0o600 });
     throw error;

@@ -50,7 +50,7 @@ export function decisionModelAssertion(
   const behavior = judged(cardId);
   const decision = decideFromProbabilities(resolveBehaviorCard(behavior), probabilities, thresholds);
   return {
-    schemaVersion: "ebo.behavior-assertion/v1", ...identity, behavior, producer: decisionModelProducer(), evidence: decisionModelEvidence(),
+    schemaVersion: "ebo.behavior-assertion/v2", ...identity, behavior, producer: decisionModelProducer(), evidence: decisionModelEvidence(),
     judgment: { basis: "probabilities", ...decision, probabilities, thresholds },
   };
 }

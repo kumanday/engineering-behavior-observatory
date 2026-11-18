@@ -21,7 +21,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": "ebo.semantic-judgment/v3"
+          "const": "ebo.semantic-judgment/v4"
         },
         "id": {
           "$ref": "urn:ebo:schema:semantic-judge:v1#/$defs/identifier"

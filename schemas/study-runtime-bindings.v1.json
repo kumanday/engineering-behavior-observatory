@@ -23,8 +23,8 @@
         },
         "queueSchemaVersion": {
           "enum": [
-            "ebo.run-queue/v1",
-            "ebo.run-queue/v2"
+            "ebo.task-packet-queue/v1",
+            "ebo.harbor-queue/v1"
           ]
         },
         "frozenAt": {
@@ -51,7 +51,7 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "const": "ebo.run-queue/v3"
+          "const": "ebo.study-queue/v1"
         },
         "studyFreeze": {
           "$ref": "#/$defs/freeze"
@@ -59,10 +59,10 @@
         "queue": {
           "oneOf": [
             {
-              "$ref": "https://ebo.dev/schemas/run-queue.v1.schema.json"
+              "$ref": "https://ebo.dev/schemas/task-packet-queue.v1.schema.json"
             },
             {
-              "$ref": "https://ebo.dev/schemas/run-queue.v2.schema.json"
+              "$ref": "https://ebo.dev/schemas/harbor-queue.v1.schema.json"
             }
           ]
         }

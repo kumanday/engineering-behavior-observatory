@@ -239,7 +239,7 @@ test("Factory run bundles reopen for retained behavioral and structural analysis
     assert.equal(units.units.filter(u => u.unit_kind === "message" && u.role === "assistant").length, 1);
     assert.equal(JSON.stringify(units).includes("FACTORY-HIDDEN-SENTINEL"), false);
     const cited = retained.dataset.events.find(e => e.family === "message" && e.actor.kind === "agent")!;
-    const assertion: LlmJudgeAssertion = { schemaVersion: "ebo.behavior-assertion/v1", id: "factory-review",
+    const assertion: LlmJudgeAssertion = { schemaVersion: "ebo.behavior-assertion/v2", id: "factory-review",
       runId: retained.dataset.runId, attemptId: retained.dataset.attemptId,
       dataset: { schemaVersion: retained.dataset.schemaVersion, digest: `sha256:${digestMetadata(retained.dataset).value}` },
       behavior: judged("VF-01"), producer: llmProducer(),
@@ -249,7 +249,7 @@ test("Factory run bundles reopen for retained behavioral and structural analysis
         citations: [{ eventId: cited.id, nativeReference: cited.source.nativeReference }] } };
     const assertionPath = join(root, "assertion.json"); writeFileSync(assertionPath, JSON.stringify(assertion));
     const selection = await selectReviewSample({ schemaVersion: "ebo.review-source-set/v1", sources: [{ bundleRoot: bundle, assertionPath, taskContext: "Create a result file." }] },
-      { schemaVersion: "ebo.review-sample-criteria/v1", seed: "factory", strata: [{ id: "all", sampleSize: 1, filters: {} }] });
+      { schemaVersion: "ebo.review-sample-criteria/v2", seed: "factory", strata: [{ id: "all", sampleSize: 1, filters: {} }] });
     const packetRoot = join(root, "review-packet"); await writeReviewPacket(selection, packetRoot);
     const packet = JSON.parse(await readFile(join(packetRoot, "packet.json"), "utf8"));
     assert.ok((await readFile(join(packetRoot, packet.items[0].citations[0].href), "utf8")).includes("droid.session_notification"), "restricted human drilldown preserves the native frame");
@@ -359,7 +359,7 @@ function createQueueFixture(parent: string, executable = process.execPath, byok 
     return [name, { locator, digest: digestBytes(bytes) }];
   }));
   const experiment: ExperimentConfiguration = {
-    schemaVersion: "ebo.experiment/v1",
+    schemaVersion: "ebo.task-packet-experiment/v1",
     id: "factory-runner-fixture",
     taskSet: { task: { packetRef: { locator: "packets/task.json", digest: digestMetadata(observational) } } },
     modelSet: { "fixture-model": { configurationRef: references.model! } },

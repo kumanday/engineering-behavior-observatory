@@ -195,7 +195,7 @@ test("a failure with no later call is rated by rule without asking the model", a
 test("claim checks route unsupported or uncertain claims to review and bind to the assertion", async () => {
   const citation = { eventId: "event-1", nativeReference: { artifactId: "session", recordLocator: "line:1" } };
   const assertion = {
-    schemaVersion: "ebo.behavior-assertion/v1", id: "a-1", runId: "run", attemptId: "attempt", dataset: { schemaVersion: "ebo.normalized-dataset/v1", digest: `sha256:${"d".repeat(64)}` },
+    schemaVersion: "ebo.behavior-assertion/v2", id: "a-1", runId: "run", attemptId: "attempt", dataset: { schemaVersion: "ebo.normalized-dataset/v1", digest: `sha256:${"d".repeat(64)}` },
     behavior: judged("VF-01"), rubric: { id: "r", version: "1" }, evidence: llmEvidence(),
     producer: { ...llmProducer("x"), configurationDigest: `sha256:${"e".repeat(64)}` },
     judgment: { basis: "cited-evidence", verdict: "present", confidence: { value: 0.8, scale: "evaluator-reported-0-to-1" }, rationale: "r", alternativeExplanation: "a", citations: [citation],

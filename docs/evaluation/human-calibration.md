@@ -34,7 +34,7 @@ by LLM judges only, so a confidence filter selects no decision-model result.
 
 ```json
 {
-  "schemaVersion": "ebo.review-sample-criteria/v1",
+  "schemaVersion": "ebo.review-sample-criteria/v2",
   "seed": "study-2026-09-wave-1",
   "strata": [
     {
@@ -117,7 +117,7 @@ current history.
   "kind": "review",
   "assertion": {
     "id": "<assertion-id>",
-    "schemaVersion": "ebo.behavior-assertion/v1",
+    "schemaVersion": "ebo.behavior-assertion/v2",
     "digest": "sha256:<assertion-digest>"
   },
   "reviewer": { "kind": "human", "id": "<reviewer-id>" },

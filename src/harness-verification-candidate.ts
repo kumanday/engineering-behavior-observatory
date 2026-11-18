@@ -38,7 +38,7 @@ async function inspectCases(request: VerificationRequest, subject: HarnessVerifi
   for (const item of request.cases ?? []) {
     const manifestBytes = readBoundedFile(join(item.bundleRoot, "manifest.json"), "Qualification manifest");
     const manifest = json(join(item.bundleRoot, "manifest.json")) as RunManifest;
-    if (!['run-manifest/v1', 'run-manifest/v2'].includes(manifest.schemaVersion)) throw new VerificationError("HARNESS_VERIFICATION_CAPTURE_REQUIRED", "Imported trajectories cannot establish native capture verification.");
+    if (manifest.schemaVersion !== 'run-manifest/v2') throw new VerificationError("HARNESS_VERIFICATION_CAPTURE_REQUIRED", "Imported trajectories cannot establish native capture verification.");
     const recorded = readRunVerification(item.bundleRoot, manifest);
     if (!recorded || !recorded.scope || verificationDigest(recorded.subject) !== verificationDigest(subject) || !manifest.runtimeLock) throw new VerificationError("HARNESS_VERIFICATION_CAPTURE_BINDING", "A capture must retain the exact runtime, platform, format contract and scope being verified.");
     if (scope && verificationDigest(scope) !== verificationDigest(recorded.scope)) throw new VerificationError("HARNESS_VERIFICATION_SCOPE_MISMATCH", "The cases differ in capture profile or model/provider route.");

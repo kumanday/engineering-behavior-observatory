@@ -180,7 +180,7 @@ export function validateArtifact(artifact: string, document: unknown): ArtifactV
     ? []
     : (validate.errors ?? []).map((error) => validationError(artifact, schemaVersion, error));
 
-  if (["run-manifest/v1", "run-manifest/v2"].includes(schemaVersion) && isRecord(document) && Array.isArray(document.evidence)) {
+  if (schemaVersion === "run-manifest/v2" && isRecord(document) && Array.isArray(document.evidence)) {
     errors.push(...runManifestIntegrityErrors(artifact, schemaVersion, document));
   }
   if (schemaVersion === "verifier-result/v1" && isRecord(document) && Array.isArray(document.assertions)) {
@@ -220,9 +220,9 @@ export function validateRunManifestEvidence(
   bundleRoot: string,
   verifiedArtifacts: ReadonlyMap<string, { digest: string; sizeBytes: number }> = new Map(),
 ): ArtifactValidationError[] {
-  if (!isRecord(manifest) || !["run-manifest/v1", "run-manifest/v2"].includes(String(manifest.schemaVersion)) || !Array.isArray(manifest.evidence)) return [];
+  if (!isRecord(manifest) || manifest.schemaVersion !== "run-manifest/v2" || !Array.isArray(manifest.evidence)) return [];
   const errors: ArtifactValidationError[] = [];
-  if (manifest.schemaVersion === "run-manifest/v2") errors.push(...runtimeBindingEvidenceErrors(artifact, manifest, bundleRoot));
+  if (manifest.runtimeLock !== undefined) errors.push(...runtimeBindingEvidenceErrors(artifact, manifest, bundleRoot));
   const expectedBundleId = typeof manifest.bundleId === "string" ? manifest.bundleId : undefined;
   const expectedVerifier = isRecord(manifest.run) && isRecord(manifest.run.verifier)
     ? manifest.run.verifier
@@ -291,7 +291,7 @@ export function validateRunManifestEvidence(
     } catch (error) {
       errors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `/evidence/${escapeJsonPointer(descriptor.id)}`,
         message: error instanceof Error ? error.message : "Evidence could not be verified.",
       });
@@ -306,7 +306,7 @@ export function validateRunManifestEvidence(
     if (source.status !== derivative.status) {
       errors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `/evidence/${escapeJsonPointer(descriptor.id)}/status`,
         message: "Sanitized verifier must preserve its source outcome status.",
       });
@@ -317,7 +317,7 @@ export function validateRunManifestEvidence(
         || [...sourceAssertions].some(([id, status]) => derivativeAssertions.get(id) !== status)) {
       errors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `/evidence/${escapeJsonPointer(descriptor.id)}/assertions`,
         message: "Sanitized verifier must preserve source assertion outcomes.",
       });
@@ -325,7 +325,7 @@ export function validateRunManifestEvidence(
     if (derivative.exitCode !== source.exitCode) {
       errors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `/evidence/${escapeJsonPointer(descriptor.id)}/exitCode`,
         message: "Sanitized verifier must preserve its source exit code.",
       });
@@ -341,7 +341,7 @@ export function validateRunManifestEvidence(
     if (!sameVerifier) {
       errors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `/evidence/${escapeJsonPointer(descriptor.id)}/verifier`,
         message: "Sanitized verifier must preserve its source verifier binding.",
       });
@@ -349,7 +349,7 @@ export function validateRunManifestEvidence(
     if (source.durationMs !== derivative.durationMs) {
       errors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `/evidence/${escapeJsonPointer(descriptor.id)}/durationMs`,
         message: "Sanitized verifier must preserve its source duration.",
       });
@@ -360,7 +360,7 @@ export function validateRunManifestEvidence(
     if (!sameError) {
       errors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `/evidence/${escapeJsonPointer(descriptor.id)}/error`,
         message: "Sanitized verifier must preserve or explicitly redact its source error.",
       });
@@ -376,7 +376,7 @@ export function validateRunManifestEvidence(
     if (!sameWorkspace) {
       errors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `/evidence/${escapeJsonPointer(descriptor.id)}/workspace`,
         message: "Sanitized verifier must preserve its source workspace binding.",
       });
@@ -385,7 +385,7 @@ export function validateRunManifestEvidence(
         || !source.diagnostics.some((sourceDiagnostic) => sameDiagnosticOrigin(sourceDiagnostic, diagnostic.source!)))) {
       errors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `/evidence/${escapeJsonPointer(descriptor.id)}/diagnostics`,
         message: "Sanitized verifier diagnostics must identify source diagnostics.",
       });
@@ -409,7 +409,7 @@ export function validateRunManifestEvidence(
       && !verifierOutcomes.some((outcome) => matchesTerminalWorkspace(outcome, "passed"))) {
     errors.push({
       artifact,
-      schemaVersion: "run-manifest/v1",
+      schemaVersion: "run-manifest/v2",
       field: "/terminal/state",
       message: "Completed runs require a passed verifier bound to the terminal workspace.",
     });
@@ -418,7 +418,7 @@ export function validateRunManifestEvidence(
       && !verifierOutcomes.some((outcome) => matchesTerminalWorkspace(outcome, "failed"))) {
     errors.push({
       artifact,
-      schemaVersion: "run-manifest/v1",
+      schemaVersion: "run-manifest/v2",
       field: "/terminal/state",
       message: "Task-failed runs require a failed verifier bound to the terminal workspace.",
     });
@@ -426,7 +426,7 @@ export function validateRunManifestEvidence(
   if (assessmentMode === "observational" && terminal?.failureClass === "task") {
     errors.push({
       artifact,
-      schemaVersion: "run-manifest/v1",
+      schemaVersion: "run-manifest/v2",
       field: "/terminal/failureClass",
       message: "Observational runs cannot claim task failure.",
     });
@@ -434,7 +434,7 @@ export function validateRunManifestEvidence(
   if (assessmentMode === "observational" && verifierOutcomes.length > 0) {
     errors.push({
       artifact,
-      schemaVersion: "run-manifest/v1",
+      schemaVersion: "run-manifest/v2",
       field: "/evidence",
       message: "Observational runs cannot retain verifier outcome evidence.",
     });
@@ -596,18 +596,18 @@ function nestedVerifierDiagnosticErrors(
     result = JSON.parse(text);
     assertNoDuplicateJsonKeys(text);
   } catch (error) {
-    return [{ artifact, schemaVersion: "run-manifest/v1", field: scope, message: `Verifier artifact could not be parsed: ${error instanceof Error ? error.message : "invalid UTF-8 or JSON."}` }];
+    return [{ artifact, schemaVersion: "run-manifest/v2", field: scope, message: `Verifier artifact could not be parsed: ${error instanceof Error ? error.message : "invalid UTF-8 or JSON."}` }];
   }
   const schemaErrors = validateArtifact(`${artifact}/${verifierId}`, result);
   if (schemaErrors.length > 0) {
-    return schemaErrors.map((error) => ({ ...error, artifact, schemaVersion: "run-manifest/v1", field: `${scope}${error.field}` }));
+    return schemaErrors.map((error) => ({ ...error, artifact, schemaVersion: "run-manifest/v2", field: `${scope}${error.field}` }));
   }
   if (!isRecord(result)) return [];
   const bindingErrors: ArtifactValidationError[] = [];
   if (expectedBundleId !== undefined && result.bundleId !== expectedBundleId) {
     bindingErrors.push({
       artifact,
-      schemaVersion: "run-manifest/v1",
+      schemaVersion: "run-manifest/v2",
       field: `${scope}/bundleId`,
       message: "Verifier bundleId must match its containing run manifest.",
     });
@@ -625,7 +625,7 @@ function nestedVerifierDiagnosticErrors(
         || actualVerifier.format !== expectedFormat) {
       bindingErrors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `${scope}/verifier`,
         message: "Verifier execution reference must match the run configuration.",
       });
@@ -637,7 +637,7 @@ function nestedVerifierDiagnosticErrors(
     if (retainedWorkspace === undefined) {
       bindingErrors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `${scope}/workspace/artifactId`,
         message: "Verifier workspace must reference retained workspace evidence.",
       });
@@ -647,7 +647,7 @@ function nestedVerifierDiagnosticErrors(
           : retainedWorkspace.fingerprint === undefined || retainedWorkspace.fingerprint !== result.workspace.fingerprint)) {
       bindingErrors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `${scope}/workspace/digest`,
         message: "Verifier workspace digest must match retained workspace evidence.",
       });
@@ -657,14 +657,14 @@ function nestedVerifierDiagnosticErrors(
   if (!Array.isArray(result.diagnostics)) {
     return [
       ...bindingErrors,
-      { artifact, schemaVersion: "run-manifest/v1", field: `${scope}/diagnostics`, message: "Verifier diagnostics must be an array." },
+      { artifact, schemaVersion: "run-manifest/v2", field: `${scope}/diagnostics`, message: "Verifier diagnostics must be an array." },
     ];
   }
 
   const errors: ArtifactValidationError[] = [...bindingErrors];
   for (const [index, diagnostic] of result.diagnostics.entries()) {
     if (!isNestedVerifierDiagnostic(diagnostic)) {
-      errors.push({ artifact, schemaVersion: "run-manifest/v1", field: `${scope}/diagnostics/${index}`, message: "Verifier diagnostic reference is malformed." });
+      errors.push({ artifact, schemaVersion: "run-manifest/v2", field: `${scope}/diagnostics/${index}`, message: "Verifier diagnostic reference is malformed." });
       continue;
     }
     const normalizedLocator = diagnostic.locator.toLowerCase();
@@ -703,7 +703,7 @@ function nestedVerifierDiagnosticErrors(
         || hasPortablePathCollision(normalizedLocator, nestedDiagnosticPaths)) {
       errors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `${scope}/diagnostics`,
         message: invalidUnsanitizedReference
           ? "Unsanitized verifier diagnostics cannot carry source provenance."
@@ -725,7 +725,7 @@ function nestedVerifierDiagnosticErrors(
     } catch (error) {
       errors.push({
         artifact,
-        schemaVersion: "run-manifest/v1",
+        schemaVersion: "run-manifest/v2",
         field: `${scope}/diagnostics`,
         message: error instanceof Error ? error.message : "Verifier diagnostic could not be verified.",
       });
@@ -746,7 +746,7 @@ export function validateExportManifest(
 ): ArtifactValidationError[] {
   if (!isRecord(exportManifest) || exportManifest.schemaVersion !== "export-manifest/v1"
       || !["ready", "exported"].includes(String(exportManifest.status))) return [];
-  if (!isRecord(containingManifest) || !["run-manifest/v1", "run-manifest/v2"].includes(String(containingManifest.schemaVersion)) || !Array.isArray(containingManifest.evidence)) {
+  if (!isRecord(containingManifest) || containingManifest.schemaVersion !== "run-manifest/v2" || !Array.isArray(containingManifest.evidence)) {
     return [{ artifact, schemaVersion: "export-manifest/v1", field: "/bundleId", message: "Ready exports require their containing run manifest." }];
   }
   if (exportManifest.bundleId !== containingManifest.bundleId) {
@@ -1267,8 +1267,8 @@ function loadValidators(): Map<string, ValidateFunction> {
   });
   ajv.addSchema(readSchema("task-packet.v1.schema.json"));
   ajv.addSchema(readSchema("task-packet-freeze.v1.schema.json"));
-  ajv.addSchema(readSchema("experiment.v1.schema.json"));
-  ajv.addSchema(readSchema("run-queue.v1.schema.json"));
+  ajv.addSchema(readSchema("task-packet-experiment.v1.schema.json"));
+  ajv.addSchema(readSchema("task-packet-queue.v1.schema.json"));
   const runBundleSchema = readSchema("run-bundles/v1.json") as {
     $defs: { captureReport: { properties: { missingEvidence: { uniqueItems?: boolean; eboUniqueItems?: boolean } } } };
   };
@@ -1280,12 +1280,9 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("uniform-events/v1.json"));
   ajv.addSchema(readSchema("normalization-integrity.v1.json"));
   ajv.addSchema(readSchema("normalization.v2.json"));
-  ajv.addSchema(readSchema("analysis.v2.json"));
-  ajv.addSchema(readSchema("consumers.v2.json"));
   ajv.addSchema(readSchema("structural-observations.v1.json"));
   ajv.addSchema(readSchema("atif-inspection.v1.json"));
   ajv.addSchema(readSchema("evidence-companion.v1.json"));
-  ajv.addSchema(readSchema("import-manifest.v1.json"));
   ajv.addSchema(readSchema("import-manifest.v2.json"));
   ajv.addSchema(readSchema("pi-atif-mapping.v1.json"));
   ajv.addSchema(readSchema("atif-core-mapping.v1.json"));
@@ -1295,7 +1292,6 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("behavior-ontology.v2.json"));
   ajv.addSchema(readSchema("semantic-judge.v1.json"));
   ajv.addSchema(readSchema("semantic-judge-runtime.v1.json"));
-  ajv.addSchema(readSchema("study-runtimes.v1.json"));
   ajv.addSchema(readSchema("study-runtimes.v2.json"));
   ajv.addSchema(readSchema("harness-verification.v1.json"));
   ajv.addSchema(readSchema("study-runtime-bindings.v1.json"));
@@ -1310,8 +1306,8 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("leaderboard-import.v1.json"));
   ajv.addSchema(readSchema("harbor-review.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-freeze.v1.schema.json"));
-  ajv.addSchema(readSchema("experiment.v2.schema.json"));
-  ajv.addSchema(readSchema("run-queue.v2.schema.json"));
+  ajv.addSchema(readSchema("harbor-experiment.v1.schema.json"));
+  ajv.addSchema(readSchema("harbor-queue.v1.schema.json"));
 
   return new Map([
     ["ebo.harness-verification/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/receipt")],
@@ -1339,25 +1335,23 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.atif-overlay/v1", requiredValidator(ajv, "urn:ebo:schema:atif-overlay:v1")],
     ["ebo.pi-atif-mapping/v1", requiredValidator(ajv, "urn:ebo:schema:pi-atif-mapping:v1")],
     ["ebo.evidence-companion/v1", requiredValidator(ajv, "urn:ebo:schema:evidence-companion:v1")],
-    ["ebo.import-manifest/v1", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v1")],
     ["ebo.import-manifest/v2", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v2")],
     ["ebo.atif-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:atif-inspection:v1")],
     ["ebo.atif-producer-profile/v1", requiredValidator(ajv, "urn:ebo:schema:atif-producer-profile:v1")],
     ["ebo.task-packet/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet.v1.schema.json")],
     ["ebo.task-packet-freeze/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet-freeze.v1.schema.json")],
-    ["ebo.experiment/v1", requiredValidator(ajv, "https://ebo.dev/schemas/experiment.v1.schema.json")],
+    ["ebo.task-packet-experiment/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet-experiment.v1.schema.json")],
     ["ebo.study-freeze/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/freeze")],
-    ["ebo.run-queue/v3", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/queue")],
-    ["ebo.run-queue/v1", requiredValidator(ajv, "https://ebo.dev/schemas/run-queue.v1.schema.json")],
-    ["run-manifest/v1", requiredValidator(ajv, runBundleSchemaId)],
+    ["ebo.study-queue/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/queue")],
+    ["ebo.task-packet-queue/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet-queue.v1.schema.json")],
     ["run-manifest/v2", requiredValidator(ajv, "urn:ebo:schema:run-bundle:v2")],
     ["verifier-result/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/verifierResult`)],
     ["capture-report/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/captureReport`)],
     ["export-manifest/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/exportManifest`)],
     ["ebo.uniform-event/v1", requiredValidator(ajv, "urn:ebo:schema:uniform-events:v1#/$defs/uniformEvent")],
     ["ebo.adapter-capability-profile/v1", requiredValidator(ajv, "urn:ebo:schema:uniform-events:v1#/$defs/capabilityProfile")],
-    ["ebo.normalized-dataset/v2", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/dataset")],
-    ["ebo.uniform-event/v2", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/event")],
+    ["ebo.typed-dataset/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/dataset")],
+    ["ebo.typed-event/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/event")],
     ["ebo.operation/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operation")],
     ["ebo.operation-identity/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operationIdentity")],
     ["ebo.normalized-dataset/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/normalizedDataset")],
@@ -1367,46 +1361,32 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.structural-observation/v1", requiredValidator(ajv, "urn:ebo:schema:structural-observations:v1#/$defs/observation")],
     ["ebo.structural-observation-set/v1", requiredValidator(ajv, "urn:ebo:schema:structural-observations:v1#/$defs/set")],
     ["ebo.behavior-ontology/v2", requiredValidator(ajv, "urn:ebo:schema:behavior-ontology:v2#/$defs/ontology")],
-    ["ebo.behavior-assertion/v1", requiredValidator(ajv, "urn:ebo:schema:behavior-assertions:v1#/$defs/assertion")],
+    ["ebo.behavior-assertion/v2", requiredValidator(ajv, "urn:ebo:schema:behavior-assertions:v1#/$defs/assertion")],
     ["ebo.behavior-review/v1", requiredValidator(ajv, "urn:ebo:schema:behavior-assertions:v1#/$defs/review")],
     ["ebo.occurrence-ratings/v1", requiredValidator(ajv, "urn:ebo:schema:occurrence-ratings:v1#/$defs/ratings")],
     ["ebo.claim-checks/v1", requiredValidator(ajv, "urn:ebo:schema:claim-checks:v1#/$defs/checks")],
-    ["ebo.atlas-bundle-request/v1", requiredValidator(ajv, "urn:ebo:schema:atlas-bundle:v1#/$defs/request")],
-    ["ebo.atlas-bundle/v1", requiredValidator(ajv, "urn:ebo:schema:atlas-bundle:v1#/$defs/bundle")],
-    ["ebo.semantic-judge-request/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/request")],
-    ["ebo.semantic-judge-input/v1", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/input")],
+    ["ebo.atlas-bundle-request/v2", requiredValidator(ajv, "urn:ebo:schema:atlas-bundle:v1#/$defs/request")],
+    ["ebo.atlas-bundle/v2", requiredValidator(ajv, "urn:ebo:schema:atlas-bundle:v1#/$defs/bundle")],
+    ["ebo.semantic-judge-request/v2", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/request")],
+    ["ebo.semantic-judge-input/v2", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/input")],
     ["ebo.study-runtime-lock/v2", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v2#/$defs/lock")],
     ["ebo.runtime-launch/v2", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v2#/$defs/launch")],
-    ["ebo.study-runtime-lock/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/lock")],
-    ["ebo.runtime-launch/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v1#/$defs/launch")],
-    ["ebo.semantic-judgment/v3", requiredValidator(ajv, "urn:ebo:schema:semantic-judge-runtime:v1#/$defs/judgment")],
-    ["ebo.semantic-judge-answer/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeAnswer")],
-    ["ebo.semantic-judgment/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgment")],
-    ["ebo.atlas-view/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/atlasView")],
-    ["ebo.occurrence/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/occurrence")],
-    ["ebo.occurrence-ledger/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/ledger")],
-    ["ebo.occurrence-rating-input/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/ratingInput")],
-    ["ebo.occurrence-rating/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/rating")],
-    ["ebo.semantic-judge-request/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeRequest")],
-    ["ebo.semantic-judge-input/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/judgeInput")],
-    ["ebo.behavior-assertion/v2", requiredValidator(ajv, "urn:ebo:schema:consumers:v2#/$defs/assertion")],
-    ["ebo.structural-observation/v2", requiredValidator(ajv, "urn:ebo:schema:analysis:v2#/$defs/observation")],
-    ["ebo.structural-observation-set/v2", requiredValidator(ajv, "urn:ebo:schema:analysis:v2#/$defs/observationSet")],
+    ["ebo.semantic-judgment/v4", requiredValidator(ajv, "urn:ebo:schema:semantic-judge-runtime:v1#/$defs/judgment")],
     ["ebo.review-source-set/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sourceSet")],
-    ["ebo.review-sample-criteria/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/criteria")],
-    ["ebo.review-sample/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sample")],
-    ["ebo.review-packet/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/packet")],
+    ["ebo.review-sample-criteria/v2", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/criteria")],
+    ["ebo.review-sample/v2", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sample")],
+    ["ebo.review-packet/v2", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/packet")],
     ["ebo.human-review-decision/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/decision")],
     ["ebo.review-history/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/history")],
-    ["ebo.calibration-summary/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/summary")],
+    ["ebo.calibration-summary/v2", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/summary")],
     ["ebo.aggregation-request/v1", requiredValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/request")],
-    ["ebo.aggregation-report/v1", requiredValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/report")],
+    ["ebo.aggregation-report/v2", requiredValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/report")],
     ["ebo.deepseek-runtime-composition/v1", requiredValidator(ajv, "https://ebo.dev/schemas/deepseek-runtime-composition.v1.schema.json")],
     ["ebo.harbor-admission/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-admission.v1.schema.json")],
     ["ebo.harbor-review/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-review.v1.schema.json")],
     ["ebo.harbor-freeze/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-freeze.v1.schema.json")],
-    ["ebo.experiment/v2", requiredValidator(ajv, "https://ebo.dev/schemas/experiment.v2.schema.json")],
-    ["ebo.run-queue/v2", requiredValidator(ajv, "https://ebo.dev/schemas/run-queue.v2.schema.json")],
+    ["ebo.harbor-experiment/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-experiment.v1.schema.json")],
+    ["ebo.harbor-queue/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-queue.v1.schema.json")],
   ]);
 }
 
@@ -1821,8 +1801,8 @@ function runtimeBindingEvidenceErrors(artifact: string, manifest: Record<string,
     };
     const lock = read(binding.lockArtifactId), launch = read(binding.launchArtifactId);
     const { digest, ...body } = lock;
-    if (!["ebo.study-runtime-lock/v1", "ebo.study-runtime-lock/v2"].includes(String(lock.schemaVersion)) || digest !== binding.lockDigest || digest !== `sha256:${digestMetadata(body).value}`) throw new Error("Runtime lock digest differs from retained lock bytes.");
-    if (!["ebo.runtime-launch/v1", "ebo.runtime-launch/v2"].includes(String(launch.schemaVersion)) || launch.lockDigest !== binding.lockDigest || launch.role !== binding.role) throw new Error("Runtime launch and run identity differ.");
+    if (lock.schemaVersion !== "ebo.study-runtime-lock/v2" || digest !== binding.lockDigest || digest !== `sha256:${digestMetadata(body).value}`) throw new Error("Runtime lock digest differs from retained lock bytes.");
+    if (launch.schemaVersion !== "ebo.runtime-launch/v2" || launch.lockDigest !== binding.lockDigest || launch.role !== binding.role) throw new Error("Runtime launch and run identity differ.");
     if (!Array.isArray(launch.probes) || launch.probes.some((probe) => !isRecord(probe) || typeof probe.actualVersion !== "string" || typeof probe.expectedVersion !== "string")) throw new Error("Runtime manifest lacks a retained actual version probe.");
     if (binding.studyFreezeArtifactId !== undefined) {
       const freeze = read(binding.studyFreezeArtifactId), {digest: freezeDigest, ...freezeBody} = freeze;

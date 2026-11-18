@@ -3,7 +3,7 @@ export const SMOL_HIERARCHY_SCRIPT = String.raw`
 from dataclasses import asdict
 
 def hierarchical(manifest):
-    return manifest.get('schemaVersion') == 'ebo.smol-environments/v3'
+    return manifest.get('schemaVersion') == 'ebo.smol-family-environments/v1'
 
 def validate_hierarchy(manifest):
     if not hierarchical(manifest): return

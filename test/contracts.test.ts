@@ -536,7 +536,7 @@ test("configuration references stay inside the bundle without following links", 
 });
 
 test("experiment fixtures pin identity and preserve native harness limits", () => {
-  const validate = validator("experiment.v1.schema.json");
+  const validate = validator("task-packet-experiment.v1.schema.json");
   const eighteen = fixture("experiment.18-cell.v1.json") as Parameters<typeof expandMatrix>[0];
   const twentyFour = fixture("experiment.24-cell.v1.json") as Parameters<typeof expandMatrix>[0] & {
     ordering: { declaredOrder: DeclaredOrder };
@@ -604,7 +604,7 @@ test("experiment fixtures pin identity and preserve native harness limits", () =
   );
 
   const declaredConfiguration: ExperimentConfiguration = {
-    schemaVersion: "ebo.experiment/v1",
+    schemaVersion: "ebo.task-packet-experiment/v1",
     id: "declared-configuration",
     taskSet: twentyFour.taskSet as TaskConditionSet,
     modelSet: configurationExperiment.modelSet,
@@ -621,7 +621,7 @@ test("experiment fixtures pin identity and preserve native harness limits", () =
 });
 
 test("experiment validation rejects mutable references, duplicate-array conditions, and unsafe numbers", () => {
-  const validate = validator("experiment.v1.schema.json");
+  const validate = validator("task-packet-experiment.v1.schema.json");
   const experiment = fixture("experiment.18-cell.v1.json") as Document;
 
   for (const invalidCase of fixture("experiment.invalid-cases.v1.json") as InvalidCase[]) {

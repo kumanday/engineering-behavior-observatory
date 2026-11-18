@@ -65,7 +65,7 @@ After compiling a task-packet or Harbor queue, bind it to the study:
 ebo runtime bind-queue ./study ./study/queue.json ./study/queue-with-runtime.json
 ```
 
-The command writes `ebo.run-queue/v3`, containing the validated source queue and
+The command writes `ebo.study-queue/v1`, containing the validated source queue and
 an `ebo.study-freeze/v1` record. The freeze binds the queue digest to the runtime
 lock and remains identical when repeated. The command reports each original
 assignment ID as `sourceRunId` and its executable `runId`. Use the executable ID
@@ -221,11 +221,10 @@ binds the Codex fallback used by `ebo occurrences rate`. Library callers pass
 `runtime: { studyRoot }` to the semantic-judge runner or establish a study
 context. A configured or ambient executable does not select the judge runtime.
 
-New operational judgments use `ebo.semantic-judgment/v3`. They retain the lock
+Operational judgments use `ebo.semantic-judgment/v4`. They retain the lock
 and actual launch receipt as restricted artifacts and expose runtime warnings.
 Their evaluator configuration digest binds the stable lock digest. Changing an
 unused executable path or the launch receipt ID does not change that digest.
-The typed lane writes `ebo.semantic-judgment/v2`.
 
 A shared npm graph applies each selected root's own age policy. Dependencies
 use the strictest age policy in that graph. Resolution acquires the selected

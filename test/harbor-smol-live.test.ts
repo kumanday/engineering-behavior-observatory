@@ -67,10 +67,10 @@ name = "two"
       const workerRef = ref("worker.json", { schemaVersion: "ebo.harbor-worker-runtime/v2", studyLockDigest: lock.digest, archive, node: "node", entrypoint: "dist/test/harbor-provider-worker.js", environmentKeys: [] });
       const build = JSON.parse(readFileSync(join(dirname(runtimeArchive!), "image-build.json"), "utf8"));
       const binding = { image, recipeDigest: build.recipeDigest, baseImageDigest: build.baseImageDigest };
-      const environmentRef = ref("environments.json", { schemaVersion: "ebo.smol-environments/v1", platform: "linux/arm64",
+      const environmentRef = ref("environments.json", { schemaVersion: "ebo.smol-task-environments/v1", target: "local", platform: "linux/arm64",
         runtimeArchiveDigest: archive.digest.value, libkrunSha256: process.env.EBO_SMOL_LIBKRUN_SHA256,
         tasks: { [id]: { agent: { ...binding, localSetup: 'setup.sh' }, graders: { one: binding, two: binding } } } });
-      const queue = await compileHarborRunQueue({ schemaVersion: "ebo.experiment/v2", id: "smol-conformance", taskSet: { task: { kind: "harbor-task", taskSourceId: id } },
+      const queue = await compileHarborRunQueue({ schemaVersion: "ebo.harbor-experiment/v1", id: "smol-conformance", taskSet: { task: { kind: "harbor-task", taskSourceId: id } },
         modelSet: { "synthetic-model": { configurationRef: ref("model.json", configs.model) } },
         harnessSet: { "pi-sdk": { configurationRef: ref("harness.json", configs.harness), nativeLimitsRef: ref("limits.json", configs.limits), nativeToolPolicyRef: ref("tools.json", configs.tools) } },
         captureProfile: ref("capture.json", configs.capture), trialCount: mode === "observational" ? 2 : 1, coordinatorBudget: { maxWallClockMs: 120_000 }, ordering: { strategy: "sequential", seed: "conformance" }, execution: { environmentProfile: "smol", contextPolicy: "fresh", workerRef, environmentRef },

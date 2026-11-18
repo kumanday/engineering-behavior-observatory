@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "run-manifest/v1",
+  "schemaVersion": "run-manifest/v2",
   "bundleId": "bundle-task-failed",
   "run": {
     "id": "run-task-failed",

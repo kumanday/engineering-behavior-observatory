@@ -16,8 +16,8 @@ import { admissionLocatorOf, freezeLocatorOf, harborStudyPaths, readHarborStudyJ
 import type { AssessmentMode } from "../contracts.js";
 import type { HarborAdapter } from "./adapter.js";
 
-export const HARBOR_EXPERIMENT_SCHEMA_VERSION = "ebo.experiment/v2";
-export const HARBOR_RUN_QUEUE_SCHEMA_VERSION = "ebo.run-queue/v2";
+export const HARBOR_EXPERIMENT_SCHEMA_VERSION = "ebo.harbor-experiment/v1";
+export const HARBOR_RUN_QUEUE_SCHEMA_VERSION = "ebo.harbor-queue/v1";
 
 /** Discriminated task source: a Harbor task or a legacy v1 task packet. */
 export type TaskSourceCondition =
@@ -339,7 +339,7 @@ export async function readRunQueueVersioned(path: string, options: { bundleRoot?
 
 function assertV2Semantics(experiment: ExperimentConfigurationV2): void {
   if (experiment.ordering.strategy !== "sequential" && experiment.ordering.strategy !== "declared") {
-    throw new Error("ebo.experiment/v2 currently supports only the sequential ordering strategy; compile a v1 queue for legacy permutation flows.");
+    throw new Error("ebo.harbor-experiment/v1 currently supports only the sequential ordering strategy; compile a task-packet queue for permutation ordering.");
   }
   if ("declaredOrder" in experiment.ordering && experiment.ordering.declaredOrder !== undefined) {
     assertDeclaredOrder(experiment, experiment.ordering.declaredOrder);

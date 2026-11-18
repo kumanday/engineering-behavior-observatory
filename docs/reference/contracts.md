@@ -8,7 +8,7 @@ EBO accepts externally authored task packets and experiment configurations as
 versioned JSON documents. The schemas are the contract; this repository does
 not contain an evaluation corpus or a fixed operating matrix.
 
-`ebo.run-queue/v3` binds a validated v1 task-packet or v2 Harbor queue to an
+`ebo.study-queue/v1` binds a validated task-packet queue or Harbor queue to an
 `ebo.study-freeze/v1` record. That record identifies the runtime lock and the
 source queue by digest. Execution derives a run ID from the freeze and original
 assignment ID; the source queue and its ordering stay intact. See
@@ -133,7 +133,7 @@ the frozen packet.
 
 ## Experiments
 
-`schemas/experiment.v1.schema.json` treats task, model, and harness sets;
+`schemas/task-packet-experiment.v1.schema.json` treats task, model, and harness sets;
 trial count; ordering seed; coordinator wall-clock budget; and capture profile
 as data. Each condition set is an ID-keyed map, so one identity can expand to
 only one matrix condition. Every referenced configuration has a SHA-256 digest.
@@ -170,7 +170,7 @@ controls are limited to JavaScript safe integers.
 ## Run queues
 
 `compileRunQueue` expands an experiment into a persisted
-`ebo.run-queue/v1` document. Every entry contains the task-packet freeze
+`ebo.task-packet-queue/v1` document. Every entry contains the task-packet freeze
 identity, digest-pinned model and harness configuration references, and a
 one-based trial identity; the queue also retains the selected capture-profile
 reference and coordinator budget. A scheduling digest covers those controls,

@@ -49,13 +49,13 @@ export type ReviewFilters = {
 };
 
 export type ReviewSampleCriteria = {
-  schemaVersion: "ebo.review-sample-criteria/v1";
+  schemaVersion: "ebo.review-sample-criteria/v2";
   seed: string;
   strata: ReadonlyArray<{ id: string; sampleSize: number; filters: ReviewFilters }>;
 };
 
 export type ReviewCandidate = {
-  assertion: { id: string; schemaVersion: "ebo.behavior-assertion/v1"; digest: DigestString };
+  assertion: { id: string; schemaVersion: "ebo.behavior-assertion/v2"; digest: DigestString };
   source: { bundleRoot: string; assertionPath: string };
   context: {
     runId: string;
@@ -75,7 +75,7 @@ export type ReviewCandidate = {
 };
 
 export type ReviewSample = {
-  schemaVersion: "ebo.review-sample/v1";
+  schemaVersion: "ebo.review-sample/v2";
   createdAt: string;
   sources: ReviewSourceSet;
   criteria: ReviewSampleCriteria;
@@ -104,7 +104,7 @@ export type ReviewDecision = {
 
 export type ReviewHistory = {
   schemaVersion: "ebo.review-history/v1";
-  selection: { schemaVersion: "ebo.review-sample/v1"; digest: DigestString };
+  selection: { schemaVersion: "ebo.review-sample/v2"; digest: DigestString };
   decisions: readonly ReviewDecision[];
 };
 
@@ -113,8 +113,8 @@ type Agreement =
   | { status: "available"; denominator: number; population: string; agreements: number; disagreements: number; rate: number };
 
 export type CalibrationSummary = {
-  schemaVersion: "ebo.calibration-summary/v1";
-  selection: { schemaVersion: "ebo.review-sample/v1"; digest: DigestString };
+  schemaVersion: "ebo.calibration-summary/v2";
+  selection: { schemaVersion: "ebo.review-sample/v2"; digest: DigestString };
   history: { schemaVersion: "ebo.review-history/v1"; digest: DigestString };
   totals: CalibrationCounts;
   /** Counts per producer mode, so LLM-judge and decision-model results are never read as one population. */
@@ -191,7 +191,7 @@ export async function selectReviewSample(
     return { id: stratum.id, eligible: eligible.length, selected: Math.min(eligible.length, stratum.sampleSize), requested: stratum.sampleSize };
   });
   const sample: ReviewSample = {
-    schemaVersion: "ebo.review-sample/v1",
+    schemaVersion: "ebo.review-sample/v2",
     createdAt: now(),
     sources: canonicalSources,
     criteria: structuredClone(criteria),
@@ -233,7 +233,7 @@ export async function writeReviewPacket(selection: ReviewSample, outputRoot: str
       items.push(item);
     }
     const packet = {
-      schemaVersion: "ebo.review-packet/v1" as const,
+      schemaVersion: "ebo.review-packet/v2" as const,
       createdAt: now(),
       selection: { schemaVersion: selection.schemaVersion, digest: digest(selection) },
       evidenceBoundary: {
@@ -321,7 +321,7 @@ export async function summarizeCalibration(selection: ReviewSample, history: Rev
     byCard.set(key, group);
   }
   const summary: CalibrationSummary = {
-    schemaVersion: "ebo.calibration-summary/v1",
+    schemaVersion: "ebo.calibration-summary/v2",
     selection: { schemaVersion: selection.schemaVersion, digest: digest(selection) },
     history: { schemaVersion: history.schemaVersion, digest: digest(history) },
     totals: counts(selection.candidates, history.decisions),

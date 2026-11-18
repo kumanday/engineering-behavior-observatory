@@ -76,7 +76,7 @@ const JUDGE_TELEMETRY_ENVIRONMENT_KEYS = [
 ] as const;
 
 export type SemanticJudgeRequest = {
-  schemaVersion: "ebo.semantic-judge-request/v1";
+  schemaVersion: "ebo.semantic-judge-request/v2";
   id: string;
   behavior: BehaviorReference;
   rubric: { id: string; version: string; instructions: string };
@@ -126,7 +126,7 @@ export type SemanticJudgeEvidenceItem = {
 export type SemanticJudgeCard = Pick<BehaviorCard, "id" | "title" | "kind" | "unit" | "definition" | "trigger" | "evidenceTest" | "nearMiss"> & { values?: ReadonlyArray<{ name: string; test: string }> };
 
 export type SemanticJudgeInput = {
-  schemaVersion: "ebo.semantic-judge-input/v1";
+  schemaVersion: "ebo.semantic-judge-input/v2";
   promptVersion: typeof SEMANTIC_JUDGE_PROMPT_VERSION | typeof SEMANTIC_JUDGE_LEDGER_PROMPT_VERSION;
   runId: string;
   attemptId: string;
@@ -203,7 +203,7 @@ type RecordReference = {
 type Availability<Value> = { status: "available"; value: Value } | { status: "unavailable"; reason: string };
 
 export type SemanticJudgmentRecord = {
-  schemaVersion: "ebo.semantic-judgment/v3";
+  schemaVersion: "ebo.semantic-judgment/v4";
   runtime?: { lockDigest: string; role: string; lock: RecordReference; launch: RecordReference; warnings: string[] };
   id: string;
   runId: string;
@@ -325,7 +325,7 @@ async function runOwnedSemanticJudge(options: RunAgentSdkSemanticJudgeOptions): 
     backendResult = { status: "failed", kind: "provider", message: errorMessage(error) };
   }
   const base = {
-    schemaVersion: "ebo.semantic-judgment/v3" as const,
+    schemaVersion: "ebo.semantic-judgment/v4" as const,
     runtime: retainJudgeRuntime(outputRoot),
     id: options.request.id,
     runId: input.runId,
@@ -677,7 +677,7 @@ export function packageSemanticJudgeInput(
     redactionCount: number,
   ): SemanticJudgeInput {
     return {
-      schemaVersion: "ebo.semantic-judge-input/v1",
+      schemaVersion: "ebo.semantic-judge-input/v2",
       promptVersion: request.selection.occurrences === undefined ? SEMANTIC_JUDGE_PROMPT_VERSION : SEMANTIC_JUDGE_LEDGER_PROMPT_VERSION,
       runId: observations.runId,
       attemptId: observations.attemptId,
@@ -801,7 +801,7 @@ export function parseSemanticJudgeResponse(
   });
   if (judgment.claims.some((claim) => claim.citations.length === 0)) throw new Error("Every atomic claim needs at least one citation.");
   const assertion: LlmJudgeAssertion = {
-    schemaVersion: "ebo.behavior-assertion/v1",
+    schemaVersion: "ebo.behavior-assertion/v2",
     id: `${request.id}-assertion`,
     runId: input.runId,
     attemptId: input.attemptId,
@@ -942,7 +942,7 @@ function judgeCard(card: BehaviorCard): SemanticJudgeCard {
 function validateRequest(request: SemanticJudgeRequest): void {
   const value = record(request, "Semantic judge request");
   exactKeys(value, ["schemaVersion", "id", "behavior", "rubric", "evaluator", "selection", "limits", "blinding"], "Semantic judge request");
-  if (request.schemaVersion !== "ebo.semantic-judge-request/v1") throw new Error("Semantic judge request schemaVersion is unsupported.");
+  if (request.schemaVersion !== "ebo.semantic-judge-request/v2") throw new Error("Semantic judge request schemaVersion is unsupported.");
   requiredText(request.id, "Semantic judge request id", 220);
   const behavior = record(request.behavior, "Semantic judge behavior");
   exactKeys(behavior, ["ontologyVersion", "cardId"], "Semantic judge behavior");

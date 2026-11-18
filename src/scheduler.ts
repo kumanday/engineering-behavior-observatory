@@ -90,7 +90,7 @@ export type RunQueueEntry = DeclaredMatrixCell & {
 export type RunQueueMatrix = DeclaredOrder & { trialCount: number };
 
 export type RunQueue = {
-  schemaVersion: "ebo.run-queue/v1";
+  schemaVersion: "ebo.task-packet-queue/v1";
   experimentId: string;
   experimentDigest: Digest;
   schedulingDigest: Digest;
@@ -211,7 +211,7 @@ export function compileRunQueue(
   });
 
   const queue: RunQueue = {
-    schemaVersion: "ebo.run-queue/v1",
+    schemaVersion: "ebo.task-packet-queue/v1",
     experimentId: experiment.id,
     experimentDigest,
     schedulingDigest,
@@ -349,8 +349,8 @@ export function validateRunQueue(
   const errors = validateArtifact(artifact, queue);
   if (errors.length > 0) return errors;
   if (!isRecord(queue)) return [queueError(artifact, "/", "Run queue must be an object.")];
-  if (queue.schemaVersion !== "ebo.run-queue/v1") {
-    return [queueError(artifact, "/schemaVersion", "Expected an ebo.run-queue/v1 artifact.")];
+  if (queue.schemaVersion !== "ebo.task-packet-queue/v1") {
+    return [queueError(artifact, "/schemaVersion", "Expected an ebo.task-packet-queue/v1 artifact.")];
   }
 
   const runQueue = queue as unknown as RunQueue;
@@ -1309,7 +1309,7 @@ function runId(
 }
 
 function queueError(artifact: string, field: string, message: string): ArtifactValidationError {
-  return { artifact, schemaVersion: "ebo.run-queue/v1", field, message };
+  return { artifact, schemaVersion: "ebo.task-packet-queue/v1", field, message };
 }
 
 function checkConditionIdentity(

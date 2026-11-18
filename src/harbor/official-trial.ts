@@ -19,8 +19,8 @@ import { readStudyRuntimeLock } from "../study-runtimes.js";
 import { frozenPythonEnvironment } from "../runtime-bootstrap.js";
 
 export type HarborWorkerRuntime = {
-  schemaVersion: "ebo.harbor-worker-runtime/v1" | "ebo.harbor-worker-runtime/v2";
-  studyLockDigest?: string;
+  schemaVersion: "ebo.harbor-worker-runtime/v2";
+  studyLockDigest: string;
   archive: ArtifactReference;
   node: string;
   entrypoint: string;
@@ -31,7 +31,7 @@ export function resolveHarborWorkerRuntime(root: string, reference: ArtifactRefe
   const text = resolveBundleConfiguration(root, reference).toString("utf8");
   assertNoDuplicateJsonKeys(text);
   const value = JSON.parse(text) as HarborWorkerRuntime;
-  if (!["ebo.harbor-worker-runtime/v1", "ebo.harbor-worker-runtime/v2"].includes(value.schemaVersion) || value.schemaVersion === "ebo.harbor-worker-runtime/v2" && !/^sha256:[a-f0-9]{64}$/u.test(value.studyLockDigest ?? "") || !isSafeArtifactRelativePath(value.node)
+  if (value.schemaVersion !== "ebo.harbor-worker-runtime/v2" || !/^sha256:[a-f0-9]{64}$/u.test(value.studyLockDigest ?? "") || !isSafeArtifactRelativePath(value.node)
     || !isSafeArtifactRelativePath(value.entrypoint) || !Array.isArray(value.environmentKeys)
     || value.environmentKeys.some(k => !/^[A-Z][A-Z0-9_]*$/.test(k))
     || value.environmentKeys.some(k => ["NODE_OPTIONS", "PYTHONPATH", "LD_PRELOAD", "DOCKER_HOST"].includes(k))) {
@@ -176,7 +176,6 @@ async function runOfficialHarborTrialOwned(input: OfficialHarborTrialInput): Pro
 }
 
 export function assertWorkerStudyRuntime(runtime: HarborWorkerRuntime, digest: string): void {
-  if (!runtime.studyLockDigest) throw new Error("RUNTIME_WORKER_MIGRATION_REQUIRED: prepare a v2 worker pack containing the frozen study runtimes.");
   if (runtime.studyLockDigest !== digest) throw new Error("RUNTIME_LOCK_INTEGRITY: worker archive was prepared for a different study lock.");
 }
 

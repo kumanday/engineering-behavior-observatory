@@ -6,6 +6,10 @@ the `ebo` command is installed as described in the quickstart.
 
 ## Start here
 
+[Map of EBO 2.0](guides/ebo-2-map.md): what EBO does from capture to report,
+every record format with the command that writes it, what changed from 1.x and
+what is planned.
+
 1. [Quickstart](guides/quickstart.md): install EBO and open a synthetic
    report without credentials; then prepare for a real capture.
 2. [Choose a harness](harnesses/README.md): compare execution boundaries,
@@ -96,7 +100,5 @@ scattered through release history.
 - [Pinned Harness Leaderboard cohorts](reference/leaderboard-imports.md): local
   snapshot receipts, protected facts, execution reuse and quarantine.
 - [Supplemental evidence companions](reference/evidence-companions.md) bind extra evidence to an existing attempt.
-- [EBO v2 analytical contracts](development/normalization-v2.md) define the opt-in typed lane.
+- [Typed evidence projection](development/normalization-v2.md): the stricter evidence model under the normalized dataset.
 - [Native v2 adapters](development/native-v2-adapters.md) derive typed operations and source facts from qualified native bundles.
-
-- [Typed v2 consumers](development/typed-v2-consumers.md) prepare observations, ledgers, evaluation inputs and local Atlas inspection.

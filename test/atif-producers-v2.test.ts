@@ -6,22 +6,43 @@ import test from "node:test";
 import { inspectAtifBytes, type AtifObject } from "../src/atif-reader.js";
 import { listAtifProfilesV2 } from "../src/atif-producers-v2.js";
 import { projectAtifV2, readImportedBehaviorEvidenceV2 } from "../src/atif-v2.js";
-import { createStructuralObservationSetV2, analysisDigestV2 } from "../src/analysis-v2.js";
-import { createOccurrenceLedgerV2 } from "../src/occurrences-v2.js";
-import { buildAtlasViewV2 } from "../src/atlas-v2.js";
+import { normalizeAtif } from "../src/atif-normalizer.js";
+import { createStructuralObservationSet } from "../src/structural-observations.js";
+import { toolOperations } from "../src/structural-observations.js";
 import { executionDurationMs, precedes, validateNormalizedDatasetV2 } from "../src/normalization-v2.js";
 import { importAtifFile, readImportedBehaviorEvidence } from "../src/atif-import.js";
+import { digestMetadata } from "../src/artifacts.js";
+const authoredDigest = (label: string) => `sha256:${digestMetadata(label).value}` as const;
 const fixtureRoot = new URL("../../test/fixtures/atif/producers/", import.meta.url);
 const fixture = (name: string): AtifObject => JSON.parse(readFileSync(new URL(`${name}.atif.json`, fixtureRoot), "utf8"));
 const steps = (source: AtifObject) => source.steps as AtifObject[];
-async function project(family: string, edit?: (source: AtifObject) => void, name = family) {
+function projectionInput(family: string, edit?: (source: AtifObject) => void, name = family) {
   const source = fixture(name); edit?.(source);
   const read = inspectAtifBytes(Buffer.from(JSON.stringify(source)));
-  return projectAtifV2({ read, ...(family === "codex" ? { producer: listAtifProfilesV2().find((p) => p.family === family)!.producer } : {}),
-    runId: "r", attemptId: "a", manifestDigest: analysisDigestV2("authored-projection-fixture") });
+  return { read, ...(family === "codex" ? { producer: listAtifProfilesV2().find((p) => p.family === family)!.producer } : {}),
+    runId: "r", attemptId: "a", manifestDigest: authoredDigest("authored-projection-fixture") };
 }
-async function measures(evidence: Awaited<ReturnType<typeof project>>) {
-  return Object.fromEntries((await createStructuralObservationSetV2(evidence.dataset, evidence.resolver)).observations.map((o) => [o.measure, o.value]));
+async function project(family: string, edit?: (source: AtifObject) => void, name = family) {
+  return projectAtifV2(projectionInput(family, edit, name));
+}
+/** Operations beyond the first with the same tool name and original input, from the projection's own identities. */
+function repeats(evidence: Awaited<ReturnType<typeof project>>) {
+  const signatures = evidence.dataset.operations.map(({ toolName, inputDigest }) => {
+    assert.ok(toolName.status === "known" && inputDigest.status === "known");
+    return `${toolName.value}\0${inputDigest.value}`;
+  });
+  return signatures.length - new Set(signatures).size;
+}
+/** The root document's projection measurements, by id. */
+const only = (value: { status: string; value?: unknown } | undefined) => value === undefined ? value : { status: value.status, value: value.value };
+function measures(evidence: Awaited<ReturnType<typeof project>>) {
+  return Object.fromEntries(evidence.dataset.measurements.filter(({ scope }) => scope.id.endsWith(":#")).map((m) => [m.id, m.value]));
+}
+/** What the analysis lane reports for the same document: its structural observations, by extractor. */
+async function observed(family: string, edit?: (source: AtifObject) => void, name = family) {
+  const normalized = await normalizeAtif(projectionInput(family, edit, name));
+  const set = createStructuralObservationSet(normalized.dataset, normalized.coverage, normalized.outcomeCapture);
+  return Object.fromEntries(set.observations.map(({ extractor, value }) => [extractor.id, value]));
 }
 
 test("only Pi and Codex have optional overlays; other producer fixtures use core in both readers", async () => {
@@ -39,32 +60,31 @@ test("only Pi and Codex have optional overlays; other producer fixtures use core
       assert.equal(evidence.dataset.sources[0]!.producerProfile.status, "unknown");
       assert.equal(evidence.dataset.sources[0]!.authority, "third-party");
       await validateNormalizedDatasetV2(evidence.dataset, evidence.resolver);
-      assert.ok((await buildAtlasViewV2(evidence)).units.length > 0);
-      assert.ok((await measures(evidence))["source-tool-operation-count"]);
+      assert.ok(measures(evidence)["source-tool-operation-count"]);
       assert.equal((await importAtifFile({ sourcePath, destination, runId: "r", attemptId: family })).reused, true);
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("Codex conversion limits preserve recorded counts without claiming the omitted native pending call", async () => {
-  const evidence = await project("codex"), observed = await measures(evidence);
+  const evidence = await project("codex"), measured = measures(evidence);
   const native = readFileSync(new URL("codex.native.jsonl", fixtureRoot), "utf8").trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(native.filter(({ payload }) => payload.type === "function_call").length, 3);
   assert.equal(evidence.dataset.operations.length, 2);
-  assert.deepEqual(observed["source-tool-operation-count"], { status: "known", value: 2 });
-  assert.equal(observed["source-attempt-tool-operation-count"], undefined);
+  assert.deepEqual(measured["source-tool-operation-count"], { status: "known", value: 2 });
+  assert.equal(measured["source-attempt-tool-operation-count"], undefined);
   assert.ok(evidence.capture.qualification === "imported" && evidence.capture.sourceLimitations?.includes("CONVERTER_OMITS_PENDING_CALLS"));
   assert.deepEqual(evidence.dataset.operations[0]!.issuingInference, evidence.dataset.operations[1]!.issuingInference);
   assert.equal(evidence.dataset.operations[0]!.issuingInference.status, "known");
-  assert.equal(observed["native-request-count"]!.status, "unknown");
+  assert.notEqual((await observed("codex"))["model-request-count"]!.status, "known", "a declared inference is not a native request");
   const event = evidence.dataset.events.find(({ clock }) => clock.status === "known")!;
   assert.ok(event.clock.status === "known" && event.clock.value.provenance === "converter-derived");
   assert.equal(executionDurationMs(event, event).status, "unknown");
 });
 
 test("generic Hermes semantics retain source-declared identities and unknown inference and failure", async () => {
-  const evidence = await project("hermes"), observed = await measures(evidence);
-  assert.equal(evidence.dataset.operations.length, 2); assert.equal(observed["declared-inference-count"]!.status, "unknown");
+  const evidence = await project("hermes");
+  assert.equal(evidence.dataset.operations.length, 2); assert.equal(measures(evidence)["source-declared-inference-count"]!.status, "unknown");
   assert.ok(evidence.dataset.operations.every(({ failure, identity }) => failure.status === "unknown" && identity.identityClass === "source-declared"));
 });
 
@@ -73,12 +93,13 @@ test("generic OpenClaw extensions and literal history markers do not establish f
     source.extra = { partial: { missing: ["tool_calls", "tool_results"] } };
     source.steps = [{ step_id: 1, source: "user", message: "Run checks." }, { step_id: 2, source: "system", message: "[COMPACTED HISTORY] Not recorded", extra: { added_by: "hlb" } }];
   }]) {
-    const evidence = await project("openclaw", edit), observed = await measures(evidence);
+    const evidence = await project("openclaw", edit);
     assert.ok(evidence.dataset.operations.every(({ failure }) => failure.status === "unknown"));
-    assert.equal(observed["context-compaction-record-count"]!.status, "unknown");
-    assert.equal(observed["context-conversion-gap-record-count"]!.status, "unknown");
+    assert.equal(evidence.dataset.events.some(({ facts }) => facts.context !== undefined), false, "a literal marker is not a compaction or conversion gap");
+    const compaction = only((await observed("openclaw", edit))["compaction-boundary-record-count"]);
+    assert.ok(compaction === undefined || compaction.status !== "known" || compaction.value === 0);
     assert.ok(evidence.dataset.measurements.every(({ scope }) => scope.kind === "recorded-document"));
-    if (edit) assert.equal(observed["source-tool-operation-count"]!.status, "unknown");
+    if (edit) assert.equal(measures(evidence)["source-tool-operation-count"]!.status, "unknown");
   }
 });
 
@@ -97,7 +118,7 @@ test("embedded histories project independently with no attempt-level sum", async
   const evidence = await project("openclaw", (source) => { source.subagent_trajectories = [{ ...structuredClone(source), session_id: "child", agent: { name: "acme-agent", version: "9.9.9" } }]; });
   assert.equal(evidence.dataset.sources.length, 2); assert.equal(evidence.dataset.operations.length, 4);
   assert.ok(evidence.dataset.events.some(({ source }) => source.nativeReference.recordLocator.startsWith("#/subagent_trajectories")));
-  const counts = (await createStructuralObservationSetV2(evidence.dataset, evidence.resolver)).observations.filter(({ measure }) => measure === "source-tool-operation-count");
+  const counts = evidence.dataset.measurements.filter(({ id }) => id === "source-tool-operation-count");
   assert.equal(counts.length, 2); assert.ok(counts.every(({ scope, value }) => scope.kind === "recorded-document" && value.status === "known" && value.value === 2));
 });
 
@@ -109,7 +130,9 @@ test("malformed ordinals and inference counts produce structural diagnostics", a
 test("folded results do not establish execution follow-up order", async () => {
   const evidence = await project("openclaw", undefined, "openclaw-late-results");
   assert.ok(evidence.dataset.operations.every(({ endOrder }) => endOrder.status === "unknown"));
-  assert.equal((await createOccurrenceLedgerV2(evidence.dataset, evidence.resolver)).occurrences.some(({ type }) => type === "execution-follow-up"), false);
+  const operations = toolOperations((await normalizeAtif(projectionInput("openclaw", undefined, "openclaw-late-results"))).dataset.events);
+  assert.equal((await observed("openclaw", undefined, "openclaw-late-results"))["failure-followed-by-same-tool-count"]?.status === "known"
+    && operations.some(({ failed }) => failed), false, "no follow-up order is established");
 });
 
 test("empty responses retain result endpoints without inventing successful or failed status", async () => {
@@ -131,38 +154,39 @@ test("Codex raw custom and function inputs preserve distinctions lost from conve
   const evidence = await project("codex", undefined, "codex-input-distinction");
   assert.ok(evidence.dataset.operations.every(({ inputDigest }) => inputDigest.status === "known"));
   assert.equal(new Set(evidence.dataset.operations.map(({ inputDigest }) => inputDigest.status === "known" ? inputDigest.value : null)).size, 4);
-  assert.deepEqual((await measures(evidence))["repeated-tool-operation-count"], { status: "known", value: 0 });
+  assert.equal(repeats(evidence), 0);
   const inputs = evidence.dataset.events.flatMap(({ content }) => content.status === "known" ? content.value.filter(({ role }) => role === "tool-input").map(({ nativeReference }) => evidence.resolver.read(nativeReference)) : []);
   assert.ok(inputs.includes("echo hello")); assert.ok(inputs.includes('{"input":"echo hello"}'));
-  assert.deepEqual((await measures(await project("codex", undefined, "codex-identical-input")))["repeated-tool-operation-count"], { status: "known", value: 1 });
+  assert.equal(repeats(await project("codex", undefined, "codex-identical-input")), 1);
 });
 
 test("missing Codex original input provenance qualifies signatures without erasing calls", async () => {
-  const evidence = await project("codex", (source) => { for (const step of steps(source)) if (step.tool_calls) delete step.extra; });
+  const edit = (source: AtifObject) => { for (const step of steps(source)) if (step.tool_calls) delete step.extra; };
+  const evidence = await project("codex", edit);
   assert.equal(evidence.dataset.operations.length, 2);
   assert.ok(evidence.dataset.operations.every(({ inputDigest }) => inputDigest.status === "unknown"));
-  assert.equal((await measures(evidence))["repeated-tool-operation-count"]!.status, "unknown");
+  assert.notEqual((await observed("codex", edit))["repeated-tool-operation-count"]!.status, "known");
 });
 
 test("generic blank tool names retain linked endpoints and unknown signatures", async () => {
   const evidence = await project("hermes", undefined, "hermes-blank-names");
   assert.deepEqual(evidence.dataset.operations.map(({ identity }) => identity.nativeId).sort(), ["call-a", "call-b"]);
   assert.ok(evidence.dataset.operations.every(({ toolName, callEventIds, resultEventIds }) => toolName.status === "unknown" && callEventIds.length === 1 && resultEventIds.length === 1));
-  assert.equal((await measures(evidence))["repeated-tool-operation-count"]!.status, "unknown");
+  assert.notEqual((await observed("hermes", undefined, "hermes-blank-names"))["repeated-tool-operation-count"]!.status, "known");
 });
 
 test("Codex split groups preserve standard declared counts and separately qualify converter group count", async () => {
-  const evidence = await project("codex", undefined, "codex-split-inference"), observed = await measures(evidence);
-  assert.deepEqual(observed["declared-inference-count"], { status: "known", value: 2 });
-  assert.deepEqual(observed["codex-converter-inference-group-count"], { status: "known", value: 1 });
+  const evidence = await project("codex", undefined, "codex-split-inference"), measured = measures(evidence);
+  assert.deepEqual(measured["source-declared-inference-count"], { status: "known", value: 2 });
+  assert.deepEqual(measured["codex-converter-inference-group-count"], { status: "known", value: 1 });
   assert.deepEqual(evidence.dataset.operations[0]!.issuingInference, evidence.dataset.operations[1]!.issuingInference);
   const conflict = await project("codex", (source) => { steps(source).filter((step) => step.source === "agent")[1]!.llm_call_count = 2; }, "codex-split-inference");
-  assert.equal((await measures(conflict))["codex-converter-inference-group-count"]!.status, "unknown");
+  assert.equal(measures(conflict)["codex-converter-inference-group-count"]!.status, "unknown");
 });
 
 test("explicit zero-dollar source cost is retained without zero-filling token fields", async () => {
-  const evidence = await project("codex", undefined, "codex-zero-cost"), observed = await measures(evidence);
-  assert.deepEqual(observed["source-final-total_cost_usd"], { status: "known", value: 0 });
+  const evidence = await project("codex", undefined, "codex-zero-cost");
+  assert.deepEqual(measures(evidence)["source-final-total_cost_usd"], { status: "known", value: 0 });
   assert.equal(evidence.dataset.events.some(({ facts }) => facts.resource?.values.cached_tokens === 0 || facts.resource?.values.total_cached_tokens === 0), false);
 });
 
@@ -170,7 +194,7 @@ test("the compatibility view uses the same qualified Codex order and original in
   const { normalizeAtif } = await import("../src/atif-normalizer.js");
   const source = fixture("codex-input-distinction"), read = inspectAtifBytes(Buffer.from(JSON.stringify(source)));
   const evidence = await normalizeAtif({ read, producer: listAtifProfilesV2().find(({ family }) => family === "codex")!.producer,
-    runId: "r", attemptId: "a", manifestDigest: analysisDigestV2("legacy-bridge") });
+    runId: "r", attemptId: "a", manifestDigest: authoredDigest("legacy-bridge") });
   assert.ok(evidence.dataset.events.every(({ nativeOrder }) => nativeOrder.status === "unknown"));
   const resolve = (await import("../src/structural-observations.js")).nativeContentResolver(evidence.outcomeCapture);
   const inputs = evidence.dataset.events.flatMap(({ content }) => content.status === "known" ? content.value.filter(({ role }) => role === "tool-input").map(({ nativeReference }) => resolve(nativeReference)) : []);

@@ -103,7 +103,7 @@ visible to the shared export scanner. The source home-path scan recognizes the
 generic root segment in statically namespaced session/document identifiers.
 Filesystem home paths and credential literals retain their release checks.
 
-The ATIF conformance workflow runs the typed v2 native projection and consumer
+The ATIF conformance workflow runs the typed native projection and ATIF import
 regressions on authored fixtures. It uses the pinned Node
 and Python runtimes and does not dispatch model inference. Private paired-source
 checks and optional live capture checks remain separate verification lanes.

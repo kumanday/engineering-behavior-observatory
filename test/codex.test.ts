@@ -822,7 +822,7 @@ test("retained auth failure without an owned turn supports observations and abst
     assert.equal(evidence.dataset.events.length, 0, "No invented events without an owned turn.");
     const observations = await createRetainedStructuralObservationSet(definition.bundleRoot);
     assert.equal(await main(["observations", "create", definition.bundleRoot, join(root, "observations.json")], () => undefined), 0);
-    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "partial-fixture",
+    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v2", id: "partial-fixture",
       behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
       rubric: { id: "synthetic", version: "1.0.0", instructions: "Synthetic partial evidence only." },
       evaluator: { backend: "codex-app-server", provider: "openai", model: "fixture", effort: "low" },
@@ -1215,7 +1215,7 @@ function createQueueFixture(parent: string, executable = process.execPath): { bu
     return [name, { locator, digest: digestBytes(bytes) }];
   }));
   const experiment: ExperimentConfiguration = {
-    schemaVersion: "ebo.experiment/v1",
+    schemaVersion: "ebo.task-packet-experiment/v1",
     id: "codex-runner-fixture",
     taskSet: { task: { packetRef: { locator: "packets/task.json", digest: digestMetadata(observational) } } },
     modelSet: { "gpt-5-6-sol": { configurationRef: references.model! } },

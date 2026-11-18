@@ -76,7 +76,7 @@
         } } }
       }],
       "properties": {
-        "schemaVersion": { "const": "ebo.semantic-judge-request/v1" },
+        "schemaVersion": { "const": "ebo.semantic-judge-request/v2" },
         "id": { "type": "string", "minLength": 1, "maxLength": 220, "pattern": ".*\\S.*" },
         "behavior": { "$ref": "#/$defs/behavior" },
         "rubric": { "$ref": "#/$defs/rubric" },
@@ -173,7 +173,7 @@
       "additionalProperties": false,
       "required": ["schemaVersion", "promptVersion", "runId", "attemptId", "dataset", "behavior", "card", "codingRules", "rubric", "selection", "blinding", "limits", "evidence"],
       "properties": {
-        "schemaVersion": { "const": "ebo.semantic-judge-input/v1" },
+        "schemaVersion": { "const": "ebo.semantic-judge-input/v2" },
         "sourceEvidence": { "type": "object", "additionalProperties": false, "required": ["qualification", "scope", "completeness", "limitations"], "properties": { "qualification": { "const": "imported" }, "scope": { "const": "retained-source" }, "completeness": { "const": "unproven" }, "limitations": { "type": "array", "items": { "type": "string" } } } },
         "promptVersion": { "$ref": "#/$defs/identifier" },
         "runId": { "$ref": "#/$defs/identifier" },

@@ -1,9 +1,16 @@
-# EBO v2 analytical contracts
+# Typed evidence projection
 
 EBO owns the normalized dataset, uniform event and operation contracts. ATIF is
 an admitted source format with its own versioned readers and producer profiles.
-The v2 API is explicit and opt-in: the default CLI analysis commands keep the
-`ebo.normalized-dataset/v1` lane and its digest recipes.
+
+The typed projection (`ebo.typed-dataset/v1`, `ebo.typed-event/v1` and
+`ebo.operation/v1`) is the stricter evidence model under the analysis lane. ATIF
+imports are projected into it first, and the analysis lane's
+`ebo.normalized-dataset/v1` is computed from that projection. Harness
+verification reads it for native bundles. Analysis consumers (structural
+observations, occurrences, judging, aggregation and Atlas) read
+`ebo.normalized-dataset/v1`; consumers reading typed operations directly are a
+stated goal for a later release (see the [map of EBO 2.0](../guides/ebo-2-map.md)).
 
 `NormalizedDatasetV2` binds the original manifest, qualification, reader code,
 source format, producer profile and executed harness independently. Native
@@ -58,11 +65,12 @@ record-mapping coverage, parentage, endpoint order and measurement coverage. A
 resolver must return the actual run, attempt and digest; a boolean resolution
 alone is insufficient. Reader code is shipped implementation, never packet data.
 
-## What the typed lane changes
+## What the typed projection adds
 
-The typed lane represents the following differently from the default lane.
+The typed projection represents the following differently from the analysis
+dataset.
 
-| Default lane | Typed v2 lane |
+| Analysis dataset | Typed projection |
 | --- | --- |
 | Adapter harness doubles as source kind | Source format/profile and executed harness are independent |
 | Optional scalar operation ID aliases | Required operation scope and a single operation projection |
@@ -73,8 +81,6 @@ The typed lane represents the following differently from the default lane.
 | Model request event positions | Native request identity separate from declared inference count |
 | Compaction vocabulary in consumers | Typed context kind and explicit replacement boundary |
 
-Adding the typed contracts does not authorize regenerating existing assertions
-or launching model judgments.
 
 ## ATIF alignment
 

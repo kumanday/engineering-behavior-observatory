@@ -24,7 +24,7 @@ test("evidence packets: three variants, verification, withholding and claims tha
       claims: [{ id: "C1", type: "descriptive", text: "Seven attempts were captured.", source_section: "Summary", support: [],
         numbers: [{ id: "attempts", label: "attempts", value: 7, kind: "lab", expr: { sql: "SELECT count(*) FROM attempts" } }] }] };
     writeFileSync(join(root, "claims.json"), JSON.stringify(claims));
-    const request: AtlasBundleRequest = { schemaVersion: "ebo.atlas-bundle-request/v1", id: "synthetic", title: "Synthetic study",
+    const request: AtlasBundleRequest = { schemaVersion: "ebo.atlas-bundle-request/v2", id: "synthetic", title: "Synthetic study",
       cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], claims: "claims.json" };
     writeFileSync(join(root, "request.json"), JSON.stringify(request));
     await buildAtlasBundle(join(root, "request.json"), join(root, "bundle"));

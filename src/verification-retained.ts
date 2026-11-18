@@ -40,7 +40,7 @@ export function readRunVerification(bundleRoot: string, manifest: RunManifest): 
   const lock = readDiagnostic(binding.lockArtifactId), launch = readDiagnostic(binding.launchArtifactId);
   const {digest, ...body} = lock;
   const group = lock.groups?.find((group: any) => group.roles?.includes(binding.role));
-  if (!["ebo.study-runtime-lock/v1", "ebo.study-runtime-lock/v2"].includes(lock.schemaVersion) || digest !== binding.lockDigest || verificationDigest(body) !== digest
+  if (lock.schemaVersion !== "ebo.study-runtime-lock/v2" || digest !== binding.lockDigest || verificationDigest(body) !== digest
       || !group || launch.lockDigest !== digest || launch.role !== binding.role
       || verificationDigest(record.snapshot) !== verificationDigest(group.verification?.[binding.role] ?? null)
       || verificationDigest(record.subject) !== verificationDigest(launch.verificationSubject)

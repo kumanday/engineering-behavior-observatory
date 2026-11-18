@@ -158,7 +158,7 @@ judgeTest("semantic judging uses every retained model/route alias and never requ
     assert.deepEqual(new Set(imported.evidence.modelAliases), new Set(["provider/Model[route]", "Model[route]", "served-model", "synthetic-model"]));
     const observations = await createRetainedStructuralObservationSet(bundleRoot);
     const event = imported.evidence.dataset.events.find(({ family, attributes }) => family === "message" && attributes.role === "assistant")!;
-    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v1", id: "test", behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
+    const request: SemanticJudgeRequest = { schemaVersion: "ebo.semantic-judge-request/v2", id: "test", behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
       rubric: { id: "r", version: "1", instructions: "Inspect source behavior." }, evaluator: { provider: "anthropic", model: "judge", effort: "low" },
       selection: { eventIds: [event.id], structuralObservationIds: [], includeOutcomeObservations: false },
       limits: { maxEvidenceItems: 10, maxRecordChars: 8_000, maxInputChars: 32_000, maxOutputChars: 8_192, maxCitations: 4, maxWallClockMs: 5_000, maxTurns: 1 }, blinding: { evaluatedModelIdentity: "redact" } };
@@ -207,7 +207,7 @@ test("occurrence rating state preserves pointed string output and non-shell argu
 
 test("assistant reports remain selected by the existing judge preparation policy", async () => {
   const evidence = await project(), observations = createStructuralObservationSet(evidence.dataset, evidence.coverage, evidence.outcomeCapture);
-  const request = prepareJudgeRequest(observations, evidence.dataset.events, { schemaVersion: "ebo.judge-prepare-spec/v1", id: "p", behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
+  const request = prepareJudgeRequest(observations, evidence.dataset.events, { schemaVersion: "ebo.judge-prepare-spec/v2", id: "p", behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
     rubric: { id: "r", version: "1", instructions: "Inspect source behavior." }, evaluator: { provider: "anthropic", model: "synthetic-judge", effort: "low" },
     occurrenceTypes: ["validation-run", "failure-response"], blinding: { evaluatedModelIdentity: "redact" },
     limits: { maxEvidenceItems: 64, maxRecordChars: 8_000, maxInputChars: 200_000, maxOutputChars: 8_192, maxCitations: 8, maxWallClockMs: 5_000, maxTurns: 1 } });

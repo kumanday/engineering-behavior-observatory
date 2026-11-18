@@ -90,7 +90,7 @@ advisories remain recorded warnings. Content-addressed installs verify exact
 artifacts and offered provenance, with install scripts disabled where feasible.
 
 
-`ebo.study-runtime-lock/v1` binds the study request, selection clock, cutoff,
+`ebo.study-runtime-lock/v2` binds the study request, selection clock, cutoff,
 component versions, complete dependency graphs and installation receipts. Its
 digest identifies the frozen composition. A changed request creates a new study
 revision. Reading the freeze does not resolve releases again.

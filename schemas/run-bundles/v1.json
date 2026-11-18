@@ -1,8 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:ebo:schema:run-bundle:v1",
-  "title": "EBO run-bundle v1",
-  "$ref": "#/$defs/runManifest",
+  "title": "EBO run-bundle shared definitions and export manifest",
   "$defs": {
     "identifier": {
       "type": "string",
@@ -227,138 +226,6 @@
       "required": ["status"],
       "properties": {
         "status": { "enum": ["available", "missing", "unsupported", "not-checked"] }
-      }
-    },
-    "runManifest": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "schemaVersion",
-        "bundleId",
-        "run",
-        "attempt",
-        "configuration",
-        "terminal",
-        "evidence"
-      ],
-      "properties": {
-        "schemaVersion": { "const": "run-manifest/v1" },
-        "bundleId": { "$ref": "#/$defs/identifier" },
-        "run": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["id", "task", "fixture", "model", "harness", "runtime"],
-          "properties": {
-            "id": { "$ref": "#/$defs/identifier" },
-            "trial": {
-              "type": "object", "additionalProperties": false, "required": ["index"],
-              "properties": { "index": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 } }
-            },
-            "assessmentMode": { "enum": ["observational", "verified"] },
-            "task": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["id"],
-              "properties": { "id": { "$ref": "#/$defs/identifier" }, "digest": { "$ref": "#/$defs/digest" } }
-            },
-            "fixture": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["id", "digest"],
-              "properties": {
-                "id": { "$ref": "#/$defs/identifier" },
-                "digest": { "$ref": "#/$defs/digest" }
-              }
-            },
-            "model": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["provider", "id"],
-              "properties": {
-                "provider": { "$ref": "#/$defs/identifier" },
-                "id": { "$ref": "#/$defs/identifier" },
-                "configurationDigest": { "$ref": "#/$defs/digest" }
-              }
-            },
-            "harness": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["id", "version"],
-              "properties": {
-                "id": { "$ref": "#/$defs/identifier" },
-                "version": { "$ref": "#/$defs/identifier" },
-                "configurationDigest": { "$ref": "#/$defs/digest" }
-              }
-            },
-            "runtime": {
-              "type": "array",
-              "minItems": 1,
-              "uniqueItems": true,
-              "items": { "$ref": "#/$defs/runtimeComponent" }
-            },
-            "verifier": { "$ref": "#/$defs/verifierReference" },
-            "native": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "sessionId": { "$ref": "#/$defs/identifier" },
-                "traceId": { "$ref": "#/$defs/identifier" }
-              }
-            }
-          },
-          "allOf": [
-            {
-              "if": { "properties": { "assessmentMode": { "const": "observational" } }, "required": ["assessmentMode"] },
-              "then": { "not": { "required": ["verifier"] } }
-            }
-          ]
-        },
-        "attempt": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["id", "number"],
-          "properties": {
-            "id": { "$ref": "#/$defs/identifier" },
-            "number": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
-            "retryOf": { "$ref": "#/$defs/identifier" }
-          },
-          "allOf": [
-            {
-              "if": { "required": ["retryOf"] },
-              "then": { "properties": { "number": { "minimum": 2 } } }
-            },
-            {
-              "if": { "properties": { "number": { "minimum": 2 } }, "required": ["number"] },
-              "then": { "required": ["retryOf"] }
-            }
-          ]
-        },
-        "configuration": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["digest", "budgetDigest", "toolPolicyDigest"],
-          "properties": {
-            "digest": { "$ref": "#/$defs/digest" },
-            "captureProfileDigest": { "$ref": "#/$defs/digest" },
-            "budgetDigest": { "$ref": "#/$defs/digest" },
-            "toolPolicyDigest": { "$ref": "#/$defs/digest" }
-          }
-        },
-        "terminal": { "$ref": "#/$defs/terminal" },
-        "evidence": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/evidenceDescriptor" },
-          "contains": {
-            "properties": {
-              "kind": { "const": "capture-report" },
-              "sharingClass": { "not": { "enum": ["partner", "public"] } }
-            },
-            "required": ["kind", "sharingClass"]
-          },
-          "minContains": 1,
-          "maxContains": 1
-        }
       }
     },
     "runtimeComponent": {

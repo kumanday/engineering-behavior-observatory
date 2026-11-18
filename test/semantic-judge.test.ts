@@ -643,7 +643,7 @@ function backend(run: SemanticJudgeBackend["run"]): SemanticJudgeBackend {
 
 function judgeRequest(eventId: string, observationId: string): SemanticJudgeRequest {
   return {
-    schemaVersion: "ebo.semantic-judge-request/v1",
+    schemaVersion: "ebo.semantic-judge-request/v2",
     id: "semantic-judgment",
     behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
     rubric: { id: "verification-rubric", version: "1.0.0", instructions: "Assess whether retained evidence shows validation before completion." },

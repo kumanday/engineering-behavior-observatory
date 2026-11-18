@@ -33,22 +33,21 @@ export function smolCondition(studyRoot: string, queue: RunQueueV2) {
 
 /** Connection metadata is frozen; credentials are resolved only by the coordinator. */
 export function validateSmolProfile(manifest: Record<string, unknown>, workerKeys: string[] = []): void {
-  const local = manifest.schemaVersion === "ebo.smol-environments/v1" || manifest.target === "local";
-  if (!["ebo.smol-environments/v1", "ebo.smol-environments/v2", "ebo.smol-environments/v3"].includes(String(manifest.schemaVersion))
+  const local = manifest.target === "local";
+  if (!["ebo.smol-task-environments/v1", "ebo.smol-family-environments/v1"].includes(String(manifest.schemaVersion))
     || (local ? manifest.platform !== "linux/arm64" : !["linux/arm64", "linux/amd64"].includes(String(manifest.platform)))
     || (!local && manifest.target !== "cloud")) throw new Error("Invalid Smol target or platform.");
-  if (manifest.schemaVersion === "ebo.smol-environments/v1" && manifest.target !== undefined && manifest.target !== "local") throw new Error("Cloud requires Smol manifest v2.");
   if (!local) {
     const cloud = manifest.cloud as { baseUrl?: string; tokenEnv?: string; auth?: string } | undefined;
     if (!cloud || Object.keys(cloud).some(key => !["baseUrl", "tokenEnv", "auth"].includes(key))) throw new Error("Cloud connection metadata accepts only baseUrl, tokenEnv and auth.");
     const url = new URL(cloud?.baseUrl ?? "invalid");
-    const cli = manifest.schemaVersion === "ebo.smol-environments/v3" && cloud.auth === "cli" && cloud.tokenEnv === undefined;
+    const cli = manifest.schemaVersion === "ebo.smol-family-environments/v1" && cloud.auth === "cli" && cloud.tokenEnv === undefined;
     if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/"
-      || !(cli || cloud.auth === undefined && /^[A-Z][A-Z0-9_]*$/.test(cloud.tokenEnv ?? ""))) throw new Error("Cloud requires an HTTPS origin and explicit tokenEnv or v3 auth=cli.");
+      || !(cli || cloud.auth === undefined && /^[A-Z][A-Z0-9_]*$/.test(cloud.tokenEnv ?? ""))) throw new Error("Cloud requires an HTTPS origin and explicit tokenEnv, or auth=cli in an image-family manifest.");
     if (workerKeys.includes(cloud!.tokenEnv!)) throw new Error("Cloud control credentials cannot be passed to the candidate worker.");
     if (cli && workerKeys.includes("SMOL_CLOUD_TOKEN")) throw new Error("Cloud control credentials cannot be passed to the candidate worker.");
   }
-  if (manifest.schemaVersion === "ebo.smol-environments/v3") validateSmolHierarchy(manifest);
+  if (manifest.schemaVersion === "ebo.smol-family-environments/v1") validateSmolHierarchy(manifest);
 }
 
 export function validateSmolHierarchy(manifest: Record<string, unknown>): void {
@@ -84,7 +83,7 @@ export function validateSmolHierarchy(manifest: Record<string, unknown>): void {
 }
 
 async function preparationScripts(studyRoot: string, manifest: Record<string, unknown>, root: string): Promise<Record<string, string>> {
-  if (manifest.schemaVersion !== "ebo.smol-environments/v3") return {};
+  if (manifest.schemaVersion !== "ebo.smol-family-environments/v1") return {};
   const files: Record<string, string> = {};
   for (const harness of Object.values(manifest.harnesses as Record<string, { setupRef?: ArtifactReference }>)) {
     if (!harness.setupRef) continue;
@@ -140,7 +139,7 @@ async function serveSmolEnvironmentsOwned(studyRoot: string, queuePath: string, 
   const tasks = new Map<string, { id: string; path: string; verified: boolean; harnessId?: string }>();
   for (const entry of queue.entries) {
     if (entry.task.kind !== "harbor-task") throw new Error("Smol preparation requires Harbor task entries.");
-    const hierarchy = condition.environmentManifest.schemaVersion === "ebo.smol-environments/v3";
+    const hierarchy = condition.environmentManifest.schemaVersion === "ebo.smol-family-environments/v1";
     if (hierarchy && !Object.hasOwn(condition.environmentManifest.harnesses as object, entry.harnessId)) throw new Error("Queue harness has no hierarchy preparation binding.");
     tasks.set(hierarchy ? `${entry.task.taskSourceId}:${entry.harnessId}` : entry.task.taskSourceId, { id: entry.task.taskSourceId,
       ...(hierarchy ? { harnessId: entry.harnessId } : {}),
