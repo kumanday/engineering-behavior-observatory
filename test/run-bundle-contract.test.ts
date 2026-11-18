@@ -16,6 +16,8 @@ const schema = JSON.parse(readFileSync(resolve(repositoryRoot, "schemas/run-bund
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 
 ajv.addSchema(schema);
+ajv.addSchema(JSON.parse(readFileSync(resolve(repositoryRoot, "schemas/run-bundles/v2.json"), "utf8")));
+const manifestSchemaId = "urn:ebo:schema:run-bundle:v2";
 
 type JsonObject = Record<string, unknown>;
 
@@ -101,7 +103,7 @@ function sourceDescriptor(
 }
 
 function contractErrors(manifest: JsonObject, artifacts = new Map<string, JsonObject>()): string[] {
-  const errors = schemaErrors(schemaId, manifest);
+  const errors = schemaErrors(manifestSchemaId, manifest);
   if (errors.length > 0) {
     return errors;
   }
@@ -570,7 +572,7 @@ test("blocks a ready partner export that lists restricted source artifacts", () 
   (sanitizedPublicManifest.evidence as JsonObject[]).push(sanitizedSession);
   const sanitizedPublicExport = structuredClone(publicRestricted);
   sanitizedPublicExport.artifactIds = ["sanitized-session"];
-  assert.deepEqual(schemaErrors(schemaId, sanitizedPublicManifest), []);
+  assert.deepEqual(schemaErrors(manifestSchemaId, sanitizedPublicManifest), []);
   assert.doesNotThrow(() => assertExportSafe(sanitizedPublicManifest, sanitizedPublicExport));
 
   const rewrittenSourceManifest = structuredClone(sanitizedPublicManifest);
@@ -584,7 +586,7 @@ test("blocks a ready partner export that lists restricted source artifacts", () 
     (descriptor) => descriptor.id === "sanitized-session",
   )!;
   leakedNativeReferenceSession.nativeReference = sourceSession.nativeReference;
-  assert.notDeepEqual(schemaErrors(schemaId, leakedNativeReferenceManifest), []);
+  assert.notDeepEqual(schemaErrors(manifestSchemaId, leakedNativeReferenceManifest), []);
   assert.throws(() => assertExportSafe(leakedNativeReferenceManifest, sanitizedPublicExport), /must omit native reference/);
 
   const sanitizedCaptureManifest = structuredClone(manifest);
@@ -602,7 +604,7 @@ test("blocks a ready partner export that lists restricted source artifacts", () 
   });
   const sanitizedCaptureExport = structuredClone(publicRestricted);
   sanitizedCaptureExport.artifactIds = ["sanitized-capture-report"];
-  assert.deepEqual(schemaErrors(schemaId, sanitizedCaptureManifest), []);
+  assert.deepEqual(schemaErrors(manifestSchemaId, sanitizedCaptureManifest), []);
   assert.doesNotThrow(() => assertExportSafe(sanitizedCaptureManifest, sanitizedCaptureExport));
 
   const reclassifiedPublicManifest = structuredClone(sanitizedPublicManifest);

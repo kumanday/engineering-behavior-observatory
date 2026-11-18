@@ -68,7 +68,7 @@ test("reproducibly samples, renders safe native drilldown, imports lineage, and 
       ],
     };
     const criteria: ReviewSampleCriteria = {
-      schemaVersion: "ebo.review-sample-criteria/v1",
+      schemaVersion: "ebo.review-sample-criteria/v2",
       seed: "fixture-seed",
       strata: [
         { id: "verification", sampleSize: 3, filters: { cardIds: ["VF-01"] } },
@@ -88,7 +88,7 @@ test("reproducibly samples, renders safe native drilldown, imports lineage, and 
         bundleRoot: relative(process.cwd(), sources.sources[0]!.bundleRoot),
         assertionPath: relative(process.cwd(), sources.sources[0]!.assertionPath),
       }],
-    }, { schemaVersion: "ebo.review-sample-criteria/v1", seed: "relative", strata: [{ id: "all", sampleSize: 1, filters: {} }] });
+    }, { schemaVersion: "ebo.review-sample-criteria/v2", seed: "relative", strata: [{ id: "all", sampleSize: 1, filters: {} }] });
     assert.equal(relativeSelection.sources.sources[0]!.bundleRoot, sources.sources[0]!.bundleRoot);
     assert.equal(relativeSelection.sources.sources[0]!.assertionPath, sources.sources[0]!.assertionPath);
     const duplicateCandidateSelection: ReviewSample = {
@@ -156,7 +156,7 @@ test("reproducibly samples, renders safe native drilldown, imports lineage, and 
         sources.sources[0]!,
         { ...sources.sources[1]!, assertionPath: duplicatePath },
       ],
-    }, { schemaVersion: "ebo.review-sample-criteria/v1", seed: "repeat", strata: [{ id: "all", sampleSize: 2, filters: {} }] });
+    }, { schemaVersion: "ebo.review-sample-criteria/v2", seed: "repeat", strata: [{ id: "all", sampleSize: 2, filters: {} }] });
     assert.deepEqual(repeated.population.selectedAssertionIds, ["assertion-a", "assertion-a"]);
 
     const sourcePath = join(temporary, "sources.json");
@@ -361,7 +361,7 @@ test("reports agreement as unavailable when no human reviews exist", async () =>
       schemaVersion: "ebo.review-source-set/v1",
       sources: [{ bundleRoot, assertionPath: join(temporary, `${assertion!.id}.json`), taskContext: "Synthetic fixture task context." }],
     }, {
-      schemaVersion: "ebo.review-sample-criteria/v1",
+      schemaVersion: "ebo.review-sample-criteria/v2",
       seed: "empty-fixture",
       strata: [{ id: "all", sampleSize: 1, filters: {} }],
     });
@@ -391,7 +391,7 @@ test("samples and summarises each producer mode as its own population", async ()
     const sources: ReviewSourceSet = { schemaVersion: "ebo.review-source-set/v1",
       sources: [...assertions, decided].map(({ id }) => ({ bundleRoot, assertionPath: join(temporary, `${id}.json`), taskContext: "Synthetic fixture task context." })) };
     const criteria = (filters: ReviewSampleCriteria["strata"][number]["filters"]): ReviewSampleCriteria =>
-      ({ schemaVersion: "ebo.review-sample-criteria/v1", seed: "mode-fixture", strata: [{ id: "all", sampleSize: 5, filters }] });
+      ({ schemaVersion: "ebo.review-sample-criteria/v2", seed: "mode-fixture", strata: [{ id: "all", sampleSize: 5, filters }] });
 
     const onlyDecided = await selectReviewSample(sources, criteria({ modes: ["decision-model"] }));
     assert.deepEqual(onlyDecided.candidates.map(({ assertion, context }) => [assertion.id, context.mode, context.confidence]), [["assertion-decision-model", "decision-model", null]]);
@@ -451,7 +451,7 @@ test("validates a large review lineage without starving an active import lock", 
       schemaVersion: "ebo.review-source-set/v1",
       sources: [{ bundleRoot, assertionPath: join(temporary, `${assertion!.id}.json`), taskContext: "Synthetic fixture task context." }],
     }, {
-      schemaVersion: "ebo.review-sample-criteria/v1",
+      schemaVersion: "ebo.review-sample-criteria/v2",
       seed: "large-history-fixture",
       strata: [{ id: "all", sampleSize: 1, filters: {} }],
     });
@@ -533,7 +533,7 @@ function largeReviewHistory(selection: ReviewSample, count: number): ReviewHisto
 
 function largeAdjudicationSelection(count: number): ReviewSample {
   const candidate = {
-    assertion: { id: "fixture", schemaVersion: "ebo.behavior-assertion/v1" as const, digest: sha("a") },
+    assertion: { id: "fixture", schemaVersion: "ebo.behavior-assertion/v2" as const, digest: sha("a") },
     source: {
       bundleRoot: resolve("synthetic-review-sources", "bundle"),
       assertionPath: resolve("synthetic-review-sources", "fixture.json"),
@@ -555,13 +555,13 @@ function largeAdjudicationSelection(count: number): ReviewSample {
   }));
   const ids = candidates.map(({ assertion }) => assertion.id);
   return {
-    schemaVersion: "ebo.review-sample/v1",
+    schemaVersion: "ebo.review-sample/v2",
     createdAt: "2026-09-07T12:00:00Z",
     sources: {
       schemaVersion: "ebo.review-source-set/v1",
       sources: candidates.map(({ source }) => ({ ...source, taskContext: candidate.context.taskContext })),
     },
-    criteria: { schemaVersion: "ebo.review-sample-criteria/v1", seed: "adjudication-scale", strata: [{ id: "all", sampleSize: count, filters: {} }] },
+    criteria: { schemaVersion: "ebo.review-sample-criteria/v2", seed: "adjudication-scale", strata: [{ id: "all", sampleSize: count, filters: {} }] },
     population: {
       sourceCount: count,
       eligibleAssertionIds: ids,
@@ -610,7 +610,7 @@ async function writeAssertions(root: string, bundleRoot: string): Promise<LlmJud
   const {dataset} = await createRetainedBehaviorEvidence(bundleRoot);
   const event = dataset.events.find(({ source }) => source.nativeReference.artifactId === "session")!;
   const base = (id: string): LlmJudgeAssertion => ({
-    schemaVersion: "ebo.behavior-assertion/v1",
+    schemaVersion: "ebo.behavior-assertion/v2",
     id,
     runId: dataset.runId,
     attemptId: dataset.attemptId,

@@ -496,7 +496,7 @@ export function main(
       }
       const validation = validateArtifact(artifact, document);
       return document !== undefined && typeof document === "object" && document !== null
-        && ["run-manifest/v1", "run-manifest/v2"].includes(String((document as { schemaVersion?: unknown }).schemaVersion))
+        && "run-manifest/v2" === (String((document as { schemaVersion?: unknown }).schemaVersion))
         ? [...validation, ...validateRunManifestEvidence(artifact, document, dirname(artifact))]
         : validation;
     });
@@ -505,7 +505,7 @@ export function main(
           || (document as { schemaVersion?: unknown }).schemaVersion !== "export-manifest/v1") continue;
       const bundleId = (document as { bundleId?: unknown }).bundleId;
       const containingEntry = artifacts.find(({ document: candidate }) => candidate !== undefined && typeof candidate === "object" && candidate !== null
-        && ["run-manifest/v1", "run-manifest/v2"].includes(String((candidate as { schemaVersion?: unknown }).schemaVersion))
+        && "run-manifest/v2" === (String((candidate as { schemaVersion?: unknown }).schemaVersion))
         && (candidate as { bundleId?: unknown }).bundleId === bundleId);
       errors.push(...validateExportManifest(
         artifact,

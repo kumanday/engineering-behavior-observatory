@@ -307,7 +307,7 @@ test("unparsable manifests remain unknown corpus issues", () => {
   try {
     cpSync(join(fixtures, "task-failed"), join(root, "valid"), { recursive: true });
     mkdirSync(join(root, "damaged"));
-    writeFileSync(join(root, "damaged", "manifest.json"), '{"schemaVersion":"run-manifest/v1"');
+    writeFileSync(join(root, "damaged", "manifest.json"), '{"schemaVersion":"run-manifest/v2"');
 
     const entries = buildCorpusIndex(root);
     assert.equal(entries.length, 2);

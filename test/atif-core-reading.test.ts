@@ -218,7 +218,7 @@ test("declared final metrics cite their recorded fields with spec units", async 
   assert.ok(measure.sourceEventIds.some((id) => evidence.dataset.events.find((event) => event.id === id)?.source.nativeReference.recordLocator === "#/final_metrics/total_cost_usd"));
 });
 
-test("legacy v1 admission profile data never gates current core reinterpretation", async () => {
+test("an import manifest of an earlier version is refused as unsupported", async () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-v1-admission-"));
   try {
     const sourcePath = join(root, "source.json"), destination = join(root, "import");
@@ -228,14 +228,10 @@ test("legacy v1 admission profile data never gates current core reinterpretation
     manifest.schemaVersion = "ebo.import-manifest/v1"; manifest.producerAuthority = "operator-declared";
     manifest.profile = { status: "supported", id: "retired-exact-fingerprint", digest: `sha256:${"1".repeat(64)}` };
     delete manifest.overlays; delete manifest.interpretation;
-    const frozen = Buffer.from(`${JSON.stringify(manifest)}\n`);writeFileSync(join(destination, "manifest.json"), frozen);
-    assert.ok((await readImportedBehaviorEvidence(destination)).dataset.events.length > 0);
-    const evidence = await readImportedBehaviorEvidenceV2(destination);
-    assert.equal(evidence.dataset.operations.length, 2); assert.equal(evidence.interpretationRevision?.changed, true);
-    assert.deepEqual(readFileSync(join(destination, "manifest.json")), frozen);
+    writeFileSync(join(destination, "manifest.json"), `${JSON.stringify(manifest)}\n`);
+    await assert.rejects(readImportedBehaviorEvidenceV2(destination), /unsupported|Unsupported/u);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
-
 
 test("standard semantic projection is independent of arbitrary producer names and operator fingerprints", async () => {
   const original = JSON.parse(readFileSync(new URL("../../test/fixtures/atif/core/acme.json", import.meta.url), "utf8"));

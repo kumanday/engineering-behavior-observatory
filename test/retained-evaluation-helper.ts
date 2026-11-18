@@ -24,7 +24,7 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
   assert.equal(await main(["observations", "create", bundleRoot, join(outputRoot, "observations.json")], () => undefined), 0);
   const event = evidence.dataset.events[0]!;
   const request: SemanticJudgeRequest = {
-    schemaVersion: "ebo.semantic-judge-request/v1", id: "synthetic-retained-judge",
+    schemaVersion: "ebo.semantic-judge-request/v2", id: "synthetic-retained-judge",
     behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
     rubric: { id: "synthetic-only", version: "1.0.0", instructions: "Synthetic fixture." },
     evaluator: { provider: "anthropic", model: "fixture-judge", effort: "low" },
@@ -52,7 +52,7 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
     writeFileSync(assertPath, JSON.stringify(assertion));
     assert.equal(await main(["assertions", "validate", bundleRoot, assertPath], () => undefined), 0);
     const selection = await selectReviewSample({ schemaVersion: "ebo.review-source-set/v1", sources: [{ bundleRoot, assertionPath: assertPath, taskContext: "SYNTHETIC TEST" }] },
-      { schemaVersion: "ebo.review-sample-criteria/v1", seed: "fixture", strata: [{ id: "all", sampleSize: 1, filters: {} }] });
+      { schemaVersion: "ebo.review-sample-criteria/v2", seed: "fixture", strata: [{ id: "all", sampleSize: 1, filters: {} }] });
     await writeReviewPacket(selection, join(outputRoot, `packet-${assessment}`));
     const history: ReviewHistory = { schemaVersion: "ebo.review-history/v1", selection: { schemaVersion: selection.schemaVersion, digest: digest(selection) }, decisions: [{
       schemaVersion: "ebo.human-review-decision/v1", id: "synthetic-only", kind: "review", assertion: selection.candidates[0]!.assertion,
@@ -111,7 +111,7 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
       return { bundleRoot, assertionPath, taskContext: "SYNTHETIC RERUN TEST" };
     });
     const selection = await selectReviewSample({ schemaVersion: "ebo.review-source-set/v1", sources },
-      { schemaVersion: "ebo.review-sample-criteria/v1", seed: "fixture", strata: [{ id: "all", sampleSize: 3, filters: {} }] });
+      { schemaVersion: "ebo.review-sample-criteria/v2", seed: "fixture", strata: [{ id: "all", sampleSize: 3, filters: {} }] });
     const history: ReviewHistory = { schemaVersion: "ebo.review-history/v1", selection: { schemaVersion: selection.schemaVersion, digest: digest(selection) }, decisions: [] };
     for (const candidate of selection.candidates) {
       const previousHistory = history.decisions.length === 0 ? null : { schemaVersion: history.schemaVersion, digest: digest(history) };

@@ -117,7 +117,7 @@ test("an unfamiliar harness version still reads, stays unverified and keeps its 
     const evidence = await createRetainedBehaviorEvidence(root);
     const datasetDigest = `sha256:${digestMetadata(evidence.dataset).value}` as const;
     assert.equal(evidence.verification?.state, "unverified");
-    const assertion = {schemaVersion: "ebo.behavior-assertion/v1", id: "prior-annotation", runId: evidence.dataset.runId, attemptId: evidence.dataset.attemptId,
+    const assertion = {schemaVersion: "ebo.behavior-assertion/v2", id: "prior-annotation", runId: evidence.dataset.runId, attemptId: evidence.dataset.attemptId,
       dataset: {schemaVersion: evidence.dataset.schemaVersion, digest: datasetDigest}, behavior: judged("VF-01"), producer: llmProducer(),
       rubric: {id: "fixture", version: "1"}, evidence: llmEvidence(),
       judgment: {basis: "cited-evidence", verdict: "unknown", reason: "Fixture", rationale: "No semantic claim", alternativeExplanation: "Insufficient evidence", citations: []}} as const;

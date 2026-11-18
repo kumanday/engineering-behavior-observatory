@@ -42,7 +42,7 @@ async function trialFixture() {
   };
   const archive = await ref("worker.tgz", "test archive; not executed");
   const workerRef = await ref("worker.json", JSON.stringify({ schemaVersion: "ebo.harbor-worker-runtime/v2", studyLockDigest: runtimeLock.digest, archive, node: "node", entrypoint: "worker.js", environmentKeys: [] }));
-  const environmentRef = await ref("environment.json", JSON.stringify({ schemaVersion: "ebo.smol-environments/v1", platform: "linux/arm64", runtimeArchiveDigest: archive.digest.value }));
+  const environmentRef = await ref("environment.json", JSON.stringify({ schemaVersion: "ebo.smol-task-environments/v1", target: "local", platform: "linux/arm64", runtimeArchiveDigest: archive.digest.value }));
   const config = await ref("config.json", "{}");
   const digest = config.digest;
   const task = { taskSourceId: "task", harborDigest: digest.value, assessmentMode: "observational" as const, snapshotDirectory: root, resolutionDigest: digest };

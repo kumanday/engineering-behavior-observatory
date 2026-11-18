@@ -50,7 +50,7 @@ export type AtlasCase = {
   retryOf?: string;
 };
 export type AtlasView = {
-  schemaVersion: "ebo.atlas-view/v1"; title: string; mode: "restricted-local-only" | "partner" | "public";
+  schemaVersion: "ebo.atlas-view/v2"; title: string; mode: "restricted-local-only" | "partner" | "public";
   generatedAt: string; sourceDigest: Digest; cohortDigest: Digest; filters: AtlasFilters;
   filterOptions: Record<string, string[]>; report: AggregationReport; cases: readonly AtlasCase[];
   sourceAttempts: number; policyExcludedAttempts: number; filteredOutAttempts: number; matchingCases: number | null;
@@ -199,7 +199,7 @@ export async function queryAtlas(source: AtlasSource, filters: AtlasFilters = {}
     ? (displaySafe({ text: source.request.operatorNarrative }, ({ path: _path, ...finding }) => { findings.push({ ...finding, location: "/operatorNarrative" }); }) as { text: string }).text
     : undefined;
   const secretScan: AtlasSecretScan = { redacted: findings.filter(({ disposition }) => disposition === "redacted").length, notSecret: findings.filter(({ disposition }) => disposition === "not-secret").length, findings };
-  return { schemaVersion: "ebo.atlas-view/v1", title: source.request.title, atlasUrl: localUrl(source.request.atlasUrl ?? "http://127.0.0.1:13011"), mode: "restricted-local-only", generatedAt: new Date().toISOString(), sourceDigest: source.sourceDigest, cohortDigest: digest({ source: source.sourceDigest, filters, lineage: report.sourceLineage }), filters, filterOptions, report, cases: matches, matchingCases: matches.length, sourceAttempts, policyExcludedAttempts: sourceAttempts - eligible.length, filteredOutAttempts: eligible.length - ids.size, ...(operatorNarrative === undefined ? {} : { operatorNarrative }), reviewPackets: (source.request.reviewPackets ?? []).map((path) => pathToFileURL(resolve(dirname(source.requestPath), path)).href), ...(source.request.grafanaUrl ? { grafanaUrl: localUrl(source.request.grafanaUrl) } : {}), secretScan };
+  return { schemaVersion: "ebo.atlas-view/v2", title: source.request.title, atlasUrl: localUrl(source.request.atlasUrl ?? "http://127.0.0.1:13011"), mode: "restricted-local-only", generatedAt: new Date().toISOString(), sourceDigest: source.sourceDigest, cohortDigest: digest({ source: source.sourceDigest, filters, lineage: report.sourceLineage }), filters, filterOptions, report, cases: matches, matchingCases: matches.length, sourceAttempts, policyExcludedAttempts: sourceAttempts - eligible.length, filteredOutAttempts: eligible.length - ids.size, ...(operatorNarrative === undefined ? {} : { operatorNarrative }), reviewPackets: (source.request.reviewPackets ?? []).map((path) => pathToFileURL(resolve(dirname(source.requestPath), path)).href), ...(source.request.grafanaUrl ? { grafanaUrl: localUrl(source.request.grafanaUrl) } : {}), secretScan };
 }
 
 export async function shareAtlas(source: AtlasSource, view: AtlasView): Promise<AtlasView> {

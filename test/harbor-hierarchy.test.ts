@@ -8,7 +8,7 @@ import { validateSmolProfile } from "../src/harbor/smol.js";
 import { HARBOR_TRIAL_SCRIPT } from "../src/harbor/trial-script.js";
 
 const image = { image: "registry.example/meta@sha256:" + "a".repeat(64), recipeDigest: "b".repeat(64), baseImageDigest: "c".repeat(64) };
-const manifest = { schemaVersion: "ebo.smol-environments/v3", target: "cloud", platform: "linux/amd64",
+const manifest = { schemaVersion: "ebo.smol-family-environments/v1", target: "cloud", platform: "linux/amd64",
   cloud: { baseUrl: "https://api.smolmachines.com", tokenEnv: "SMOL_CLOUD_TOKEN" },
   families: { node: image }, harnesses: { "pi-sdk": { families: ["node"] } }, tasks: { frozen: { agent: { family: "node" } } } };
 
@@ -62,7 +62,7 @@ for harness in ('pi-sdk', 'codex'):
     digest = hashlib.sha256(script.read_bytes()).hexdigest()
     scripts[digest] = str(script)
     harnesses[harness] = {'families': ['node'], 'setupRef': {'locator': harness+'.sh', 'digest': {'algorithm': 'sha256', 'value': digest}}}
-manifest = {'schemaVersion': 'ebo.smol-environments/v3', 'target': 'cloud', 'platform': 'linux/amd64',
+manifest = {'schemaVersion': 'ebo.smol-family-environments/v1', 'target': 'cloud', 'platform': 'linux/amd64',
     'cloud': {'baseUrl': 'https://api.smolmachines.com', 'tokenEnv': 'CONTROL_TOKEN'},
     'runtimeArchiveDigest': 'd'*64, 'families': {'node': image}, 'harnesses': harnesses,
     'tasks': {'frozen': {'agent': {'family': 'node'}, 'graders': {'single': {'family': 'node'}}}}}

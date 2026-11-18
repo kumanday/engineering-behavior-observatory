@@ -9,7 +9,7 @@ import { validateSmolProfile } from "../src/harbor/smol.js";
 import { HARBOR_TRIAL_SCRIPT } from "../src/harbor/trial-script.js";
 import { validateArtifact } from "../src/artifacts.js";
 
-const cloud = { schemaVersion: "ebo.smol-environments/v2", target: "cloud", platform: "linux/amd64",
+const cloud = { schemaVersion: "ebo.smol-task-environments/v1", target: "cloud", platform: "linux/amd64",
   cloud: { baseUrl: "https://api.smolmachines.com", tokenEnv: "SMOL_CLOUD_TOKEN" } };
 
 test("Cloud profiles bind target/platform and keep control credentials out of workers", () => {
@@ -19,7 +19,7 @@ test("Cloud profiles bind target/platform and keep control credentials out of wo
   for (const baseUrl of ["http://api.example", "https://secret@api.example", "https://api.example/path", "https://api.example?key=secret"]) {
     assert.throws(() => validateSmolProfile({ ...cloud, cloud: { ...cloud.cloud, baseUrl } }));
   }
-  assert.throws(() => validateSmolProfile({ ...cloud, schemaVersion: "ebo.smol-environments/v1" }));
+  for (const schemaVersion of ["ebo.smol-environments/v1", "ebo.smol-environments/v2", "ebo.smol-environments/v3"]) assert.throws(() => validateSmolProfile({ ...cloud, schemaVersion }), /Invalid Smol target/u);
   assert.throws(() => validateSmolProfile({ ...cloud, platform: "linux/riscv64" }));
 });
 
@@ -96,7 +96,7 @@ import ebo_runtime as e
 
 root = Path.cwd()
 image = {'image': 'registry.example/image@sha256:'+'a'*64, 'recipeDigest': 'b'*64, 'baseImageDigest': 'c'*64}
-manifest = {'schemaVersion': 'ebo.smol-environments/v2', 'target': 'cloud', 'platform': 'linux/amd64',
+manifest = {'schemaVersion': 'ebo.smol-task-environments/v1', 'target': 'cloud', 'platform': 'linux/amd64',
     'runtimeArchiveDigest': 'd'*64, 'tasks': {'frozen-task': {'agent': image}},
     'cloud': {'baseUrl': 'https://api.smolmachines.com', 'tokenEnv': 'CONTROL_TOKEN'}}
 e.validate_environment_manifest(manifest)

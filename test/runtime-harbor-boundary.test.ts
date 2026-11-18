@@ -23,7 +23,8 @@ test("a worker runtime can bind its archive to one study lock while historical w
     const put = async (value: unknown) => {const bytes = Buffer.from(JSON.stringify(value)); await writeFile(join(root, "worker.json"), bytes); return {locator: "worker.json", digest: digestBytes(bytes)};};
     assert.equal(Reflect.get(resolveHarborWorkerRuntime(root, await put(value)), "studyLockDigest"), value.studyLockDigest);
     assert.throws(() => resolveHarborWorkerRuntime(root, {locator: "worker.json", digest: {algorithm: "sha256", value: "c".repeat(64)}}), /digest/i);
-    assert.equal(resolveHarborWorkerRuntime(root, await put({...value, schemaVersion: "ebo.harbor-worker-runtime/v1"})).schemaVersion, "ebo.harbor-worker-runtime/v1");
+    const earlier = await put({...value, schemaVersion: "ebo.harbor-worker-runtime/v1"});
+    assert.throws(() => resolveHarborWorkerRuntime(root, earlier), /Invalid Harbor worker runtime/u, "an earlier worker pack version is refused");
   } finally {await rm(root, {recursive: true, force: true});}
 });
 

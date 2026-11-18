@@ -13,7 +13,7 @@ import type { UniformEvent } from "./uniform-events.js";
  * records are chosen in priority tiers until `limits.maxEvidenceItems` events, never splitting an occurrence.
  */
 export type JudgePrepareSpec = {
-  schemaVersion: "ebo.judge-prepare-spec/v1";
+  schemaVersion: "ebo.judge-prepare-spec/v2";
   id: string;
   behavior: SemanticJudgeRequest["behavior"];
   rubric: SemanticJudgeRequest["rubric"];
@@ -37,7 +37,7 @@ export function prepareJudgeRequest(
   spec: JudgePrepareSpec,
   ratings?: OccurrenceRatings,
 ): SemanticJudgeRequest {
-  if (spec.schemaVersion !== "ebo.judge-prepare-spec/v1") throw new Error("Judge prepare spec schemaVersion is unsupported.");
+  if (spec.schemaVersion !== "ebo.judge-prepare-spec/v2") throw new Error("Judge prepare spec schemaVersion is unsupported.");
   resolveBehaviorCard(spec.behavior);
   if (spec.occurrenceTypes.length === 0 || spec.occurrenceTypes.some((type) => !OCCURRENCE_TYPES.includes(type))) {
     throw new Error("Judge prepare spec needs known occurrence types.");
@@ -104,7 +104,7 @@ export function prepareJudgeRequest(
   const eventIds = [...selected].sort((left, right) => (order.get(left) ?? 0) - (order.get(right) ?? 0));
   const ratingsDigest = ratings === undefined ? undefined : `sha256:${digestMetadata(ratings).value}` as const;
   return {
-    schemaVersion: "ebo.semantic-judge-request/v1",
+    schemaVersion: "ebo.semantic-judge-request/v2",
     id: spec.id,
     behavior: structuredClone(spec.behavior),
     rubric: structuredClone(spec.rubric),

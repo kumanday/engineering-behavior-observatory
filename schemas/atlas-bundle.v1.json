@@ -10,7 +10,7 @@
       "additionalProperties": false,
       "required": ["schemaVersion", "id", "title", "cohorts"],
       "properties": {
-        "schemaVersion": { "const": "ebo.atlas-bundle-request/v1" },
+        "schemaVersion": { "const": "ebo.atlas-bundle-request/v2" },
         "id": { "$ref": "#/$defs/identifier" },
         "title": { "type": "string", "minLength": 1, "maxLength": 1000 },
         "cohorts": {
@@ -42,7 +42,7 @@
       "additionalProperties": false,
       "required": ["schemaVersion", "id", "title", "builder", "tablesVersion", "unitsVersion", "cloud", "createdAt", "request", "cohorts", "tables", "files"],
       "properties": {
-        "schemaVersion": { "const": "ebo.atlas-bundle/v1" },
+        "schemaVersion": { "const": "ebo.atlas-bundle/v2" },
         "id": { "$ref": "#/$defs/identifier" },
         "title": { "type": "string", "minLength": 1, "maxLength": 1000 },
         "builder": {

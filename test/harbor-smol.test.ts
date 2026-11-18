@@ -93,7 +93,7 @@ for name in ('one', 'two'):
     (path/'tests'/'test.sh').write_text('echo 1 > /logs/verifier/reward.txt')
 image = {'image': 'registry.example/test@sha256:'+'a'*64, 'recipeDigest': 'b'*64, 'baseImageDigest': 'c'*64}
 binding = {'agent': image, 'graders': {'one': image, 'two': image}}
-manifest = {'schemaVersion': 'ebo.smol-environments/v1', 'platform': 'linux/arm64',
+manifest = {'schemaVersion': 'ebo.smol-task-environments/v1', 'target': 'local', 'platform': 'linux/arm64',
     'libkrunSha256': 'd'*64, 'runtimeArchiveDigest': 'e'*64, 'tasks': {'task': binding}}
 e.validate_environment_manifest(manifest)
 before = (task/'task.toml').read_bytes()

@@ -27,7 +27,7 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
     const atlasRequest = await createAtlasFixture(join(root, "study"));
     const source = await loadAtlas(atlasRequest);
     const requestPath = join(root, "bundle-request.json");
-    const request: AtlasBundleRequest = { schemaVersion: "ebo.atlas-bundle-request/v1", id: "synthetic-study", title: "Synthetic study",
+    const request: AtlasBundleRequest = { schemaVersion: "ebo.atlas-bundle-request/v2", id: "synthetic-study", title: "Synthetic study",
       cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], condition: { pattern: "^synthetic-(?<condition>attempt)-\\d+$" } };
     writeFileSync(requestPath, JSON.stringify(request));
     const out = join(root, "bundle");
@@ -121,7 +121,7 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
     const stagingBefore = staging();
     await assert.rejects(buildAtlasBundle(requestPath, join(root, "bundle-4"), { embed }), /does not match the condition pattern/u, "a naming mistake is an error, not a synthesized arm");
     assert.deepEqual(staging(), stagingBefore, "a failed build removes its streamed table staging (resolved native content)");
-    assert.ok(readFileSync(join(out, "manifest.json"), "utf8").includes('"schemaVersion": "ebo.atlas-bundle/v1"'));
+    assert.ok(readFileSync(join(out, "manifest.json"), "utf8").includes('"schemaVersion": "ebo.atlas-bundle/v2"'));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -132,7 +132,7 @@ test("an Atlas bundle labels every result with its producer mode and direction a
   try {
     await createAtlasFixture(join(root, "study"), { decisionModel: true });
     const requestPath = join(root, "bundle-request.json");
-    writeFileSync(requestPath, JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v1", id: "synthetic-modes", title: "Synthetic modes",
+    writeFileSync(requestPath, JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "synthetic-modes", title: "Synthetic modes",
       cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], condition: { pattern: "^synthetic-(?<condition>attempt)-\\d+$" } } satisfies AtlasBundleRequest));
     const out = join(root, "bundle");
     const embed = async (texts: readonly string[], config: { dimensions: number }) => new Float32Array(texts.length * config.dimensions).fill(1);

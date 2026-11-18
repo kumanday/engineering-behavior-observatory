@@ -125,7 +125,7 @@ export type DecisionModelEvidence = {
 };
 
 type AssertionIdentity = {
-  schemaVersion: "ebo.behavior-assertion/v1";
+  schemaVersion: "ebo.behavior-assertion/v2";
   id: string;
   runId: string;
   attemptId: string;
@@ -161,7 +161,7 @@ export function producerLabel(producer: BehaviorProducer): string {
 export type BehaviorReview = {
   schemaVersion: "ebo.behavior-review/v1";
   id: string;
-  assertion: { id: string; schemaVersion: "ebo.behavior-assertion/v1"; digest: DigestString };
+  assertion: { id: string; schemaVersion: "ebo.behavior-assertion/v2"; digest: DigestString };
   state: "proposed" | "confirmed" | "disputed" | "rejected" | "insufficient-evidence";
   reviewer?: { kind: "human"; id: string };
   rationale?: string;

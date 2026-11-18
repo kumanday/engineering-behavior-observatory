@@ -85,7 +85,7 @@ export type RunRuntimeBinding = { lockDigest: DigestString; role: string; lockAr
   studyFreezeArtifactId?: string; studyFreezeDigest?: DigestString; sourceRunId?: string };
 
 export type RunManifest = {
-  schemaVersion: "run-manifest/v1" | "run-manifest/v2";
+  schemaVersion: "run-manifest/v2";
   runtimeLock?: RunRuntimeBinding;
   bundleId: string;
   run: RunBundleRun;
@@ -568,7 +568,7 @@ export class RunBundleAssembler {
       relativePath: reportPath,
     };
     const manifest: RunManifest = {
-      schemaVersion: this.runtimeLock ? "run-manifest/v2" : "run-manifest/v1",
+      schemaVersion: "run-manifest/v2",
       ...(this.runtimeLock ? { runtimeLock: structuredClone(this.runtimeLock) } : {}),
       bundleId: this.bundleId,
       run: structuredClone(run),

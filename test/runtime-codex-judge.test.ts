@@ -43,7 +43,7 @@ test("the judge uses its frozen executable and coordinating Node for unfamiliar 
       const captures = join(root, "captures");
       await withRuntimeFixture("claude-agent-sdk", () => createAtlasFixture(captures));
       const bundleRoot = join(captures, "corpus", "synthetic-attempt-0"), observations = await createRetainedStructuralObservationSet(bundleRoot);
-      const configured: SemanticJudgeRequest = { ...request, schemaVersion: "ebo.semantic-judge-request/v1", id: "frozen-judge",
+      const configured: SemanticJudgeRequest = { ...request, schemaVersion: "ebo.semantic-judge-request/v2", id: "frozen-judge",
         behavior: {ontologyVersion: "2.0.0", cardId: "VF-01"},
         rubric: {id: "fixture", version: "1", instructions: "Synthetic fixture"},
         selection: {eventIds: [], structuralObservationIds: [], includeOutcomeObservations: false},
@@ -51,7 +51,7 @@ test("the judge uses its frozen executable and coordinating Node for unfamiliar 
       const first = await runAgentSdkSemanticJudge({bundleRoot, observations, request: configured, outputRoot: join(root, "judgment-a")});
       assert.equal(first.status, "proposed", JSON.stringify(first));
       assert.equal(first.evaluator.backend.version, "9.9.9");
-      assert.equal(first.schemaVersion, "ebo.semantic-judgment/v3");
+      assert.equal(first.schemaVersion, "ebo.semantic-judgment/v4");
       assert.equal(first.runtime!.lockDigest, lock.digest);
       assert.deepEqual(validateArtifact("frozen judgment", first), []);
       assert.ok(validateArtifact("wrong runtime role", {...first, runtime: {...first.runtime, role: "claude-agent-sdk"}}).length);

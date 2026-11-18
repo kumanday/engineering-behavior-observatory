@@ -1,6 +1,6 @@
 # Behavior assertions and evidence resolution
 
-`ebo.behavior-assertion/v1` records one verdict on one card of the
+`ebo.behavior-assertion/v2` records one verdict on one card of the
 [behavior ontology](behavior-ontology.md) for one attempt. The verdict is
 `present`, `absent` or `unknown`. One record type holds results from both
 producer modes: an LLM judge that cites the events it read, and a decision

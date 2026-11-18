@@ -52,7 +52,7 @@ function fixture() {
 }
 
 const spec = (maxEvidenceItems: number): JudgePrepareSpec => ({
-  schemaVersion: "ebo.judge-prepare-spec/v1",
+  schemaVersion: "ebo.judge-prepare-spec/v2",
   id: "attempt-verification",
   behavior: { ontologyVersion: "2.0.0", cardId: "VF-01" },
   rubric: { id: "verification", version: "2.0.0", instructions: "Assess validation before completion." },

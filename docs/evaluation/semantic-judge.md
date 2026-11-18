@@ -44,7 +44,7 @@ declared deadline. `maxBudgetUsd` is an independent optional setting.
 
 ```json
 {
-  "schemaVersion": "ebo.semantic-judge-request/v1",
+  "schemaVersion": "ebo.semantic-judge-request/v2",
   "id": "verification-run-001",
   "behavior": {
     "ontologyVersion": "2.0.0",
@@ -181,7 +181,7 @@ by optional `rawModelResponse`. It and control-frame `raw-response.json` each
 have their own `maxOutputChars` bound; startup or user-echo frames cannot
 consume the model-output retention budget.
 
-`ebo.semantic-judge-request/v1`, `ebo.semantic-judge-input/v1`, and
+`ebo.semantic-judge-request/v2`, `ebo.semantic-judge-input/v2`, and
 `ebo.semantic-judgment/v1` are registered artifacts and can be independently
 checked with `ebo validate`.
 

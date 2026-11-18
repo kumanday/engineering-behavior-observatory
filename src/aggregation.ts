@@ -116,7 +116,7 @@ export type DirectionAggregate = {
 };
 
 export type AggregationReport = {
-  schemaVersion: "ebo.aggregation-report/v1";
+  schemaVersion: "ebo.aggregation-report/v2";
   policy: {
     groupBy: readonly AggregationDimension[];
     evidenceOrigins?: EvidenceOriginSelection;
@@ -223,7 +223,7 @@ async function aggregateValidatedEvaluation(
     };
   });
   const report: AggregationReport = {
-    schemaVersion: "ebo.aggregation-report/v1",
+    schemaVersion: "ebo.aggregation-report/v2",
     policy: {
       groupBy,
       ...(policy.evidenceOrigins === undefined ? {} : { evidenceOrigins: policy.evidenceOrigins }),

@@ -648,7 +648,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": "ebo.behavior-assertion/v1"
+          "const": "ebo.behavior-assertion/v2"
         },
         "id": {
           "$ref": "#/$defs/identifier"
@@ -708,7 +708,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": "ebo.behavior-assertion/v1"
+          "const": "ebo.behavior-assertion/v2"
         },
         "id": {
           "$ref": "#/$defs/identifier"
@@ -802,7 +802,7 @@
           "$ref": "#/$defs/identifier"
         },
         "schemaVersion": {
-          "const": "ebo.behavior-assertion/v1"
+          "const": "ebo.behavior-assertion/v2"
         },
         "digest": {
           "$ref": "#/$defs/digest"

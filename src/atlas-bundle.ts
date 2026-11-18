@@ -22,7 +22,7 @@ import type { StructuralObservationSet } from "./structural-observations.js";
 import type { NativeEvidenceReference, UniformEvent } from "./uniform-events.js";
 
 /**
- * Atlas bundles (ebo.atlas-bundle/v1): the analytical tables behind the Atlas viewer, built from validated EBO
+ * Atlas bundles (ebo.atlas-bundle/v2): the analytical tables behind the Atlas viewer, built from validated EBO
  * artifacts. Every cohort is loaded through the same validation as `ebo atlas build` (corpus index, observation sets,
  * assertions, citations, reviews); each attempt's retained evidence is read once. Native records stay authoritative:
  * event text is a flattened view of resolved native content for search and embedding, never a replacement.
@@ -31,7 +31,7 @@ export const ATLAS_BUNDLE_BUILDER = { id: "ebo-atlas-bundle", version: "2.0.0" }
 export const ATLAS_TABLES_VERSION = "1.0.0";
 
 export type AtlasBundleRequest = {
-  schemaVersion: "ebo.atlas-bundle-request/v1";
+  schemaVersion: "ebo.atlas-bundle-request/v2";
   /** Stable study identifier, used in claim and bundle identities. */
   id: string;
   title: string;
@@ -50,7 +50,7 @@ export type AtlasBundleRequest = {
 };
 
 export type AtlasBundleManifest = {
-  schemaVersion: "ebo.atlas-bundle/v1";
+  schemaVersion: "ebo.atlas-bundle/v2";
   id: string;
   title: string;
   builder: typeof ATLAS_BUNDLE_BUILDER;
@@ -657,7 +657,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     .map(({ path, role }) => ({ path, role, bytes: statSync(join(outputRoot, path)).size, sha256: fileSha256(join(outputRoot, path)) }))
     .sort((a, b) => a.path.localeCompare(b.path));
   const manifest: AtlasBundleManifest = {
-    schemaVersion: "ebo.atlas-bundle/v1", id: request.id, title: request.title, builder: ATLAS_BUNDLE_BUILDER, tablesVersion: ATLAS_TABLES_VERSION, unitsVersion: ATLAS_UNITS_VERSION,
+    schemaVersion: "ebo.atlas-bundle/v2", id: request.id, title: request.title, builder: ATLAS_BUNDLE_BUILDER, tablesVersion: ATLAS_TABLES_VERSION, unitsVersion: ATLAS_UNITS_VERSION,
     createdAt: (options.now ?? (() => new Date()))().toISOString(), request: { digest: `sha256:${digestMetadata(request).value}` },
     cloud: { units: cloud.length, embeddings: { file: "embeddings.f32", provider: embeddingConfig.provider, model: embeddingConfig.model, dimensions: embeddingConfig.dimensions } },
     cohorts, tables: tableIndex, files,

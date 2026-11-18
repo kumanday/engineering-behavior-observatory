@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:ebo:schema:run-bundle:v2",
-  "title": "EBO run manifest with frozen runtime evidence",
+  "title": "EBO run manifest",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,8 +11,7 @@
     "attempt",
     "configuration",
     "terminal",
-    "evidence",
-    "runtimeLock"
+    "evidence"
   ],
   "properties": {
     "schemaVersion": {

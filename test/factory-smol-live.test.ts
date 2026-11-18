@@ -55,7 +55,7 @@ name = "proof"
   const workerRef = ref("worker", { schemaVersion: "ebo.harbor-worker-runtime/v2", studyLockDigest: lock.digest, archive, node: "node", entrypoint: "dist/src/harbor/worker.js", environmentKeys: [credential] });
   const build = JSON.parse(readFileSync(join(dirname(process.env.EBO_HARBOR_RUNTIME!), "image-build.json"), "utf8"));
   const binding = { image: process.env.EBO_SMOL_IMAGE!, recipeDigest: build.recipeDigest, baseImageDigest: build.baseImageDigest };
-  const environmentRef = ref("environments", { schemaVersion: "ebo.smol-environments/v1", platform: "linux/arm64", runtimeArchiveDigest: archive.digest.value,
+  const environmentRef = ref("environments", { schemaVersion: "ebo.smol-task-environments/v1", target: "local", platform: "linux/arm64", runtimeArchiveDigest: archive.digest.value,
     libkrunSha256: process.env.EBO_SMOL_LIBKRUN_SHA256, tasks: { [id]: { agent: binding, graders: { proof: binding } } } });
   const schemaVersion = "ebo.factory-config/v1";
   const model = { schemaVersion, kind: "model", provider: byok ? "fireworks" : "factory", model: process.env.EBO_LIVE_FACTORY_MODEL!,

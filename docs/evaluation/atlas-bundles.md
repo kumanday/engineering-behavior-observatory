@@ -14,7 +14,7 @@ ebo atlas bundle verify <bundle-dir>
 
 ```json
 {
-  "schemaVersion": "ebo.atlas-bundle-request/v1",
+  "schemaVersion": "ebo.atlas-bundle-request/v2",
   "id": "behavior-study",
   "title": "Behavior study",
   "cohorts": [
@@ -59,7 +59,7 @@ are embedded:
 
 | Path | Content |
 | :--- | :--- |
-| `manifest.json` | `ebo.atlas-bundle/v1`: identity, builder, request digest, cohorts with source and cohort digests, tables with row counts, and every file with size, SHA-256 and role |
+| `manifest.json` | `ebo.atlas-bundle/v2`: identity, builder, request digest, cohorts with source and cohort digests, tables with row counts, and every file with size, SHA-256 and role |
 | `reports/<cohort>.json` | the cohort's aggregation report (the certified tallies), with its source and cohort digests |
 | `tables/*.parquet` | Atlas tables v1 (zstd) |
 | `units.arrow`, `embeddings.f32` | the cloud: one row per embedded unit (Arrow IPC) and its vector (float32, row order) |

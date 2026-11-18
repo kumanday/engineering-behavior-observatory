@@ -11,8 +11,9 @@ import { readBoundedFile } from "./scheduler.js";
 
 export class AtifAdmissionError extends Error { override name = "AtifAdmissionError"; }
 export const ATIF_IMPORTER_VERSION = "2.0.0";
-export type LegacyAtifImportManifest = {
-  schemaVersion: "ebo.import-manifest/v1";
+export type AtifOverlayReference = { id: string; digest: `sha256:${string}` };
+export type AtifImportManifest = {
+  schemaVersion: "ebo.import-manifest/v2";
   importer: { id: "ebo.atif"; version: string };
   identity: { runId: string; attemptId: string; authority: "operator-declared" };
   qualification: "imported";
@@ -21,17 +22,11 @@ export type LegacyAtifImportManifest = {
   source: { artifactId: "atif-trajectory"; path: "trajectory.json"; digest: `sha256:${string}`; bytes: number };
   inspection: { path: "inspection.json"; digest: `sha256:${string}` };
   producer: AtifProducerFingerprint;
-  producerAuthority: "operator-declared";
+  producerAuthority: "document-and-operator";
   blinding?: { authority: "operator-declared"; modelAliases: string[] };
-  profile: { status: "supported"; id: string; digest: `sha256:${string}` } | { status: "unsupported"; reason: "PRODUCER_PROFILE_UNREGISTERED" };
+  overlays: AtifOverlayReference[];
+  interpretation: { path: "interpretation.json"; digest: `sha256:${string}` };
 };
-
-export type AtifOverlayReference = { id: string; digest: `sha256:${string}` };
-export type AtifImportManifestV2 = Omit<LegacyAtifImportManifest, "schemaVersion" | "profile" | "producerAuthority"> & {
-  schemaVersion: "ebo.import-manifest/v2"; producerAuthority: "document-and-operator";
-  overlays: AtifOverlayReference[]; interpretation: { path: "interpretation.json"; digest: `sha256:${string}` };
-};
-export type AtifImportManifest = LegacyAtifImportManifest | AtifImportManifestV2;
 const bytesDigest = (bytes: Uint8Array): `sha256:${string}` => `sha256:${digestBytes(bytes).value}`;
 const hash = (value: unknown): `sha256:${string}` => `sha256:${digestMetadata(value).value}`;
 const coreIdentity = () => { const { id, version, implementationDigest } = atifCoreIdentity(); return { id, version, digest: implementationDigest }; };
@@ -70,7 +65,7 @@ export async function importAtifFile(options: AtifImportOptions) {
     context: { kind: context?.kind ?? "unknown", revision: context?.revision ?? null, wrapperDigest: context?.wrapperDigest ?? null } };
   const interpretation = { schemaVersion: "ebo.atif-interpretation/v1", sourceDigest: bytesDigest(bytes), core: coreIdentity(), compatibilityReader: atifCompatibilityIdentity(), overlays: atifOverlayReceipts({ read, producer }) };
   const interpretationBytes = writeJson(destination, "interpretation.json", interpretation);
-  const manifest: AtifImportManifestV2 = { schemaVersion: "ebo.import-manifest/v2", importer: { id: "ebo.atif", version: ATIF_IMPORTER_VERSION },
+  const manifest: AtifImportManifest = { schemaVersion: "ebo.import-manifest/v2", importer: { id: "ebo.atif", version: ATIF_IMPORTER_VERSION },
     identity: { runId: options.runId, attemptId: options.attemptId, authority: "operator-declared" }, qualification: "imported", sharing: "restricted", createdAt: new Date().toISOString(),
     source: { artifactId: "atif-trajectory", path: "trajectory.json", digest: bytesDigest(bytes), bytes: bytes.length },
     inspection: { path: "inspection.json", digest: bytesDigest(inspectionBytes) }, producer, producerAuthority: "document-and-operator", overlays: interpretation.overlays,
@@ -114,15 +109,12 @@ export function readAtifImportAdmission(bundleRoot: string) {
     const value = atifPointerValue(read.document, record.pointer);
     if (value === undefined || record.sourceDigest !== manifest.source.digest || hash(value) !== record.digest) throw new Error("Retained ATIF record differs from its admitted pointer digest.");
   }
-  let admitted: unknown;
-  if (manifest.schemaVersion === "ebo.import-manifest/v2") {
-    const bytes = readBoundedFile(join(bundleRoot, manifest.interpretation.path), "ATIF interpretation", undefined, 1024 * 1024);
-    if (bytesDigest(bytes) !== manifest.interpretation.digest) throw new Error("Admitted interpretation receipt differs from its digest.");
-    admitted = parseJson(bytes);
-    const receipt = object(admitted);
-    if (receipt.schemaVersion !== "ebo.atif-interpretation/v1" || receipt.sourceDigest !== manifest.source.digest
-        || hash(receipt.overlays) !== hash(manifest.overlays)) throw new Error("Interpretation receipt differs from its admission binding.");
-  } else admitted = { core: { id: "ebo.legacy-atif", version: manifest.importer.version }, profile: manifest.profile };
+  const interpretation = readBoundedFile(join(bundleRoot, manifest.interpretation.path), "ATIF interpretation", undefined, 1024 * 1024);
+  if (bytesDigest(interpretation) !== manifest.interpretation.digest) throw new Error("Admitted interpretation receipt differs from its digest.");
+  const admitted = parseJson(interpretation);
+  const admittedReceipt = object(admitted);
+  if (admittedReceipt.schemaVersion !== "ebo.atif-interpretation/v1" || admittedReceipt.sourceDigest !== manifest.source.digest
+      || hash(admittedReceipt.overlays) !== hash(manifest.overlays)) throw new Error("Interpretation receipt differs from its admission binding.");
   const current = { schemaVersion: "ebo.atif-interpretation/v1", sourceDigest: manifest.source.digest, core: coreIdentity(), compatibilityReader: atifCompatibilityIdentity(), overlays: atifOverlayReceipts({ read, producer: manifest.producer }) };
   return { manifest, read, interpretationRevision: { changed: hash(admitted) !== hash(current), admitted, current } };
 }
@@ -148,5 +140,5 @@ function declaredBlinding(aliases: readonly string[] | undefined): AtifImportMan
 }
 
 export function isAtifImportSchema(schemaVersion: unknown): boolean {
-  return schemaVersion === "ebo.import-manifest/v1" || schemaVersion === "ebo.import-manifest/v2";
+  return schemaVersion === "ebo.import-manifest/v2";
 }
