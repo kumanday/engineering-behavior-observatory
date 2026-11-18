@@ -359,7 +359,7 @@ function createQueueFixture(parent: string, executable = process.execPath, byok 
     return [name, { locator, digest: digestBytes(bytes) }];
   }));
   const experiment: ExperimentConfiguration = {
-    schemaVersion: "ebo.experiment/v1",
+    schemaVersion: "ebo.task-packet-experiment/v1",
     id: "factory-runner-fixture",
     taskSet: { task: { packetRef: { locator: "packets/task.json", digest: digestMetadata(observational) } } },
     modelSet: { "fixture-model": { configurationRef: references.model! } },

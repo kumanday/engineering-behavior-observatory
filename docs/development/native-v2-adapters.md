@@ -1,7 +1,7 @@
 # Native v2 projections
 
 `createRetainedBehaviorEvidenceV2` reads an owned, capture-qualified bundle and
-creates an independent `ebo.normalized-dataset/v2` derivation. The reader
+creates an independent `ebo.typed-dataset/v1` derivation. The reader
 uses each adapter’s native format contract and records unfamiliar producer or
 capture-adapter versions as confidence limitations. The
 original native files, manifest and v1 dataset remain available through their
@@ -57,9 +57,9 @@ EBO receipt time. Native timestamp presence alone does not qualify execution
 duration. `precedes` compares established native order domains; timestamps and
 presentation order do not establish a missing behavioral relation.
 
-The v2 API is opt-in. The default lane's entry points keep their published
-contracts. A release candidate must also pass the native baseline and package
-tests.
+The analysis lane reads `ebo.normalized-dataset/v1`; the typed projection feeds
+ATIF imports and harness verification. A release candidate must also pass the
+native baseline and package tests.
 
 ## Verification interpretation
 
@@ -69,7 +69,7 @@ profile/route before normalization; it does not consult the current operator
 catalog. Runtime declarations remain cohort dimensions. A version disagreement
 adds a limitation without removing native records or measurements.
 
-The default lane's dataset carries `HARNESS_VERSION_UNVERIFIED` when the
+The analysis dataset carries `HARNESS_VERSION_UNVERIFIED` when the
 bundle's own records state no version, and `HARNESS_VERSION_CONFLICT` when they
-state a different one. The v2 projector leaves those codes out of its source
+state a different one. The typed projector leaves those codes out of its source
 limitations and uses the retained verification result instead.

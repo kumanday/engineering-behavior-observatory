@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ebo.dev/schemas/experiment.v1.schema.json",
-  "title": "EBO experiment v1",
+  "$id": "https://ebo.dev/schemas/task-packet-experiment.v1.schema.json",
+  "title": "EBO task-packet experiment",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,7 +16,7 @@
     "captureProfile"
   ],
   "properties": {
-    "schemaVersion": { "const": "ebo.experiment/v1" },
+    "schemaVersion": { "const": "ebo.task-packet-experiment/v1" },
     "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
     "taskSet": { "$ref": "#/$defs/taskConditionSet" },
     "modelSet": { "$ref": "#/$defs/conditionSet" },

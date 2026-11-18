@@ -57,7 +57,7 @@ export async function projectAtifCore(input: AtifCoreInput): Promise<{ v1: Retai
     if (family === "message" && projection.facts.message?.role.status === "known") original.attributes = { ...original.attributes, role: projection.facts.message.role.value };
     legacy.push(original);
     const { nativeTime: _time, source: _source, ...rest } = original;
-    events.push({ ...rest, schemaVersion: "ebo.uniform-event/v2", source: { sourceId, nativeType: original.source.nativeType, nativeReference: original.source.nativeReference },
+    events.push({ ...rest, schemaVersion: "ebo.typed-event/v1", source: { sourceId, nativeType: original.source.nativeType, nativeReference: original.source.nativeReference },
       clock: projection.clock, facts: projection.facts });
     projections.push(projection);
   };
@@ -182,7 +182,7 @@ export async function projectAtifCore(input: AtifCoreInput): Promise<{ v1: Retai
     const pointer = event.source.nativeReference.recordLocator, ids = eventIdsByPointer.get(pointer) ?? [];
     ids.push(event.id); eventIdsByPointer.set(pointer, ids);
   }
-  const dataset: NormalizedDatasetV2 = { schemaVersion: "ebo.normalized-dataset/v2", runId: input.runId, attemptId: input.attemptId,
+  const dataset: NormalizedDatasetV2 = { schemaVersion: "ebo.typed-dataset/v1", runId: input.runId, attemptId: input.attemptId,
     normalizer: { id: "ebo.atif-core", version: "2.0.0", implementationDigest }, origin: { kind: "imported", qualification: "imported", manifestDigest: input.manifestDigest },
     sources, events, operations, measurements, nativeRecords: [...v1Dataset.nativeRecords], contentReferences: [...v1Dataset.contentReferences],
     recordCoverage: capture.records.map(({ reference }) => {

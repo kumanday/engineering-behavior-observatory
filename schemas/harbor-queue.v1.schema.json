@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ebo.dev/schemas/run-queue.v2.schema.json",
-  "title": "EBO run queue v2 (Harbor-backed)",
+  "$id": "https://ebo.dev/schemas/harbor-queue.v1.schema.json",
+  "title": "EBO Harbor queue",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -18,7 +18,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": "ebo.run-queue/v2"
+      "const": "ebo.harbor-queue/v1"
     },
     "experimentId": {
       "type": "string",

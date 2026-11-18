@@ -128,7 +128,7 @@ export type ExperimentOrdering =
     };
 
 export type ExperimentConfiguration = {
-  schemaVersion: "ebo.experiment/v1";
+  schemaVersion: "ebo.task-packet-experiment/v1";
   id: string;
   taskSet: TaskConditionSet;
   modelSet: Record<string, { configurationRef: ArtifactReference }>;

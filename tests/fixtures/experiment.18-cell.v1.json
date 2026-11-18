@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "ebo.experiment/v1",
+  "schemaVersion": "ebo.task-packet-experiment/v1",
   "id": "generic-18-cell",
   "taskSet": {
     "task-a": { "packetRef": { "locator": "packets/task-a.json", "digest": { "algorithm": "sha256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } } },

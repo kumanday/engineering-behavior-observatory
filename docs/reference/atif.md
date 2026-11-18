@@ -10,7 +10,7 @@ It requires neither a producer profile nor a Python installation.
 ```sh
 ebo atif inspect trajectory.json
 ebo atif import trajectory.json private-import --run study-1 --attempt trial-1
-ebo v2 inspect private-import private-analysis
+ebo observations create private-import private-import-observations.json
 ```
 
 Use a new destination for each admission. Source files are retained with

@@ -25,7 +25,7 @@ test("Cloud profiles bind target/platform and keep control credentials out of wo
 
 test("Harbor coordinator budget schema accepts omission and rejects invalid explicit deadlines", () => {
   // Inspect only errors under this field; required study fields are independent.
-  for (const schema of ["ebo.experiment/v2", "ebo.run-queue/v2"]) {
+  for (const schema of ["ebo.harbor-experiment/v1", "ebo.harbor-queue/v1"]) {
     const errors = (budget: unknown) => validateArtifact("fixture", { schemaVersion: schema, coordinatorBudget: budget })
       .filter(error => error.field.startsWith("/coordinatorBudget"));
     assert.deepEqual(errors({}), []);

@@ -491,7 +491,7 @@ export function main(
     const errors = artifacts.flatMap(({ artifact, document, error }) => {
       if (error !== undefined) return [error];
       if (document !== undefined && typeof document === "object" && document !== null
-          && (document as { schemaVersion?: unknown }).schemaVersion === "ebo.run-queue/v1") {
+          && (document as { schemaVersion?: unknown }).schemaVersion === "ebo.task-packet-queue/v1") {
         return validateRunQueue(document, undefined, artifact);
       }
       const validation = validateArtifact(artifact, document);

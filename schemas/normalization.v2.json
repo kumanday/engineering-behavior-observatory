@@ -551,7 +551,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": "ebo.uniform-event/v2"
+          "const": "ebo.typed-event/v1"
         },
         "id": {
           "$ref": "urn:ebo:schema:uniform-events:v1#/$defs/identifier"
@@ -1321,7 +1321,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": "ebo.normalized-dataset/v2"
+          "const": "ebo.typed-dataset/v1"
         },
         "runId": {
           "type": "string",

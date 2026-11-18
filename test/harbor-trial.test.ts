@@ -61,7 +61,7 @@ async function trialFixture() {
     configuration: { model: config, harness: config, nativeLimits: config, nativeToolPolicy: config }, trial: { index: 1 },
   };
   const queue = {
-    schemaVersion: "ebo.run-queue/v2" as const, experimentId: "experiment", experimentDigest: digest, schedulingDigest: digest,
+    schemaVersion: "ebo.harbor-queue/v1" as const, experimentId: "experiment", experimentDigest: digest, schedulingDigest: digest,
     matrix: { taskIds: ["task"], modelIds: ["model"], harnessIds: ["pi-sdk"], trialCount: 1 }, seed: "test",
     captureProfile: config, coordinatorBudget: { maxWallClockMs: 5000 },
     ordering: { strategy: "sequential" as const, seed: "test" }, execution: { environmentProfile: "smol" as const, contextPolicy: "fresh" as const, workerRef, environmentRef }, entries: [entry],

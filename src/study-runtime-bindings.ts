@@ -11,8 +11,8 @@ import {studyRunId} from "./runtime-run-id.js";
 
 type Hash = `sha256:${string}`;
 export type StudyFreeze = {schemaVersion: "ebo.study-freeze/v1"; studyId: string; runtimeLockDigest: Hash;
-  queueDigest: Hash; queueSchemaVersion: "ebo.run-queue/v1" | "ebo.run-queue/v2"; frozenAt: string; digest: Hash};
-export type RuntimeBoundQueue = {schemaVersion: "ebo.run-queue/v3"; studyFreeze: StudyFreeze; queue: RunQueue | RunQueueV2};
+  queueDigest: Hash; queueSchemaVersion: "ebo.task-packet-queue/v1" | "ebo.harbor-queue/v1"; frozenAt: string; digest: Hash};
+export type RuntimeBoundQueue = {schemaVersion: "ebo.study-queue/v1"; studyFreeze: StudyFreeze; queue: RunQueue | RunQueueV2};
 const bindings = new WeakMap<object, StudyFreeze>();
 const hash = (value: unknown): Hash => `sha256:${digestMetadata(value).value}`;
 export const queueStudyFreeze = (queue: object): StudyFreeze | undefined => bindings.get(queue);
@@ -28,7 +28,7 @@ export function assertStudyFreeze(document: unknown): asserts document is StudyF
 
 /** Pure retained reader. Runtime identity is checked separately when executing a queue. */
 export function unwrapRuntimeBoundQueue(document: unknown): unknown {
-  if (!document || typeof document !== "object" || Reflect.get(document, "schemaVersion") !== "ebo.run-queue/v3") return document;
+  if (!document || typeof document !== "object" || Reflect.get(document, "schemaVersion") !== "ebo.study-queue/v1") return document;
   const errors = validateArtifact("runtime-bound queue", document);
   if (errors.length) throw new RuntimePolicyError("RUNTIME_QUEUE_INVALID", errors.map((error) => `${error.field}: ${error.message}`).join("; "));
   const value = document as RuntimeBoundQueue, {digest, ...freeze} = value.studyFreeze;
@@ -54,7 +54,7 @@ export function resolveHarnessRuntimeRole(root: string, arm: string, configurati
 export async function bindStudyRuntimeQueue(studyRoot: string, queue: RunQueue | RunQueueV2, options: {configurationRoot?: string} = {}): Promise<RuntimeBoundQueue> {
   const {validateRunQueue} = await import("./scheduler.js");
   const {validateHarborRunQueue} = await import("./harbor/queue.js");
-  const errors = queue.schemaVersion === "ebo.run-queue/v2" ? await validateHarborRunQueue(queue) : validateRunQueue(queue);
+  const errors = queue.schemaVersion === "ebo.harbor-queue/v1" ? await validateHarborRunQueue(queue) : validateRunQueue(queue);
   if (errors.length) throw new RuntimePolicyError("RUNTIME_QUEUE_INVALID", errors.map((error) => `${error.field}: ${error.message}`).join("; "));
   const lock = await readStudyRuntimeLock(studyRoot);
   for (const arm of queue.matrix.harnessIds) {
@@ -67,7 +67,7 @@ export async function bindStudyRuntimeQueue(studyRoot: string, queue: RunQueue |
   const relativePath = `runtimes/study-freezes/${queueDigest.slice(7)}.json`;
   writeMetadataAtomicallyIfAbsentSync(studyRoot, relativePath, {...frozen, digest: hash(frozen)});
   const studyFreeze = JSON.parse(readFileSync(join(studyRoot, relativePath), "utf8")) as StudyFreeze;
-  const document: RuntimeBoundQueue = {schemaVersion: "ebo.run-queue/v3", studyFreeze, queue: structuredClone(queue)};
+  const document: RuntimeBoundQueue = {schemaVersion: "ebo.study-queue/v1", studyFreeze, queue: structuredClone(queue)};
   unwrapRuntimeBoundQueue(document);
   if (studyFreeze.runtimeLockDigest !== lock.digest || studyFreeze.studyId !== lock.studyId) throw new RuntimePolicyError("RUNTIME_STUDY_FREEZE_MISMATCH", "The queue's persisted study freeze differs from this runtime lock.");
   return document;

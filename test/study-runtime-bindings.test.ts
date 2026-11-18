@@ -19,7 +19,7 @@ test("a versioned study freeze and queue bind the runtime lock while legacy queu
     const lock = await freezeStudyRuntimes(root, {studyId: "bound-study", roles: ["cursor-sdk"]}, options), output: string[] = [];
     assert.equal(await runRuntimeCommandLine(["bind-queue", root, source, destination], (text) => output.push(text), options), 0, output.join(""));
     const document = JSON.parse(await readFile(destination, "utf8"));
-    assert.equal(document.schemaVersion, "ebo.run-queue/v3");
+    assert.equal(document.schemaVersion, "ebo.study-queue/v1");
     assert.equal(document.studyFreeze.schemaVersion, "ebo.study-freeze/v1");
     assert.equal(document.studyFreeze.runtimeLockDigest, lock.digest);
     assert.deepEqual(readRunQueue(destination, undefined, {bundleRoot: root}), queue);

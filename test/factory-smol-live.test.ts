@@ -61,7 +61,7 @@ name = "proof"
   const model = { schemaVersion, kind: "model", provider: byok ? "fireworks" : "factory", model: process.env.EBO_LIVE_FACTORY_MODEL!,
     reasoningEffort: process.env.EBO_LIVE_FACTORY_EFFORT ?? "low", credentialEnv: credential,
     ...(byok ? { route: { kind: "byok", provider: "generic-chat-completion-api", baseUrl: "https://api.fireworks.ai/inference/v1", maxOutputTokens: 4096 } } : {}) };
-  const queue = await compileHarborRunQueue({ schemaVersion: "ebo.experiment/v2", id: "factory-live-smol",
+  const queue = await compileHarborRunQueue({ schemaVersion: "ebo.harbor-experiment/v1", id: "factory-live-smol",
     taskSet: { task: { kind: "harbor-task", taskSourceId: id } }, modelSet: { model: { configurationRef: ref("model", model) } },
     harnessSet: { "factory-droid": { configurationRef: ref("harness", { schemaVersion, kind: "harness", adapter: "factory-droid",
       executable: "/opt/ebo/factory-cli/node_modules/.bin/droid", version: lock.groups.flatMap(g => g.roots).find(r => r.id === "droid-cli")!.selection.release.version, sdkVersion: lock.groups.flatMap(g => g.roots).find(r => r.id === "droid-sdk")!.selection.release.version, contractDigest: FACTORY_CONTRACT_DIGEST }),

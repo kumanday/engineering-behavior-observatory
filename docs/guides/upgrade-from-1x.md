@@ -22,6 +22,10 @@ npm install engineering-behavior-observatory@1.4.0
 | Operational judgments recorded as `ebo.semantic-judgment/v1` | Not read |
 | Frozen 1.x readers, `loadAnalysisRuntime`, Atlas cohorts pinned to an `analysisRuntime`, and migration accounting | Removed |
 
+Formats whose shape changed in EBO 2 carry a new number, and formats that are
+different kinds of document carry their own names. The
+[map of EBO 2.0](ebo-2-map.md#record-formats) lists every current name.
+
 Saved Atlas links and Grafana dashboards that filter on `category` or
 `assessment` need `family`, `card` or `verdict`. Review sample criteria use
 `cardIds`. Claims files select a cell with `where.card` and a verdict.

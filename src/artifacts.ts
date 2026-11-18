@@ -1267,8 +1267,8 @@ function loadValidators(): Map<string, ValidateFunction> {
   });
   ajv.addSchema(readSchema("task-packet.v1.schema.json"));
   ajv.addSchema(readSchema("task-packet-freeze.v1.schema.json"));
-  ajv.addSchema(readSchema("experiment.v1.schema.json"));
-  ajv.addSchema(readSchema("run-queue.v1.schema.json"));
+  ajv.addSchema(readSchema("task-packet-experiment.v1.schema.json"));
+  ajv.addSchema(readSchema("task-packet-queue.v1.schema.json"));
   const runBundleSchema = readSchema("run-bundles/v1.json") as {
     $defs: { captureReport: { properties: { missingEvidence: { uniqueItems?: boolean; eboUniqueItems?: boolean } } } };
   };
@@ -1306,8 +1306,8 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("leaderboard-import.v1.json"));
   ajv.addSchema(readSchema("harbor-review.v1.schema.json"));
   ajv.addSchema(readSchema("harbor-freeze.v1.schema.json"));
-  ajv.addSchema(readSchema("experiment.v2.schema.json"));
-  ajv.addSchema(readSchema("run-queue.v2.schema.json"));
+  ajv.addSchema(readSchema("harbor-experiment.v1.schema.json"));
+  ajv.addSchema(readSchema("harbor-queue.v1.schema.json"));
 
   return new Map([
     ["ebo.harness-verification/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/receipt")],
@@ -1340,18 +1340,18 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.atif-producer-profile/v1", requiredValidator(ajv, "urn:ebo:schema:atif-producer-profile:v1")],
     ["ebo.task-packet/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet.v1.schema.json")],
     ["ebo.task-packet-freeze/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet-freeze.v1.schema.json")],
-    ["ebo.experiment/v1", requiredValidator(ajv, "https://ebo.dev/schemas/experiment.v1.schema.json")],
+    ["ebo.task-packet-experiment/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet-experiment.v1.schema.json")],
     ["ebo.study-freeze/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/freeze")],
-    ["ebo.run-queue/v3", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/queue")],
-    ["ebo.run-queue/v1", requiredValidator(ajv, "https://ebo.dev/schemas/run-queue.v1.schema.json")],
+    ["ebo.study-queue/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/queue")],
+    ["ebo.task-packet-queue/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet-queue.v1.schema.json")],
     ["run-manifest/v2", requiredValidator(ajv, "urn:ebo:schema:run-bundle:v2")],
     ["verifier-result/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/verifierResult`)],
     ["capture-report/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/captureReport`)],
     ["export-manifest/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/exportManifest`)],
     ["ebo.uniform-event/v1", requiredValidator(ajv, "urn:ebo:schema:uniform-events:v1#/$defs/uniformEvent")],
     ["ebo.adapter-capability-profile/v1", requiredValidator(ajv, "urn:ebo:schema:uniform-events:v1#/$defs/capabilityProfile")],
-    ["ebo.normalized-dataset/v2", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/dataset")],
-    ["ebo.uniform-event/v2", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/event")],
+    ["ebo.typed-dataset/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/dataset")],
+    ["ebo.typed-event/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/event")],
     ["ebo.operation/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operation")],
     ["ebo.operation-identity/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operationIdentity")],
     ["ebo.normalized-dataset/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/normalizedDataset")],
@@ -1385,8 +1385,8 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.harbor-admission/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-admission.v1.schema.json")],
     ["ebo.harbor-review/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-review.v1.schema.json")],
     ["ebo.harbor-freeze/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-freeze.v1.schema.json")],
-    ["ebo.experiment/v2", requiredValidator(ajv, "https://ebo.dev/schemas/experiment.v2.schema.json")],
-    ["ebo.run-queue/v2", requiredValidator(ajv, "https://ebo.dev/schemas/run-queue.v2.schema.json")],
+    ["ebo.harbor-experiment/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-experiment.v1.schema.json")],
+    ["ebo.harbor-queue/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-queue.v1.schema.json")],
   ]);
 }
 

@@ -602,7 +602,7 @@ function createCursorFixture(arm = "cursor-sdk"): Fixture {
     capture: { schemaVersion: "ebo.cursor-sdk-config/v1", kind: "capture-profile", nativeOtlp: "unsupported", workspaceOutcome: { excludeDirectoryNames: ["node_modules"] } },
   };
   const experiment: ExperimentConfiguration = {
-    schemaVersion: "ebo.experiment/v1",
+    schemaVersion: "ebo.task-packet-experiment/v1",
     id: "cursor-sdk-fixture",
     taskSet: { task: { packetRef: { locator: "packets/task.json", digest: digestMetadata(packet) } } },
     modelSet: { "cursor-model-condition": { configurationRef: { locator: "configs/model.json", digest: digestBytes(Buffer.alloc(0)) } } },

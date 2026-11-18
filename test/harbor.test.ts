@@ -340,7 +340,7 @@ test("rejected review decisions never admit a task", async () => {
   assert.notEqual(status.status, "frozen");
 });
 
-/* ------------------------------------ queue v2 ------------------------------------ */
+/* ---------------------------------- Harbor queue ---------------------------------- */
 
 async function frozenStudyWithTask(): Promise<{ root: string; taskSourceId: string; adapter: HarborAdapter }> {
   const root = tempRoot("queue");
@@ -373,7 +373,7 @@ function configReference(root: string, name: string, body: Record<string, unknow
 
 function experimentFor(root: string, taskSourceId: string, execution: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    schemaVersion: "ebo.experiment/v2",
+    schemaVersion: "ebo.harbor-experiment/v1",
     id: "exp-test",
     taskSet: { proto: { kind: "harbor-task", taskSourceId } },
     modelSet: { "model-a": { configurationRef: configReference(root, "model", { model: "model-a" }) } },
@@ -408,7 +408,7 @@ test("experiment task pins reach frozen identity checks", async () => {
   await assert.rejects(compile, /content changed/);
 });
 
-test("v2 queues compile, validate, and dispatch through the versioned reader", async () => {
+test("Harbor queues compile, validate, and dispatch through the versioned reader", async () => {
   const { root, taskSourceId, adapter } = await frozenStudyWithTask();
   const queue = await compileHarborRunQueue(experimentFor(root, taskSourceId, { environmentProfile: "local-fs-test", contextPolicy: "fresh" }) as never, { studyRoot: root, adapter });
   assert.equal(queue.entries.length, 1);
@@ -418,7 +418,7 @@ test("v2 queues compile, validate, and dispatch through the versioned reader", a
   const queuePath = join(root, "queue.json");
   writeFileSync(queuePath, JSON.stringify(queue, null, 2));
   const reread = await readRunQueueVersioned(queuePath, { studyRoot: root, adapter });
-  assert.equal((reread as { schemaVersion: string }).schemaVersion, "ebo.run-queue/v2");
+  assert.equal((reread as { schemaVersion: string }).schemaVersion, "ebo.harbor-queue/v1");
   const changed = structuredClone(queue);
   changed.entries[0]!.configuration.model = changed.entries[0]!.configuration.harness;
   assert.ok((await validateHarborRunQueue(changed, { studyRoot: root, adapter })).some(error => error.field.endsWith("/configuration")));

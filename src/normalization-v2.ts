@@ -65,7 +65,7 @@ export type EventFactsV2 = {
     populationId: EvidenceValue<string> };
 };
 export type UniformEventV2 = Omit<UniformEvent, "schemaVersion" | "source" | "nativeTime" | "attributes"> & {
-  schemaVersion: "ebo.uniform-event/v2";
+  schemaVersion: "ebo.typed-event/v1";
   source: { sourceId: string; nativeType: string; nativeReference: NativeEvidenceReference };
   clock: ClockEvidence;
   facts: EventFactsV2;
@@ -89,7 +89,7 @@ export type RecordCoverageV2 = {
   reason: EvidenceValue<string>;
 };
 export type NormalizedDatasetV2 = {
-  schemaVersion: "ebo.normalized-dataset/v2";
+  schemaVersion: "ebo.typed-dataset/v1";
   runId: string;
   attemptId: string;
   normalizer: { id: string; version: string; implementationDigest: Hash };

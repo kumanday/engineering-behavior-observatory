@@ -516,7 +516,7 @@ test("standalone queues reject conflicting identities for one condition ID", () 
 test("queue validation rejects another valid artifact schema", () => {
   assert.match(
     validateRunQueue(fixture("experiment.18-cell.v1.json")).map((error) => error.message).join("\n"),
-    /Expected an ebo.run-queue\/v1 artifact/,
+    /Expected an ebo.task-packet-queue\/v1 artifact/,
   );
 });
 
@@ -631,7 +631,7 @@ test("a persisted local queue is validated and consumed in order", () => {
     writeFileSync(invalidQueuePath, canonicalizeMetadata(invalidQueue));
     let invalidQueueOutput = "";
     assert.equal(main(["validate", invalidQueuePath], (message) => (invalidQueueOutput += message)), 1);
-    assert.match(invalidQueueOutput, /ebo\.run-queue\/v1/);
+    assert.match(invalidQueueOutput, /ebo\.task-packet-queue\/v1/);
     assert.match(invalidQueueOutput, /schedulingDigest/);
     const alteredExperiment = structuredClone(experiment);
     alteredExperiment.coordinatorBudget.maxWallClockMs += 1;
