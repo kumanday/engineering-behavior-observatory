@@ -359,8 +359,5 @@ These are stated goals. None of them is in 2.0.
 - **Decision-model judging command.** It renders every step of an attempt,
   asks the judge model about cards in batches, and writes
   `ebo.behavior-assertion/v2` results for a whole cohort. A documented path
-  will also write the same record from results produced elsewhere.
-- **Harness Leaderboard analysis.** The imported leaderboard cohort judged
-  against the ontology, before the 2.0.0 release.
-
-Each section above will describe these once they are merged.
+  will also write the same record from results produced elsewhere. The
+  judging section above will describe it once it is merged.
