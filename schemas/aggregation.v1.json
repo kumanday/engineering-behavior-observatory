@@ -174,16 +174,12 @@
       "additionalProperties": false,
       "required": ["producer","family","results","attempts"],
       "properties": {
-        "producer": {
+        "producer": {"$ref":"urn:ebo:schema:behavior-assertions:v1#/$defs/producer"},
+        "rubric": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["mode","provider","model","version"],
-          "properties": {
-            "mode": {"$ref":"urn:ebo:schema:behavior-assertions:v1#/$defs/producerMode"},
-            "provider": {"$ref":"#/$defs/identifier"},
-            "model": {"$ref":"#/$defs/identifier"},
-            "version": {"$ref":"#/$defs/identifier"}
-          }
+          "required": ["id","version"],
+          "properties": {"id":{"$ref":"#/$defs/identifier"},"version":{"$ref":"#/$defs/identifier"}}
         },
         "family": {"type":"string","pattern":"^(?:all|[A-Z]{2})$"},
         "results": {"$ref":"#/$defs/directionShares"},

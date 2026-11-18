@@ -54,6 +54,14 @@ a terminal-state measure; task-success rates come only from available verified
 attempt outcomes. Duplicate identical inputs are counted once, while conflicting
 records with the same identity fail the build.
 
+The four assertion metrics (`assertion-abstention-rate`,
+`reviewed-assertion-confirmed-rate`, `review-unresolved-rate` and
+`review-disputed-rate`) count results of one producer mode. When a group holds
+results of both modes, those four are `unavailable`, and the group carries
+each of them once per mode with the mode as a suffix, such as
+`assertion-abstention-rate:llm-judge` and
+`assertion-abstention-rate:decision-model`.
+
 Each group's additive `behaviors` array reports one entry per
 [behavior card](behavior-ontology.md), ordered by family and then by card as
 the ontology orders them, separately from review agreement. An entry names the
@@ -74,9 +82,11 @@ A dimension card also has `values`: each named value's count among the
 attempts judged present (`present-attempt-card`), with the absent and unknown
 attempts listed as exclusions.
 
-Each group's `directions` array is the second view of the same results. It
-has one entry per producer and family, and one more per producer for all
-families together (`family: "all"`). The ontology fixes a
+Each group's `directions` array is the second view of the same results. Its
+producers are the ones of the per-card entries: the full `producer`,
+configuration digest included, and for an LLM judge the `rubric`. It has one
+entry per producer and family, and one more per producer for all families
+together (`family: "all"`). The ontology fixes a
 [direction](behavior-ontology.md#direction) for every present result:
 `favourable`, `unfavourable` or `neutral`. An entry reports two shares for
 each direction:

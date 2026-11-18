@@ -40,7 +40,7 @@ ${view.operatorNarrative ? `<section class="narrative"><p class="eyebrow">Operat
 function directionTable(view: AtlasView): string {
   const rows = atlasDirectionRows(view);
   if (!rows.length) return "";
-  return `<div class="tablewrap"><table><caption>Direction summary · the ontology fixes each card's direction; neutral results are counted and never scored</caption><thead><tr><th>Group</th><th>Producer</th><th>Family</th><th>Measure</th><th>Direction</th><th>Count</th><th>Of</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${h(row.group)}</td><td>${h(row.producer)}</td><td>${h(row.family)}</td><td>${h(row.measure === "results" ? "present results" : "attempts with at least one")}</td><td>${badge(row.direction)}</td><td>${h(row.numerator ?? "unavailable")}</td><td>${h(row.denominator)} ${h(row.unit)}</td></tr>`).join("")}</tbody></table></div>`;
+  return `<div class="tablewrap"><table><caption>Direction summary · the ontology fixes each card's direction; neutral results are counted and never scored</caption><thead><tr><th>Group</th><th>Producer</th><th>Family</th><th>Measure</th><th>Direction</th><th>Count</th><th>Of</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${h(row.group)}</td><td>${h(row.producer)}${row.rubric === "none" ? "" : `<small>rubric ${h(row.rubric)}</small>`}</td><td>${h(row.family)}</td><td>${h(row.measure === "results" ? "present results" : "attempts with at least one")}</td><td>${badge(row.direction)}</td><td>${h(row.numerator ?? "unavailable")}</td><td>${h(row.denominator)} ${h(row.unit)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 function measurement(value: AggregateMeasurement, percent = false): string {

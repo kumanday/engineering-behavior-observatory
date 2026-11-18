@@ -88,7 +88,8 @@ export function atlasBehaviorRows(view: AtlasView) {
 /** The direction summary: per group, producer and family, present results and attempts by direction. */
 export function atlasDirectionRows(view: AtlasView) {
   return view.report.groups.flatMap((group) => (group.directions ?? []).flatMap((entry) => (["results", "attempts"] as const).flatMap((measure) => entry[measure].map(({ direction, measurement }) => ({
-    group: Object.values(group.dimensions).join(" · ") || "Selected cohort", mode: entry.producer.mode, producer: producerLabel(entry.producer), family: entry.family, measure, direction,
+    group: Object.values(group.dimensions).join(" · ") || "Selected cohort", mode: entry.producer.mode, producer: producerLabel(entry.producer),
+    rubric: entry.rubric === undefined ? "none" : `${entry.rubric.id}@${entry.rubric.version}`, evaluator: canonicalizeMetadata(entry.producer), family: entry.family, measure, direction,
     status: measurement.status, numerator: measurement.status === "available" ? measurement.numerator.value : null, denominator: measurement.denominator.value, unit: measurement.denominator.unit,
     exclusions: measurement.exclusions.map(({ reason, count }) => `${reason}: ${count}`).join("; "), cohortDigest: view.cohortDigest })))));
 }

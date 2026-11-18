@@ -13,6 +13,7 @@ import { digestMetadata } from "../src/artifacts.js";
 import { importReviewDecision, type ReviewHistory } from "../src/human-calibration.js";
 import { main } from "../src/cli.js";
 import { createAtlasFixture } from "./atlas-fixture.js";
+import type { BehaviorAssertion } from "../src/behavior-assertions.js";
 
 test("Atlas mixed fixture preserves exact cohort populations, decisions and native drilldown", async () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-atlas-test-"));
@@ -191,6 +192,33 @@ test("Atlas and aggregation keep the two producer modes apart and summarise dire
       assert.deepEqual(group.behaviors!.filter(({ producer }) => producer.mode === "llm-judge"), llmOnly.groups[index]!.behaviors);
       assert.deepEqual(group.directions!.filter(({ producer }) => producer.mode === "llm-judge"), llmOnly.groups[index]!.directions);
       assert.ok(group.behaviors!.every(({ producer, rubric }) => (producer.mode === "llm-judge") === (rubric !== undefined)), "only the LLM judge has a rubric");
+      assert.ok(group.directions!.every(({ producer, rubric }) => (producer.mode === "llm-judge") === (rubric !== undefined)), "direction entries carry the rubric too");
+      // Group-wide assertion rates are unavailable when both modes are present; each mode has its own.
+      for (const id of ["assertion-abstention-rate", "reviewed-assertion-confirmed-rate", "review-unresolved-rate", "review-disputed-rate"]) {
+        const pooled = group.metrics.find((item) => item.id === id)!;
+        assert.equal(pooled.measurement.status, "unavailable", id);
+        assert.match(pooled.measurement.reason!, /more than one producer mode/u);
+        assert.deepEqual({ ...group.metrics.find((item) => item.id === `${id}:llm-judge`)!, id }, llmOnly.groups[index]!.metrics.find((item) => item.id === id), `${id} for the LLM judge alone`);
+        assert.ok(group.metrics.some((item) => item.id === `${id}:decision-model`), `${id} for the decision model`);
+      }
+      assert.ok(llmOnly.groups[index]!.metrics.every(({ id }) => !id.endsWith(":llm-judge")), "a single-mode group keeps the plain metric ids");
+    }
+
+    // A producer that differs only by configuration digest is its own direction entry, as it is its own per-card entry.
+    const reconfigured = source.input.assertions.filter(({ document }) => document.producer.mode === "decision-model").map(({ bundleRoot, document }) => ({
+      bundleRoot, document: { ...document, id: `${document.id}-reconfigured`, producer: { ...document.producer, configurationDigest: `sha256:${"c".repeat(64)}` as const } } as BehaviorAssertion,
+    }));
+    const split = await aggregateEvaluation({ ...source.input, assertions: [...source.input.assertions, ...reconfigured] }, source.aggregation);
+    for (const [index, group] of split.groups.entries()) {
+      const original = view.report.groups[index]!.directions!.filter(({ producer }) => producer.mode === "decision-model");
+      const decisionModel = group.directions!.filter(({ producer }) => producer.mode === "decision-model");
+      assert.equal(decisionModel.length, original.length * 2);
+      for (const entry of original) {
+        assert.deepEqual(decisionModel.find((item) => item.family === entry.family && item.producer.configurationDigest === undefined), entry);
+        const { producer: _producer, ...counts } = decisionModel.find((item) => item.family === entry.family && item.producer.configurationDigest !== undefined)!;
+        const { producer: _original, ...expected } = entry;
+        assert.deepEqual(counts, expected, "the reconfigured producer's results are neither merged nor excluded as conflicting");
+      }
     }
 
     const rows = atlasBehaviorRows(view);

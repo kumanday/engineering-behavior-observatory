@@ -100,11 +100,14 @@ export type BehaviorAggregate = {
 };
 
 /**
- * How one producer's present results divide by direction, for one family or for all cards (`family: "all"`). The
+ * How one producer's (and, for an LLM judge, one rubric's) present results divide by direction, for one family or for all cards (`family: "all"`). The
  * direction comes from the ontology. Neutral results are counted and never scored.
  */
 export type DirectionAggregate = {
-  producer: Pick<BehaviorProducer, "mode" | "provider" | "model" | "version">;
+  /** The same producer identity as a per-card entry, configuration digest included. */
+  producer: BehaviorProducer;
+  /** LLM-judge entries only. */
+  rubric?: { id: string; version: string };
   family: string;
   /** Of the attempt-cards judged present, the share with each direction. */
   results: ReadonlyArray<{ direction: BehaviorDirection; measurement: AggregateMeasurement }>;
@@ -335,20 +338,24 @@ function directionAggregates(selected: readonly Attempt[], assertions: ReadonlyM
   const selectedIds = new Set(selected.map(attemptKey));
   const ontology = loadDefaultBehaviorOntology();
   type Judged = { attempt: string; card: BehaviorCard; decisions: Map<string, BehaviorDecision> };
-  const producers = new Map<string, { producer: DirectionAggregate["producer"]; judged: Map<string, Judged> }>();
+  type Partition = Pick<DirectionAggregate, "producer" | "rubric">;
+  const producers = new Map<string, { partition: Partition; judged: Map<string, Judged> }>();
   for (const assertion of assertions.values()) {
     if (!selectedIds.has(attemptKey(assertion))) continue;
-    const { mode, provider, model, version } = assertion.producer;
-    const producer = { mode, provider, model, version };
-    const entry = producers.get(canonicalizeMetadata(producer)) ?? { producer, judged: new Map<string, Judged>() };
-    producers.set(canonicalizeMetadata(producer), entry);
+    // The partition identity of the per-card entries, so both views count the same populations.
+    const partition: Partition = isDecisionModelAssertion(assertion)
+      ? { producer: structuredClone(assertion.producer) }
+      : { producer: structuredClone(assertion.producer), rubric: structuredClone(assertion.rubric) };
+    const id = canonicalizeMetadata(partition);
+    const entry = producers.get(id) ?? { partition, judged: new Map<string, Judged>() };
+    producers.set(id, entry);
     const key = `${attemptKey(assertion)}\0${assertion.behavior.cardId}`;
     const judged = entry.judged.get(key) ?? { attempt: attemptKey(assertion), card: resolveBehaviorCard(assertion.behavior, ontology), decisions: new Map<string, BehaviorDecision>() };
     entry.judged.set(key, judged);
     const decision = decisionOf(assertion);
     judged.decisions.set(canonicalizeMetadata(decision), decision);
   }
-  return [...producers.entries()].sort(([a], [b]) => a.localeCompare(b)).flatMap(([, { producer, judged }]) => {
+  return [...producers.entries()].sort(([a], [b]) => a.localeCompare(b)).flatMap(([, { partition, judged }]) => {
     const families = ["all", ...ontology.families.map(({ id }) => id).filter((id) => [...judged.values()].some(({ card }) => card.family === id))];
     return families.map((family) => {
       const items = [...judged.values()].filter(({ card }) => family === "all" || card.family === family);
@@ -358,7 +365,7 @@ function directionAggregates(selected: readonly Attempt[], assertions: ReadonlyM
       const present = agreed.filter(({ direction }) => direction !== undefined);
       const attempts = new Set(agreed.map(({ attempt }) => attempt));
       return {
-        producer, family,
+        ...structuredClone(partition), family,
         results: BEHAVIOR_DIRECTIONS.map((direction) => ({ direction,
           measurement: rateMetric(direction, "attempt", present.filter((item) => item.direction === direction).length, present.length, "present-attempt-card", exclusions).measurement })),
         attempts: BEHAVIOR_DIRECTIONS.map((direction) => ({ direction,
@@ -430,7 +437,24 @@ function groupMetrics(
     }
   }
   const selectedAssertions = [...assertions.values()].filter(({ runId, attemptId }) => selectedIds.has(`${runId}\0${attemptId}`));
-  metrics.push(rateMetric("assertion-abstention-rate", "assertion", selectedAssertions.filter(({ judgment }) => judgment.verdict === "unknown").length,
+  const modes = [...new Set(selectedAssertions.map(({ producer }) => producer.mode))].sort();
+  if (modes.length > 1) {
+    // Results of an LLM judge and of a decision model are never pooled: the group-wide rates are unavailable, and each
+    // mode gets its own.
+    for (const id of ASSERTION_METRICS) {
+      metrics.push(unavailableMetric(id, id === "reviewed-assertion-confirmed-rate" ? "reviewed-assertion" : "assertion",
+        "The group holds results of more than one producer mode; read the per-mode metrics.", selectedAssertions.length, "assertion"));
+    }
+    for (const mode of modes) metrics.push(...assertionMetrics(selectedAssertions.filter(({ producer }) => producer.mode === mode), reviews, `:${mode}`));
+  } else metrics.push(...assertionMetrics(selectedAssertions, reviews, ""));
+  return metrics;
+}
+
+const ASSERTION_METRICS = ["assertion-abstention-rate", "reviewed-assertion-confirmed-rate", "review-unresolved-rate", "review-disputed-rate"] as const;
+
+function assertionMetrics(selectedAssertions: readonly BehaviorAssertion[], reviews: ReadonlyMap<string, ReviewOutcome>, suffix: string): AggregateMetric[] {
+  const metrics: AggregateMetric[] = [];
+  metrics.push(rateMetric(`assertion-abstention-rate${suffix}`, "assertion", selectedAssertions.filter(({ judgment }) => judgment.verdict === "unknown").length,
     selectedAssertions.length, "assertion", []));
   const reviewResults = selectedAssertions.map((assertion) => reviews.get(assertionBindingKey(assertion)) ?? {
     outcome: assertion.judgment.verdict === "unknown" ? "judge-abstained" as const : "unreviewed" as const,
@@ -438,11 +462,11 @@ function groupMetrics(
   });
   const outcomes = reviewResults.map(({ outcome }) => outcome);
   const reviewed = outcomes.filter((outcome) => outcome === "confirmed" || outcome === "rejected" || outcome === "unresolved");
-  metrics.push(rateMetric("reviewed-assertion-confirmed-rate", "reviewed-assertion", reviewed.filter((outcome) => outcome === "confirmed").length,
+  metrics.push(rateMetric(`reviewed-assertion-confirmed-rate${suffix}`, "reviewed-assertion", reviewed.filter((outcome) => outcome === "confirmed").length,
     reviewed.length, "reviewed-assertion", exclusionCounts(outcomes.flatMap((outcome) => outcome === "unreviewed" || outcome === "judge-abstained" ? [outcome] : []), "assertion")));
-  metrics.push(rateMetric("review-unresolved-rate", "assertion", outcomes.filter((outcome) => outcome === "unresolved" || outcome === "unreviewed" || outcome === "judge-abstained").length,
+  metrics.push(rateMetric(`review-unresolved-rate${suffix}`, "assertion", outcomes.filter((outcome) => outcome === "unresolved" || outcome === "unreviewed" || outcome === "judge-abstained").length,
     outcomes.length, "assertion", []));
-  metrics.push(rateMetric("review-disputed-rate", "assertion", reviewResults.filter(({ disputed }) => disputed).length,
+  metrics.push(rateMetric(`review-disputed-rate${suffix}`, "assertion", reviewResults.filter(({ disputed }) => disputed).length,
     reviewResults.length, "assertion", []));
   return metrics;
 }
