@@ -67,7 +67,7 @@ cut-down view of every step.
   "corpusIndex": "corpus/index.jsonl",
   "cards": ["VF-03", "TI-03"],
   "provider": { "id": "typesafe", "model": "jev-1.14.0" },
-  "thresholds": { "present": 0.7, "absent": 0.3 },
+  "thresholds": { "present": 0.9, "absent": 0.1 },
   "batchSize": 24,
   "concurrency": 16,
   "requestsPerSecond": 7,
@@ -80,7 +80,7 @@ cut-down view of every step.
 | `corpusRoot`, `corpusIndex` | The corpus to judge, built with `ebo corpus build`. Every run and import entry is judged, including a whole imported cohort |
 | `cards` | Cards to ask; all 93 when omitted |
 | `provider` | A System One decision model: `typesafe` (Jev, `TYPESAFE_API_KEY`) or `fireworks` (`FIREWORKS_API_KEY`) |
-| `thresholds` | `0 < absent ≤ present ≤ 1`. Choose them per study and keep them fixed across compared cohorts |
+| `thresholds` | `0 < absent ≤ present ≤ 1`. Keep them fixed across compared cohorts |
 | `batchSize` | Cards per request, 24 by default |
 | `concurrency` | Requests in flight at once, 16 by default |
 | `requestsPerSecond` | The highest request start rate, 7 by default |
@@ -88,6 +88,13 @@ cut-down view of every step.
 
 Paths are relative to the run file. Credentials come from the environment and
 are never written.
+
+The example uses the operating point at which Jev was measured on ATIF
+trajectories, 0.9 for present and 0.1 for absent. On two blind audits of 160
+trajectories by an independent reader, Jev scored an AUC of 0.939 and 0.930,
+and its results at 0.9 or above agreed with the reader 95.9% and 96.7% of the
+time. Other thresholds, other models and native captures have not been
+measured.
 
 ## Large cohorts
 
