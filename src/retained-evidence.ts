@@ -60,18 +60,30 @@ const evidenceReuse = new AsyncLocalStorage<EvidenceReuse>();
  */
 export async function withRetainedEvidenceReuse<T>(operation: () => Promise<T>,
   stats: RetainedEvidenceReuseStats = { hits: 0, misses: 0 }): Promise<T> {
+  // A nested operation shares the enclosing scope, so evidence validated by an outer build is not rebuilt.
+  if (evidenceReuse.getStore() !== undefined) return operation();
   const state: EvidenceReuse = { stats };
   try { return await evidenceReuse.run(state, operation); }
   finally { state.entry = undefined; }
 }
 
-/** Current bytes of a run bundle's manifest and every listed artifact; undefined when they cannot all be hashed. */
+/**
+ * Current bytes of a bundle's manifest and of everything it binds: every listed artifact of a run bundle, or the
+ * admitted source, inspection and interpretation of an ATIF import. Undefined when they cannot all be hashed.
+ */
 async function evidenceSourceKey(bundleRoot: string): Promise<string | undefined> {
   try {
     const manifestBytes = readBoundedFile(join(bundleRoot, "manifest.json"), "Run manifest");
-    const manifest = JSON.parse(manifestBytes.toString("utf8")) as Partial<RunManifest>;
-    if (isAtifImportSchema(manifest.schemaVersion) || !Array.isArray(manifest.evidence)) return undefined;
+    const manifest = JSON.parse(manifestBytes.toString("utf8")) as Partial<RunManifest> & { schemaVersion?: string; source?: { path?: unknown }; inspection?: { path?: unknown }; interpretation?: { path?: unknown } };
     const hash = createHash("sha256").update(resolve(bundleRoot)).update("\0").update(manifestBytes);
+    if (isAtifImportSchema(manifest.schemaVersion)) {
+      for (const path of [manifest.source?.path, manifest.inspection?.path, manifest.interpretation?.path]) {
+        if (typeof path !== "string") return undefined;
+        hash.update(`\0${path}\0`).update(readBoundedFile(join(bundleRoot, path), "Imported artifact", undefined, 1024 * 1024 * 1024));
+      }
+      return hash.digest("hex");
+    }
+    if (!Array.isArray(manifest.evidence)) return undefined;
     for (const { relativePath } of manifest.evidence) {
       const { digest, sizeBytes } = await inspectRetainedArtifact(bundleRoot, relativePath);
       hash.update(`\0${relativePath}\0${digest.value}\0${String(sizeBytes)}`);
@@ -80,10 +92,14 @@ async function evidenceSourceKey(bundleRoot: string): Promise<string | undefined
   } catch { return undefined; }
 }
 
+let evidenceBuilds = 0;
+/** How many times retained evidence has been built from its sources in this process; a test hook for reuse. */
+export function retainedEvidenceBuildCount(): number { return evidenceBuilds; }
+
 export async function createRetainedBehaviorEvidence(bundleRoot: string): Promise<RetainedBehaviorEvidence> {
   const reuse = evidenceReuse.getStore();
   const key = reuse && await evidenceSourceKey(bundleRoot);
-  // Imports and bundles whose bytes cannot all be hashed are always rebuilt, so their failures stay explicit.
+  // Bundles whose bytes cannot all be hashed are always rebuilt, so their failures stay explicit.
   if (!reuse || key === undefined) return buildRetainedBehaviorEvidence(bundleRoot);
   if (reuse.entry?.key === key) { reuse.stats.hits++; return reuse.entry.evidence; }
   reuse.stats.misses++;
@@ -95,6 +111,7 @@ export async function createRetainedBehaviorEvidence(bundleRoot: string): Promis
 }
 
 async function buildRetainedBehaviorEvidence(bundleRoot: string): Promise<RetainedBehaviorEvidence> {
+  evidenceBuilds += 1;
   const manifest = JSON.parse(readBoundedFile(join(bundleRoot, "manifest.json"), "Run manifest").toString("utf8")) as RunManifest;
   if (isAtifImportSchema(manifest.schemaVersion)) return readRetainedBehaviorEvidence(bundleRoot);
   const recorded = readRunVerification(bundleRoot, manifest);

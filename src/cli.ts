@@ -683,6 +683,8 @@ async function runAggregationCommand(args: string[], write: (message: string) =>
     };
     const destination = resolve(outputPath);
     prepareDerivedParent(corpusRoot, destination);
+    // Refuse an existing destination before the aggregation runs, not after.
+    if (existsSync(destination)) throw new Error(`Aggregation report destination ${outputPath} already exists; choose a new path.`);
     const report = await aggregateEvaluation({
       lineage: {
         requestDigest: `sha256:${digestMetadata(request).value}`,
@@ -880,8 +882,10 @@ async function runObservationsCommand(args: string[], write: (message: string) =
       const index = readCorpusIndex(second);
       const issues = validateCorpusIndex(first, index);
       if (issues.length > 0) throw new Error(`Corpus index is not current: ${issues[0]!.manifestPath} ${issues[0]!.message}`);
-      const selected = queryCorpusIndex(index, { ...parseCorpusQuery(args.slice(4)), manifestKind: "run" });
-      if (selected.length === 0) throw new Error("Corpus selection matched no retained run bundles.");
+      // Run bundles and ATIF imports both have observations; `--kind` narrows the selection to one of them.
+      const query = parseCorpusQuery(args.slice(4));
+      const selected = queryCorpusIndex(index, query).filter(({ manifestKind }) => manifestKind === "run" || manifestKind === "import");
+      if (selected.length === 0) throw new Error("Corpus selection matched no retained run bundles or imports.");
       const outputRoot = resolve(third);
       const outputParent = prepareDerivedParent(first, outputRoot);
       if (existsSync(outputRoot)) throw new Error("Structural observation corpus destination already exists.");
@@ -899,7 +903,7 @@ async function runObservationsCommand(args: string[], write: (message: string) =
       } finally {
         if (!published) rmSync(stagingRoot, { recursive: true, force: true });
       }
-      write(`Created structural observations for ${selected.length} corpus run bundle(s).\n`);
+      write(`Created structural observations for ${selected.length} corpus bundle(s).\n`);
       return 0;
     }
   } catch (error) {

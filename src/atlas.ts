@@ -9,7 +9,7 @@ import { assertNoDuplicateJsonKeys, canonicalizeMetadata, digestMetadata, valida
 import { isDecisionModelAssertion, producerLabel, type BehaviorAssertion } from "./behavior-assertions.js";
 import { behaviorDirection, resolveBehaviorCard } from "./behavior-ontology.js";
 import type { AgentSdkNativeRecord } from "./agent-sdk-normalizer.js";
-import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
+import { createRetainedBehaviorEvidence, withRetainedEvidenceReuse } from "./retained-evidence.js";
 import { readCorpusIndex, validateCorpusIndex } from "./corpus.js";
 import { readPortableRunBundleExport, sanitizeDerivedExport, type LocatedSecretFinding, type PortableExportPolicy } from "./exports.js";
 import { assertCalibrationDestination, effectiveReviewOutcome, isDisputedReviewOutcome, type ReviewDecision } from "./human-calibration.js";
@@ -97,6 +97,11 @@ const digest = (value: unknown): Digest => `sha256:${digestMetadata(value).value
 const attemptKey = (value: { runId?: string; attemptId?: string }) => `${value.runId}\0${value.attemptId}`;
 
 export async function loadAtlas(requestPath: string): Promise<AtlasSource> {
+  // One scope for the validation pass and the case pass, so an attempt's evidence is rebuilt only when it changes.
+  return withRetainedEvidenceReuse(() => loadAtlasSource(requestPath));
+}
+
+async function loadAtlasSource(requestPath: string): Promise<AtlasSource> {
   const request = readJson(requestPath) as AtlasRequest;
   exactKeys(request, ["schemaVersion", "aggregationRequest", "title", "operatorNarrative", "reviewPackets", "traces", "grafanaUrl", "atlasUrl", "tempoDatasourceUid", "sharing"]);
   if (request.schemaVersion !== "ebo.atlas-request/v1" || typeof request.title !== "string" || !request.title.trim() || typeof request.aggregationRequest !== "string") throw new Error("Invalid or incompatible Atlas request.");

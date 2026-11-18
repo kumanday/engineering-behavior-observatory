@@ -7,6 +7,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { DuckDBInstance } from "@duckdb/node-api";
 
 import { canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
+import { readAggregationAssertions, type AggregationRequest } from "./aggregation.js";
 export { ownPointer } from "./retained-content.js";
 import { loadAtlas, queryAtlas, type AtlasSource, type AtlasView } from "./atlas.js";
 import { Field, List, makeVector, Table, tableToIPC, Utf8, vectorFromArray } from "apache-arrow";
@@ -302,9 +303,25 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   mkdirSync(join(outputRoot, "native"), { recursive: true });
   const reports = new Map<string, AtlasView>();
 
+  // Assertion ids must name one assertion across the bundle. Checking them from the requests first fails in seconds
+  // instead of after every cohort's validation.
+  const declared = new Map<string, { digest: string; attemptId: string }>();
+  for (const cohort of request.cohorts) {
+    const atlasPath = resolve(base, cohort.atlasRequest);
+    const aggregationPath = resolve(dirname(atlasPath), (JSON.parse(readFileSync(atlasPath, "utf8")) as { aggregationRequest: string }).aggregationRequest);
+    const aggregation = JSON.parse(readFileSync(aggregationPath, "utf8")) as AggregationRequest;
+    for (const { document } of readAggregationAssertions(dirname(aggregationPath), aggregation.sources)) {
+      const digest = canonicalizeMetadata(document), known = declared.get(document.id);
+      if (known && known.digest !== digest) throw new Error(`Assertion id ${document.id} names two different assertions (attempts ${known.attemptId} and ${document.attemptId}); assertion ids must be unique in an Atlas bundle.`);
+      declared.set(document.id, { digest, attemptId: document.attemptId });
+    }
+  }
+  declared.clear();
+
   for (const cohort of request.cohorts) {
     const atlasPath = resolve(base, cohort.atlasRequest);
     const source: AtlasSource = await loadAtlas(atlasPath);
+    const byDigest = new Map(source.input.assertions.map(({ document }) => [`sha256:${digestMetadata(document).value}`, document] as const));
     const view: AtlasView = await queryAtlas(source);
     // Keep the report, not the view's cases (they carry native records for display).
     reports.set(cohort.id, { title: view.title, generatedAt: view.generatedAt, report: view.report } as AtlasView);
@@ -327,7 +344,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
       observationSets.set(document.attemptId, document);
     }
     for (const c of view.cases.filter((x) => x.assertion && x.assertionDigest)) {
-      const original = source.input.assertions.find(({ document }) => `sha256:${digestMetadata(document).value}` === c.assertionDigest)!.document;
+      const original = byDigest.get(c.assertionDigest!)!;
       // Review state is per cohort (each cohort has its own calibration inputs); the scalar says so when they differ.
       const entry = assertions.get(original.id) ?? { assertion: original, digest: c.assertionDigest!, review: c.review, cohorts: new Set<string>() };
       if (entry.cohorts.size && entry.review !== c.review) entry.review = "varies by cohort";

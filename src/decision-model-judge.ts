@@ -114,7 +114,8 @@ export function decisionModelResult(input: DecisionModelResultInput): DecisionMo
   const card = resolveBehaviorCard(behavior, ontology);
   const decision = decideFromProbabilities(card, input.probabilities, input.thresholds);
   const producer: BehaviorProducer<"decision-model"> = { mode: "decision-model", ...input.producer };
-  const id = `decision-model-${input.cardId}-${digestMetadata({ producer, thresholds: input.thresholds }).value.slice(0, 16)}`;
+  // The id names one result: this attempt, this card, this producer (configuration included) and these thresholds.
+  const id = `decision-model-${input.cardId}-${digestMetadata({ runId: input.runId, attemptId: input.attemptId, cardId: input.cardId, producer, thresholds: input.thresholds }).value.slice(0, 16)}`;
   return {
     schemaVersion: "ebo.behavior-assertion/v2", id, runId: input.runId, attemptId: input.attemptId, dataset: input.dataset, behavior, producer,
     evidence: structuredClone(input.evidence),

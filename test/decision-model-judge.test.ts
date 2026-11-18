@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -202,4 +202,75 @@ test("the Jev adapter opts in to long context and retries rate limits and server
   assert.equal(seen[0]!.headers["TypeSafe-Danger-Zone-Long-Context"], "true");
   assert.equal(seen[0]!.body.model, "jev-1.14.0");
   assert.deepEqual(jev.producer, { provider: "typesafe", model: "jev-1.14.0", version: "1.0.0" });
+});
+
+test("aggregation and Atlas build an imported attempt's evidence once, however many card results it has", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-decision-model-reuse-"));
+  try {
+    const { buildCorpusIndex, writeCorpusIndex } = await import("../src/corpus.js");
+    const { retainedEvidenceBuildCount } = await import("../src/retained-evidence.js");
+    const { loadAtlas } = await import("../src/atlas.js");
+    const source = join(root, "acme.json");
+    writeFileSync(source, readFileSync(new URL("../../test/fixtures/atif/core/acme.json", import.meta.url)));
+    mkdirSync(join(root, "corpus"));
+    await importAtifFile({ sourcePath: source, destination: join(root, "corpus", "imported"), runId: "imported", attemptId: "a" });
+    writeCorpusIndex(join(root, "index.jsonl"), buildCorpusIndex(join(root, "corpus")));
+    const run = await runDecisionModelJudge(writeSpec(root), { provider: fakeProvider() });
+    assert.equal(run.results, 93);
+    writeFileSync(join(root, "aggregation.json"), JSON.stringify({ schemaVersion: "ebo.aggregation-request/v2",
+      sources: { corpusRoot: "corpus", corpusIndex: "index.jsonl", observationSets: [], assertions: [], assertionSets: run.assertionSets, calibrations: [] },
+      groupBy: ["harness"], evidenceOrigins: "imported", selectedAttemptPolicy: "all-attempts", recurrence: { minimumOccurrences: 2 }, comparisons: [] }));
+    let before = retainedEvidenceBuildCount(), output = "";
+    assert.equal(await main(["aggregate", "build", join(root, "aggregation.json"), join(root, "derived", "report.json")], (text) => { output += text; }), 0, output);
+    assert.equal(retainedEvidenceBuildCount() - before, 1, "93 card results of one attempt share one build of its evidence");
+    before = retainedEvidenceBuildCount(); output = "";
+    assert.equal(await main(["aggregate", "build", join(root, "aggregation.json"), join(root, "derived", "report.json")], (text) => { output += text; }), 1);
+    assert.match(output, /already exists; choose a new path/u);
+    assert.equal(retainedEvidenceBuildCount() - before, 0, "an existing destination is refused before any evidence is built");
+    output = "";
+    assert.equal(await main(["observations", "corpus", join(root, "corpus"), join(root, "index.jsonl"), join(root, "derived", "observations")], (text) => { output += text; }), 0, output);
+    assert.match(output, /for 1 corpus bundle/u, "corpus observations cover ATIF imports");
+    writeFileSync(join(root, "atlas.json"), JSON.stringify({ schemaVersion: "ebo.atlas-request/v1", title: "Reuse", aggregationRequest: "aggregation.json" }));
+    before = retainedEvidenceBuildCount();
+    await loadAtlas(join(root, "atlas.json"));
+    assert.ok(retainedEvidenceBuildCount() - before <= 2, `Atlas validates and then reads each attempt (saw ${String(retainedEvidenceBuildCount() - before)} builds)`);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("two attempts of one run with the same answers keep distinct result ids through import, aggregation and an Atlas bundle", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-decision-model-ids-"));
+  try {
+    const { buildCorpusIndex, writeCorpusIndex } = await import("../src/corpus.js");
+    const { buildAtlasBundle } = await import("../src/atlas-bundle.js");
+    const { retainedEvidenceBuildCount } = await import("../src/retained-evidence.js");
+    const source = join(root, "acme.json");
+    writeFileSync(source, readFileSync(new URL("../../test/fixtures/atif/core/acme.json", import.meta.url)));
+    mkdirSync(join(root, "corpus"));
+    for (const attemptId of ["attempt-1", "attempt-2"]) await importAtifFile({ sourcePath: source, destination: join(root, "corpus", attemptId), runId: "shared-run", attemptId });
+    writeCorpusIndex(join(root, "index.jsonl"), buildCorpusIndex(join(root, "corpus")));
+    const spec = writeSpec(root);
+    const evidence = { scope: "all-steps", steps: { included: 2, total: 2 }, rendering: { id: "external", version: "1" }, fieldChars: { min: 30, max: 430 }, budgetChars: 37000 };
+    const line = (attemptId: string) => JSON.stringify({ schemaVersion: "ebo.decision-model-result/v1", runId: "shared-run", attemptId, cardId: "TI-03",
+      probabilities: { present: 1, nearMiss: 0, absent: 0 }, producer: { provider: "external", model: "external-model", version: "1" }, evidence });
+    writeFileSync(join(root, "results.jsonl"), `${line("attempt-1")}\n${line("attempt-2")}\n`);
+    const imported = await importDecisionModelResults(spec, join(root, "results.jsonl"));
+    const ids = imported.assertionSets.map(({ path }) => (JSON.parse(readFileSync(join(root, path), "utf8").trim()) as DecisionModelAssertion).id);
+    assert.equal(new Set(ids).size, 2, "the attempt is part of a result's id");
+    const aggregation = { schemaVersion: "ebo.aggregation-request/v2",
+      sources: { corpusRoot: "corpus", corpusIndex: "index.jsonl", observationSets: [], assertions: [], assertionSets: imported.assertionSets, calibrations: [] },
+      groupBy: ["harness"], evidenceOrigins: "imported", selectedAttemptPolicy: "all-attempts", recurrence: { minimumOccurrences: 2 }, comparisons: [] };
+    writeFileSync(join(root, "aggregation.json"), JSON.stringify(aggregation));
+    writeFileSync(join(root, "atlas.json"), JSON.stringify({ schemaVersion: "ebo.atlas-request/v1", title: "Ids", aggregationRequest: "aggregation.json" }));
+    writeFileSync(join(root, "bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "ids", title: "Ids", cohorts: [{ id: "all", atlasRequest: "atlas.json" }] }));
+    await buildAtlasBundle(join(root, "bundle.json"), join(root, "atlas-bundle"), { embed: async (texts: readonly string[], config: { dimensions: number }) => new Float32Array(texts.length * config.dimensions).fill(1) });
+    const docs = JSON.parse(readFileSync(join(root, "atlas-bundle", "assessments.json"), "utf8")) as { assessments: unknown[] };
+    assert.equal(docs.assessments.length, 2);
+
+    // Two different results under one id are refused before any attempt's evidence is built.
+    const clash = JSON.parse(readFileSync(join(root, imported.assertionSets[1]!.path), "utf8").trim()) as DecisionModelAssertion;
+    writeFileSync(join(root, imported.assertionSets[1]!.path), `${JSON.stringify({ ...clash, id: ids[0] })}\n`);
+    const before = retainedEvidenceBuildCount();
+    await assert.rejects(buildAtlasBundle(join(root, "bundle.json"), join(root, "atlas-bundle-2"), { embed: async (texts: readonly string[], config: { dimensions: number }) => new Float32Array(texts.length * config.dimensions).fill(1) }), /names two different assertions/u);
+    assert.equal(retainedEvidenceBuildCount() - before, 0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

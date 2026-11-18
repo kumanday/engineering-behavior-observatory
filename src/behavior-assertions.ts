@@ -203,9 +203,7 @@ export async function validateBehaviorAssertion(
   } else if (assertion.evidence.events.included > assertion.evidence.events.total) {
     throw new Error("LLM-judge evidence description is inconsistent.");
   }
-  await validateNormalizedDataset(dataset, resolver);
-
-  const datasetDigest = digest(dataset);
+  const datasetDigest = await validatedDatasetDigest(dataset, resolver);
   if (assertion.dataset.schemaVersion !== dataset.schemaVersion || assertion.dataset.digest !== datasetDigest) {
     throw new Error("Behavior assertion normalized dataset version or digest does not match.");
   }
@@ -326,6 +324,24 @@ export async function projectAgentSdkBehaviorEvidence(bundleRoot: string): Promi
   const resolver = createAgentSdkNativeEvidenceResolver(capture);
   const coverage = await validateNormalizedDataset(dataset, resolver);
   return { capture, dataset, resolver, coverage };
+}
+
+/**
+ * A dataset is validated against its resolver and digested once; every card result checked against the same retained
+ * evidence reuses that result. The cache follows the objects, so it ends with the evidence.
+ */
+const validatedDatasets = new WeakMap<NormalizedDataset, WeakMap<NativeEvidenceResolver, Promise<DigestString>>>();
+function validatedDatasetDigest(dataset: NormalizedDataset, resolver: NativeEvidenceResolver): Promise<DigestString> {
+  const byResolver = validatedDatasets.get(dataset) ?? new WeakMap<NativeEvidenceResolver, Promise<DigestString>>();
+  validatedDatasets.set(dataset, byResolver);
+  let result = byResolver.get(resolver);
+  if (result === undefined) {
+    result = validateNormalizedDataset(dataset, resolver).then(() => digest(dataset));
+    byResolver.set(resolver, result);
+    // A failed validation is not remembered: the next check runs it again and reports the same failure.
+    result.catch(() => byResolver.delete(resolver));
+  }
+  return result;
 }
 
 export async function validateRetainedBehaviorAssertion(bundleRoot: string, assertion: BehaviorAssertion, review?: BehaviorReview): Promise<readonly ResolvedBehaviorCitation[]> {

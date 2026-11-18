@@ -15,6 +15,7 @@ import {
 import { assessComparisonEligibility, type ComparisonCapability, type ComparisonReport, type ComparisonRequest } from "./normalization-integrity.js";
 import { readBoundedFile } from "./scheduler.js";
 import { createRetainedStructuralObservationSet, type StructuralObservationSet } from "./structural-observations.js";
+import { withRetainedEvidenceReuse } from "./retained-evidence.js";
 
 export type AggregationDimension = "task" | "model" | "harness" | "trial" | "capture-qualification" | "evidence-origin";
 export type EvidenceOriginSelection = "owned" | "imported" | "separate";
@@ -213,19 +214,36 @@ async function aggregateValidatedEvaluation(
   const includedSource = ({ document }: { document: { runId: string; attemptId: string } }) => !excludedOriginIds.has(attemptKey(document));
   const observationSources = uniqueBy(input.observationSets.filter(includedSource), ({ document }) => `${document.runId}\0${document.attemptId}`, "observation set");
   const observations = new Map<string, StructuralObservationSet>();
-  for (const { bundleRoot, document } of observationSources.values()) {
-    assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
-    const rebuilt = await createRetainedStructuralObservationSet(bundleRoot);
-    if (canonicalizeMetadata(rebuilt) !== canonicalizeMetadata(document)) throw new Error(`Structural observation set for attempt "${document.attemptId}" is stale.`);
-    observations.set(`${document.runId}\0${document.attemptId}`, rebuilt);
-  }
   const assertionSources = uniqueBy(input.assertions.filter(includedSource), ({ document }) => assertionKey(document), "behavior assertion");
   const assertions = new Map<string, BehaviorAssertion>();
-  for (const { bundleRoot, document } of assertionSources.values()) {
-    assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
-    await validateRetainedBehaviorAssertion(bundleRoot, document);
-    assertions.set(assertionKey(document), document);
-  }
+  // Each bundle's observation set and card results are checked together, so its retained evidence is built once.
+  const byBundle = new Map<string, { observationSets: StructuralObservationSet[]; assertions: BehaviorAssertion[] }>();
+  const rebuiltSets = new Map<string, StructuralObservationSet>();
+  const bundleOf = (bundleRoot: string) => {
+    const key = resolve(bundleRoot);
+    const entry = byBundle.get(key) ?? { observationSets: [], assertions: [] };
+    byBundle.set(key, entry);
+    return entry;
+  };
+  for (const { bundleRoot, document } of observationSources.values()) bundleOf(bundleRoot).observationSets.push(document);
+  for (const { bundleRoot, document } of assertionSources.values()) bundleOf(bundleRoot).assertions.push(document);
+  await withRetainedEvidenceReuse(async () => {
+    for (const [bundleRoot, sources] of byBundle) {
+      for (const document of sources.observationSets) {
+        assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
+        const rebuilt = await createRetainedStructuralObservationSet(bundleRoot);
+        if (canonicalizeMetadata(rebuilt) !== canonicalizeMetadata(document)) throw new Error(`Structural observation set for attempt "${document.attemptId}" is stale.`);
+        rebuiltSets.set(`${document.runId}\0${document.attemptId}`, rebuilt);
+      }
+      for (const document of sources.assertions) {
+        assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
+        await validateRetainedBehaviorAssertion(bundleRoot, document);
+      }
+    }
+  });
+  // Reports keep the order of the request's sources.
+  for (const { document } of observationSources.values()) observations.set(`${document.runId}\0${document.attemptId}`, rebuiltSets.get(`${document.runId}\0${document.attemptId}`)!);
+  for (const { document } of assertionSources.values()) assertions.set(assertionKey(document), document);
   for (const { selection } of input.calibrations) await revalidateReviewSample(selection);
   const reviewOutcomes = reviewOutcomeIndex(input.calibrations);
   const selectedIds = new Set(selected.map(attemptKey));

@@ -40,7 +40,8 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
     const evidenceReuse = { hits: 0, misses: 0 };
     const manifest = await buildAtlasBundle(requestPath, out, { now: () => new Date("2026-10-07T00:00:00.000Z"), embed, evidenceReuse });
     // The build runs inside a reuse scope. This fixture has one assertion per attempt, so every lookup changes attempt.
-    assert.ok(evidenceReuse.misses > 0 && evidenceReuse.hits === 0, JSON.stringify(evidenceReuse));
+    // Each attempt is built once while a cohort is validated and reused for its cases; the bundle pass builds it again.
+    assert.ok(evidenceReuse.misses > 0 && evidenceReuse.hits > 0, JSON.stringify(evidenceReuse));
 
     assert.deepEqual(Object.keys(manifest.tables).sort(), Object.keys(ATLAS_TABLES).sort());
     const runs = source.input.corpusEntries.filter(({ manifestKind }) => manifestKind === "run");
