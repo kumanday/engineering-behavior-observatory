@@ -627,7 +627,7 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
   if (args[0] === "import-batch") {
     const [_, batchPath, ...flags] = args;
     const values = new Map<string, string>();
-    const usage = "Usage: ebo atif import-batch <batch.jsonl> [--shard <k>/<n>] [--python <executable>]\n";
+    const usage = "Usage: ebo atif import-batch <batch.jsonl> [--shard <k>/<n>] [--python <executable>]\n  --shard k/n takes every n-th line from line k; shards are numbered 1 to n.\n";
     if (!batchPath || batchPath.startsWith("--") || flags.length % 2) { write(usage); return 1; }
     for (let index = 0; index < flags.length; index += 2) {
       const flag = flags[index]!, value = flags[index + 1]!;
@@ -635,7 +635,7 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
       values.set(flag, value);
     }
     const shard = /^(\d+)\/(\d+)$/u.exec(values.get("--shard") ?? "1/1");
-    if (!shard || Number(shard[2]) < 1 || Number(shard[1]) < 1 || Number(shard[1]) > Number(shard[2])) { write("--shard takes k/n with 1 <= k <= n.\n"); return 1; }
+    if (!shard || Number(shard[2]) < 1 || Number(shard[1]) < 1 || Number(shard[1]) > Number(shard[2])) { write("--shard takes k/n with 1 <= k <= n (shards are numbered from 1).\n"); return 1; }
     const summary = await importAtifBatch(batchPath, { shard: [Number(shard[1]), Number(shard[2])], pythonExecutable: values.get("--python"),
       onResult: (result) => write(`${JSON.stringify(result)}\n`) });
     write(`${JSON.stringify(summary)}\n`);

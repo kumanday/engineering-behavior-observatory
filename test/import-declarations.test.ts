@@ -209,3 +209,17 @@ test("imports declare a harness version and a third-party outcome; arms separate
     } finally { c.closeSync(); db.closeSync(); }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("a batch creates its destinations' parent directories", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-import-batch-parents-"));
+  try {
+    writeFileSync(join(root, "source.json"), readFileSync(new URL("../../test/fixtures/atif/core/acme.json", import.meta.url)));
+    writeFileSync(join(root, "batch.jsonl"), `${JSON.stringify({ source: "source.json", destination: "corpus-a/nested/trial-0", run: "r", attempt: "a" })}\n`);
+    let output = "";
+    assert.equal(await main(["atif", "import-batch", join(root, "batch.jsonl")], (text) => { output += text; }), 0, output);
+    assert.ok(readFileSync(join(root, "corpus-a", "nested", "trial-0", "manifest.json")).length > 0);
+    let usage = "";
+    assert.equal(await main(["atif", "import-batch", join(root, "batch.jsonl"), "--shard", "0/2"], (text) => { usage += text; }), 1);
+    assert.match(usage, /numbered from 1/u);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

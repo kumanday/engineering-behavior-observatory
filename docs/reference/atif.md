@@ -48,8 +48,10 @@ process. Each line is a JSON object with `source`, `destination`, `run` and
 batch file. Each line's result is printed as it finishes. A failed line is
 reported and the batch continues, and the command exits 1 when any line failed.
 A destination that already holds the same admission is reused, so a batch can
-be rerun after an interruption. `--shard k/n` takes every n-th line from line
-k, so n processes can split one batch.
+be rerun after an interruption. Each destination's parent directories are
+created as needed. `--shard k/n` takes every n-th line from line k, numbering
+shards from 1, so `--shard 1/4` to `--shard 4/4` split one batch across four
+processes.
 
 Inspection reports EBO structural validation, version policy, pointer digests,
 reference availability and unmapped fields. `--python /path/to/python` adds an

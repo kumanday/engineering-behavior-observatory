@@ -126,7 +126,7 @@ function batchLine(value: unknown): AtifBatchLine {
  * Imports every line of a JSON Lines batch in this one process, each exactly as `ebo atif import` would, and reports
  * each line as it finishes. A failed line is reported and the batch continues; destinations already holding the same
  * admission are reused, so a batch can be rerun after an interruption. `shard` [k, n] takes every n-th line starting
- * at line k, so n processes can split one batch.
+ * at line k (1-based: shards 1/n to n/n), so n processes can split one batch.
  */
 export async function importAtifBatch(batchPath: string, options: { shard?: readonly [number, number]; pythonExecutable?: string; onResult?: (result: AtifBatchResult) => void } = {}) {
   const base = dirname(resolve(batchPath)), [k, n] = options.shard ?? [1, 1];
@@ -140,6 +140,8 @@ export async function importAtifBatch(batchPath: string, options: { shard?: read
     try {
       const line = batchLine(JSON.parse(text));
       destination = resolve(base, line.destination);
+      // A batch names destinations under directories it may not have made yet; the destination itself must be new.
+      mkdirSync(dirname(destination), { recursive: true });
       const profile = line.profile === undefined ? undefined : profiles.find(({ id }) => id === line.profile);
       if (line.profile !== undefined && profile === undefined) throw new Error(`unknown profile ${line.profile}`);
       const { reused } = await importAtifFile({ sourcePath: resolve(base, line.source), destination, runId: line.run, attemptId: line.attempt,
