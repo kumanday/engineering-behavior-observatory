@@ -36,11 +36,12 @@ def backend():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--embeddings", required=True)
-    parser.add_argument("--dimensions", type=int, required=True)
-    parser.add_argument("--families", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--stats", required=True)
+    parser.add_argument("--embeddings")
+    parser.add_argument("--dimensions", type=int)
+    parser.add_argument("--families")
+    parser.add_argument("--output")
+    parser.add_argument("--stats")
+    parser.add_argument("--check", action="store_true", help="import the layout backend and exit")
     parser.add_argument("--pca", type=int, default=128)
     parser.add_argument("--neighbors", type=int, default=15)
     parser.add_argument("--min-dist", type=float, default=0.1)
@@ -50,6 +51,12 @@ def main():
     import numpy as np
 
     name, version = backend()
+    if args.check:
+        import sklearn  # noqa: F401 - the CPU path's PCA
+        print(json.dumps({"ok": True, "backend": name, "backendVersion": version}))
+        return
+    if not all([args.embeddings, args.dimensions, args.families, args.output, args.stats]):
+        parser.error("--embeddings, --dimensions, --families, --output and --stats are required unless --check is given")
     if name == "umap-learn":
         log(warning="No CUDA device with cuML is available; laying out with umap-learn on the CPU, which is much slower.")
     vectors = np.memmap(args.embeddings, dtype="<f4", mode="r").reshape(-1, args.dimensions)

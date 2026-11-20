@@ -38,10 +38,13 @@ def main():
     parser.add_argument("--prompt-name", default="Clustering")
     parser.add_argument("--batch-size", type=int, default=0, help="0 picks one for the device")
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "mps", "cpu"])
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--stats", required=True)
+    parser.add_argument("--input")
+    parser.add_argument("--output")
+    parser.add_argument("--stats")
+    parser.add_argument("--check", action="store_true", help="load the model, embed one text and exit")
     args = parser.parse_args()
+    if not args.check and not (args.input and args.output and args.stats):
+        parser.error("--input, --output and --stats are required unless --check is given")
 
     import numpy as np
     import sentence_transformers
@@ -62,6 +65,13 @@ def main():
         raise SystemExit(f"{args.model} produces {native} dimensions; {args.dimensions} were requested.")
     truncate = None if args.dimensions == native else args.dimensions
     log(device=device, dtype=str(dtype).replace("torch.", ""), batchSize=batch, dimensions=args.dimensions)
+    if args.check:
+        # The bundle build runs this before reading any attempt, so a broken runtime fails in seconds, not hours.
+        vector = model.encode(["runtime check"], prompt_name=args.prompt_name, truncate_dim=truncate, normalize_embeddings=True, convert_to_numpy=True)
+        if vector.shape != (1, args.dimensions) or not np.isfinite(vector).all():
+            raise SystemExit(f"The runtime check returned shape {vector.shape} or non-finite values.")
+        print(json.dumps({"ok": True, "device": device, "dtype": str(dtype).replace("torch.", ""), "dimensions": args.dimensions}))
+        return
 
     started, count = time.monotonic(), 0
     with open(args.input, encoding="utf-8") as source, open(args.output, "wb") as sink:

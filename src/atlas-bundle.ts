@@ -14,7 +14,7 @@ export { ownPointer } from "./retained-content.js";
 import { loadAtlas, queryAtlas, type AtlasSource, type AtlasView } from "./atlas.js";
 import { Bool, Field, Float32, Float64, Int32, List, makeVector, RecordBatchStreamWriter, Struct, Table, Utf8, vectorFromArray } from "apache-arrow";
 import { buildViews, validateClaims, type ClaimsSource } from "./atlas-claims.js";
-import { BUILD_LAYOUT_UNITS, embeddingConfig as selectEmbeddings, embedTexts, layoutCloud, type EmbeddingOptions, type EmbeddingProvider, type EmbeddingRequest, type EmbeddingRun, type LayoutRun } from "./atlas-embeddings.js";
+import { BUILD_LAYOUT_UNITS, checkEmbeddingRuntime, embeddingConfig as selectEmbeddings, embedTexts, layoutCloud, type EmbeddingOptions, type EmbeddingProvider, type EmbeddingRequest, type EmbeddingRun, type LayoutRun } from "./atlas-embeddings.js";
 import { assessmentDoc, attemptEvidence, NativeLines, nativeRecordDigest } from "./atlas-evidence.js";
 import { laneData, type LaneMeta } from "./atlas-lanes.js";
 import { ATLAS_UNITS_VERSION, deriveUnits, type AtlasUnit } from "./atlas-units.js";
@@ -335,6 +335,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   if (embeddingConfig.provider === "embeddinggemma" && !embeddingConfig.python && !options.embed && !options.embedding?.command) {
     throw new Error("EmbeddingGemma 2 needs its Python runtime: set embeddings.python in the bundle request or EBO_EMBEDDINGS_PYTHON (install it from scripts/embeddings/requirements.txt), or choose the offline provider \"hashed-tfidf\" explicitly.");
   }
+  if (!options.embed && !options.embedding?.command) await checkEmbeddingRuntime(embeddingConfig, { layout: embeddingConfig.layout !== "browser" && !options.layout, progress: options.embedding?.progress });
   const sourceLabels = leaderboardLabels(base, request.leaderboard);
   const condition = request.condition ? new RegExp(request.condition.pattern, "u") : undefined; // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
   const tables: Record<string, Row[]> = Object.fromEntries(Object.keys(ATLAS_TABLES).filter((name) => !STREAMED.has(name)).map((name) => [name, []]));

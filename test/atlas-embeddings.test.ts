@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, truncateSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { EMBEDDINGGEMMA_MODEL, EMBEDDINGGEMMA_REVISION, embeddingConfig, embedTexts, LOCAL_EMBEDDING_MODEL } from "../src/atlas-embeddings.js";
+import { checkEmbeddingRuntime, EMBEDDINGGEMMA_MODEL, EMBEDDINGGEMMA_REVISION, embeddingConfig, embedTexts, LOCAL_EMBEDDING_MODEL } from "../src/atlas-embeddings.js";
 
 // A stand-in for scripts/embeddings/embed.py with the same command-line contract: it reads JSON lines and writes one
 // float32 row per line (the text's length and code-point sum, then zeros), records each text it saw and writes stats.
@@ -89,4 +89,24 @@ test("embedding runs embed each distinct redacted text once, reuse the cache and
     delete process.env.STAND_IN_SEEN;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("the runtime check loads the model before a build starts and reports a broken runtime", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-embeddings-check-"));
+  try {
+    const fake = (name: string, body: string) => { const path = join(root, name); writeFileSync(path, `#!/bin/sh\n${body}\n`); chmodSync(path, 0o755); return path; };
+    const seen = join(root, "args.txt");
+    const ok = fake("ok-python", `echo "$@" >> ${JSON.stringify(seen)}; echo '{"ok":true}'`);
+    await checkEmbeddingRuntime(embeddingConfig({ python: ok }, root, {}), { layout: true });
+    const calls = readFileSync(seen, "utf8").trim().split("\n");
+    assert.equal(calls.length, 2);
+    assert.match(calls[0]!, /embed\.py .*--model google\/embeddinggemma-2 .*--check/u);
+    assert.match(calls[1]!, /layout\.py --check/u);
+    const broken = fake("broken-python", `echo 'ValueError: Could not load any image processor class. Missing optional dependencies: torchvision, Pillow' >&2; exit 1`);
+    await assert.rejects(checkEmbeddingRuntime(embeddingConfig({ python: broken }, root, {}), { layout: false }), /failed its check before the build started[\s\S]*torchvision, Pillow/u);
+    // No runtime, nothing to check (the build reports the missing runtime itself); the offline provider needs no model.
+    await checkEmbeddingRuntime(embeddingConfig(undefined, root, {}), { layout: true });
+    await checkEmbeddingRuntime(embeddingConfig({ provider: "hashed-tfidf", python: ok }, root, {}), { layout: false });
+    assert.equal(readFileSync(seen, "utf8").trim().split("\n").length, 2);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

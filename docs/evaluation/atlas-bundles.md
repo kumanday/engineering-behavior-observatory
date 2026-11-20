@@ -54,6 +54,9 @@ are embedded:
   that `scripts/embeddings/requirements.txt` pins. `python` names that
   runtime's executable, relative to the request; without it the build uses
   `EBO_EMBEDDINGS_PYTHON` and otherwise stops before reading any attempt.
+  Before reading any attempt, the build checks the runtime: it loads the model
+  and embeds one text, and imports the layout backend when the layout may run
+  at build time. A missing package fails the build in seconds.
   The runtime uses CUDA (bfloat16 where supported), else MPS, else CPU
   (float32), and says when it falls back to CPU; `device` and `batchSize`
   override its choices. Each unit's `embed_text` (behavior summaries and

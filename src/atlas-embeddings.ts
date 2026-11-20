@@ -162,6 +162,25 @@ export async function layoutCloud(embeddingsPath: string, dimensions: number, fa
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
 
+/**
+ * Checks the runtime before a build does anything expensive: the embedding script loads the model and embeds one
+ * text, and the layout script imports its backend. A missing package or model fails here in seconds.
+ */
+export async function checkEmbeddingRuntime(config: EmbeddingConfig, options: { layout: boolean; progress?: (line: string) => void }): Promise<void> {
+  if (!config.python) return;
+  if (config.provider === "embeddinggemma") {
+    await runRuntime([config.python, "-I", EMBEDDING_SCRIPT], ["--model", config.model, "--revision", config.revision!, "--dimensions", String(config.dimensions),
+      "--prompt-name", EMBEDDINGGEMMA_PROMPT_NAME, "--device", config.device ?? "auto", "--check"], options).catch((error: Error) => {
+      throw new Error(`The embedding runtime failed its check before the build started (install scripts/embeddings/requirements.txt): ${error.message}`);
+    });
+  }
+  if (options.layout) {
+    await runRuntime([config.python, "-I", LAYOUT_SCRIPT], ["--check"], options).catch((error: Error) => {
+      throw new Error(`The layout runtime failed its check before the build started: ${error.message}`);
+    });
+  }
+}
+
 /** Runs one runtime command to completion, relaying its stderr lines and failing with their tail. */
 async function runRuntime(command: readonly string[], args: readonly string[], options: { progress?: (line: string) => void }): Promise<void> {
   const tail: string[] = [];
