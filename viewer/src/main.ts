@@ -99,7 +99,8 @@ async function main() {
     labels = raw?.length ? raw.map((l) => ({ x: l.x, y: l.y, content: (("content" in l ? l.content : undefined) ?? l.text ?? "").replace(/`/g, ""), level: l.level ?? 0, priority: l.priority ?? 0 })) : null;
   }
   const n = rowsOf(await coordinator.query(`SELECT count(*) AS n FROM units`))[0].n;
-  status(`${Number(n).toLocaleString()} units${labels ? " · facet labels" : " · auto labels"}`);
+  const readyStatus = `${Number(n).toLocaleString()} units${labels ? " · facet labels" : " · auto labels"}`;
+  status(readyStatus);
 
   // bottom panel: tabs over the shared table
   const host = document.getElementById("panel")!;
@@ -121,6 +122,7 @@ async function main() {
     status(`Loading ${assessDoc.index.rows.toLocaleString()} card results…`);
     const r = await fetch(file(assessDoc.index.file));
     assessDoc.assessments = r.ok ? expandAssessmentIndex(assessDoc, new Uint8Array(await r.arrayBuffer())) : [];
+    status(`${readyStatus} · ${assessDoc.assessments.length.toLocaleString()} card results`);
   }
   if (lanesData?.split) lanesData.usage ??= {};
   if (assessDoc && viewsDoc?.views.length) {

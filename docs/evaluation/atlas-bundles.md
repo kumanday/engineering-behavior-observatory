@@ -110,6 +110,12 @@ The viewer loads the index up front and fetches an attempt's files when its
 task's lanes or one of its drawer views open. The tables are the same either
 way.
 
+Validation, the attempt pass and the corpus-index check run in worker
+processes when a cohort has many attempts. `EBO_WORKERS` sets how many; the
+default is one fewer than the machine's cores, at most 16. Results are written
+in attempt order, so a bundle is the same for any worker count. A corpus root
+and index that several cohorts share is checked once per build.
+
 The build keeps only the identities of observation sets and card results
 between the cohort pass and the attempt pass, and re-reads each attempt's
 documents in the attempt pass. Tables, cloud rows and viewer documents are

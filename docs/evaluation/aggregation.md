@@ -44,6 +44,12 @@ lists JSON Lines files with one card result per line, bound to one bundle each;
 [decision-model judging](decision-model-judge.md) writes its results this way
 and lists the files in its run summary.
 
+Each attempt's observation set and card results are checked against its
+retained evidence in worker processes when there are many attempts
+(`EBO_WORKERS`, by default one fewer than the machine's cores, at most 16). A
+failure reports the first failing attempt in source order, as a serial check
+would.
+
 Grouping dimensions are `task`, `model`, `harness`, `harness-version`, `trial`,
 `capture-qualification`, `evidence-origin` and `source-outcome`. `source-outcome`
 is a third party's verdict on an imported trial, as its import declared it;

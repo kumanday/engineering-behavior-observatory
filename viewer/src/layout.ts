@@ -74,15 +74,18 @@ export async function prepareCloud(unitsBytes: Uint8Array, getEmbeddings: () => 
   const n = table.numRows;
   if (!placed && data.length !== n * d) throw new Error(`embeddings.f32 holds ${data.length / d} vectors for ${n} units.`);
   const col = (name: string) => table.getChild(name);
-  const rows: Row[] = Array.from({ length: n }, (_, i) => ({
-    row_id: Number(col("row_id")!.get(i)), family: String(col("family")!.get(i)), unit_kind: String(col("unit_kind")!.get(i)), embed_text: String(col("embed_text")!.get(i) ?? ""),
+  // A row's facets are read from the columns when needed, not kept as one object per unit: a large cloud has millions.
+  const familyOf = col("family")!.toArray() as string[];
+  const rows = { at: (i: number): Row => ({
+    row_id: i, family: String(familyOf[i]), unit_kind: String(col("unit_kind")!.get(i)), embed_text: String(col("embed_text")!.get(i) ?? ""),
     tool_kind: col("tool_kind")!.get(i) ?? null, command_head: col("command_head")!.get(i) ?? null, check_kind: col("check_kind")!.get(i) ?? null,
     target: col("target")!.get(i) ?? null, status: col("status")!.get(i) ?? null, occurrences: [...(col("occurrences")!.get(i)?.toArray?.() ?? [])].map(String),
-  }));
+  }) };
   const x = placed ? Float32Array.from(col("x")!.toArray() as Float32Array) : new Float32Array(n), y = placed ? Float32Array.from(col("y")!.toArray() as Float32Array) : new Float32Array(n);
   const cluster = new Int32Array(n).fill(-1);
   const clusterLabel: (string | null)[] = new Array(n).fill(null);
-  const neighborIds: number[][] = Array.from({ length: n }, () => []), neighborDistances: number[][] = Array.from({ length: n }, () => []);
+  // A build-time layout brings its neighbors; only a layout made here collects them.
+  const neighborIds: number[][] = placed ? [] : Array.from({ length: n }, () => []), neighborDistances: number[][] = placed ? [] : Array.from({ length: n }, () => []);
   const labels: CloudLabel[] = [];
   let offset = 0;
   /** Density clusters over one family's layout, labelled by the facets most over-represented in each. */
@@ -91,7 +94,7 @@ export async function prepareCloud(unitsBytes: Uint8Array, getEmbeddings: () => 
       const clusters = await findClusters(densityMap(fx, fy, box), GRID, GRID, { unionThreshold: 10 });
       const significant = clusters.filter((c) => c.pixelCount >= 4).sort((a, b) => b.sumDensity - a.sumDensity);
       const background = new Map<string, number>();
-      for (const row of members) for (const f of new Set(facets(rows[row]!))) background.set(f, (background.get(f) ?? 0) + 1);
+      for (const row of members) for (const f of new Set(facets(rows.at(row)))) background.set(f, (background.get(f) ?? 0) + 1);
       significant.forEach((c, ci) => {
         const id = 1000 * (fi + 1) + ci;
         const inside = members.filter((row, i) => {
@@ -100,7 +103,7 @@ export async function prepareCloud(unitsBytes: Uint8Array, getEmbeddings: () => 
         });
         if (inside.length < 5) return;
         const counts = new Map<string, number>();
-        for (const row of inside) for (const f of new Set(facets(rows[row]!))) counts.set(f, (counts.get(f) ?? 0) + 1);
+        for (const row of inside) for (const f of new Set(facets(rows.at(row)))) counts.set(f, (counts.get(f) ?? 0) + 1);
         const top = [...counts].filter(([, k2]) => k2 / inside.length >= 0.25)
           .map(([f, k2]) => [f, (k2 / inside.length) * Math.log((k2 / inside.length) / ((background.get(f) ?? 1) / members.length) + 1e-9)] as const)
           .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([f]) => f);
@@ -112,7 +115,8 @@ export async function prepareCloud(unitsBytes: Uint8Array, getEmbeddings: () => 
       labels.push({ x: box.x0 + box.w / 2, y: box.h + 0.5, text: family.toUpperCase(), level: 0, priority: 1e9 });
   };
   for (const [fi, family] of FAMILIES.entries()) {
-    const members = rows.filter((r) => r.family === family).map((r) => r.row_id);
+    const members: number[] = [];
+    for (let i = 0; i < n; i++) if (familyOf[i] === family) members.push(i);
     if (!members.length) continue;
     status(`${placed ? "Clustering" : "Laying out"} ${members.length.toLocaleString()} ${family}…`);
     if (placed) {
