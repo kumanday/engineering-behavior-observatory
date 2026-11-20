@@ -11,7 +11,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { DuckDBInstance } from "@duckdb/node-api";
 
 import { digestMetadata, validateArtifact } from "./artifacts.js";
-import { readAggregationAssertions, type AggregationRequest } from "./aggregation.js";
+import { behaviorMembers, readAggregationAssertions, type AggregationRequest } from "./aggregation.js";
 export { ownPointer } from "./retained-content.js";
 import { loadAtlas, queryAtlas, type AtlasSource, type AtlasView } from "./atlas.js";
 import { Bool, Dictionary, Field, Float32, Float64, Int32, List, makeData, makeVector, RecordBatchStreamWriter, Struct, Table, Utf8, vectorFromArray } from "apache-arrow";
@@ -415,7 +415,8 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
       entry.cohorts.add(cohort.id);
       assertions.set(original.id, entry);
     }
-    for (const group of view.report.groups) for (const behavior of group.behaviors ?? []) for (const a of behavior.assertions) {
+    const members = behaviorMembers(view.report, source.input.assertions.map(({ document }) => document));
+    for (const group of members) for (const behavior of group) for (const a of behavior) {
       stream("assessment_cohorts", { assertion_id: a.id, cohort_id: cohort.id, included: a.included, disputed: a.disputed, review_outcome: a.reviewOutcome });
       assertions.get(a.id)?.flags.set(cohort.id, { included: a.included === true, disputed: a.disputed === true, review: String(a.reviewOutcome ?? "") });
     }
@@ -424,12 +425,12 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     writeJsonFile(join(outputRoot, "reports", `${cohort.id}.json`), report, 2);
     // Keep the certified cells, not the report: the report is in its file, and claims read it from there.
     reports.set(cohort.id, { title: view.title, generatedAt: view.generatedAt, groupBy: (view.report.policy as { groupBy?: unknown }).groupBy ?? null,
-      cells: view.report.groups.flatMap((group) => (group.behaviors ?? []).map((b) => ({ group: group.dimensions, card: b.behavior.cardId, family: b.family, mode: b.producer.mode, producer: producerLabel(b.producer),
+      cells: view.report.groups.flatMap((group, g) => (group.behaviors ?? []).map((b, i) => ({ group: group.dimensions, card: b.behavior.cardId, family: b.family, mode: b.producer.mode, producer: producerLabel(b.producer),
         counts: Object.fromEntries(b.verdicts.map((a) => [a.verdict, a.measurement.numerator.value])),
         denominator: Math.max(...b.verdicts.map((a) => a.measurement.denominator.value)),
         // Dimension cards: each value's count among the attempts judged present.
         ...(b.values === undefined ? {} : { values: Object.fromEntries(b.values.map((a) => [a.value, a.measurement.numerator.value])) }),
-        assertions: b.assertions.filter((a) => a.included).map((a) => a.id) }))) });
+        assertions: members[g]![i]!.filter((a) => a.included).map((a) => a.id) }))) });
     cohorts.push({ id: cohort.id, title: view.title, sourceDigest: view.sourceDigest, cohortDigest: view.cohortDigest,
       attempts: source.input.corpusEntries.filter(({ manifestKind }) => manifestKind === "run" || manifestKind === "import").length, assertions: source.input.assertions.length, report: `reports/${cohort.id}.json` });
     tables.cohorts!.push({ cohort_id: cohort.id, title: view.title, atlas_request: relative(base, atlasPath), report_mode: view.mode,

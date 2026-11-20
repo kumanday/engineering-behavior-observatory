@@ -95,6 +95,15 @@ A dimension card also has `values`: each named value's count among the
 attempts judged present (`present-attempt-card`), with the absent and unknown
 attempts listed as exclusions.
 
+Each group lists its selected attempts in `attempts`, as indices into
+`sourceLineage.manifests`. A card entry records its card results as `members`,
+their count and one digest over their sorted digests, and lists in
+`exceptions` only the results whose flags differ from the default: excluded
+by conflicting reruns, disputed, or carrying a review outcome other than
+`unreviewed` (`judge-abstained` for an unknown verdict). `behaviorMembers`
+rebuilds every result with its flags from the report and the card results,
+and rejects results that do not reproduce the count and digest.
+
 Each group's `directions` array is the second view of the same results. Its
 producers are the ones of the per-card entries: the full `producer`,
 configuration digest included, and for an LLM judge the `rubric`. It has one

@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadAtlas, queryAtlas } from "../src/atlas.js";
 import { writeCorpusIndex } from "../src/corpus.js";
-import { aggregateEvaluation, buildCorpusIndex, createRetainedBehaviorEvidence, createRetainedStructuralObservationSet,
+import { aggregateEvaluation, behaviorMembers, buildCorpusIndex, createRetainedBehaviorEvidence, createRetainedStructuralObservationSet,
   digestBytes, digestMetadata, main, probeClaudeAgentSdkCapabilities, runRetainedSemanticJudge, selectReviewSample, writeReviewPacket, validateArtifact, CODEX_APP_SERVER_VERSION,
   type LlmJudgeAssertion, type ReviewHistory, type SemanticJudgeRequest } from "../src/index.js";
 
@@ -84,15 +84,20 @@ export async function checkRetainedEvaluation(bundleRoot: string, outputRoot: st
     assert.equal(behavior.family, "VF");
     assert.equal(behavior.values, undefined, "a workflow card reports no value distribution");
     assert.equal(behavior.verdicts.find((value) => value.verdict === assessment)!.measurement.rate, 1);
-    assert.equal(behavior.assertions[0]!.included, true);
+    assert.equal(behavior.members.count, 1);
+    // The reviewed result differs from the default (unreviewed) review outcome, so it is listed with its flags.
+    assert.deepEqual(behavior.exceptions.map(({ id, included, disputed }) => ({ id, included, disputed })), [{ id: assertion.id, included: true, disputed: false }]);
+    const [member] = behaviorMembers(report, [assertion, assertion])[0]![0]!;
+    assert.deepEqual([member!.id, member!.included, member!.reviewOutcome], [assertion.id, true, behavior.exceptions[0]!.reviewOutcome]);
+    assert.throws(() => behaviorMembers(report, []), /do not match the report \(0 of 1\)/u);
     const unreviewed = await aggregateEvaluation({ ...input, calibrations: [] }, policy);
     assert.equal(unreviewed.groups[0]!.behaviors![0]!.verdicts[0]!.measurement.status, "available");
     assert.equal(unreviewed.groups[0]!.behaviors![0]!.population, "judged-attempt-card");
     const disputedHistory = structuredClone(history);
     disputedHistory.decisions[0]!.state = "disputed";
     const disputed = await aggregateEvaluation({ ...input, calibrations: [{ selection, history: disputedHistory }] }, policy);
-    assert.equal(disputed.groups[0]!.behaviors![0]!.assertions[0]!.included, true);
-    assert.equal(disputed.groups[0]!.behaviors![0]!.assertions[0]!.disputed, true);
+    assert.equal(disputed.groups[0]!.behaviors![0]!.exceptions[0]!.included, true);
+    assert.equal(disputed.groups[0]!.behaviors![0]!.exceptions[0]!.disputed, true);
     assert.equal(disputed.groups[0]!.behaviors![0]!.verdicts[0]!.measurement.denominator.value, 1);
     reports.push(report);
   }

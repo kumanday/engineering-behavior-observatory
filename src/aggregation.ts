@@ -95,11 +95,19 @@ export type BehaviorAggregate = {
   verdicts: ReadonlyArray<{ verdict: BehaviorVerdict; measurement: AggregateMeasurement }>;
   /** Dimension cards only: each named value's share of the attempts judged present. */
   values?: ReadonlyArray<{ value: string; measurement: AggregateMeasurement }>;
-  assertions: ReadonlyArray<{
-    runId: string; attemptId: string; id: string; digest: `sha256:${string}`;
-    reviewOutcome: ReturnType<typeof effectiveReviewOutcome>; disputed: boolean;
-    included: boolean;
-  }>;
+  /** The card results of the group's attempts in this partition: how many, and the digest of their sorted digests. */
+  members: { count: number; digest: `sha256:${string}` };
+  /**
+   * Members whose flags differ from the default (included, not disputed, review outcome `unreviewed`, or
+   * `judge-abstained` for an unknown verdict). `behaviorMembers` lists every member with its flags.
+   */
+  exceptions: readonly BehaviorMember[];
+};
+
+export type BehaviorMember = {
+  runId: string; attemptId: string; id: string; digest: `sha256:${string}`;
+  reviewOutcome: ReturnType<typeof effectiveReviewOutcome>; disputed: boolean;
+  included: boolean;
 };
 
 /**
@@ -144,6 +152,8 @@ export type AggregationReport = {
   };
   groups: ReadonlyArray<{
     dimensions: Partial<Record<AggregationDimension, string>>;
+    /** The group's selected attempts, as indices into `sourceLineage.manifests`. */
+    attempts: readonly number[];
     metrics: readonly AggregateMetric[];
     behaviors?: readonly BehaviorAggregate[];
     directions?: readonly DirectionAggregate[];
@@ -294,12 +304,14 @@ async function aggregateValidatedEvaluation(
     const list = byAttempt.get(attemptKey(assertion));
     if (list) list.push([key, assertion]); else byAttempt.set(attemptKey(assertion), [[key, assertion]]);
   }
+  const manifestIndex = new Map(attempts.map((attempt, index) => [attemptKey(attempt), index]));
   const groups = groupAttempts(attempts, groupBy).map(([dimensions, allMembers]) => {
     const members = allMembers.filter((attempt) => selectedIds.has(attemptKey(attempt)));
     const groupAssertions = new Map(members.flatMap((attempt) => byAttempt.get(attemptKey(attempt)) ?? [])
       .sort(([a], [b]) => sourceOrder.get(a)! - sourceOrder.get(b)!));
     return {
       dimensions,
+      attempts: members.map((attempt) => manifestIndex.get(attemptKey(attempt))!),
       metrics: groupMetrics(members, attempts, observations, groupAssertions, reviewOutcomes, dimensions),
       behaviors: behaviorAggregates(members, groupAssertions, reviewOutcomes),
       directions: directionAggregates(members, groupAssertions),
@@ -362,7 +374,7 @@ function behaviorAggregates(selected: readonly Attempt[], assertions: ReadonlyMa
   const partitions = new Map<string, BehaviorAssertion[]>();
   for (const assertion of assertions.values()) {
     if (!selectedIds.has(attemptKey(assertion))) continue;
-    const key = canonicalizeMetadata({ behavior: assertion.behavior, producer: assertion.producer, rubric: isDecisionModelAssertion(assertion) ? null : assertion.rubric });
+    const key = partitionKey(assertion);
     const values = partitions.get(key) ?? [];
     values.push(assertion);
     partitions.set(key, values);
@@ -377,10 +389,12 @@ function behaviorAggregates(selected: readonly Attempt[], assertions: ReadonlyMa
     const decisions: BehaviorDecision[] = [];
     const exclusions: string[] = [];
     const outcome = (assertion: BehaviorAssertion): ReviewOutcome => reviews.get(assertionBindingKey(assertion)) ?? {
-      outcome: assertion.judgment.verdict === "unknown" ? "judge-abstained" : "unreviewed", disputed: false,
+      outcome: defaultReviewOutcome(assertion), disputed: false,
     };
+    const byAttempt = new Map<string, BehaviorAssertion[]>();
+    for (const assertion of values) { const key = attemptKey(assertion); const list = byAttempt.get(key); if (list) list.push(assertion); else byAttempt.set(key, [assertion]); }
     for (const attempt of selected) {
-      const candidates = values.filter((assertion) => attemptKey(assertion) === attemptKey(attempt));
+      const candidates = byAttempt.get(attemptKey(attempt)) ?? [];
       const judged = new Map(candidates.map(({ judgment }) => {
         const decision: BehaviorDecision = { verdict: judgment.verdict, ...(judgment.verdict === "present" && judgment.value !== undefined ? { value: judgment.value } : {}) };
         return [canonicalizeMetadata(decision), decision];
@@ -405,10 +419,65 @@ function behaviorAggregates(selected: readonly Attempt[], assertions: ReadonlyMa
         measurement: rateMetric(name, "attempt", present.filter(({ value }) => value === name).length,
           present.length, "present-attempt-card", exclusionCounts(decisions.flatMap(({ verdict }) => verdict === "present" ? [] : [`verdict-${verdict}`]), "attempt-card")).measurement,
       })) }),
-      assertions: values.map((assertion) => ({ runId: assertion.runId, attemptId: assertion.attemptId, id: assertion.id,
-        digest: metadataDigest(assertion), reviewOutcome: outcome(assertion).outcome, disputed: outcome(assertion).disputed,
-        included: included.has(assertionKey(assertion)) })),
+      members: memberDigest(values),
+      exceptions: values.flatMap((assertion) => {
+        const { outcome: reviewOutcome, disputed } = outcome(assertion), isIncluded = included.has(assertionKey(assertion));
+        return isIncluded && !disputed && reviewOutcome === defaultReviewOutcome(assertion) ? []
+          : [{ runId: assertion.runId, attemptId: assertion.attemptId, id: assertion.id, digest: metadataDigest(assertion), reviewOutcome, disputed, included: isIncluded }];
+      }),
     };
+  });
+}
+
+function partitionKey(assertion: BehaviorAssertion): string {
+  return canonicalizeMetadata({ behavior: assertion.behavior, producer: assertion.producer, rubric: isDecisionModelAssertion(assertion) ? null : assertion.rubric });
+}
+
+function defaultReviewOutcome(assertion: BehaviorAssertion): BehaviorMember["reviewOutcome"] {
+  return assertion.judgment.verdict === "unknown" ? "judge-abstained" : "unreviewed";
+}
+
+function memberDigest(assertions: readonly BehaviorAssertion[]): BehaviorAggregate["members"] {
+  return { count: assertions.length, digest: metadataDigest(assertions.map((assertion) => metadataDigest(assertion)).sort()) };
+}
+
+/**
+ * Every card result of each group's behavior partitions with its flags, rebuilt from a report and the card results it
+ * was built from: the group's attempts (`attempts`), the partition's card, producer and rubric, and the exceptions.
+ * Throws when the results do not reproduce a partition's count and digest.
+ */
+export function behaviorMembers(report: Pick<AggregationReport, "groups" | "sourceLineage">, assertions: Iterable<BehaviorAssertion>):
+  Array<Array<Array<{ assertion: BehaviorAssertion } & BehaviorMember>>> {
+  const byAttempt = new Map<string, BehaviorAssertion[]>(), seen = new Set<string>();
+  for (const assertion of assertions) {
+    if (seen.has(assertionKey(assertion))) continue;
+    seen.add(assertionKey(assertion));
+    const key = attemptKey(assertion), list = byAttempt.get(key);
+    if (list) list.push(assertion); else byAttempt.set(key, [assertion]);
+  }
+  return report.groups.map((group) => {
+    const partitions = new Map<string, BehaviorAssertion[]>();
+    for (const index of group.attempts) {
+      const manifest = report.sourceLineage.manifests[index];
+      if (!manifest) throw new Error(`Aggregation group attempt index ${String(index)} names no manifest.`);
+      for (const assertion of byAttempt.get(attemptKey(manifest)) ?? []) {
+        const key = partitionKey(assertion), list = partitions.get(key);
+        if (list) list.push(assertion); else partitions.set(key, [assertion]);
+      }
+    }
+    return (group.behaviors ?? []).map((behavior) => {
+      const values = partitions.get(canonicalizeMetadata({ behavior: behavior.behavior, producer: behavior.producer, rubric: behavior.rubric ?? null })) ?? [];
+      const rebuilt = memberDigest(values);
+      if (rebuilt.count !== behavior.members.count || rebuilt.digest !== behavior.members.digest) {
+        throw new Error(`Card results for ${behavior.behavior.cardId} in group ${JSON.stringify(group.dimensions)} do not match the report (${String(rebuilt.count)} of ${String(behavior.members.count)}).`);
+      }
+      const exceptions = new Map(behavior.exceptions.map((exception) => [`${exception.runId}\0${exception.attemptId}\0${exception.id}`, exception]));
+      return values.map((assertion) => {
+        const exception = exceptions.get(assertionKey(assertion));
+        return { assertion, runId: assertion.runId, attemptId: assertion.attemptId, id: assertion.id, digest: exception?.digest ?? metadataDigest(assertion),
+          reviewOutcome: exception?.reviewOutcome ?? defaultReviewOutcome(assertion), disputed: exception?.disputed ?? false, included: exception?.included ?? true };
+      });
+    });
   });
 }
 
