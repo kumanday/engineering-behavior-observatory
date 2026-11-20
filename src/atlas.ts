@@ -10,7 +10,7 @@ import { isDecisionModelAssertion, producerLabel, type BehaviorAssertion } from 
 import { behaviorDirection, resolveBehaviorCard } from "./behavior-ontology.js";
 import type { AgentSdkNativeRecord } from "./agent-sdk-normalizer.js";
 import { createRetainedBehaviorEvidence, withRetainedEvidenceReuse } from "./retained-evidence.js";
-import { readCorpusIndex, validateCorpusIndex } from "./corpus.js";
+import { readCorpusIndex, validateCorpusIndexInParallel } from "./corpus.js";
 import { environmentSensitiveValues, readPortableRunBundleExport, sanitizeDerivedExport, type LocatedSecretFinding, type PortableExportPolicy } from "./exports.js";
 import { assertCalibrationDestination, effectiveReviewOutcome, isDisputedReviewOutcome, type ReviewDecision } from "./human-calibration.js";
 import { readBoundedFile } from "./scheduler.js";
@@ -133,7 +133,8 @@ async function loadAtlasSource(requestPath: string, display: boolean): Promise<A
   const source = aggregation.sources;
   const corpusRoot = resolve(aggregateBase, source.corpusRoot);
   const corpusEntries = readCorpusIndex(resolve(aggregateBase, source.corpusIndex));
-  const issues = validateCorpusIndex(corpusRoot, corpusEntries);
+  // Manifests are re-projected in worker processes; a bundle build checks a shared corpus once for all its cohorts.
+  const issues = await validateCorpusIndexInParallel(corpusRoot, corpusEntries);
   if (issues.length) throw new Error("Atlas corpus index is stale or invalid; rebuild and validate it before querying.");
   const input: AggregationInput = {
     lineage: { requestDigest: digest(aggregation), corpusIndexDigest: digest(corpusEntries) }, corpusEntries,

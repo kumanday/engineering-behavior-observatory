@@ -1,4 +1,8 @@
 import { digestMetadata } from "./artifacts.js";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { fork } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { validationWorkers } from "./workers.js";
 import { isAtifImportSchema, readAtifImportAdmission } from "./atif-import.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -129,6 +133,65 @@ export function buildCorpusIndex(corpusRoot: string): CorpusIndexEntry[] {
   return discoverManifestPaths(root).map((manifestPath) => projectManifest(root, manifestPath));
 }
 
+/** Whether building this corpus's index would use worker processes (many manifests and more than one worker). */
+export function corpusIndexUsesWorkers(corpusRoot: string, workers = validationWorkers()): boolean {
+  return workers > 1 && discoverManifestPaths(resolve(corpusRoot)).length >= 64;
+}
+
+/** One manifest's index entry; corpus index worker processes call it for their slice. */
+export function projectCorpusManifest(root: string, manifestPath: string): CorpusIndexEntry { return projectManifest(root, manifestPath); }
+
+/**
+ * The corpus index, with manifests projected in worker processes when there are many: projecting an import reads and
+ * inspects its whole trajectory. Entries are in the same order as buildCorpusIndex gives.
+ */
+export async function buildCorpusIndexInParallel(corpusRoot: string, workers = validationWorkers(), minimum = 64): Promise<CorpusIndexEntry[]> {
+  const root = resolve(corpusRoot), paths = discoverManifestPaths(root);
+  if (workers <= 1 || paths.length < minimum) return paths.map((manifestPath) => projectManifest(root, manifestPath));
+  const size = Math.max(1, Math.min(64, Math.ceil(paths.length / workers)));
+  const slices = Array.from({ length: Math.ceil(paths.length / size) }, (_, i) => paths.slice(i * size, (i + 1) * size));
+  const results: CorpusIndexEntry[][] = new Array(slices.length);
+  const script = fileURLToPath(new URL("./corpus-worker.js", import.meta.url));
+  const pool = Array.from({ length: Math.min(workers, slices.length) }, () => fork(script, [], { stdio: ["ignore", "inherit", "inherit", "ipc"], serialization: "advanced" }));
+  let next = 0;
+  try {
+    await Promise.all(pool.map((worker) => new Promise<void>((accept, reject) => {
+      const send = () => {
+        if (next >= slices.length) { accept(); return; }
+        const index = next++;
+        worker.once("message", (reply: { index: number; entries?: CorpusIndexEntry[]; error?: string }) => {
+          if (reply.error !== undefined) { reject(new Error(reply.error)); return; }
+          results[reply.index] = reply.entries!;
+          send();
+        });
+        worker.send({ index, root, paths: slices[index] });
+      };
+      worker.once("error", reject);
+      send();
+    })));
+  } finally { for (const worker of pool) worker.kill(); }
+  return results.flat();
+}
+
+const corpusValidationReuse = new AsyncLocalStorage<Map<string, Promise<CorpusIndexValidationIssue[]>>>();
+/**
+ * Lets one operation (a bundle build over several cohorts of one corpus) check a corpus index once: a later check of
+ * the same corpus root and the same index content reuses the first result. Nothing is kept after the operation.
+ */
+export function withCorpusValidationReuse<T>(operation: () => Promise<T>): Promise<T> {
+  return corpusValidationReuse.getStore() !== undefined ? operation() : corpusValidationReuse.run(new Map(), operation);
+}
+
+/** validateCorpusIndex, rebuilding the index with buildCorpusIndexInParallel. */
+export function validateCorpusIndexInParallel(corpusRoot: string, entries: readonly CorpusIndexEntry[]): Promise<CorpusIndexValidationIssue[]> {
+  const reuse = corpusValidationReuse.getStore();
+  const key = reuse && `${resolve(corpusRoot)}\0${digestMetadata(entries).value}`;
+  if (reuse && key && reuse.has(key)) return reuse.get(key)!;
+  const result = buildCorpusIndexInParallel(corpusRoot).then((current) => compareCorpusIndex(entries, current));
+  if (reuse && key) { reuse.set(key, result); result.catch(() => reuse.delete(key)); }
+  return result;
+}
+
 export function writeCorpusIndex(path: string, entries: readonly CorpusIndexEntry[]): void {
   const bytes = Buffer.from(entries.map((entry) => canonicalizeMetadata(entry)).join("\n") + (entries.length === 0 ? "" : "\n"));
   if (bytes.length > MAX_CORPUS_INDEX_BYTES) throw new Error("Corpus index exceeds its local byte limit.");
@@ -162,6 +225,11 @@ export function validateCorpusIndex(
   corpusRoot: string,
   entries: readonly CorpusIndexEntry[],
 ): CorpusIndexValidationIssue[] {
+  return compareCorpusIndex(entries, buildCorpusIndex(corpusRoot));
+}
+
+/** The issues between an index and the entries rebuilt from the corpus as it is now. */
+function compareCorpusIndex(entries: readonly CorpusIndexEntry[], rebuilt: readonly CorpusIndexEntry[]): CorpusIndexValidationIssue[] {
   const issues: CorpusIndexValidationIssue[] = [];
   const indexed = new Map<string, CorpusIndexEntry>();
   for (const entry of entries) {
@@ -169,8 +237,7 @@ export function validateCorpusIndex(
       issues.push({ kind: "duplicate", manifestPath: entry.manifestPath, message: "Manifest path occurs more than once in the index." });
     } else indexed.set(entry.manifestPath, entry);
   }
-
-  const current = new Map(buildCorpusIndex(corpusRoot).map((entry) => [entry.manifestPath, entry]));
+  const current = new Map(rebuilt.map((entry) => [entry.manifestPath, entry]));
   for (const [manifestPath, entry] of indexed) {
     const rebuilt = current.get(manifestPath);
     if (rebuilt === undefined) {

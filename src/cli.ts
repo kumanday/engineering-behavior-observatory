@@ -20,11 +20,14 @@ import { importDecisionModelResults, runDecisionModelJudge, type DecisionModelPr
 import { serveAtlas, writeAtlas, type AtlasFilters } from "./atlas.js";
 import {
   buildCorpusIndex,
+  buildCorpusIndexInParallel,
+  corpusIndexUsesWorkers,
   packPortableExport,
   queryCorpusIndex,
   readCorpusIndex,
   unpackPortableExport,
   validateCorpusIndex,
+  validateCorpusIndexInParallel,
   writeCorpusIndex,
   type CorpusIndexQuery,
 } from "./corpus.js";
@@ -703,7 +706,7 @@ async function runAggregationCommand(args: string[], write: (message: string) =>
     const corpusRoot = resolve(base, source.corpusRoot);
     const corpusIndexPath = resolve(base, source.corpusIndex);
     const corpusEntries = readCorpusIndex(corpusIndexPath);
-    const corpusIssues = validateCorpusIndex(corpusRoot, corpusEntries);
+    const corpusIssues = await validateCorpusIndexInParallel(corpusRoot, corpusEntries);
     if (corpusIssues.length > 0) throw new Error(`Corpus index is not current: ${corpusIssues[0]!.manifestPath} ${corpusIssues[0]!.message}`);
     const resolveJson = <Value>(path: string, label: string): Value => {
       const resolved = resolve(base, path);
@@ -832,10 +835,18 @@ function runCorpusCommand(args: string[], write: (message: string) => void): num
   const [command, first, second, third] = args;
   try {
     if (command === "build" && first !== undefined && second !== undefined && args.length === 3) {
-      const entries = buildCorpusIndex(first);
-      writeCorpusIndex(second, entries);
-      write(`Built ${entries.length} corpus index entr${entries.length === 1 ? "y" : "ies"}.\n`);
-      return 0;
+      // Manifests are projected in worker processes when there are many (EBO_WORKERS); a small corpus is built here.
+      if (!corpusIndexUsesWorkers(first)) {
+        const entries = buildCorpusIndex(first);
+        writeCorpusIndex(second, entries);
+        write(`Built ${entries.length} corpus index entr${entries.length === 1 ? "y" : "ies"}.\n`);
+        return 0;
+      }
+      return buildCorpusIndexInParallel(first).then((entries) => {
+        writeCorpusIndex(second, entries);
+        write(`Built ${entries.length} corpus index entr${entries.length === 1 ? "y" : "ies"}.\n`);
+        return 0;
+      }, (error: unknown) => { write(`${errorMessage(error)}\n`); return 1; });
     }
     if (command === "query" && first !== undefined) {
       const query = parseCorpusQuery(args.slice(2));

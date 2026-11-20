@@ -25,7 +25,8 @@ import { BEHAVIOR_DIRECTIONS, BEHAVIOR_VERDICTS, behaviorDirection, loadDefaultB
 import type { CorpusIndexEntry } from "./corpus.js";
 import { readLeaderboardCohort } from "./leaderboard-import.js";
 import { createRetainedBehaviorEvidence, withRetainedEvidenceReuse, type RetainedEvidenceReuseStats } from "./retained-evidence.js";
-import { validationWorkers } from "./bundle-validation.js";
+import { validationWorkers } from "./workers.js";
+import { withCorpusValidationReuse } from "./corpus.js";
 import type { StructuralObservationSet } from "./structural-observations.js";
 import type { UniformEvent } from "./uniform-events.js";
 
@@ -294,7 +295,7 @@ export async function buildAtlasBundle(requestPath: string, destination: string,
   const outputRoot = mkdtempSync(join(dirname(resolve(destination)), `.${basename(destination)}.partial-`));
   const sink = new TableSink();
   try {
-    const manifest = await withRetainedEvidenceReuse(() => writeAtlasBundle(request, requestPath, outputRoot, sink, options), options.evidenceReuse);
+    const manifest = await withCorpusValidationReuse(() => withRetainedEvidenceReuse(() => writeAtlasBundle(request, requestPath, outputRoot, sink, options), options.evidenceReuse));
     if (existsSync(destination)) rmSync(destination, { recursive: true });
     renameSync(outputRoot, destination);
     return manifest;

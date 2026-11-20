@@ -1,4 +1,3 @@
-import { availableParallelism } from "node:os";
 import { fork, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -6,6 +5,7 @@ import { canonicalizeMetadata } from "./artifacts.js";
 import { validateRetainedBehaviorAssertion, type BehaviorAssertion } from "./behavior-assertions.js";
 import { withRetainedEvidenceReuse } from "./retained-evidence.js";
 import { createRetainedStructuralObservationSet, type StructuralObservationSet } from "./structural-observations.js";
+import { validationWorkers } from "./workers.js";
 
 /** One attempt's derived documents, checked together against its retained evidence. */
 export type BundleValidationJob = { bundleRoot: string; observationSets: StructuralObservationSet[]; assertions: BehaviorAssertion[] };
@@ -24,11 +24,7 @@ export async function validateBundle(job: BundleValidationJob): Promise<void> {
   });
 }
 
-/** Worker processes for validation: EBO_WORKERS when set, otherwise one fewer than the machine's cores, at most 16. */
-export function validationWorkers(env: NodeJS.ProcessEnv = process.env): number {
-  const declared = Number.parseInt(env.EBO_WORKERS ?? "", 10);
-  return Number.isSafeInteger(declared) && declared >= 1 ? declared : Math.max(1, Math.min(16, availableParallelism() - 1));
-}
+export { validationWorkers } from "./workers.js";
 
 /** Below this many bundles a worker pool costs more to start than it saves. */
 const PARALLEL_BUNDLES = 64;

@@ -13,7 +13,7 @@ import {
   readQualifiedClaudeAgentSdkCapture,
   type AgentSdkNativeRecord,
 } from "./agent-sdk-normalizer.js";
-import { canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
+import { canonicalizeMetadata, digestMetadata, digestMetadataOnce, validateArtifact } from "./artifacts.js";
 import {
   describeNormalizedDataset,
   validateNormalizedDataset,
@@ -337,7 +337,7 @@ function validatedDatasetDigest(dataset: NormalizedDataset, resolver: NativeEvid
   validatedDatasets.set(dataset, byResolver);
   let result = byResolver.get(resolver);
   if (result === undefined) {
-    result = validateNormalizedDataset(dataset, resolver).then(() => digest(dataset));
+    result = validateNormalizedDataset(dataset, resolver).then(() => `sha256:${digestMetadataOnce(dataset).value}` as DigestString);
     byResolver.set(resolver, result);
     // A failed validation is not remembered: the next check runs it again and reports the same failure.
     result.catch(() => byResolver.delete(resolver));

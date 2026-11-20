@@ -7,6 +7,7 @@ import test from "node:test";
 import { readAggregationAssertions, type AggregationRequest } from "../src/aggregation.js";
 import { validateBundles, validationWorkers, type BundleValidationJob } from "../src/bundle-validation.js";
 import type { StructuralObservationSet } from "../src/structural-observations.js";
+import { buildCorpusIndex, buildCorpusIndexInParallel, validateCorpusIndexInParallel, withCorpusValidationReuse } from "../src/corpus.js";
 import { createAtlasFixture } from "./atlas-fixture.js";
 
 test("bundles validate in worker processes with the result and first error a serial pass gives", async () => {
@@ -30,5 +31,25 @@ test("bundles validate in worker processes with the result and first error a ser
     assert.equal(await validateBundles(stale, 3, 1).then(() => "", (error: Error) => error.message), serial);
     assert.equal(validationWorkers({ EBO_WORKERS: "3" }), 3);
     assert.ok(validationWorkers({}) >= 1);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("the corpus index projected in worker processes equals the serial one, and one build checks a corpus once", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-corpus-workers-"));
+  try {
+    await createAtlasFixture(root);
+    const corpus = join(root, "corpus"), serial = buildCorpusIndex(corpus);
+    assert.ok(serial.length >= 3);
+    assert.deepEqual(await buildCorpusIndexInParallel(corpus, 3, 1), serial);
+    assert.deepEqual(await validateCorpusIndexInParallel(corpus, serial), []);
+    const issues = await validateCorpusIndexInParallel(corpus, serial.slice(1));
+    assert.equal(issues[0]?.kind, "unindexed");
+    // Within one scope a second check of the same corpus and index reuses the first result.
+    await withCorpusValidationReuse(async () => {
+      const first = validateCorpusIndexInParallel(corpus, serial);
+      assert.strictEqual(validateCorpusIndexInParallel(corpus, serial), first);
+      assert.notStrictEqual(validateCorpusIndexInParallel(corpus, serial.slice(1)), first);
+      await first;
+    });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

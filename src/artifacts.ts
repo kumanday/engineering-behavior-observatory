@@ -64,6 +64,17 @@ export function digestMetadata(metadata: unknown): Digest {
   return digestBytes(Buffer.from(canonicalizeMetadata(metadata)));
 }
 
+const onceDigests = new WeakMap<object, Digest>();
+/**
+ * The metadata digest of a document that is not changed after it is built (a retained-evidence dataset), computed
+ * once per process: an attempt's observation set and every card result check the same multi-megabyte dataset.
+ */
+export function digestMetadataOnce(document: object): Digest {
+  let known = onceDigests.get(document);
+  if (known === undefined) { known = digestMetadata(document); onceDigests.set(document, known); }
+  return known;
+}
+
 export function verifyDigest(bytes: Uint8Array, expected: Digest): boolean {
   const actual = digestBytes(bytes);
   return expected.algorithm === actual.algorithm && expected.value === actual.value;
