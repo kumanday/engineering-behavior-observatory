@@ -49,6 +49,24 @@ function finalUsage(key: string, finals: Readonly<Record<string, unknown>>, poin
   return {};
 }
 
+/** The longest string an event attribute holds (the uniform-event contract). */
+const ATTRIBUTE_CHARS = 512;
+/**
+ * Attributes within the uniform-event contract. A producer can write a whole command where a tool name belongs; such a
+ * value is shortened with a marker and named in `shortenedAttributes`, and the complete value stays in the retained
+ * document, which the event's native reference points to. The attempt is kept rather than refused.
+ */
+export function boundedAttributes(attributes: UniformEvent["attributes"]): UniformEvent["attributes"] {
+  const shortened: string[] = [];
+  const bound = (value: unknown, key: string): unknown => {
+    if (typeof value !== "string" || value.length <= ATTRIBUTE_CHARS) return value;
+    if (!shortened.includes(key)) shortened.push(key);
+    return `${value.slice(0, 440)}… [${String(value.length - 440)} more characters in the native record]`;
+  };
+  const out = Object.fromEntries(Object.entries(attributes).map(([key, value]) => [key, Array.isArray(value) ? value.map((item) => bound(item, key)) : bound(value, key)]));
+  return (shortened.length ? { ...out, shortenedAttributes: shortened.slice(0, 16) } : out) as UniformEvent["attributes"];
+}
+
 export async function projectAtifCore(input: AtifCoreInput): Promise<{ v1: RetainedBehaviorEvidence; v2: RetainedBehaviorEvidenceV2 }> {
   const { inspection, document } = input.read;
   if (!document || inspection.versionPolicy.status === "unsupported" || inspection.versionPolicy.status === "unavailable" || inspection.structural.status !== "valid") {
@@ -75,9 +93,9 @@ export async function projectAtifCore(input: AtifCoreInput): Promise<{ v1: Retai
       nativeOrder: projection.nativeOrder ?? (phase === "after" ? { status: "unknown", reason: "RESULT_CHRONOLOGY_UNRECORDED" }
         : integer(step.step_id) ? { status: "known", domain: sourceId, value: step.step_id } : unreported), nativeTime: unreported,
       actor: { kind: role }, scope: { kind: "session", id: `document:${documentPointer}` },
-      relations: { parent: unreported, known: [] }, attributes: { ...attributes, documentScope: documentPointer, stepPointer,
+      relations: { parent: unreported, known: [] }, attributes: boundedAttributes({ ...attributes, documentScope: documentPointer, stepPointer,
         ...(typeof trajectory.session_id === "string" ? { sessionId: trajectory.session_id } : {}),
-        ...(typeof trajectory.trajectory_id === "string" ? { agentId: trajectory.trajectory_id } : {}) },
+        ...(typeof trajectory.trajectory_id === "string" ? { agentId: trajectory.trajectory_id } : {}) }),
       content: contentPointer === undefined ? unreported : known([{ nativeReference: reference(contentPointer), role: family === "tool" ? phase === "before" ? "tool-input" : "tool-result" : "message" }]) };
     if (phase !== "after") {
       projection.clock = recordedClock({ event: original, record: step, records: [] }, step.timestamp, "producer-observation", sourceId);
