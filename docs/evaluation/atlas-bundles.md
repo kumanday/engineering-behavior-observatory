@@ -68,7 +68,9 @@ are embedded:
   runs out of device memory is halved and retried. `device`, `batchSize`,
   `tokenBudget` and `maxTokens` override these choices. Each unit's `embed_text` (behavior summaries and
   message text capped for embedding, never tool output or file contents),
-  with secrets redacted, gets the model card's clustering prompt
+  with secrets redacted and always well formed (a cap never splits a surrogate
+  pair, and a lone surrogate from the transcript becomes U+FFFD, as it does in
+  the runtime's input), gets the model card's clustering prompt
   (`task: clustering | query: `). The published graph mean-pools and
   L2-normalizes. `dimensions` is 768 by default; 512, 256 and 128 are
   truncations, normalized again.

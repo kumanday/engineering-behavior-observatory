@@ -15,9 +15,11 @@ every text is cut to --max-tokens. A batch that still runs out of device memory 
 import argparse
 import json
 import platform
+import re
 import sys
 import time
 
+LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 CHUNK = 16384  # texts read, length-sorted and written per step: bounded memory, and a rerun resumes from the last chunk
 # Padded tokens per batch. On a 24 GB CUDA card in bfloat16 a budget of 32,768 peaked near 19 GB with 2,048-token
 # texts (attention grows with length squared); 16,384 leaves headroom and, throughput being token-bound, costs nothing.
@@ -110,7 +112,7 @@ def main():
         while True:
             texts = []
             for line in source:
-                texts.append(json.loads(line))
+                texts.append(well_formed(json.loads(line)))
                 if len(texts) == CHUNK:
                     break
             if not texts:
@@ -143,6 +145,14 @@ def main():
     }
     with open(args.stats, "w", encoding="utf-8") as file:
         json.dump(stats, file)
+
+
+def well_formed(text):
+    """The text with any lone surrogate replaced by U+FFFD, as JavaScript's toWellFormed does.
+
+    json.loads joins an escaped surrogate pair but keeps an escaped half pair as a lone surrogate, which tokenizers
+    reject ("TextEncodeInput must be Union[...]")."""
+    return LONE_SURROGATE.sub("\ufffd", text)
 
 
 def token_counts(tokenizer, texts, max_length):

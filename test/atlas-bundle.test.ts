@@ -9,7 +9,7 @@ import { tableFromIPC } from "apache-arrow";
 import { ATLAS_TABLES, buildAtlasBundle, flattenText, verifyAtlasBundle, type AtlasBundleRequest } from "../src/atlas-bundle.js";
 import { loadAtlas } from "../src/atlas.js";
 import { laneData } from "../src/atlas-lanes.js";
-import { deriveUnits } from "../src/atlas-units.js";
+import { clipText, deriveUnits } from "../src/atlas-units.js";
 import { NativeLines, nativeRecordDigest } from "../src/atlas-evidence.js";
 import { validateClaims } from "../src/atlas-claims.js";
 import { createHash } from "node:crypto";
@@ -316,6 +316,36 @@ test("devin messages: consecutive same-update chunks merge into one message unit
   assert.equal(messages[1]!.event_count, 2);
   assert.equal(messages[1]!.role, "assistant");
   assert.ok(links.some((l) => l.event_key === "a/m2"), "every merged chunk is a linked event part");
+});
+
+test("embed text never ends inside a surrogate pair, so an emoji at the clip boundary reaches the tokenizer whole or not at all", () => {
+  const emoji = "\u{1F600}";
+  assert.equal(clipText(`ab${emoji}`, 3), "ab", "a cut between the halves drops the high half");
+  assert.equal(clipText(`ab${emoji}`, 4), `ab${emoji}`);
+  assert.equal(clipText(`ab${emoji}`, 2), "ab");
+  assert.equal(clipText("ab\ud83d", 3), "ab\ud83d", "a text shorter than the limit is left to toWellFormed");
+  const message = (id: string, order: number) => ({
+    id, runId: "r", attemptId: "a",
+    source: { harness: "devin-cli", nativeType: "session/update:agent_message_chunk", nativeReference: { artifactId: "session", recordLocator: `line:${order}` } },
+    nativeOrder: { status: "known", value: order, domain: "devin-acp-stdio" },
+    nativeTime: { status: "known", value: `2026-10-08T00:00:0${order}.000Z` },
+    actor: { kind: order === 1 ? "user" : "agent" }, family: "message", phase: "instant",
+    scope: { kind: "session", id: "s" },
+    relations: { parent: { status: "unknown" }, known: [] },
+    attributes: { method: "session/update", sessionUpdate: order === 1 ? "user_message_chunk" : "agent_message_chunk" },
+    content: { status: "known", value: [{ nativeReference: { artifactId: "session", recordLocator: `line:${order}#/text` }, mediaType: "application/json" }] },
+  }) as never;
+  // Message embed text is clipped at 1,200 code units: the emoji's high half lands on unit 1,200.
+  const texts = new Map([[1, `${"a".repeat(1199)}${emoji} tail`], [2, "escaped half pair \ud83d here"]]);
+  const resolve = (reference: { recordLocator: string }) => ({ status: "resolved" as const,
+    value: { type: "text", text: texts.get(Number(reference.recordLocator.match(/line:(\d+)/u)![1])) } });
+  const units = deriveUnits({ attemptId: "a", events: [message("u1", 1), message("m1", 2)], occurrences: [], resolveContent: resolve }).units
+    .filter((u) => u.unit_kind === "message");
+  assert.equal(units[0]!.embed_text, "a".repeat(1199));
+  assert.equal(units[1]!.embed_text, "escaped half pair \ufffd here", "a lone surrogate in the transcript becomes U+FFFD");
+  for (const unit of units) assert.ok(unit.embed_text.isWellFormed());
+  // JSON.stringify escapes a lone surrogate and json.loads restores it; well-formed text round-trips as itself.
+  assert.ok(!JSON.stringify(units.map((u) => u.embed_text)).includes("\\ud83d"));
 });
 
 test("a large bundle splits the viewer's per-attempt documents and indexes the card results, with the same content as inline", async () => {

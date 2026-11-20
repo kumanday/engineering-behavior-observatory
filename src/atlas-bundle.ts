@@ -20,7 +20,7 @@ import { buildViews, validateClaims, type ClaimsSource } from "./atlas-claims.js
 import { BUILD_LAYOUT_UNITS, checkEmbeddingRuntime, embeddingConfig as selectEmbeddings, embedTexts, layoutCloud, type EmbeddingOptions, type EmbeddingProvider, type EmbeddingRequest, type EmbeddingRun, type LayoutRun } from "./atlas-embeddings.js";
 import { assessmentDoc, attemptEvidence, NativeLines, nativeRecordDigest } from "./atlas-evidence.js";
 import { laneData, type LaneMeta } from "./atlas-lanes.js";
-import { ATLAS_UNITS_VERSION, deriveUnits, type AtlasUnit } from "./atlas-units.js";
+import { ATLAS_UNITS_VERSION, clipText, deriveUnits, type AtlasUnit } from "./atlas-units.js";
 import { BEHAVIOR_PRODUCER_MODES, isDecisionModelAssertion, producerLabel, type BehaviorAssertion } from "./behavior-assertions.js";
 import { BEHAVIOR_DIRECTIONS, BEHAVIOR_VERDICTS, behaviorDirection, loadDefaultBehaviorOntology, resolveBehaviorCard } from "./behavior-ontology.js";
 import type { CorpusIndexEntry } from "./corpus.js";
@@ -944,7 +944,7 @@ function compactCloud(source: { path: string; rows: number }, xy: Float32Array, 
   for (const [, line] of readFileLines(source.path)) {
     if (!line) continue;
     const u = JSON.parse(line) as Record<string, unknown>;
-    index.add({ family: String(u.family), unit_kind: String(u.unit_kind), text: String(u.embed_text ?? "").slice(0, 2000), tool_kind: u.tool_kind as string | null,
+    index.add({ family: String(u.family), unit_kind: String(u.unit_kind), text: clipText(String(u.embed_text ?? ""), 2000), tool_kind: u.tool_kind as string | null,
       command_head: u.command_head as string | null, check_kind: u.check_kind as string | null, target: u.target as string | null, status: u.status as string | null, occurrences: u.occurrences as string[] });
     for (const key of COMPACT_DICTIONARIES) {
       const value = u[key], dictionary = dictionaries.get(key)!;
@@ -1026,7 +1026,7 @@ async function writeCompactCloudArrow(source: { path: string; rows: number }, pa
       row_id: makeVector(Int32Array.from(at)),
       ...Object.fromEntries(COMPACT_DICTIONARIES.map((key) => [key, coded(key, key === "cluster_label"
         ? at.map((row) => compact.clusterOf(compact.clusterId[row]!)) : rows.map((u) => (typeof u[key] === "string" ? u[key] as string : null)))])),
-      label: vectorFromArray(rows.map((u) => String(u.embed_text ?? "").slice(0, COMPACT_LABEL_CHARS)), new Utf8()),
+      label: vectorFromArray(rows.map((u) => clipText(String(u.embed_text ?? ""), COMPACT_LABEL_CHARS)), new Utf8()),
       seq: int(rows, "seq"), exit_code: int(rows, "exit_code"), event_count: int(rows, "event_count"),
       ...Object.fromEntries(["duration_seconds", "t0_ms", "t1_ms"].map((key) => [key, vectorFromArray(rows.map((u) => u[key] as number | null), new Float64())])),
       timed: vectorFromArray(rows.map((u) => u.timed === true), new Bool()),

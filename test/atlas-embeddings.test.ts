@@ -159,3 +159,23 @@ test("the runtime sizes batches by padded tokens and caps each text's tokens", {
   assert.deepEqual(out, [[0, 1, 2], [3, 4], [5], [6], [7]]);
   assert.match(readFileSync(script, "utf8"), /model\.max_seq_length = args\.max_tokens/u);
 });
+
+test("the runtime replaces a lone surrogate in its input, which tokenizers reject", { skip: process.platform === "win32" }, async () => {
+  const { execFileSync } = await import("node:child_process");
+  const script = join(process.cwd(), "scripts/embeddings/embed.py");
+  // The input line as JSON.stringify writes a lone high surrogate: json.loads keeps it, so embed.py must replace it.
+  const program = [
+    "import importlib.util, json, sys",
+    "sys.dont_write_bytecode = True",
+    "spec = importlib.util.spec_from_file_location('embed', sys.argv[1]); embed = importlib.util.module_from_spec(spec); spec.loader.exec_module(embed)",
+    "texts = [embed.well_formed(json.loads(line)) for line in sys.argv[2:]]",
+    "[t.encode('utf-8') for t in texts]",
+    "print(json.dumps(texts))",
+  ].join("\n");
+  let python: string | undefined;
+  for (const candidate of ["python3", "python"]) { try { execFileSync(candidate, ["--version"], { stdio: "ignore" }); python = candidate; break; } catch { /* next */ } }
+  if (!python) return;
+  const lines = [JSON.stringify("ab\ud83d"), JSON.stringify("ab\u{1F600}"), JSON.stringify("\udc00cd")];
+  const out = JSON.parse(execFileSync(python, ["-I", "-c", program, script, ...lines], { encoding: "utf8" })) as string[];
+  assert.deepEqual(out, ["ab\ufffd", "ab\u{1F600}", "\ufffdcd"], "a whole pair is kept; each half pair becomes U+FFFD");
+});
