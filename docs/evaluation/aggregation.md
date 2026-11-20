@@ -129,8 +129,10 @@ and unavailable remain distinct. Rebuild older corpus indexes before using
 them; source manifests and native artifacts are never rewritten.
 
 Every report retains the logical request and corpus-index digests plus the
-exact admitted manifest, observation-set, assertion, calibration, and
-comparison-gate digests. Moving the report therefore does not detach its
+exact admitted manifest, observation-set, calibration, and comparison-gate
+digests. Card results are recorded per attempt: the number of results and one
+digest over their sorted digests, so a cohort of millions of results keeps one
+lineage entry per attempt. Moving the report therefore does not detach its
 metrics from their rebuild inputs.
 
 Observation and assertion sources name their retained bundle so the build can

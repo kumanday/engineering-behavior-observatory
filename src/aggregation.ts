@@ -137,7 +137,8 @@ export type AggregationReport = {
     corpusIndexDigest: `sha256:${string}`;
     manifests: ReadonlyArray<{ runId: string; attemptId: string; digest: `sha256:${string}` }>;
     observationSets: ReadonlyArray<{ runId: string; attemptId: string; digest: `sha256:${string}` }>;
-    assertions: ReadonlyArray<{ runId: string; attemptId: string; id: string; digest: `sha256:${string}` }>;
+    /** One entry per attempt: its card results' count and the digest of their sorted digests. */
+    assertions: ReadonlyArray<AssertionLineage>;
     calibrations: ReadonlyArray<{ selectionDigest: `sha256:${string}`; historyDigest: `sha256:${string}` }>;
     comparisonGates: ReadonlyArray<{ requestDigest: `sha256:${string}`; reportDigest: `sha256:${string}` }>;
   };
@@ -185,6 +186,23 @@ export function readAggregationAssertions(base: string, sources: AggregationRequ
     ...(sources.assertionSets ?? []).flatMap(({ bundleRoot, path }) => read(path, "Behavior assertion set").split("\n").filter((line) => line.trim() !== "")
       .map((line, index) => ({ bundleRoot: resolve(base, bundleRoot), document: parse(line, `Behavior assertion set ${path} line ${String(index + 1)}`) }))),
   ];
+}
+
+export type AssertionLineage = { runId: string; attemptId: string; count: number; digest: `sha256:${string}` };
+
+/**
+ * Card-result lineage per attempt, in the order attempts first appear: the number of results and the digest of their
+ * sorted digests. A cohort holds about 93 results per attempt, so per-result entries would outgrow the report.
+ */
+export function assertionLineage(documents: Iterable<Pick<BehaviorAssertion, "runId" | "attemptId">>): AssertionLineage[] {
+  const byAttempt = new Map<string, { runId: string; attemptId: string; digests: string[] }>();
+  for (const document of documents) {
+    const key = attemptKey(document);
+    let entry = byAttempt.get(key);
+    if (!entry) { entry = { runId: document.runId, attemptId: document.attemptId, digests: [] }; byAttempt.set(key, entry); }
+    entry.digests.push(metadataDigest(document));
+  }
+  return [...byAttempt.values()].map(({ runId, attemptId, digests }) => ({ runId, attemptId, count: digests.length, digest: metadataDigest(digests.sort()) }));
 }
 
 export function aggregateEvaluation(
@@ -314,7 +332,7 @@ async function aggregateValidatedEvaluation(
       corpusIndexDigest: input.lineage?.corpusIndexDigest ?? metadataDigest(input.corpusEntries),
       manifests: attempts.map(({ runId, attemptId, manifestDigest: digest }) => ({ runId, attemptId, digest })),
       observationSets: [...observationSources.values()].map(({ document }) => ({ runId: document.runId, attemptId: document.attemptId, digest: metadataDigest(document) })),
-      assertions: [...assertionSources.values()].map(({ document }) => ({ runId: document.runId, attemptId: document.attemptId, id: document.id, digest: metadataDigest(document) })),
+      assertions: assertionLineage([...assertionSources.values()].map(({ document }) => document)),
       calibrations: input.calibrations.map(({ selection, history }) => ({ selectionDigest: metadataDigest(selection), historyDigest: metadataDigest(history) })),
       comparisonGates: input.comparisons.flatMap(({ eligibility }) => eligibility.map(({ request, report }) => ({
         requestDigest: metadataDigest(request),

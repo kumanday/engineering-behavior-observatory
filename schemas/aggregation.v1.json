@@ -135,8 +135,8 @@
         },
         "assertions": {
           "type": "array", "maxItems": 100000,
-          "items": { "type": "object", "additionalProperties": false, "required": ["runId", "attemptId", "id", "digest"], "properties": {
-            "runId": { "$ref": "#/$defs/identifier" }, "attemptId": { "$ref": "#/$defs/identifier" }, "id": { "$ref": "#/$defs/identifier" }, "digest": { "$ref": "urn:ebo:schema:normalization-integrity:v1#/$defs/digest" }
+          "items": { "type": "object", "additionalProperties": false, "required": ["runId", "attemptId", "count", "digest"], "properties": {
+            "runId": { "$ref": "#/$defs/identifier" }, "attemptId": { "$ref": "#/$defs/identifier" }, "count": { "type": "integer", "minimum": 1 }, "digest": { "$ref": "urn:ebo:schema:normalization-integrity:v1#/$defs/digest" }
           } }
         },
         "calibrations": {
