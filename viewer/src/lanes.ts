@@ -51,6 +51,10 @@ export const cls = (s: unknown) => String(s ?? "").replace(/[^A-Za-z0-9_-]/g, "_
 /** A number from bundle data for markup; a missing or non-numeric value renders as "—" (unavailable), never 0 or markup. */
 /** A UUID or hex id reads by its first eight characters; any other id (a leaderboard trial name) reads whole. */
 export const shortId = (id: string) => (/^[0-9a-f]{8}(?:-?[0-9a-f]{4,})+$/iu.test(id) || /^[0-9a-f]{16,}$/iu.test(id) ? id.slice(0, 8) : id);
+/** The cloud column with a unit's text: the full embedded text, or a compact cloud's short label. */
+let unitText = "embed_text";
+export function setUnitTextColumn(column: string): void { unitText = column; }
+
 /** A lane none of whose units has a recorded time (a source that writes no step timestamps). */
 export const untimedLane = (us: readonly Pick<Unit, "timed" | "t0_ms" | "unit_kind">[]) => us.length > 0 && !us.some((u) => u.unit_kind !== "episode" && u.timed && u.t0_ms != null);
 /** Where a third-party verdict comes from: its publisher, release and record. It is not EBO's run status. */
@@ -183,7 +187,7 @@ export class SwimlanesPanel {
     const res = await this.coordinator.query(`
       SELECT row_id, attempt_id, seq, unit_kind, subkind, tool_kind, tool_name, check_kind, error_signature, command_head, target, status,
              t0_ms, t1_ms, timed, cluster_id, cluster_label, coalesce(cited, false) AS cited,
-             coalesce(array_to_string(occurrences, ','), '') AS occ, left(embed_text, 280) AS text,
+             coalesce(array_to_string(occurrences, ','), '') AS occ, left(${unitText}, 280) AS text,
              duration_seconds, condition, ${CAT_SQL} AS cat
       FROM units WHERE ${this.task === null ? "task_id IS NULL" : `task_id = '${this.task.replace(/'/g, "''")}'`} AND unit_kind IN ('tool', 'message', 'compaction', 'episode')
       ORDER BY attempt_id, seq`);

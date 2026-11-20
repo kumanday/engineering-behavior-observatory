@@ -14,7 +14,8 @@ import { digestMetadata, validateArtifact } from "./artifacts.js";
 import { readAggregationAssertions, type AggregationRequest } from "./aggregation.js";
 export { ownPointer } from "./retained-content.js";
 import { loadAtlas, queryAtlas, type AtlasSource, type AtlasView } from "./atlas.js";
-import { Bool, Field, Float32, Float64, Int32, List, makeVector, RecordBatchStreamWriter, Struct, Table, Utf8, vectorFromArray } from "apache-arrow";
+import { Bool, Dictionary, Field, Float32, Float64, Int32, List, makeData, makeVector, RecordBatchStreamWriter, Struct, Table, Utf8, vectorFromArray } from "apache-arrow";
+import { clusterCloud, FacetIndex } from "./atlas-clusters.js";
 import { buildViews, validateClaims, type ClaimsSource } from "./atlas-claims.js";
 import { BUILD_LAYOUT_UNITS, checkEmbeddingRuntime, embeddingConfig as selectEmbeddings, embedTexts, layoutCloud, type EmbeddingOptions, type EmbeddingProvider, type EmbeddingRequest, type EmbeddingRun, type LayoutRun } from "./atlas-embeddings.js";
 import { assessmentDoc, attemptEvidence, NativeLines, nativeRecordDigest } from "./atlas-evidence.js";
@@ -75,7 +76,7 @@ export type AtlasBundleManifest = {
   /** The cloud's units and their embeddings; the viewer lays them out with Embedding Atlas (UMAP and clustering). */
   cloud: { units: number; embeddings: { file: string; provider: EmbeddingProvider; model: string; revision?: string; dimensions: number; run?: EmbeddingRun };
     /** Where the cloud was laid out: at build time (units.arrow carries x, y and neighbors) or in the viewer from the vectors. */
-    layout?: { where: "build" | "browser"; run?: LayoutRun } };
+    layout?: { where: "build" | "browser"; run?: LayoutRun; compact?: boolean } };
   tables: Record<string, { path: string; rows: number; sha256: `sha256:${string}` }>;
   files: Array<{ path: string; bytes: number; sha256: `sha256:${string}`; role: string }>;
 };
@@ -288,7 +289,7 @@ async function writeTables(tables: Record<string, Row[]>, directory: string, sin
  * (invalid source, DuckDB, embedding provider) never leaves a partial bundle at the destination.
  */
 export async function buildAtlasBundle(requestPath: string, destination: string,
-  options: { now?: () => Date; embed?: typeof embedTexts; embedding?: EmbeddingOptions; layout?: typeof layoutCloud; evidenceReuse?: RetainedEvidenceReuseStats; splitViewerDocuments?: boolean; attemptWorkers?: number } = {}): Promise<AtlasBundleManifest> {
+  options: { now?: () => Date; embed?: typeof embedTexts; embedding?: EmbeddingOptions; layout?: typeof layoutCloud; evidenceReuse?: RetainedEvidenceReuseStats; splitViewerDocuments?: boolean; attemptWorkers?: number; compactCloud?: boolean } = {}): Promise<AtlasBundleManifest> {
   const request = readRequest(requestPath);
   if (existsSync(destination) && readdirSync(destination).length) throw new Error(`Atlas bundle output ${destination} is not empty; choose a new directory.`);
   mkdirSync(dirname(resolve(destination)), { recursive: true });
@@ -332,7 +333,7 @@ function leaderboardLabels(base: string, source: AtlasBundleRequest["leaderboard
 }
 
 async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string, outputRoot: string, sink: TableSink,
-  options: { now?: () => Date; embed?: typeof embedTexts; embedding?: EmbeddingOptions; layout?: typeof layoutCloud; splitViewerDocuments?: boolean; attemptWorkers?: number }): Promise<AtlasBundleManifest> {
+  options: { now?: () => Date; embed?: typeof embedTexts; embedding?: EmbeddingOptions; layout?: typeof layoutCloud; splitViewerDocuments?: boolean; attemptWorkers?: number; compactCloud?: boolean }): Promise<AtlasBundleManifest> {
   const base = dirname(resolve(requestPath));
   // A missing embedding runtime fails here, before hours of attempt processing, not at the end.
   const embeddingConfig = selectEmbeddings(request.embeddings, base);
@@ -500,8 +501,12 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   // A large cloud is laid out here, where a GPU can do it; the viewer lays out a small one from the vectors.
   const buildLayout = embeddingConfig.layout === "build" || (embeddingConfig.layout === "auto" && cloudRows.rows > BUILD_LAYOUT_UNITS && (embeddingConfig.python !== undefined || options.layout !== undefined));
   const layout = buildLayout ? await (options.layout ?? layoutCloud)(join(outputRoot, "embeddings.f32"), embeddingConfig.dimensions, cloud.families, embeddingConfig, options.embedding) : undefined;
+  // A cloud of millions of units is clustered here too and written compactly (repeated strings as dictionaries, a short
+  // text label, no per-unit ids or neighbors), so the browser only loads the table.
+  const compact = layout !== undefined && (options.compactCloud ?? cloudRows.rows > COMPACT_UNITS) ? compactCloud(cloudRows, layout.xy, cloud.families) : undefined;
+  if (compact) writeJsonFile(join(outputRoot, "labels.json"), compact.labels);
   cloud.families.length = 0;
-  await writeCloudArrow(cloudRows, join(outputRoot, "units.arrow"), layout);
+  await writeCloudArrow(cloudRows, join(outputRoot, "units.arrow"), layout, compact);
   const tableIndex = await writeTables(tables, join(outputRoot, "tables"), sink);
 
   writeJsonFile(join(outputRoot, "lanes.json"), split ? { ...lanes, split: "lanes/" } : lanes);
@@ -583,7 +588,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     ...readdirSync(join(outputRoot, "native")).map((f) => ({ path: `native/${f}`, role: "native-records" })),
     ...(split ? [["assessments", "assessment-details"], ["audit", "audits"], ["lanes", "swimlane-series"]].flatMap(([directory, role]) =>
       readdirSync(join(outputRoot, directory!)).map((f) => ({ path: `${directory!}/${f}`, role: role! }))) : []),
-    ...[["units.arrow", "cloud-units"], ["embeddings.f32", "cloud-embeddings"], ["lanes.json", "swimlanes"], ["audit.json", "audits"], ["assessments.json", "assessments"],
+    ...[["units.arrow", "cloud-units"], ["labels.json", "cloud-labels"], ["embeddings.f32", "cloud-embeddings"], ["lanes.json", "swimlanes"], ["audit.json", "audits"], ["assessments.json", "assessments"],
       ["assessments.arrow", "assessment-index"], ["claims.json", "claims"], ["views.json", "view-specs"]].filter(([path]) => existsSync(join(outputRoot, path!))).map(([path, role]) => ({ path: path!, role: role! }))]
     .map(({ path, role }) => ({ path, role, bytes: statSync(join(outputRoot, path)).size, sha256: fileSha256(join(outputRoot, path)) }))
     .sort((a, b) => a.path.localeCompare(b.path));
@@ -592,7 +597,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     createdAt: (options.now ?? (() => new Date()))().toISOString(), request: { digest: `sha256:${digestMetadata(request).value}` },
     cloud: { units: cloudRows.rows, embeddings: { file: "embeddings.f32", provider: embeddingConfig.provider, model: embeddingConfig.model,
       ...(embeddingConfig.revision ? { revision: embeddingConfig.revision } : {}), dimensions: embeddingConfig.dimensions, run: embeddingRun },
-      layout: layout ? { where: "build", run: layout.run } : { where: "browser" } },
+      layout: layout ? { where: "build", run: layout.run, ...(compact ? { compact: true } : {}) } : { where: "browser" } },
     cohorts, tables: tableIndex, files,
   };
   const errors = validateArtifact("atlas bundle", manifest);
@@ -913,8 +918,47 @@ class CloudWriter {
 }
 
 /** units.arrow from the staged cloud rows, one record batch per block of rows, so the table is never whole in memory. */
+/** Above this many cloud units a build-time layout also writes the compact cloud (clusters, dictionaries, short labels). */
+export const COMPACT_UNITS = 1_000_000;
+/** Compact cloud columns stored as one dictionary each: low-cardinality strings that repeat on every unit. */
+const COMPACT_DICTIONARIES = ["attempt_id", "condition", "model_id", "harness_id", "task_id", "trial_id", "unit_kind", "family", "subkind", "role", "tool_name", "tool_kind",
+  "command_head", "check_kind", "status", "terminal_state", "target", "error_signature", "cluster_label"] as const;
+/** The compact cloud's text label: the start of a unit's embedded text, enough for a tooltip or table row. */
+export const COMPACT_LABEL_CHARS = 96;
+type CompactCloud = { clusterId: Int32Array; clusterOf: (id: number) => string | null; labels: ReturnType<typeof clusterCloud>["labels"]; dictionaries: Map<string, Map<string, number>> };
+
+/**
+ * Writes the compact cloud (units.arrow and labels.json) from staged cloud rows (JSON lines in cloud row order) and
+ * their build-time positions. The bundle build calls it for a large cloud; scale tests call it directly.
+ */
+export async function writeCompactCloudFiles(source: { path: string; rows: number }, xy: Float32Array, families: readonly string[], outputRoot: string): Promise<void> {
+  const compact = compactCloud(source, xy, families);
+  writeJsonFile(join(outputRoot, "labels.json"), compact.labels);
+  await writeCompactCloudArrow(source, join(outputRoot, "units.arrow"), xy, compact);
+}
+
+/** One pass over the staged cloud rows: their facets for clustering and the dictionary of each repeated string column. */
+function compactCloud(source: { path: string; rows: number }, xy: Float32Array, families: readonly string[]): CompactCloud {
+  const index = new FacetIndex(), dictionaries = new Map<string, Map<string, number>>(COMPACT_DICTIONARIES.map((key) => [key, new Map()]));
+  for (const [, line] of readFileLines(source.path)) {
+    if (!line) continue;
+    const u = JSON.parse(line) as Record<string, unknown>;
+    index.add({ family: String(u.family), unit_kind: String(u.unit_kind), text: String(u.embed_text ?? "").slice(0, 2000), tool_kind: u.tool_kind as string | null,
+      command_head: u.command_head as string | null, check_kind: u.check_kind as string | null, target: u.target as string | null, status: u.status as string | null, occurrences: u.occurrences as string[] });
+    for (const key of COMPACT_DICTIONARIES) {
+      const value = u[key], dictionary = dictionaries.get(key)!;
+      if (typeof value === "string" && !dictionary.has(value)) dictionary.set(value, dictionary.size);
+    }
+  }
+  const clusters = clusterCloud(xy, families, index);
+  const labelDictionary = dictionaries.get("cluster_label")!;
+  for (const id of new Set(clusters.clusterId)) { const label = clusters.clusterOf(id); if (label !== null && !labelDictionary.has(label)) labelDictionary.set(label, labelDictionary.size); }
+  return { ...clusters, dictionaries };
+}
+
 async function writeCloudArrow(source: { path: string; rows: number }, path: string,
-  layout?: { xy: Float32Array; neighborIds: Int32Array; neighborDistances: Float32Array; k: number }): Promise<void> {
+  layout?: { xy: Float32Array; neighborIds: Int32Array; neighborDistances: Float32Array; k: number }, compact?: CompactCloud): Promise<void> {
+  if (compact && layout) return writeCompactCloudArrow(source, path, layout.xy, compact);
   // A build-time layout adds what the viewer would otherwise compute: positions and each unit's nearest neighbors.
   const neighborType = new Struct([new Field("ids", new List(new Field("item", new Int32(), true)), true), new Field("distances", new List(new Field("item", new Float32(), true)), true)]);
   const placed = (rows: Array<Record<string, unknown>>) => {
@@ -942,6 +986,55 @@ async function writeCloudArrow(source: { path: string; rows: number }, path: str
     ...Object.fromEntries(CLOUD_LISTS.map((key) => [key, vectorFromArray(rows.map((u) => [...(u[key] as string[])]), new List(new Field("item", new Utf8(), true)))])),
     ...placed(rows),
   });
+  let pending: Array<Record<string, unknown>> = [];
+  const flush = async () => {
+    for (const recordBatch of batch(pending).batches) writer.write(recordBatch);
+    pending = [];
+    if (out.writableNeedDrain) await new Promise((accept) => out.once("drain", accept));
+  };
+  for (const [, line] of readFileLines(source.path)) {
+    if (!line) continue;
+    pending.push(JSON.parse(line) as Record<string, unknown>);
+    if (pending.length === 65536) await flush();
+  }
+  if (pending.length || source.rows === 0) await flush();
+  writer.finish(); writer.close();
+  await finished(out);
+}
+
+/**
+ * The compact cloud: the columns the viewer filters, colours, brushes and queries on, each repeated string as codes
+ * into one dictionary for the whole table (DuckDB reads them as ENUM columns), a short text label, the build-time
+ * positions and clusters. Full texts stay in the tables and native records.
+ */
+async function writeCompactCloudArrow(source: { path: string; rows: number }, path: string, xy: Float32Array, compact: CompactCloud): Promise<void> {
+  const writer = new RecordBatchStreamWriter({ autoDestroy: false });
+  const out = createWriteStream(path);
+  writer.toNodeStream().pipe(out);
+  const dictionaryVectors = new Map([...compact.dictionaries].map(([key, dictionary], id) => [key, { id, values: vectorFromArray([...dictionary.keys()], new Utf8()) }]));
+  const coded = (key: string, values: Array<string | null>) => {
+    const { id, values: dictionary } = dictionaryVectors.get(key)!, codes = compact.dictionaries.get(key)!;
+    const nullBitmap = new Uint8Array(Math.ceil(values.length / 8));
+    const data = Int32Array.from(values, (value, i) => { if (value === null) return 0; nullBitmap[i >> 3]! |= 1 << (i & 7); return codes.get(value)!; });
+    return makeVector(makeData({ type: new Dictionary(new Utf8(), new Int32(), id), length: values.length, nullCount: values.filter((v) => v === null).length, nullBitmap, data, dictionary }));
+  };
+  const int = (rows: Array<Record<string, unknown>>, key: string) => vectorFromArray(rows.map((u) => (typeof u[key] === "number" ? Math.trunc(u[key] as number) : null)), new Int32());
+  const batch = (rows: Array<Record<string, unknown>>) => {
+    const at = rows.map((u) => Number(u.row_id));
+    return new Table<any>({
+      row_id: makeVector(Int32Array.from(at)),
+      ...Object.fromEntries(COMPACT_DICTIONARIES.map((key) => [key, coded(key, key === "cluster_label"
+        ? at.map((row) => compact.clusterOf(compact.clusterId[row]!)) : rows.map((u) => (typeof u[key] === "string" ? u[key] as string : null)))])),
+      label: vectorFromArray(rows.map((u) => String(u.embed_text ?? "").slice(0, COMPACT_LABEL_CHARS)), new Utf8()),
+      seq: int(rows, "seq"), exit_code: int(rows, "exit_code"), event_count: int(rows, "event_count"),
+      ...Object.fromEntries(["duration_seconds", "t0_ms", "t1_ms"].map((key) => [key, vectorFromArray(rows.map((u) => u[key] as number | null), new Float64())])),
+      timed: vectorFromArray(rows.map((u) => u.timed === true), new Bool()),
+      cited: vectorFromArray(rows.map((u) => u.cited === true), new Bool()),
+      ...Object.fromEntries(["occurrences", "cited_assessments", "writes"].map((key) => [key, vectorFromArray(rows.map((u) => [...(u[key] as string[])]), new List(new Field("item", new Utf8(), true)))])),
+      x: makeVector(Float32Array.from(at, (row) => xy[2 * row]!)), y: makeVector(Float32Array.from(at, (row) => xy[2 * row + 1]!)),
+      cluster_id: makeVector(Int32Array.from(at, (row) => compact.clusterId[row]!)),
+    });
+  };
   let pending: Array<Record<string, unknown>> = [];
   const flush = async () => {
     for (const recordBatch of batch(pending).batches) writer.write(recordBatch);

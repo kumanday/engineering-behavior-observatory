@@ -34,7 +34,7 @@ export interface Assessment {
 }
 export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; harness_id: string; model_id: string; terminal_state: string | null; failure_class: string | null; source_outcome?: string; source_outcome_source?: string; source_outcome_release?: string; source_outcome_record?: string; harness_version?: string | null; cohorts: string[]; bundle: string; native_span_seconds: number | null;
   native_record_count?: number | null; unmapped_record_count?: number | null; event_count?: number | null; event_types?: Record<string, number>; units?: number; tool_calls?: number }
-interface CertCell { group: Record<string, string>; card: string; family?: string; mode?: string; counts: Record<string, number>; values?: Record<string, number>; denominator: number; assertions: string[]; conditions?: string[] }
+interface CertCell { group: Record<string, string>; card: string; family?: string; mode?: string; counts: Record<string, number>; values?: Record<string, number>; denominator: number; assertions?: string[]; conditions?: string[] }
 export interface AssessDoc {
   study: string; cohorts: { id: string; title: string; certified: boolean; report: string | null }[]; attempts: AttemptMeta[]; assessments: Assessment[];
   /** The judged cards and their families, in ontology order. */
@@ -89,7 +89,9 @@ export interface ClaimsDoc { source: { file: string; title: string; also?: strin
 
 export interface EvidenceHooks { highlight: (rows: number[] | null) => void; showInLanes: (attemptId: string, row?: number | null) => void }
 
-const SHOW_MAX = 200_000;   // rendering safeguard for very long native lines (the data itself is never truncated)
+const SHOW_MAX = 200_000;
+/** Rows the judgment list draws at once. */
+const LIST_MAX = 500;   // rendering safeguard for very long native lines (the data itself is never truncated)
 const fmtT = (ms: number | null | undefined) => (ms == null ? "—" : fmtDur(ms));
 const MODE_LABEL: Record<string, string> = { "llm-judge": "LLM judge", "decision-model": "decision model" };
 const modeLabel = (m: string) => MODE_LABEL[m] ?? m;
@@ -512,13 +514,13 @@ export class MatrixPanel {
   /** The card × arm counts currently shown, with their certified/exploratory status. */
   describe() {
     const pool = this.pool(), arms = this.arms(), cats = this.cats();
+    const tally = this.tally(pool);
     const cells = cats.flatMap((cat) => arms.map((arm) => {
-      const xs = pool.filter((a) => a.card === cat && a.condition === arm);
-      const counts: Record<string, number> = Object.fromEntries(OUTCOMES.map((o) => [o, xs.filter((a) => a.outcome === o).length]));
-      const unrecognized = xs.filter((a) => !(OUTCOMES as readonly string[]).includes(a.outcome)).length;
-      if (unrecognized) counts.unrecognized = unrecognized;
-      const cert = this.certCell(cat, arm);
-      return { card: cat, mode: this.mode, arm, judgments: xs.length, counts, certified: cert ? OUTCOMES.every((o) => (cert.counts[o] ?? 0) === counts[o]) && cert.denominator === xs.length : false };
+      const t = tally.get(`${cat}\0${arm}`);
+      const counts: Record<string, number> = { ...(t?.counts ?? Object.fromEntries(OUTCOMES.map((o) => [o, 0]))) };
+      if (t?.unrecognized) counts.unrecognized = t.unrecognized;
+      const judgments = t?.n ?? 0, cert = this.certCell(cat, arm);
+      return { card: cat, mode: this.mode, arm, judgments, counts, certified: cert ? OUTCOMES.every((o) => (cert.counts[o] ?? 0) === counts[o]) && cert.denominator === judgments : false };
     }));
     return { summary: `${pool.length} judgments, ${this.cohort === "all" ? "all attempts" : `cohort ${this.cohort}`}${this.task !== "all" ? `, task ${this.task}` : ""}.`, data: { cohort: this.cohort, task: this.task, cells } };
   }
@@ -528,6 +530,18 @@ export class MatrixPanel {
     return this.ev.doc.assessments.filter((a) => (this.cohort === "all" || (a.cohorts[this.cohort] && a.cohorts[this.cohort].included !== false))
       && (this.task === "all" || a.task_id === this.task) && a.mode === this.mode && (this.direction === "all" || a.direction === this.direction))
       .filter((a) => { const k = `${a.attempt_id}\0${a.card}\0${a.outcome}\0${a.value ?? ""}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  }
+  /** Verdict counts per card and arm, in one pass over the pool (a per-cell scan is cards × arms × results). */
+  private tally(pool: readonly Assessment[]) {
+    const tally = new Map<string, { n: number; counts: Record<string, number>; unrecognized: number }>();
+    for (const a of pool) {
+      const key = `${a.card}\0${a.condition}`;
+      let t = tally.get(key);
+      if (!t) { t = { n: 0, counts: Object.fromEntries(OUTCOMES.map((o) => [o, 0])), unrecognized: 0 }; tally.set(key, t); }
+      t.n += 1;
+      if (a.outcome in t.counts) t.counts[a.outcome]! += 1; else t.unrecognized += 1;
+    }
+    return tally;
   }
   private arms() { return [...new Set(this.ev.doc.attempts.map((a) => a.condition))].sort(); }
   private modes() { return [...new Set(this.ev.doc.assessments.map((a) => a.mode))].sort(); }
@@ -556,22 +570,22 @@ export class MatrixPanel {
       if (!own.length || (this.task !== "all" && !own.every((x) => "task" in x.group))) return null;
       const counts: Record<string, number> = {};
       for (const x of own) for (const [k, v] of Object.entries(x.counts)) counts[k] = (counts[k] ?? 0) + v;
-      return { group: own[0]!.group, card: cat, counts, denominator: own.reduce((sum, x) => sum + x.denominator, 0), assertions: own.flatMap((x) => x.assertions), conditions: [arm] };
+      return { group: own[0]!.group, card: cat, counts, denominator: own.reduce((sum, x) => sum + x.denominator, 0), assertions: own.flatMap((x) => x.assertions ?? []), conditions: [arm] };
     }
     if (this.task !== "all") return null;
     return c.cells.find((x) => x.card === cat && (x.group.model ?? m.model_id) === m.model_id && (x.group.harness ?? m.harness_id) === m.harness_id && (!x.group.task || x.group.task === m.task_id)) ?? null;
   }
   render() {
-    const pool = this.pool(), arms = this.arms(), cats = this.cats();
+    const pool = this.pool(), arms = this.arms(), cats = this.cats(), tally = this.tally(pool);
     const tasks = [...new Set(this.ev.doc.attempts.map((a) => a.task_id))].sort();
-    const attemptsIn = (arm: string) => this.ev.doc.attempts.filter((a) => a.condition === arm && (this.cohort === "all" || a.cohorts.includes(this.cohort)) && (this.task === "all" || a.task_id === this.task)).length;
+    const attemptsOf = new Map<string, number>();
+    for (const a of this.ev.doc.attempts) if ((this.cohort === "all" || a.cohorts.includes(this.cohort)) && (this.task === "all" || a.task_id === this.task)) attemptsOf.set(a.condition, (attemptsOf.get(a.condition) ?? 0) + 1);
     const anyCert = Object.keys(this.ev.doc.certified).length > 0;
     const cell = (cat: string, arm: string) => {
-      const xs = pool.filter((a) => a.card === cat && a.condition === arm);
-      const n = xs.length, k = attemptsIn(arm);
+      const t = tally.get(`${cat}\0${arm}`) ?? { n: 0, counts: Object.fromEntries(OUTCOMES.map((o) => [o, 0])) as Record<string, number>, unrecognized: 0 };
+      const n = t.n, k = attemptsOf.get(arm) ?? 0;
       if (!k) return `<td class="mx na">—</td>`;
-      const counts = Object.fromEntries(OUTCOMES.map((o) => [o, xs.filter((a) => a.outcome === o).length]));
-      const unrecognized = xs.filter((a) => !(OUTCOMES as readonly string[]).includes(a.outcome)).length;
+      const counts = t.counts, unrecognized = t.unrecognized;
       const cert = this.certCell(cat, arm);
       let mark = `<span class="tag-x" title="Computed in the browser from the judge assertions">exploratory</span>`;
       if (cert) {
@@ -587,6 +601,8 @@ export class MatrixPanel {
         <span class="meta">${n} judgment${n === 1 ? "" : "s"} · ${k} attempt${k === 1 ? "" : "s"} in arm</span>${mark}</td>`;
     };
     const list = this.sel ? pool.filter((a) => a.card === this.sel!.cat && a.condition === this.sel!.arm) : pool;
+    // The list shows its first rows; a large study has millions of results, which no page can draw at once.
+    const shown = list.slice(0, LIST_MAX);
     this.root.innerHTML = `
       <div class="panel-head"><div><h2>Assessments</h2>
         <p class="sub">${pool.length} ${esc(modeLabel(this.mode))} judgments (one per attempt × behavior card)${this.direction !== "all" ? ` · ${esc(this.direction)} only` : ""} · ${this.cohort === "all" ? "all attempts" : `cohort ${esc(this.cohort)}`}${this.task !== "all" ? ` · ${esc(this.task ?? "task unavailable")}` : ""}</p></div>
@@ -608,10 +624,10 @@ export class MatrixPanel {
       <div class="p3-split">
         <div class="table-wrap mx-wrap"><table class="grid mxt"><thead><tr><th scope="col">Behavior card</th>${arms.map((a) => `<th scope="col" class="arm"><span class="arm-name">${esc(a)}</span></th>`).join("")}</tr></thead>
           <tbody>${cats.map((c, i) => `${i === 0 || this.familyOf(c) !== this.familyOf(cats[i - 1]!) ? `<tr class="mx-family"><th scope="colgroup" colspan="${arms.length + 1}">${esc(this.familyOf(c))}${this.familyName(this.familyOf(c)) ? ` · ${esc(this.familyName(this.familyOf(c)))}` : ""}</th></tr>` : ""}<tr><th scope="row" class="c-label"><span class="lbl">${esc(c)} ${esc(this.titleOf(c))}</span></th>${arms.map((a) => cell(c, a)).join("")}</tr>`).join("")}</tbody></table></div>
-        <div class="table-wrap jl-wrap"><p class="sub">${this.sel ? `${esc(this.sel.cat)} × ${esc(this.sel.arm)} · <button class="link" data-clear ${target("selectMatrixCell", "all")}>show all</button>` : "All judgments"} (${list.length})</p>
+        <div class="table-wrap jl-wrap"><p class="sub">${this.sel ? `${esc(this.sel.cat)} × ${esc(this.sel.arm)} · <button class="link" data-clear ${target("selectMatrixCell", "all")}>show all</button>` : "All judgments"} (${list.length.toLocaleString()}${list.length > shown.length ? `; the first ${shown.length.toLocaleString()} shown, pick a cell to narrow it` : ""})</p>
           <table class="grid jl"><thead><tr><th>Arm</th><th>Task</th><th>Trial</th><th>Attempt</th><th>Card</th><th>By</th><th>Verdict</th><th>Direction</th><th class="num">Conf. / prob.</th><th class="num">Cites</th><th>Rationale (start)</th></tr></thead>
-          <tbody>${list.map((a) => `<tr data-id="${esc(a.id)}" ${target("openAssessment", a.id)} tabindex="0"><td>${esc(a.condition)}</td><td>${esc(a.task_id)}</td><td>${esc(a.trial_id ?? "unavailable")}</td><td class="mono">${esc(a.short)}</td><td>${esc(a.card)}</td>
-            <td class="small">${esc(modeLabel(a.mode))}</td><td>${outChip(a.outcome, a.value)}</td><td>${dirChip(a.direction) || "—"}</td><td class="num">${a.confidence != null ? num(a.confidence) : a.probability != null ? num(a.probability) : "—"}</td><td class="num">${a.citations.length}</td><td class="small">${esc((a.rationale ?? "").slice(0, 140))}${(a.rationale ?? "").length > 140 ? "…" : ""}</td></tr>`).join("")}</tbody></table></div>
+          <tbody>${shown.map((a) => `<tr data-id="${esc(a.id)}" ${target("openAssessment", a.id)} tabindex="0"><td>${esc(a.condition)}</td><td>${esc(a.task_id)}</td><td>${esc(a.trial_id ?? "unavailable")}</td><td class="mono">${esc(a.short)}</td><td>${esc(a.card)}</td>
+            <td class="small">${esc(modeLabel(a.mode))}</td><td>${outChip(a.outcome, a.value)}</td><td>${dirChip(a.direction) || "—"}</td><td class="num">${a.confidence != null ? num(a.confidence) : a.probability != null ? num(a.probability) : "—"}</td><td class="num">${a.citationCount ?? a.citations.length}</td><td class="small">${esc((a.rationale ?? "").slice(0, 140))}${(a.rationale ?? "").length > 140 ? "…" : ""}</td></tr>`).join("")}</tbody></table></div>
       </div>`;
     this.root.querySelector<HTMLSelectElement>("[data-mode]")?.addEventListener("change", (e) => run("setMatrixMode", { mode: (e.target as HTMLSelectElement).value }));
     this.root.querySelector<HTMLSelectElement>("[data-direction]")?.addEventListener("change", (e) => run("setMatrixDirection", { direction: (e.target as HTMLSelectElement).value }));

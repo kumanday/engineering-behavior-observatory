@@ -70,7 +70,7 @@
             "units": { "type": "integer", "minimum": 0 },
             "layout": {
               "type": "object", "additionalProperties": false, "required": ["where"],
-              "properties": { "where": { "enum": ["build", "browser"] }, "run": { "type": "object", "required": ["backend", "device", "units"], "additionalProperties": true } }
+              "properties": { "where": { "enum": ["build", "browser"] }, "compact": { "const": true }, "run": { "type": "object", "required": ["backend", "device", "units"], "additionalProperties": true } }
             },
             "embeddings": {
               "type": "object", "additionalProperties": false, "required": ["file", "provider", "model", "dimensions"],

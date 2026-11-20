@@ -15,6 +15,7 @@ import { validateClaims } from "../src/atlas-claims.js";
 import { createHash } from "node:crypto";
 import { main } from "../src/cli.js";
 import { createAtlasFixture, standInEmbed } from "./atlas-fixture.js";
+import { clusterCloud, FacetIndex } from "../src/atlas-clusters.js";
 
 test("flattened event text keeps string leaves, labels short ones and skips identifiers", () => {
   assert.deepEqual(flattenText({ id: "x1", role: "user", content: [{ type: "text", text: "line one\nline two" }], input: '{"command":"ls"}', isError: false, exitCode: 0 }),
@@ -436,4 +437,66 @@ test("attempts processed in worker processes give the same bundle, and every row
       for (const row of Object.keys(native.units)) assert.equal(attemptOfRow.get(Number(row)), native.attempt_id);
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a compact cloud keeps the viewer's columns as dictionaries with short labels, clustered at build time", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-atlas-compact-"));
+  try {
+    await createAtlasFixture(join(root, "study"));
+    const requestPath = join(root, "bundle-request.json");
+    writeFileSync(requestPath, JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "synthetic-compact", title: "Synthetic compact",
+      cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], embeddings: { provider: "hashed-tfidf", layout: "build" } } satisfies AtlasBundleRequest));
+    // Two tight groups per family, so the build finds clusters.
+    const layout = async (_path: string, _dimensions: number, given: readonly string[]) => {
+      const n = given.length, k = 15, xy = new Float32Array(2 * n);
+      given.forEach((_family, i) => { xy[2 * i] = (i % 2) * 10 + (i % 7) * 0.01; xy[2 * i + 1] = (i % 2) * 10 + (i % 5) * 0.01; });
+      return { xy, neighborIds: new Int32Array(n * k).fill(-1), neighborDistances: new Float32Array(n * k), k,
+        run: { backend: "stand-in", backendVersion: "0", device: "cpu", units: n, pca: 128, neighbors: k, minDist: 0.1, seed: 42, metric: "cosine", familySeconds: {}, packages: {} } };
+    };
+    process.env.EBO_EMBEDDINGS_PYTHON = "/unused/python";
+    try {
+      const full = await buildAtlasBundle(requestPath, join(root, "full"), { layout, compactCloud: false });
+      const manifest = await buildAtlasBundle(requestPath, join(root, "compact"), { layout, compactCloud: true });
+      assert.equal(manifest.cloud.layout?.compact, true);
+      assert.equal(full.cloud.layout?.compact, undefined);
+      const before = tableFromIPC(readFileSync(join(root, "full", "units.arrow"))), units = tableFromIPC(readFileSync(join(root, "compact", "units.arrow")));
+      assert.equal(units.numRows, before.numRows);
+      const names = units.schema.fields.map(({ name }) => name);
+      for (const dropped of ["embed_text", "unit_id", "first_event_key", "episode_id", "neighbors", "input_chars"]) assert.ok(!names.includes(dropped), dropped);
+      for (const kept of ["row_id", "attempt_id", "condition", "task_id", "unit_kind", "family", "label", "x", "y", "cluster_id", "cluster_label", "writes", "occurrences"]) assert.ok(names.includes(kept), kept);
+      assert.match(String(units.schema.fields.find(({ name }) => name === "attempt_id")!.type), /^Dictionary/u);
+      for (let row = 0; row < units.numRows; row++) {
+        assert.equal(units.getChild("attempt_id")!.get(row), before.getChild("attempt_id")!.get(row));
+        assert.equal(units.getChild("condition")!.get(row), before.getChild("condition")!.get(row));
+        assert.equal(units.getChild("label")!.get(row), String(before.getChild("embed_text")!.get(row) ?? "").slice(0, 96));
+      }
+      for (let row = 0; row < units.numRows; row++) assert.equal(units.getChild("cluster_label")!.get(row) === null, Number(units.getChild("cluster_id")!.get(row)) < 0);
+      const labels = JSON.parse(readFileSync(join(root, "compact", "labels.json"), "utf8")) as Array<{ text: string }>;
+      assert.ok(labels.some(({ text }) => text === "MESSAGES"), "each family present has its label");
+      assert.ok(manifest.files.some(({ path }) => path === "labels.json"));
+      assert.ok(Buffer.byteLength(readFileSync(join(root, "compact", "units.arrow"))) < Buffer.byteLength(readFileSync(join(root, "full", "units.arrow"))));
+    } finally { delete process.env.EBO_EMBEDDINGS_PYTHON; }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("build-time clusters are dense regions of each family's layout, labelled by their over-represented facets", () => {
+  const n = 60, xy = new Float32Array(2 * n), families: string[] = [], index = new FacetIndex();
+  for (let i = 0; i < n; i++) {
+    const tool = i < 40, group = i % 2;
+    xy[2 * i] = group * 10 + (i % 7) * 0.01; xy[2 * i + 1] = group * 10 + (i % 5) * 0.01;
+    families.push(tool ? "tools" : "messages");
+    index.add({ family: families[i]!, unit_kind: tool ? "tool" : "message", text: tool ? "" : group ? "parser grammar tokens" : "deploy release notes", tool_kind: tool ? "shell" : null,
+      command_head: tool ? (group ? "npm test" : "ls") : null, check_kind: null, target: null, status: "ok", occurrences: [] });
+  }
+  const { clusterId, clusterOf, labels } = clusterCloud(xy, families, index);
+  const labelOf = (row: number) => clusterOf(clusterId[row]!);
+  assert.equal(labelOf(1), "`npm test`");
+  assert.equal(labelOf(0), "`ls`");
+  assert.match(labelOf(41) ?? "", /parser|grammar|tokens/u);
+  assert.notEqual(clusterId[0], clusterId[1]);
+  // Families sit side by side, in the viewer's order (messages, episodes, tools): every tool is right of every message.
+  const toolX = Math.min(...Array.from({ length: 40 }, (_, i) => xy[2 * i]!)), messageX = Math.max(...Array.from({ length: 20 }, (_, i) => xy[2 * (40 + i)]!));
+  assert.ok(toolX > messageX);
+  assert.ok([...clusterId].filter((id) => id >= 0).length >= 0.95 * n, "nearly every unit of a dense group is in its cluster");
+  assert.deepEqual(labels.filter(({ priority }) => priority === 1e9).map(({ text }) => text), ["MESSAGES", "TOOLS"]);
 });

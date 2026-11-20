@@ -91,6 +91,28 @@ when the runtime is available, since a browser cannot hold millions of
 
 ## Large bundles
 
+Above 1,000,000 units, a build-time layout also writes the compact cloud, so
+the browser only loads the table. The build places each unit family side by
+side, finds density clusters on each family's layout and labels them by their
+over-represented facets (the viewer's method, with connected dense regions as
+clusters), and writes `labels.json`. `units.arrow` then keeps the columns the
+viewer filters, colours, brushes and queries on. Each repeated string column
+(attempt, arm, model, harness, task, trial, kind, tool, command head, check,
+status, target, error signature, cluster label) is stored as codes into one
+dictionary for the whole table. A unit's text is shortened to a 96-character
+`label`. Per-unit ids, event keys, neighbors and unused counts are left out;
+full texts stay in the tables and native records. `cloud.layout.compact` in
+the manifest says so. The viewer streams a compact cloud into DuckDB in
+slices. Before loading, it checks the cloud's size against what it can hold
+(2.5 GB of Arrow) and names the table and the excess if the bundle is larger.
+
+Measured headless in Chrome with WebGPU (macOS): a synthetic compact cloud of
+10,005,000 units (2.4 GB) with 4,045,500 card results was ready in 29 seconds
+at a peak of 12.1 GB of browser memory. Clusters, a 489-attempt task's lanes
+and the card matrix each opened in under 7 seconds. The same 1,000,000 units
+written in full take 27.5 seconds and 6.7 GB. `viewer/scripts/scale-load.mjs`
+repeats the measurement against a served bundle.
+
 Above 2,000 attempts the viewer's per-attempt documents are split, so neither
 the build nor the viewer handles one document for the whole study:
 

@@ -10,12 +10,16 @@ import baseWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-base.worker.js?u
 import { Coordinator, wasmConnector } from "@uwdata/mosaic-core";
 import { EmbeddingAtlas } from "embedding-atlas";
 import { ClusterArmPanel, rowsOf } from "./enrichment";
-import { shortId, SwimlanesPanel, type LanesData } from "./lanes";
+import { setUnitTextColumn, shortId, SwimlanesPanel, type LanesData } from "./lanes";
+
+/** The most cloud table (Arrow bytes) the viewer loads: DuckDB-WASM's 4 GB address space less room for queries. */
+const CLOUD_BUDGET_BYTES = 2.5e9;
+const COMPACT_UNITS_HINT = "1,000,000";
 import { STOP_WORDS } from "./stopwords";
 import { ClaimsPanel, Drawer, Evidence, expandAssessmentIndex, MatrixPanel, type AssessDoc, type AuditDoc, type ClaimsDoc, type DrawerView } from "./p3";
 import { FiguresPanel, type ViewsDoc } from "./views";
 import { prepareCloud } from "./layout";
-import { tableFromArrays, tableToIPC } from "apache-arrow";
+import { RecordBatch, RecordBatchReader, Table, tableFromArrays, tableToIPC } from "apache-arrow";
 import {
   commandRunning, decodeState, onCommandBoundary, describable, describe, encodeState, getState, listCommands, provide, recordChange, register, run, setState, subscribe, target,
   type CommandEvent, type Json,
@@ -79,18 +83,49 @@ async function main() {
   const coordinator = new Coordinator(wasmConnector({ duckdb: db }));
 
   status("Loading units…");
+  // The cloud table must fit DuckDB-WASM's 4 GB address space with room to query it. A bundle over that budget is
+  // reported by table and size here rather than failing somewhere inside the load.
+  const unitsBytes = (manifest as { files?: Array<{ path: string; bytes: number }> } | null)?.files?.find(({ path }) => path === "units.arrow")?.bytes;
+  if (unitsBytes !== undefined && unitsBytes > CLOUD_BUDGET_BYTES) {
+    throw new Error(`The cloud table (units.arrow) is ${(unitsBytes / 1e9).toFixed(1)} GB, ${((unitsBytes - CLOUD_BUDGET_BYTES) / 1e9).toFixed(1)} GB over the ${(CLOUD_BUDGET_BYTES / 1e9).toFixed(1)} GB this viewer can hold. Rebuild the bundle with a build-time layout, which writes the compact cloud above ${COMPACT_UNITS_HINT} units.`);
+  }
   // Arrow IPC needs no DuckDB extensions, so the viewer also works offline and from packets opened on disk.
   const resp = await fetch(file("units.arrow"));
   if (!resp.ok) throw new Error(`units.arrow not found in the bundle at ${bundleUrl}`);
-  const cloud = await prepareCloud(new Uint8Array(await resp.arrayBuffer()), async () => {
-    const spec = (manifest as { cloud?: { embeddings?: { file: string; dimensions: number } } } | null)?.cloud?.embeddings;
-    if (!spec) return null;
-    const r = await fetch(file(spec.file));
-    return r.ok ? { data: new Float32Array(await r.arrayBuffer()), dimensions: spec.dimensions } : null;
-  }, status);
   const conn = await db.connect();
-  await conn.insertArrowFromIPCStream(cloud.ipc, { name: "units", create: true });
+  const loadFailed = (error: unknown) => new Error(`Loading the cloud table (units${unitsBytes === undefined ? "" : `, ${(unitsBytes / 1e9).toFixed(2)} GB of Arrow`}) into DuckDB failed: ${error instanceof Error ? error.message : String(error)}`);
+  let cloud: { labels: Awaited<ReturnType<typeof prepareCloud>>["labels"] };
+  if ((manifest as { cloud?: { layout?: { compact?: boolean } } } | null)?.cloud?.layout?.compact) {
+    // A compact cloud arrives laid out and clustered. It is streamed into DuckDB a slice at a time: a browser cannot
+    // hold one multi-gigabyte buffer, and the table needs no work here.
+    try {
+      const reader = await RecordBatchReader.from(resp.body!);
+      let pending: RecordBatch[] = [], rows = 0, loaded = 0, create = true;
+      const flush = async () => {
+        await conn.insertArrowFromIPCStream(tableToIPC(new Table(pending), "stream"), { name: "units", create });
+        create = false; loaded += rows; pending = []; rows = 0;
+        status(`Loading units… ${loaded.toLocaleString()}`);
+      };
+      for await (const batch of reader) { pending.push(batch); rows += batch.numRows; if (rows >= 1 << 19) await flush(); }
+      if (pending.length || create) await flush();
+    } catch (error) { throw loadFailed(error); }
+    cloud = { labels: null };
+  } else {
+    const prepared = await prepareCloud(new Uint8Array(await resp.arrayBuffer()), async () => {
+      const spec = (manifest as { cloud?: { embeddings?: { file: string; dimensions: number } } } | null)?.cloud?.embeddings;
+      if (!spec) return null;
+      const r = await fetch(file(spec.file));
+      return r.ok ? { data: new Float32Array(await r.arrayBuffer()), dimensions: spec.dimensions } : null;
+    }, status);
+    try { await conn.insertArrowFromIPCStream(prepared.ipc, { name: "units", create: true }); } catch (error) { throw loadFailed(error); }
+    cloud = prepared;
+  }
+  const unitColumns = new Set((await conn.query("DESCRIBE units")).toArray().map((row) => String(row.toJSON().column_name)));
   await conn.close();
+  // A compact cloud keeps a short label in place of the full text and leaves neighbors out.
+  const textColumn = unitColumns.has("embed_text") ? "embed_text" : "label";
+  const neighborsColumn = unitColumns.has("neighbors") ? "neighbors" : undefined;
+  setUnitTextColumn(textColumn);
 
   // Embedding Atlas labels are { x, y, content, level, priority }; labels.json stores the text as `text`.
   let labels: { x: number; y: number; content: string; level?: number; priority?: number }[] | null = null;
@@ -237,14 +272,14 @@ async function main() {
   const atlas = new EmbeddingAtlas(document.getElementById("atlas")!, {
     coordinator,
     // No `features` list: it pushed the per-column count charts below the fold and truncated long tags.
-    data: { table: "units", id: "row_id", projection: { x: "x", y: "y" }, neighbors: "neighbors", text: "embed_text" },
+    data: { table: "units", id: "row_id", projection: { x: "x", y: "y" }, ...(neighborsColumn ? { neighbors: neighborsColumn } : {}), text: textColumn },
     colorScheme: dark() ? "dark" : "light",
     embeddingViewConfig: { autoLabelStopWords: STOP_WORDS },
     embeddingViewLabels: labels,
     defaultChartsConfig: {
       // shallow-merged over the default embedding spec, so data must be complete
-      embedding: { data: { x: "x", y: "y", text: "embed_text", neighbors: "neighbors", category: colorBy === "none" ? null : colorBy } },
-      include: ["condition", "task_id", "unit_kind", "tool_kind", "check_kind", "status", "harness_id", "trial_id", "cited_assessments", "cluster_label", "embed_text"],
+      embedding: { data: { x: "x", y: "y", text: textColumn, ...(neighborsColumn ? { neighbors: neighborsColumn } : {}), category: colorBy === "none" ? null : colorBy } },
+      include: ["condition", "task_id", "unit_kind", "tool_kind", "check_kind", "status", "harness_id", "trial_id", "cited_assessments", "cluster_label", textColumn],
     },
     onPredicateChange: (predicate) => { refreshing = Promise.all([panel.setPredicate(predicate), lanes?.setPredicate(predicate)]).then(() => undefined); },
     onStateChange: (state) => {
