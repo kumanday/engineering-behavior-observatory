@@ -405,3 +405,35 @@ test("a build-time layout puts positions and neighbors in the cloud table and re
     } finally { delete process.env.EBO_EMBEDDINGS_PYTHON; }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("attempts processed in worker processes give the same bundle, and every row id points into its own attempt", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-atlas-workers-"));
+  try {
+    await createAtlasFixture(join(root, "study"));
+    const requestPath = join(root, "bundle-request.json");
+    writeFileSync(requestPath, JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "synthetic-workers", title: "Synthetic workers",
+      cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], embeddings: { provider: "hashed-tfidf" } } satisfies AtlasBundleRequest));
+    const now = () => new Date("2026-10-07T00:00:00.000Z");
+    const serial = await buildAtlasBundle(requestPath, join(root, "serial"), { now, attemptWorkers: 1 });
+    const parallel = await buildAtlasBundle(requestPath, join(root, "parallel"), { now, attemptWorkers: 3 });
+    // Byte-identical, apart from the reports' generation times (the cohort report, the cohorts table and the certified tallies).
+    const timed = new Set(["reports/all.json", "tables/cohorts.parquet", "assessments.json"]);
+    assert.deepEqual(parallel.files.filter(({ path }) => !timed.has(path)), serial.files.filter(({ path }) => !timed.has(path)));
+    const untimed = (dir: string) => JSON.stringify(JSON.parse(readFileSync(join(root, dir, "assessments.json"), "utf8"), (key, value) => (key === "generated_at" ? undefined : value)));
+    assert.equal(untimed("parallel"), untimed("serial"));
+    const units = tableFromIPC(readFileSync(join(root, "serial", "units.arrow")));
+    const attemptOfRow = new Map<number, string>();
+    for (let row = 0; row < units.numRows; row++) attemptOfRow.set(Number(units.getChild("row_id")!.get(row)), String(units.getChild("attempt_id")!.get(row)));
+    assert.ok(new Set(attemptOfRow.values()).size > 1, "the fixture has several attempts, so later ones are shifted");
+    const assessments = JSON.parse(readFileSync(join(root, "serial", "assessments.json"), "utf8")) as { assessments: Array<{ attempt_id: string; citations: Array<{ row_id: number | null }> }> };
+    for (const doc of assessments.assessments) for (const { row_id } of doc.citations) if (row_id !== null) assert.equal(attemptOfRow.get(row_id), doc.attempt_id);
+    const audits = JSON.parse(readFileSync(join(root, "serial", "audit.json"), "utf8")) as { attempts: Record<string, { checks: Array<{ row_id: number }>; changes: Array<{ row_id: number }>; final: { row_id: number } | null; failure_chains: Array<{ failures: number[] }> }> };
+    for (const [attemptId, audit] of Object.entries(audits.attempts)) {
+      for (const row of [...audit.checks.map((c) => c.row_id), ...audit.changes.map((c) => c.row_id), ...(audit.final ? [audit.final.row_id] : []), ...audit.failure_chains.flatMap((c) => c.failures)]) assert.equal(attemptOfRow.get(row), attemptId);
+    }
+    for (const file of readdirSync(join(root, "serial", "native"))) {
+      const native = JSON.parse(readFileSync(join(root, "serial", "native", file), "utf8")) as { attempt_id: string; units: Record<string, unknown> };
+      for (const row of Object.keys(native.units)) assert.equal(attemptOfRow.get(Number(row)), native.attempt_id);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

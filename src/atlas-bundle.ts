@@ -1,6 +1,8 @@
 import { operationAlias } from "./event-aliases.js";
 import { retainedContentResolver as contentResolver } from "./retained-content.js";
 import { createHash } from "node:crypto";
+import { fork } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { closeSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { finished } from "node:stream/promises";
 import { StringDecoder } from "node:string_decoder";
@@ -23,6 +25,7 @@ import { BEHAVIOR_DIRECTIONS, BEHAVIOR_VERDICTS, behaviorDirection, loadDefaultB
 import type { CorpusIndexEntry } from "./corpus.js";
 import { readLeaderboardCohort } from "./leaderboard-import.js";
 import { createRetainedBehaviorEvidence, withRetainedEvidenceReuse, type RetainedEvidenceReuseStats } from "./retained-evidence.js";
+import { validationWorkers } from "./bundle-validation.js";
 import type { StructuralObservationSet } from "./structural-observations.js";
 import type { UniformEvent } from "./uniform-events.js";
 
@@ -284,7 +287,7 @@ async function writeTables(tables: Record<string, Row[]>, directory: string, sin
  * (invalid source, DuckDB, embedding provider) never leaves a partial bundle at the destination.
  */
 export async function buildAtlasBundle(requestPath: string, destination: string,
-  options: { now?: () => Date; embed?: typeof embedTexts; embedding?: EmbeddingOptions; layout?: typeof layoutCloud; evidenceReuse?: RetainedEvidenceReuseStats; splitViewerDocuments?: boolean } = {}): Promise<AtlasBundleManifest> {
+  options: { now?: () => Date; embed?: typeof embedTexts; embedding?: EmbeddingOptions; layout?: typeof layoutCloud; evidenceReuse?: RetainedEvidenceReuseStats; splitViewerDocuments?: boolean; attemptWorkers?: number } = {}): Promise<AtlasBundleManifest> {
   const request = readRequest(requestPath);
   if (existsSync(destination) && readdirSync(destination).length) throw new Error(`Atlas bundle output ${destination} is not empty; choose a new directory.`);
   mkdirSync(dirname(resolve(destination)), { recursive: true });
@@ -328,7 +331,7 @@ function leaderboardLabels(base: string, source: AtlasBundleRequest["leaderboard
 }
 
 async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string, outputRoot: string, sink: TableSink,
-  options: { now?: () => Date; embed?: typeof embedTexts; embedding?: EmbeddingOptions; layout?: typeof layoutCloud; splitViewerDocuments?: boolean }): Promise<AtlasBundleManifest> {
+  options: { now?: () => Date; embed?: typeof embedTexts; embedding?: EmbeddingOptions; layout?: typeof layoutCloud; splitViewerDocuments?: boolean; attemptWorkers?: number }): Promise<AtlasBundleManifest> {
   const base = dirname(resolve(requestPath));
   // A missing embedding runtime fails here, before hours of attempt processing, not at the end.
   const embeddingConfig = selectEmbeddings(request.embeddings, base);
@@ -446,173 +449,46 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   const split = options.splitViewerDocuments ?? attempts.size > SPLIT_ATTEMPTS;
   if (split) for (const directory of ["assessments", "audit", "lanes"]) mkdirSync(join(outputRoot, directory), { recursive: true });
   const index = split ? new AssessmentIndex() : undefined;
-  const eventKeys = new Set<string>();
   const cloud = new CloudWriter(join(sink.staging, "cloud.ndjson"));
   const audits: Record<string, unknown> = {};
   const lanes: { attempts: LaneMeta[]; usage: Record<string, Array<[number, number]>>; context: Record<string, Array<[number, number]>>; split?: string } = { attempts: [], usage: {}, context: {} };
   const attemptMeta: Array<Record<string, unknown>> = [];
   const assessmentDocs: unknown[] = [];
   const judgedCardIds = new Set<string>();
-  const edge = (src_type: string, src_id: unknown, rel: unknown, dst_type: string, dst_id: unknown) => stream("edges", { src_type, src_id: String(src_id), rel: String(rel), dst_type, dst_id: String(dst_id) });
   const sortedAttempts = [...attempts].sort(([a], [b]) => a.localeCompare(b));
-  for (const [attemptId, { entry: corpusEntry, bundleRoot, cohorts: memberOf }] of sortedAttempts) {
+  const slimOf = new Map<string, Array<[string, SlimAssertion]>>();
+  for (const [id, slim] of assertions) { const list = slimOf.get(slim.attemptId); if (list) list.push([id, slim]); else slimOf.set(slim.attemptId, [[id, slim]]); }
+  const jobs = sortedAttempts.map(([attemptId, { entry: corpusEntry, bundleRoot, cohorts: memberOf }]): AttemptJob => {
     const source = corpusEntry.manifestKind === "import" ? sourceLabels.get(corpusEntry.manifestDigest) : undefined;
     const entry = source ? { ...corpusEntry, taskId: source.taskId, trialId: source.trialId } : corpusEntry;
-    // This attempt's validated assertions, read again from their files and matched by id and digest.
-    const own: Array<{ assertion: BehaviorAssertion; slim: SlimAssertion; id: string }> = [];
-    for (const [path, kind] of assertionFiles.get(resolve(bundleRoot)) ?? []) {
-      const text = readFileSync(path, "utf8");
-      for (const line of kind === "document" ? [text] : text.split("\n")) {
-        if (!line.trim()) continue;
-        const assertion = JSON.parse(line) as BehaviorAssertion, slim = assertions.get(assertion.id);
-        if (slim && slim.attemptId === attemptId && !own.some(({ id }) => id === assertion.id) && `sha256:${digestMetadata(assertion).value}` === slim.digest) own.push({ assertion, slim, id: assertion.id });
-      }
-    }
-    own.sort((a, b) => a.id.localeCompare(b.id));
-    const observationSource = observationSets.get(attemptId);
-    const observationSet = observationSource ? JSON.parse(readFileSync(observationSource.path, "utf8")) as StructuralObservationSet : undefined;
-    // Units carry which judgments cite them and which structural observations draw on them.
-    const citedBy = new Map<string, Array<{ id: string; label: string }>>();
-    for (const { assertion } of own) {
-      const label = `${assertion.behavior.cardId}:${assertion.judgment.verdict}`;
-      for (const citation of isDecisionModelAssertion(assertion) ? [] : assertion.judgment.citations) {
-        const key = `${assertion.attemptId}/${citation.eventId}`;
-        citedBy.set(key, [...citedBy.get(key) ?? [], { id: assertion.id, label }]);
-      }
-    }
-    const extractorsOf = new Map<string, Set<string>>();
-    for (const observation of observationSet?.observations ?? []) for (const eventId of observation.sourceEventIds) {
-      const key = `${attemptId}/${eventId}`;
-      extractorsOf.set(key, (extractorsOf.get(key) ?? new Set()).add(observation.extractor.id));
-    }
-    const evidence = await createRetainedBehaviorEvidence(bundleRoot);
     // The trial's third-party verdict: from the leaderboard cohort store, or as the import declared it.
-    const outcome = source?.outcome !== undefined ? { outcome: source.outcome, source: "Harness Leaderboard", release: undefined, record: undefined }
-      : entry.sourceOutcome !== undefined ? { outcome: entry.sourceOutcome, source: entry.sourceOutcomeSource ?? "third party", release: entry.sourceOutcomeRelease, record: entry.sourceOutcomeRecord } : undefined;
-    const resolveContent = contentResolver(evidence);
-    const derived = deriveUnits({ attemptId, evidenceOrigin: evidence.capture.qualification === "imported" ? "imported" : "owned", events: evidence.dataset.events, occurrences: observationSet?.occurrences ?? [],
-      resolveContent: (reference) => { const r = resolveContent(reference); return r.status === "resolved" ? r.value : undefined; } });
-    const times = evidence.dataset.events.flatMap((e) => (e.nativeTime.status === "known" && Number.isFinite(Date.parse(e.nativeTime.value)) ? [e.nativeTime.value] : []))
-      .sort((a, b) => Date.parse(a) - Date.parse(b));
-    const first = times[0], last = times.at(-1);
-    const arm = armOf(basename(bundleRoot), entry);
-    const attemptTableRow = { attempt_id: attemptId, run_id: entry.runId ?? null, bundle_id: entry.bundleId ?? null, model_id: entry.modelId ?? null, model_route: entry.modelRoute ?? null,
-      model_provider: entry.modelProvider ?? null, harness_id: entry.harnessId ?? null, harness_version: entry.harnessVersion ?? null, task_id: entry.taskId ?? null,
-      fixture_id: entry.fixtureId ?? null, trial_id: entry.trialId ?? null, condition: arm,
-      assessment_mode: entry.assessmentMode ?? null, capture_qualification: entry.captureQualification ?? null, terminal_state: entry.terminalState ?? null,
-      failure_class: entry.failureClass ?? null, stop_reason: entry.stopReason ?? null, adapter_id: evidence.dataset.adapter.id, adapter_version: evidence.dataset.adapter.version,
-      dataset_digest: observationSet?.normalization.datasetDigest ?? null, manifest_digest: entry.manifestDigest ?? null,
-      bundle_root: relative(base, bundleRoot), event_count: evidence.dataset.events.length, native_record_count: evidence.coverage.records.total,
-      unmapped_record_count: evidence.coverage.records.unmapped, first_event_time: first ?? null, last_event_time: last ?? null,
-      native_span_seconds: first && last ? (Date.parse(last) - Date.parse(first)) / 1000 : null,
-      source_outcome: outcome?.outcome ?? null, source_outcome_source: outcome?.source ?? null, source_outcome_release: outcome?.release ?? null, source_outcome_record: outcome?.record ?? null };
-    tables.attempts!.push(attemptTableRow);
-    for (const cohortId of [...memberOf].sort()) { stream("attempt_cohorts", { attempt_id: attemptId, cohort_id: cohortId }); edge("attempt", attemptId, "member-of", "cohort", cohortId); }
-
-    const linksOf = new Map<string, string[]>();
-    for (const link of derived.links) linksOf.set(link.unit_id, [...linksOf.get(link.unit_id) ?? [], link.event_key]);
-    const membersOf = new Map<string, string[]>();
-    for (const u of derived.units) if (u.episode_id) {
-      const list = membersOf.get(u.episode_id) ?? [];
-      if (!list.length) membersOf.set(u.episode_id, list);
-      list.push(u.unit_id);
-    }
-    const ownUnits: Array<AtlasUnit & Row> = [];
-    for (const unit of derived.units) {
-      const keys = unit.unit_kind === "episode" ? (membersOf.get(unit.unit_id) ?? []).flatMap((id) => linksOf.get(id) ?? []) : linksOf.get(unit.unit_id) ?? [];
-      const cites = [...new Map(keys.flatMap((k) => citedBy.get(k) ?? []).map((c) => [c.id, c])).values()].sort((a, b) => a.id.localeCompare(b.id));
-      const row = { ...unit, model_id: entry.modelId ?? null, harness_id: entry.harnessId ?? null, task_id: entry.taskId ?? null, trial_id: entry.trialId ?? null,
-        condition: arm, terminal_state: entry.terminalState ?? null, cited_assertions: cites.map(({ id }) => id), cited_assessments: cites.map(({ label }) => label),
-        cited: cites.length > 0, observation_extractors: [...new Set(keys.flatMap((k) => [...extractorsOf.get(k) ?? []]))].sort() } as unknown as AtlasUnit & Row;
-      stream("units", row);
-      ownUnits.push(row);
-    }
-    for (const link of derived.links) stream("unit_events", link);
-    // Event rows carry the resolved native content; each is written as soon as it is built, never held.
-    for (const [index, event] of evidence.dataset.events.entries()) {
-      const row = eventRow(event, index, resolveContent);
-      if (eventKeys.has(String(row.event_key))) throw new Error(`Duplicate event key ${String(row.event_key)}.`);
-      eventKeys.add(String(row.event_key));
-      if (first && typeof row.event_time === "string") row.t_rel_seconds = (Date.parse(row.event_time) - Date.parse(first)) / 1000;
-      stream("events", row);
-      stream("edges", { src_type: "event", src_id: row.event_key, rel: "part-of", dst_type: "attempt", dst_id: attemptId });
-      if (row.parent_event_key) stream("edges", { src_type: "event", src_id: row.event_key, rel: "child-of", dst_type: "event", dst_id: row.parent_event_key });
-    }
-    for (const event of evidence.dataset.events) for (const relation of event.relations.known) {
-      stream("event_relations", { src_event_key: `${attemptId}/${event.id}`, kind: relation.kind, dst_event_key: `${attemptId}/${relation.eventId}`, attempt_id: attemptId });
-      stream("edges", { src_type: "event", src_id: `${attemptId}/${event.id}`, rel: relation.kind, dst_type: "event", dst_id: `${attemptId}/${relation.eventId}` });
-    }
-
-    // Viewer documents for this attempt: cloud rows, swimlane, audit, native records and assessments.
-    const short = shortAttemptId(attemptId);
-    let carriedTime: number | null = null;
-    const rowsOfAttempt: Array<AtlasUnit & Row & { row_id: number }> = [];
-    for (const unit of ownUnits.filter((u) => u.embed).sort((a, b) => Number(a.seq) - Number(b.seq))) {
-      const t0 = unit.t_start && Number.isFinite(Date.parse(unit.t_start)) ? Date.parse(unit.t_start) : null;
-      const t1 = unit.t_end && Number.isFinite(Date.parse(unit.t_end)) ? Date.parse(unit.t_end) : null;
-      const row = { ...unit, row_id: cloud.rows, t0_ms: t0 ?? carriedTime, t1_ms: t0 === null ? carriedTime : t1 ?? t0, timed: t0 !== null };
-      if (t0 !== null) carriedTime = unit.unit_kind === "episode" ? t0 : t1 ?? t0;
-      cloud.push(row);
-      rowsOfAttempt.push(row);
-    }
-    const native = new NativeLines(bundleRoot, relative(base, bundleRoot));
-    const contentOf = (event: UniformEvent) => (event.content.status === "known"
-      ? event.content.value.map(({ nativeReference }) => resolveContent(nativeReference)).flatMap((r) => (r.status === "resolved" ? [r.value] : [])) : []);
-    const evidenceDocs = attemptEvidence({ attemptId, evidenceOrigin: evidence.capture.qualification === "imported" ? "imported" : "owned", short, condition: arm, trialId: entry.trialId ?? null, cohorts: [...memberOf].sort(), units: rowsOfAttempt,
-      links: derived.links, events: evidence.dataset.events, occurrences: observationSet?.occurrences ?? [], native, resolveContent: contentOf });
-    if (split) writeJsonFile(join(outputRoot, "audit", `${fileName(attemptId)}.json`), evidenceDocs.audit);
-    else audits[attemptId] = evidenceDocs.audit;
-    writeJsonFile(join(outputRoot, "native", `${fileName(attemptId)}.json`), evidenceDocs.native);
-    const attemptRow = { attempt_id: attemptId, task_id: entry.taskId ?? null, condition: arm, trial_id: entry.trialId ?? null, harness_id: entry.harnessId ?? null,
-      harness_version: entry.harnessVersion ?? null,
-      model_id: entry.modelId ?? null, terminal_state: entry.terminalState ?? null, failure_class: entry.failureClass ?? null, capture_qualification: entry.captureQualification ?? null,
-      ...(outcome === undefined ? {} : { source_outcome: outcome.outcome, source_outcome_source: outcome.source,
-        ...(outcome.release ? { source_outcome_release: outcome.release } : {}), ...(outcome.record ? { source_outcome_record: outcome.record } : {}) }) };
-    const lane = laneData(attemptRow, rowsOfAttempt, evidence.dataset.events);
-    lane.lane.cited_units = rowsOfAttempt.filter((u) => u.cited && u.unit_kind !== "episode").length;
-    lanes.attempts.push(lane.lane);
-    if (split) { if (lane.usage || lane.context) writeJsonFile(join(outputRoot, "lanes", `${fileName(attemptId)}.json`), { usage: lane.usage ?? null, context: lane.context ?? null }); }
-    else { if (lane.usage) lanes.usage[attemptId] = lane.usage; if (lane.context) lanes.context[attemptId] = lane.context; }
-    const eventTypes: Record<string, number> = {};
-    for (const event of evidence.dataset.events) { const k = `${event.family} · ${String(event.attributes.eventType ?? event.attributes.itemType ?? event.attributes.method ?? event.source.nativeType)}`; eventTypes[k] = (eventTypes[k] ?? 0) + 1; }
+    const outcome = source?.outcome !== undefined ? { outcome: source.outcome, source: "Harness Leaderboard" }
+      : entry.sourceOutcome !== undefined ? { outcome: entry.sourceOutcome, source: entry.sourceOutcomeSource ?? "third party",
+        ...(entry.sourceOutcomeRelease ? { release: entry.sourceOutcomeRelease } : {}), ...(entry.sourceOutcomeRecord ? { record: entry.sourceOutcomeRecord } : {}) } : undefined;
+    const files = [...assertionFiles.get(resolve(bundleRoot)) ?? []];
+    return { attemptId, entry, ...(outcome ? { outcome } : {}), bundleRoot, memberOf: [...memberOf].sort(), arm: armOf(basename(bundleRoot), entry), base,
+      assertionFiles: files, slim: Object.fromEntries((slimOf.get(attemptId) ?? []).map(([id, slim]) => [id, { digest: slim.digest, review: slim.review, flags: [...slim.flags] }])),
+      ...(observationSets.has(attemptId) ? { observationSetPath: observationSets.get(attemptId)!.path } : {}) };
+  });
+  // Attempts are processed in worker processes when there are many and written here in attempt order; each result's
+  // cloud row ids start at 0 and are shifted by the rows already written.
+  for await (const result of processAttempts(jobs, options.attemptWorkers)) {
+    const offset = cloud.rows, shifted = shiftAttemptRows(result, offset);
+    for (const [name, row] of shifted.rows) stream(name, row);
+    tables.attempts!.push(shifted.attemptTableRow);
+    for (const row of shifted.cloudRows) cloud.push(row);
+    if (split) writeJsonFile(join(outputRoot, "audit", `${fileName(shifted.attemptId)}.json`), shifted.audit);
+    else audits[shifted.attemptId] = shifted.audit;
+    writeJsonFile(join(outputRoot, "native", `${fileName(shifted.attemptId)}.json`), shifted.native);
+    lanes.attempts.push(shifted.lane.lane);
+    if (split) { if (shifted.lane.usage || shifted.lane.context) writeJsonFile(join(outputRoot, "lanes", `${fileName(shifted.attemptId)}.json`), { usage: shifted.lane.usage ?? null, context: shifted.lane.context ?? null }); }
+    else { if (shifted.lane.usage) lanes.usage[shifted.attemptId] = shifted.lane.usage; if (shifted.lane.context) lanes.context[shifted.attemptId] = shifted.lane.context; }
     const attemptOrdinal = attemptMeta.length;
-    attemptMeta.push({ ...attemptRow, short, cohorts: [...memberOf].sort(), bundle: relative(base, bundleRoot), native_span_seconds: attemptTableRow.native_span_seconds,
-      native_record_count: evidence.coverage.records.total, unmapped_record_count: evidence.coverage.records.unmapped, event_count: evidence.dataset.events.length,
-      event_types: eventTypes, units: ownUnits.filter((u) => u.unit_kind !== "episode").length, tool_calls: ownUnits.filter((u) => u.unit_kind === "tool").length });
-    const docsOfAttempt: Array<ReturnType<typeof assessmentDoc>> = [];
-    for (const { assertion, slim } of own) {
-      const flags = Object.fromEntries([...slim.flags].map(([cohortId, flag]) => [cohortId, flag]));
-      const doc = assessmentDoc(assertion, { short, condition: arm, taskId: entry.taskId ?? null, trialId: entry.trialId ?? null, review: slim.review,
-        cohorts: Object.keys(flags).length ? flags : Object.fromEntries([...memberOf].map((c) => [c, { included: true }])) }, evidenceDocs.linkCitation, native);
-      docsOfAttempt.push(doc);
-      judgedCardIds.add(assertion.behavior.cardId);
-      index?.push(doc, attemptOrdinal);
-      writeAssessmentRows(assertion, slim, eventKeys, stream, edge);
-    }
-    if (split) { if (docsOfAttempt.length) writeJsonFile(join(outputRoot, "assessments", `${fileName(attemptId)}.json`), docsOfAttempt); }
-    else assessmentDocs.push(...docsOfAttempt);
-    for (const observation of observationSet?.observations ?? []) {
-      const value = observation.value as { status?: string; value?: unknown; unit?: string };
-      const { denominator } = observation;
-      const sources = observation.sourceEventIds;
-      stream("observations", { observation_id: observation.id, attempt_id: attemptId, run_id: observationSet!.runId, extractor_id: observation.extractor.id,
-        extractor_version: observation.extractor.version, definition: observation.definition, value_status: value.status ?? null,
-        value_json: JSON.stringify(value.value ?? null), value_num: typeof value.value === "number" ? value.value : null, unit: value.unit ?? null,
-        denominator_scope: denominator.scope, denominator_value: denominator.value, denominator_unit: denominator.unit,
-        source_record_count: observation.sourceRecordCount, source_event_count: sources.length });
-      edge("observation", observation.id, "about", "attempt", attemptId);
-      for (const eventId of sources) {
-        stream("observation_sources", { observation_id: observation.id, attempt_id: attemptId, event_id: eventId, event_key: `${attemptId}/${eventId}` });
-        stream("edges", { src_type: "observation", src_id: observation.id, rel: "derived-from", dst_type: "event", dst_id: `${attemptId}/${eventId}` });
-      }
-    }
-    for (const occurrence of observationSet?.occurrences ?? []) {
-      const keys = occurrence.eventIds.map((id) => `${attemptId}/${id}`);
-      stream("occurrences", { occurrence_id: occurrence.id, attempt_id: attemptId, type: occurrence.type, rule_id: occurrence.rule.id, rule_version: occurrence.rule.version,
-        heuristic: occurrence.rule.heuristic, first_event_key: keys[0]!, event_count: keys.length, event_keys: JSON.stringify(keys), attributes_json: JSON.stringify(occurrence.attributes) });
-      edge("occurrence", occurrence.id, "about", "attempt", attemptId);
-      for (const key of keys) edge("occurrence", occurrence.id, "derived-from", "event", key);
-    }
+    attemptMeta.push(shifted.meta);
+    for (const doc of shifted.docs) index?.push(doc, attemptOrdinal);
+    for (const card of shifted.cards) judgedCardIds.add(card);
+    if (split) { if (shifted.docs.length) writeJsonFile(join(outputRoot, "assessments", `${fileName(shifted.attemptId)}.json`), shifted.docs); }
+    else assessmentDocs.push(...shifted.docs);
   }
 
   // The cloud: units.arrow (Arrow IPC, so DuckDB-WASM needs no extensions) and the embeddings in row order. The cloud
@@ -728,6 +604,244 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
 export function assertContainedPath(path: string): void {
   if (!path || path.startsWith("/") || path.includes("\\") || /^[A-Za-z]:/u.test(path) || path.split("/").some((s) => s === "" || s === "." || s === ".."))
     throw new Error(`Manifest path ${JSON.stringify(path)} is not a contained relative path.`);
+}
+
+/** One attempt's work for the bundle pass: everything a worker needs, as plain data. */
+export type AttemptJob = {
+  attemptId: string; entry: CorpusIndexEntry; outcome?: { outcome: string; source: string; release?: string; record?: string }; bundleRoot: string;
+  memberOf: string[]; arm: string; base: string; assertionFiles: Array<[string, "document" | "lines"]>;
+  slim: Record<string, { digest: string; review: string; flags: Array<[string, { included: boolean; disputed: boolean; review: string }]> }>; observationSetPath?: string;
+};
+/** One attempt's bundle rows and viewer documents, with cloud row ids counted from 0. */
+export type AttemptResult = {
+  attemptId: string; rows: Array<[string, Row]>; attemptTableRow: Row; cloudRows: Array<Record<string, unknown> & { row_id: number }>;
+  native: { attempt_id: string; units: Record<string, unknown> }; audit: Record<string, unknown>;
+  lane: { lane: LaneMeta; usage?: Array<[number, number]>; context?: Array<[number, number]> };
+  meta: Record<string, unknown>; docs: Array<ReturnType<typeof assessmentDoc>>; cards: string[];
+};
+
+/**
+ * Builds one attempt's rows and documents from its retained evidence, validated assertions and observation set. It
+ * reads only files and writes nothing, so attempts can be processed in parallel and written in order.
+ */
+export async function processAttempt(job: AttemptJob): Promise<AttemptResult> {
+  const { attemptId, entry, outcome, bundleRoot, memberOf, arm, base } = job;
+  const rows: Array<[string, Row]> = [];
+  const stream = (name: string, row: Row) => { rows.push([name, row]); };
+  const edge = (src_type: string, src_id: unknown, rel: unknown, dst_type: string, dst_id: unknown) => stream("edges", { src_type, src_id: String(src_id), rel: String(rel), dst_type, dst_id: String(dst_id) });
+  const eventKeys = new Set<string>(), cards = new Set<string>();
+  const cloudRows: Array<AtlasUnit & Row & { row_id: number; t0_ms: number | null; t1_ms: number | null; timed: boolean }> = [];
+  // This attempt's validated assertions, read again from their files and matched by id and digest.
+  const own: Array<{ assertion: BehaviorAssertion; slim: AttemptJob["slim"][string]; id: string }> = [];
+  for (const [path, kind] of job.assertionFiles) {
+    const text = readFileSync(path, "utf8");
+    for (const line of kind === "document" ? [text] : text.split("\n")) {
+      if (!line.trim()) continue;
+      const assertion = JSON.parse(line) as BehaviorAssertion, slim = job.slim[assertion.id];
+      if (slim && assertion.attemptId === attemptId && !own.some(({ id }) => id === assertion.id) && `sha256:${digestMetadata(assertion).value}` === slim.digest) own.push({ assertion, slim, id: assertion.id });
+    }
+  }
+  own.sort((a, b) => a.id.localeCompare(b.id));
+  const observationSet = job.observationSetPath ? JSON.parse(readFileSync(job.observationSetPath, "utf8")) as StructuralObservationSet : undefined;
+  // Units carry which judgments cite them and which structural observations draw on them.
+  const citedBy = new Map<string, Array<{ id: string; label: string }>>();
+  for (const { assertion } of own) {
+    const label = `${assertion.behavior.cardId}:${assertion.judgment.verdict}`;
+    for (const citation of isDecisionModelAssertion(assertion) ? [] : assertion.judgment.citations) {
+      const key = `${assertion.attemptId}/${citation.eventId}`;
+      citedBy.set(key, [...citedBy.get(key) ?? [], { id: assertion.id, label }]);
+    }
+  }
+  const extractorsOf = new Map<string, Set<string>>();
+  for (const observation of observationSet?.observations ?? []) for (const eventId of observation.sourceEventIds) {
+    const key = `${attemptId}/${eventId}`;
+    extractorsOf.set(key, (extractorsOf.get(key) ?? new Set()).add(observation.extractor.id));
+  }
+  const evidence = await createRetainedBehaviorEvidence(bundleRoot);
+  const resolveContent = contentResolver(evidence);
+  const derived = deriveUnits({ attemptId, evidenceOrigin: evidence.capture.qualification === "imported" ? "imported" : "owned", events: evidence.dataset.events, occurrences: observationSet?.occurrences ?? [],
+    resolveContent: (reference) => { const r = resolveContent(reference); return r.status === "resolved" ? r.value : undefined; } });
+  const times = evidence.dataset.events.flatMap((e) => (e.nativeTime.status === "known" && Number.isFinite(Date.parse(e.nativeTime.value)) ? [e.nativeTime.value] : []))
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+  const first = times[0], last = times.at(-1);
+  const attemptTableRow = { attempt_id: attemptId, run_id: entry.runId ?? null, bundle_id: entry.bundleId ?? null, model_id: entry.modelId ?? null, model_route: entry.modelRoute ?? null,
+    model_provider: entry.modelProvider ?? null, harness_id: entry.harnessId ?? null, harness_version: entry.harnessVersion ?? null, task_id: entry.taskId ?? null,
+    fixture_id: entry.fixtureId ?? null, trial_id: entry.trialId ?? null, condition: arm,
+    assessment_mode: entry.assessmentMode ?? null, capture_qualification: entry.captureQualification ?? null, terminal_state: entry.terminalState ?? null,
+    failure_class: entry.failureClass ?? null, stop_reason: entry.stopReason ?? null, adapter_id: evidence.dataset.adapter.id, adapter_version: evidence.dataset.adapter.version,
+    dataset_digest: observationSet?.normalization.datasetDigest ?? null, manifest_digest: entry.manifestDigest ?? null,
+    bundle_root: relative(base, bundleRoot), event_count: evidence.dataset.events.length, native_record_count: evidence.coverage.records.total,
+    unmapped_record_count: evidence.coverage.records.unmapped, first_event_time: first ?? null, last_event_time: last ?? null,
+    native_span_seconds: first && last ? (Date.parse(last) - Date.parse(first)) / 1000 : null,
+    source_outcome: outcome?.outcome ?? null, source_outcome_source: outcome?.source ?? null, source_outcome_release: outcome?.release ?? null, source_outcome_record: outcome?.record ?? null };
+  for (const cohortId of memberOf) { stream("attempt_cohorts", { attempt_id: attemptId, cohort_id: cohortId }); edge("attempt", attemptId, "member-of", "cohort", cohortId); }
+
+  const linksOf = new Map<string, string[]>();
+  for (const link of derived.links) linksOf.set(link.unit_id, [...linksOf.get(link.unit_id) ?? [], link.event_key]);
+  const membersOf = new Map<string, string[]>();
+  for (const u of derived.units) if (u.episode_id) {
+    const list = membersOf.get(u.episode_id) ?? [];
+    if (!list.length) membersOf.set(u.episode_id, list);
+    list.push(u.unit_id);
+  }
+  const ownUnits: Array<AtlasUnit & Row> = [];
+  for (const unit of derived.units) {
+    const keys = unit.unit_kind === "episode" ? (membersOf.get(unit.unit_id) ?? []).flatMap((id) => linksOf.get(id) ?? []) : linksOf.get(unit.unit_id) ?? [];
+    const cites = [...new Map(keys.flatMap((k) => citedBy.get(k) ?? []).map((c) => [c.id, c])).values()].sort((a, b) => a.id.localeCompare(b.id));
+    const row = { ...unit, model_id: entry.modelId ?? null, harness_id: entry.harnessId ?? null, task_id: entry.taskId ?? null, trial_id: entry.trialId ?? null,
+      condition: arm, terminal_state: entry.terminalState ?? null, cited_assertions: cites.map(({ id }) => id), cited_assessments: cites.map(({ label }) => label),
+      cited: cites.length > 0, observation_extractors: [...new Set(keys.flatMap((k) => [...extractorsOf.get(k) ?? []]))].sort() } as unknown as AtlasUnit & Row;
+    stream("units", row);
+    ownUnits.push(row);
+  }
+  for (const link of derived.links) stream("unit_events", link);
+  // Event rows carry the resolved native content; each is written as soon as it is built, never held.
+  for (const [index, event] of evidence.dataset.events.entries()) {
+    const row = eventRow(event, index, resolveContent);
+    if (eventKeys.has(String(row.event_key))) throw new Error(`Duplicate event key ${String(row.event_key)}.`);
+    eventKeys.add(String(row.event_key));
+    if (first && typeof row.event_time === "string") row.t_rel_seconds = (Date.parse(row.event_time) - Date.parse(first)) / 1000;
+    stream("events", row);
+    stream("edges", { src_type: "event", src_id: row.event_key, rel: "part-of", dst_type: "attempt", dst_id: attemptId });
+    if (row.parent_event_key) stream("edges", { src_type: "event", src_id: row.event_key, rel: "child-of", dst_type: "event", dst_id: row.parent_event_key });
+  }
+  for (const event of evidence.dataset.events) for (const relation of event.relations.known) {
+    stream("event_relations", { src_event_key: `${attemptId}/${event.id}`, kind: relation.kind, dst_event_key: `${attemptId}/${relation.eventId}`, attempt_id: attemptId });
+    stream("edges", { src_type: "event", src_id: `${attemptId}/${event.id}`, rel: relation.kind, dst_type: "event", dst_id: `${attemptId}/${relation.eventId}` });
+  }
+
+  // Viewer documents for this attempt: cloud rows, swimlane, audit, native records and assessments.
+  const short = shortAttemptId(attemptId);
+  let carriedTime: number | null = null;
+  const rowsOfAttempt: Array<AtlasUnit & Row & { row_id: number }> = [];
+  for (const unit of ownUnits.filter((u) => u.embed).sort((a, b) => Number(a.seq) - Number(b.seq))) {
+    const t0 = unit.t_start && Number.isFinite(Date.parse(unit.t_start)) ? Date.parse(unit.t_start) : null;
+    const t1 = unit.t_end && Number.isFinite(Date.parse(unit.t_end)) ? Date.parse(unit.t_end) : null;
+    const row = { ...unit, row_id: cloudRows.length, t0_ms: t0 ?? carriedTime, t1_ms: t0 === null ? carriedTime : t1 ?? t0, timed: t0 !== null };
+    if (t0 !== null) carriedTime = unit.unit_kind === "episode" ? t0 : t1 ?? t0;
+    cloudRows.push(row);
+    rowsOfAttempt.push(row);
+  }
+  const native = new NativeLines(bundleRoot, relative(base, bundleRoot));
+  const contentOf = (event: UniformEvent) => (event.content.status === "known"
+    ? event.content.value.map(({ nativeReference }) => resolveContent(nativeReference)).flatMap((r) => (r.status === "resolved" ? [r.value] : [])) : []);
+  const evidenceDocs = attemptEvidence({ attemptId, evidenceOrigin: evidence.capture.qualification === "imported" ? "imported" : "owned", short, condition: arm, trialId: entry.trialId ?? null, cohorts: [...memberOf], units: rowsOfAttempt,
+    links: derived.links, events: evidence.dataset.events, occurrences: observationSet?.occurrences ?? [], native, resolveContent: contentOf });
+  const attemptRow = { attempt_id: attemptId, task_id: entry.taskId ?? null, condition: arm, trial_id: entry.trialId ?? null, harness_id: entry.harnessId ?? null,
+    harness_version: entry.harnessVersion ?? null,
+    model_id: entry.modelId ?? null, terminal_state: entry.terminalState ?? null, failure_class: entry.failureClass ?? null, capture_qualification: entry.captureQualification ?? null,
+    ...(outcome === undefined ? {} : { source_outcome: outcome.outcome, source_outcome_source: outcome.source,
+      ...(outcome.release ? { source_outcome_release: outcome.release } : {}), ...(outcome.record ? { source_outcome_record: outcome.record } : {}) }) };
+  const lane = laneData(attemptRow, rowsOfAttempt, evidence.dataset.events);
+  lane.lane.cited_units = rowsOfAttempt.filter((u) => u.cited && u.unit_kind !== "episode").length;
+  const eventTypes: Record<string, number> = {};
+  for (const event of evidence.dataset.events) { const k = `${event.family} · ${String(event.attributes.eventType ?? event.attributes.itemType ?? event.attributes.method ?? event.source.nativeType)}`; eventTypes[k] = (eventTypes[k] ?? 0) + 1; }
+  const meta = { ...attemptRow, short, cohorts: [...memberOf], bundle: relative(base, bundleRoot), native_span_seconds: attemptTableRow.native_span_seconds,
+    native_record_count: evidence.coverage.records.total, unmapped_record_count: evidence.coverage.records.unmapped, event_count: evidence.dataset.events.length,
+    event_types: eventTypes, units: ownUnits.filter((u) => u.unit_kind !== "episode").length, tool_calls: ownUnits.filter((u) => u.unit_kind === "tool").length };
+  const docsOfAttempt: Array<ReturnType<typeof assessmentDoc>> = [];
+  for (const { assertion, slim } of own) {
+    const flags = Object.fromEntries(slim.flags);
+    const doc = assessmentDoc(assertion, { short, condition: arm, taskId: entry.taskId ?? null, trialId: entry.trialId ?? null, review: slim.review,
+      cohorts: Object.keys(flags).length ? flags : Object.fromEntries([...memberOf].map((c) => [c, { included: true }])) }, evidenceDocs.linkCitation, native);
+    docsOfAttempt.push(doc);
+    cards.add(assertion.behavior.cardId);
+    writeAssessmentRows(assertion, slim, eventKeys, stream, edge);
+  }
+  for (const observation of observationSet?.observations ?? []) {
+    const value = observation.value as { status?: string; value?: unknown; unit?: string };
+    const { denominator } = observation;
+    const sources = observation.sourceEventIds;
+    stream("observations", { observation_id: observation.id, attempt_id: attemptId, run_id: observationSet!.runId, extractor_id: observation.extractor.id,
+      extractor_version: observation.extractor.version, definition: observation.definition, value_status: value.status ?? null,
+      value_json: JSON.stringify(value.value ?? null), value_num: typeof value.value === "number" ? value.value : null, unit: value.unit ?? null,
+      denominator_scope: denominator.scope, denominator_value: denominator.value, denominator_unit: denominator.unit,
+      source_record_count: observation.sourceRecordCount, source_event_count: sources.length });
+    edge("observation", observation.id, "about", "attempt", attemptId);
+    for (const eventId of sources) {
+      stream("observation_sources", { observation_id: observation.id, attempt_id: attemptId, event_id: eventId, event_key: `${attemptId}/${eventId}` });
+      stream("edges", { src_type: "observation", src_id: observation.id, rel: "derived-from", dst_type: "event", dst_id: `${attemptId}/${eventId}` });
+    }
+  }
+  for (const occurrence of observationSet?.occurrences ?? []) {
+    const keys = occurrence.eventIds.map((id) => `${attemptId}/${id}`);
+    stream("occurrences", { occurrence_id: occurrence.id, attempt_id: attemptId, type: occurrence.type, rule_id: occurrence.rule.id, rule_version: occurrence.rule.version,
+      heuristic: occurrence.rule.heuristic, first_event_key: keys[0]!, event_count: keys.length, event_keys: JSON.stringify(keys), attributes_json: JSON.stringify(occurrence.attributes) });
+    edge("occurrence", occurrence.id, "about", "attempt", attemptId);
+    for (const key of keys) edge("occurrence", occurrence.id, "derived-from", "event", key);
+  }
+  return { attemptId, rows, attemptTableRow, cloudRows, native: evidenceDocs.native as AttemptResult["native"], audit: evidenceDocs.audit as unknown as Record<string, unknown>,
+    lane: { lane: lane.lane, ...(lane.usage ? { usage: lane.usage } : {}), ...(lane.context ? { context: lane.context } : {}) }, meta, docs: docsOfAttempt, cards: [...cards] };
+}
+
+/** A result's cloud row ids moved up by `offset`, wherever they appear: cloud rows, native records, audit runs and chains, citations. */
+export function shiftAttemptRows(result: AttemptResult, offset: number): AttemptResult {
+  if (offset === 0) return result;
+  type Run = { row_id: number } | null | undefined;
+  const run = <T extends Run>(r: T): T => (r ? { ...r, row_id: r.row_id + offset } : r);
+  const audit = result.audit as { checks: Run[]; changes: Run[]; last: Record<string, null | { last: Run; last_ok: Run; first_change_after: Run }>; final: Run;
+    failure_chains: Array<{ failures: number[]; next_same_tool: number | null }> };
+  return { ...result,
+    cloudRows: result.cloudRows.map((row) => ({ ...row, row_id: row.row_id + offset })),
+    native: { ...result.native, units: Object.fromEntries(Object.entries(result.native.units).map(([row, unit]) => [String(Number(row) + offset), unit])) },
+    audit: { ...result.audit, checks: audit.checks.map(run), changes: audit.changes.map(run), final: run(audit.final),
+      last: Object.fromEntries(Object.entries(audit.last).map(([kind, l]) => [kind, l && { ...l, last: run(l.last), last_ok: run(l.last_ok), first_change_after: run(l.first_change_after) }])),
+      failure_chains: audit.failure_chains.map((c) => ({ ...c, failures: c.failures.map((row) => row + offset), next_same_tool: c.next_same_tool === null ? null : c.next_same_tool + offset })) },
+    docs: result.docs.map((doc) => ({ ...doc, citations: doc.citations.map((c) => ({ ...c, row_id: c.row_id === null ? null : c.row_id + offset })) })),
+  };
+}
+
+/** Below this many attempts the bundle pass runs in this process (workers come from EBO_WORKERS, as for validation). */
+const ATTEMPT_PARALLEL = 32;
+
+/**
+ * Processes attempts in order. With many attempts and more than one worker, worker processes run them ahead (at
+ * most two per worker in flight) while results are yielded in job order.
+ */
+async function* processAttempts(jobs: readonly AttemptJob[], requested?: number): AsyncGenerator<AttemptResult> {
+  // An explicit worker count (a test, or an operator's choice) applies at any size; the default only for many attempts.
+  const workers = requested ?? validationWorkers();
+  if (workers <= 1 || (requested === undefined && jobs.length < ATTEMPT_PARALLEL)) {
+    for (const job of jobs) yield await processAttempt(job);
+    return;
+  }
+  const script = fileURLToPath(new URL("./atlas-attempt-worker.js", import.meta.url));
+  const pool = Array.from({ length: Math.min(workers, jobs.length) }, () => fork(script, [], { stdio: ["ignore", "inherit", "inherit", "ipc"], serialization: "advanced" }));
+  const pending = new Map<number, { resolve: (result: AttemptResult) => void; reject: (error: Error) => void }>();
+  const results = new Map<number, Promise<AttemptResult>>();
+  const idle = [...pool];
+  let next = 0;
+  for (const worker of pool) {
+    worker.on("message", (reply: { index: number; result?: AttemptResult; error?: string }) => {
+      const waiting = pending.get(reply.index)!;
+      pending.delete(reply.index);
+      idle.push(worker);
+      if (reply.error !== undefined) waiting.reject(new Error(reply.error)); else waiting.resolve(reply.result!);
+      dispatch();
+    });
+    worker.once("exit", (code) => { if (code !== 0 && code !== null) for (const { reject } of pending.values()) reject(new Error(`An attempt worker exited with ${String(code)}.`)); });
+  }
+  let written = 0;
+  const dispatch = () => {
+    while (idle.length && next < jobs.length && next - written < pool.length * 2) {
+      const index = next++, worker = idle.pop()!;
+      results.set(index, new Promise<AttemptResult>((resolve, reject) => pending.set(index, { resolve, reject })));
+      results.get(index)!.catch(() => undefined);
+      worker.send({ index, job: jobs[index] });
+    }
+  };
+  try {
+    dispatch();
+    for (; written < jobs.length; written++) {
+      if (!results.has(written)) dispatch();
+      const result = await results.get(written)!;
+      results.delete(written);
+      yield result;
+      dispatch();
+    }
+  } finally {
+    for (const worker of pool) worker.kill();
+  }
 }
 
 /** Above this many attempts, viewer documents are split per attempt (assessments, audits, lane series). */

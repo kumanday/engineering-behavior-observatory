@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
 
 import { canonicalizeMetadata, digestBytes, digestMetadata, validateArtifact } from "./artifacts.js";
-import { isDecisionModelAssertion, validateRetainedBehaviorAssertion, type BehaviorAssertion, type BehaviorProducer } from "./behavior-assertions.js";
+import { isDecisionModelAssertion, type BehaviorAssertion, type BehaviorProducer } from "./behavior-assertions.js";
 import { BEHAVIOR_DIRECTIONS, BEHAVIOR_VERDICTS, behaviorDirection, loadDefaultBehaviorOntology, resolveBehaviorCard, type BehaviorCard, type BehaviorDecision, type BehaviorDirection, type BehaviorVerdict } from "./behavior-ontology.js";
 import type { CorpusIndexEntry } from "./corpus.js";
 import {
@@ -14,8 +14,8 @@ import {
 } from "./human-calibration.js";
 import { assessComparisonEligibility, type ComparisonCapability, type ComparisonReport, type ComparisonRequest } from "./normalization-integrity.js";
 import { readBoundedFile } from "./scheduler.js";
-import { createRetainedStructuralObservationSet, type StructuralObservationSet } from "./structural-observations.js";
-import { withRetainedEvidenceReuse } from "./retained-evidence.js";
+import type { StructuralObservationSet } from "./structural-observations.js";
+import { validateBundles } from "./bundle-validation.js";
 
 export type AggregationDimension = "task" | "model" | "harness" | "harness-version" | "trial" | "capture-qualification" | "evidence-origin" | "source-outcome";
 export type EvidenceOriginSelection = "owned" | "imported" | "separate";
@@ -245,22 +245,20 @@ async function aggregateValidatedEvaluation(
   };
   for (const { bundleRoot, document } of observationSources.values()) bundleOf(bundleRoot).observationSets.push(document);
   for (const { bundleRoot, document } of assertionSources.values()) bundleOf(bundleRoot).assertions.push(document);
-  await withRetainedEvidenceReuse(async () => {
-    for (const [bundleRoot, sources] of byBundle) {
-      for (const document of sources.observationSets) {
-        assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
-        // A validated source's set equals its rebuilt set (that is what was checked), so the document stands in for it.
-        if (prevalidated) { rebuiltSets.set(`${document.runId}\0${document.attemptId}`, document); continue; }
-        const rebuilt = await createRetainedStructuralObservationSet(bundleRoot);
-        if (canonicalizeMetadata(rebuilt) !== canonicalizeMetadata(document)) throw new Error(`Structural observation set for attempt "${document.attemptId}" is stale.`);
-        rebuiltSets.set(`${document.runId}\0${document.attemptId}`, rebuilt);
-      }
-      for (const document of sources.assertions) {
-        assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
-        if (!prevalidated) await validateRetainedBehaviorAssertion(bundleRoot, document);
-      }
-    }
-  });
+  // Attempts by identity, and each bundle's manifest digest computed once: every observation set and card result of
+  // an attempt checks its binding, and a per-document scan of every attempt is quadratic in the cohort.
+  const indexed = new Map<string, Attempt[]>();
+  for (const attempt of attempts) { const key = attemptKey(attempt); indexed.set(key, [...indexed.get(key) ?? [], attempt]); }
+  const manifestDigests = new Map<string, string>();
+  const assertIndexedBundle = (bundleRoot: string, runId: string, attemptId: string) => assertIndexedBundleIn(bundleRoot, runId, attemptId, indexed, manifestDigests);
+  // Bindings first (cheap, in order), then each bundle's documents against its retained evidence, in parallel when
+  // there are many. A validated source's sets equal their rebuilt sets (that is what was checked), so the documents
+  // stand in for them.
+  for (const [bundleRoot, sources] of byBundle) {
+    for (const document of [...sources.observationSets, ...sources.assertions]) assertIndexedBundle(bundleRoot, document.runId, document.attemptId);
+  }
+  if (!prevalidated) await validateBundles([...byBundle].map(([bundleRoot, sources]) => ({ bundleRoot, ...sources })));
+  for (const sources of byBundle.values()) for (const document of sources.observationSets) rebuiltSets.set(`${document.runId}\0${document.attemptId}`, document);
   // Reports keep the order of the request's sources.
   for (const { document } of observationSources.values()) observations.set(`${document.runId}\0${document.attemptId}`, rebuiltSets.get(`${document.runId}\0${document.attemptId}`)!);
   for (const { document } of assertionSources.values()) assertions.set(assertionKey(document), document);
@@ -756,10 +754,12 @@ function uniqueAttempts(entries: readonly CorpusIndexEntry[], origins: EvidenceO
   return { attempts: [...attempts.values()].sort((left, right) => attemptKey(left).localeCompare(attemptKey(right))), duplicates };
 }
 
-function assertIndexedBundle(bundleRoot: string, runId: string, attemptId: string, attempts: readonly Attempt[]): void {
-  const indexed = attempts.filter((attempt) => attempt.runId === runId && attempt.attemptId === attemptId);
+function assertIndexedBundleIn(bundleRoot: string, runId: string, attemptId: string, attempts: ReadonlyMap<string, readonly Attempt[]>, digests: Map<string, string>): void {
+  const indexed = attempts.get(`${runId}\0${attemptId}`) ?? [];
   if (indexed.length !== 1) throw new Error(`Derived source run "${runId}" attempt "${attemptId}" has no unique corpus entry.`);
-  const actual = `sha256:${digestBytes(readBoundedFile(join(resolve(bundleRoot), "manifest.json"), "Derived source manifest")).value}`;
+  const root = resolve(bundleRoot);
+  if (!digests.has(root)) digests.set(root, `sha256:${digestBytes(readBoundedFile(join(root, "manifest.json"), "Derived source manifest")).value}`);
+  const actual = digests.get(root)!;
   if (actual !== indexed[0]!.manifestDigest) {
     throw new Error(`Derived source run "${runId}" attempt "${attemptId}" does not match the indexed manifest digest.`);
   }
