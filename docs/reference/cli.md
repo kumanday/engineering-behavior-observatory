@@ -210,7 +210,11 @@ inspection](atif.md) for version, validation and reference limits.
 ### Retain an ATIF trajectory
 
 Use `ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id>
+[--task <id>] [--model <name>] [--harness-version <version>] [--outcome <verdict>
+--outcome-source <publisher> [--outcome-release <release>] [--outcome-record <trial path>]]
 [--profile <overlay-context-id>] [--python <executable>]`.
+`ebo atif import-batch <batch.jsonl> [--shard <k>/<n>] [--python <executable>]`
+runs one import per line in a single process; see [ATIF imports](atif.md#import-a-batch).
 `ebo atif overlays` lists optional Pi and Codex converter-context examples.
 The [ATIF reference](atif.md) defines document-scoped measures, imported
 qualification, validation, repeatability and interpretation receipts.

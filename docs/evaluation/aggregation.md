@@ -44,8 +44,10 @@ lists JSON Lines files with one card result per line, bound to one bundle each;
 [decision-model judging](decision-model-judge.md) writes its results this way
 and lists the files in its run summary.
 
-Grouping dimensions are `task`, `model`, `harness`, `trial`, and
-`capture-qualification`. `all-attempts` is the evidence-preserving default.
+Grouping dimensions are `task`, `model`, `harness`, `harness-version`, `trial`,
+`capture-qualification`, `evidence-origin` and `source-outcome`. `source-outcome`
+is a third party's verdict on an imported trial, as its import declared it;
+owned runs have none and group as unavailable. `all-attempts` is the evidence-preserving default.
 `trial` is the queue's retained numeric trial index; legacy bundles without it
 remain unavailable and are excluded from trial-matched comparisons.
 `latest-attempt-per-run` selects the highest declared attempt number regardless

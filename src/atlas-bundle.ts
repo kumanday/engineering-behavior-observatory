@@ -89,7 +89,8 @@ export const ATLAS_TABLES: Record<string, Column[]> = {
     ["task_id", S], ["fixture_id", S], ["trial_id", S], ["condition", S], ["assessment_mode", S], ["capture_qualification", S], ["terminal_state", S],
     ["failure_class", S], ["stop_reason", S], ["adapter_id", S], ["adapter_version", S], ["dataset_digest", S], ["manifest_digest", S],
     ["bundle_root", S], ["event_count", I], ["native_record_count", I], ["unmapped_record_count", I], ["first_event_time", S],
-    ["last_event_time", S], ["native_span_seconds", F]],
+    ["last_event_time", S], ["native_span_seconds", F], ["source_outcome", S], ["source_outcome_source", S], ["source_outcome_release", S],
+    ["source_outcome_record", S]],
   attempt_cohorts: [["attempt_id", S], ["cohort_id", S]],
   events: [["event_key", S], ["event_id", S], ["attempt_id", S], ["run_id", S], ["dataset_index", I], ["family", S], ["phase", S], ["actor_kind", S],
     ["actor_id", S], ["scope_kind", S], ["scope_id", S], ["harness", S], ["native_type", S], ["native_event_type", S], ["native_artifact", S],
@@ -420,7 +421,9 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   // With a condition pattern every run bundle must match it; a naming mistake is an error, not a synthesized arm.
   const separateOrigins = [...attempts.values()].some(({ entry }) => entry.manifestKind === "import");
   const armOf = (name: string, entry: CorpusIndexEntry) => {
-    const arm = condition ? condition.exec(name)?.groups?.condition : `${entry.modelId ?? "unavailable"} · ${entry.harnessId ?? "unavailable"}`;
+    // An imported arm names the harness version too: two releases of one harness share an agent name.
+    const version = entry.manifestKind === "import" && entry.harnessVersion && entry.harnessVersion !== "unavailable" ? ` ${entry.harnessVersion}` : "";
+    const arm = condition ? condition.exec(name)?.groups?.condition : `${entry.modelId ?? "unavailable"} · ${entry.harnessId ?? "unavailable"}${version}`;
     if (!arm) throw new Error(`Run bundle ${name} does not match the condition pattern ${request.condition!.pattern}.`);
     return separateOrigins ? `${entry.manifestKind === "import" ? "Imported" : "Owned"} · ${arm}` : arm;
   };
@@ -443,6 +446,9 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     const source = corpusEntry.manifestKind === "import" ? sourceLabels.get(corpusEntry.manifestDigest) : undefined;
     const entry = source ? { ...corpusEntry, taskId: source.taskId, trialId: source.trialId } : corpusEntry;
     const evidence = await createRetainedBehaviorEvidence(bundleRoot);
+    // The trial's third-party verdict: from the leaderboard cohort store, or as the import declared it.
+    const outcome = source?.outcome !== undefined ? { outcome: source.outcome, source: "Harness Leaderboard", release: undefined, record: undefined }
+      : entry.sourceOutcome !== undefined ? { outcome: entry.sourceOutcome, source: entry.sourceOutcomeSource ?? "third party", release: entry.sourceOutcomeRelease, record: entry.sourceOutcomeRecord } : undefined;
     const resolveContent = contentResolver(evidence);
     const derived = deriveUnits({ attemptId, evidenceOrigin: evidence.capture.qualification === "imported" ? "imported" : "owned", events: evidence.dataset.events, occurrences: observationSets.get(attemptId)?.occurrences ?? [],
       resolveContent: (reference) => { const r = resolveContent(reference); return r.status === "resolved" ? r.value : undefined; } });
@@ -492,7 +498,8 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
       dataset_digest: observationSets.get(attemptId)?.normalization.datasetDigest ?? null, manifest_digest: entry.manifestDigest ?? null,
       bundle_root: relative(base, bundleRoot), event_count: evidence.dataset.events.length, native_record_count: evidence.coverage.records.total,
       unmapped_record_count: evidence.coverage.records.unmapped, first_event_time: first ?? null, last_event_time: last ?? null,
-      native_span_seconds: first && last ? (Date.parse(last) - Date.parse(first)) / 1000 : null });
+      native_span_seconds: first && last ? (Date.parse(last) - Date.parse(first)) / 1000 : null,
+      source_outcome: outcome?.outcome ?? null, source_outcome_source: outcome?.source ?? null, source_outcome_release: outcome?.release ?? null, source_outcome_record: outcome?.record ?? null });
     for (const cohortId of [...memberOf].sort()) tables.attempt_cohorts!.push({ attempt_id: attemptId, cohort_id: cohortId });
     const arm = tables.attempts!.at(-1)!.condition as string;
     for (const unit of ownUnits) unit.condition = arm;
@@ -517,8 +524,10 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
     audits[attemptId] = evidenceDocs.audit;
     writeFileSync(join(outputRoot, "native", `${fileName(attemptId)}.json`), JSON.stringify(evidenceDocs.native));
     const attemptRow = { attempt_id: attemptId, task_id: entry.taskId ?? null, condition: arm, trial_id: entry.trialId ?? null, harness_id: entry.harnessId ?? null,
+      harness_version: entry.harnessVersion ?? null,
       model_id: entry.modelId ?? null, terminal_state: entry.terminalState ?? null, failure_class: entry.failureClass ?? null, capture_qualification: entry.captureQualification ?? null,
-      ...(source?.outcome === undefined ? {} : { source_outcome: source.outcome }) };
+      ...(outcome === undefined ? {} : { source_outcome: outcome.outcome, source_outcome_source: outcome.source,
+        ...(outcome.release ? { source_outcome_release: outcome.release } : {}), ...(outcome.record ? { source_outcome_record: outcome.record } : {}) }) };
     const lane = laneData(attemptRow, rowsOfAttempt, evidence.dataset.events);
     lane.lane.cited_units = rowsOfAttempt.filter((u) => u.cited && u.unit_kind !== "episode").length;
     lanes.attempts.push(lane.lane);

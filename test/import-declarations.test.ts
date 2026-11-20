@@ -53,7 +53,7 @@ test("an ATIF import records a declared task and model; the corpus, aggregation 
     const { buildAtlasBundle } = await import("../src/atlas-bundle.js");
     await buildAtlasBundle(join(root, "bundle.json"), join(root, "bundle"), { embed: standInEmbed() });
     const lanes = JSON.parse(readFileSync(join(root, "bundle", "lanes.json"), "utf8")) as { attempts: Array<{ condition: string; task_id: string | null }> };
-    assert.deepEqual([...new Set(lanes.attempts.map(({ condition }) => condition))], ["Imported · Example-Model · acme-agent"], "one arm for one model, whatever the route");
+    assert.deepEqual([...new Set(lanes.attempts.map(({ condition }) => condition))], ["Imported · Example-Model · acme-agent 9.9.9"], "one arm for one model, whatever the route");
     assert.ok(lanes.attempts.every(({ task_id }) => task_id === "example-task"));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -146,3 +146,66 @@ test("attempt ids read whole unless they are UUID or hex ids", async () => {
   assert.equal(shortAttemptId("3f2a9c1e7b4d4e2a9c1e"), "3f2a9c1e");
 });
 
+
+test("imports declare a harness version and a third-party outcome; arms separate versions and the outcome keeps its provenance", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-import-outcomes-"));
+  try {
+    const base = JSON.parse(readFileSync(new URL("../../test/fixtures/atif/core/acme.json", import.meta.url), "utf8")) as { agent: Record<string, unknown> };
+    mkdirSync(join(root, "corpus"));
+    const run = async (...args: string[]) => { let output = ""; const status = await main(args, (text) => { output += text; }); return { status, output }; };
+    writeFileSync(join(root, "source.json"), JSON.stringify(base));
+    // Two releases of one harness write the same agent name; the batch declares each trial's version and verdict.
+    const trials = [["1.19.0", "pass"], ["2.2.6", "fail"], ["2.2.6", "infra-excluded"]] as const;
+    const lines = trials.map(([version, outcome], index) => JSON.stringify({ source: "source.json", destination: `corpus/trial-${String(index)}`, run: `run-${String(index)}`,
+      attempt: `example-task__trial${String(index)}`, task: "example-task", model: "Example-Model", harnessVersion: version,
+      outcome: { outcome, source: "Example Board", release: "v0.1.9", record: `runs/example/example-task__trial${String(index)}` } }));
+    // A bad line is reported and the batch goes on.
+    writeFileSync(join(root, "batch.jsonl"), `${lines[0]}\n${lines[1]}\n{"source":"missing.json","destination":"corpus/bad","run":"r","attempt":"a"}\n\n${lines[2]}\n`);
+    const first = await run("atif", "import-batch", join(root, "batch.jsonl"), "--shard", "1/2");
+    const second = await run("atif", "import-batch", join(root, "batch.jsonl"), "--shard", "2/2");
+    const summary = (output: string) => JSON.parse(output.trim().split("\n").at(-1)!) as { lines: number; imported: number; reused: number; failed: number };
+    // Shard 1/2 takes lines 1, 3 and 5 (line 3 fails); shard 2/2 takes lines 2 and 4 (4 is blank).
+    assert.deepEqual([first.status, summary(first.output)].map((x) => typeof x === "number" ? x : [x.lines, x.imported, x.failed]), [1, [3, 2, 1]]);
+    assert.match(first.output, /"line":3,.*"status":"failed"/u);
+    assert.deepEqual([second.status, summary(second.output).imported], [0, 1]);
+    // Rerunning reuses every admission.
+    assert.equal(summary((await run("atif", "import-batch", join(root, "batch.jsonl"))).output).reused, 3);
+    const manifest = JSON.parse(readFileSync(join(root, "corpus", "trial-1", "manifest.json"), "utf8")) as { harnessVersion: unknown; sourceOutcome: unknown };
+    assert.deepEqual(manifest.harnessVersion, { id: "2.2.6", authority: "operator-declared" });
+    assert.deepEqual(manifest.sourceOutcome, { outcome: "fail", source: "Example Board", release: "v0.1.9", record: "runs/example/example-task__trial1", authority: "third-party" });
+    // The single-import flags record the same declaration, and an outcome needs its source.
+    assert.equal((await run("atif", "import", join(root, "source.json"), join(root, "single"), "--run", "r", "--attempt", "a", "--outcome", "pass")).status, 1);
+    assert.equal((await run("atif", "import", join(root, "source.json"), join(root, "single"), "--run", "r", "--attempt", "a", "--harness-version", "1.19.0",
+      "--outcome", "pass", "--outcome-source", "Example Board")).status, 0);
+
+    assert.equal((await run("corpus", "build", join(root, "corpus"), join(root, "index.jsonl"))).status, 0);
+    const entries = readCorpusIndex(join(root, "index.jsonl"));
+    assert.deepEqual(entries.map(({ harnessVersion, sourceOutcome, sourceOutcomeRelease }) => [harnessVersion, sourceOutcome, sourceOutcomeRelease]),
+      [["1.19.0", "pass", "v0.1.9"], ["2.2.6", "fail", "v0.1.9"], ["2.2.6", "infra-excluded", "v0.1.9"]]);
+
+    writeFileSync(join(root, "aggregation.json"), JSON.stringify({ schemaVersion: "ebo.aggregation-request/v2",
+      sources: { corpusRoot: "corpus", corpusIndex: "index.jsonl", observationSets: [], assertions: [], calibrations: [] },
+      groupBy: ["harness-version", "source-outcome"], evidenceOrigins: "imported", selectedAttemptPolicy: "all-attempts", recurrence: { minimumOccurrences: 2 }, comparisons: [] }));
+    assert.equal((await run("aggregate", "build", join(root, "aggregation.json"), join(root, "derived", "report.json"))).status, 0);
+    const report = JSON.parse(readFileSync(join(root, "derived", "report.json"), "utf8")) as { groups: Array<{ dimensions: Record<string, string> }> };
+    assert.deepEqual(report.groups.map(({ dimensions }) => [dimensions["harness-version"], dimensions["source-outcome"]]).sort(),
+      [["1.19.0", "pass"], ["2.2.6", "fail"], ["2.2.6", "infra-excluded"]]);
+
+    writeFileSync(join(root, "atlas.json"), JSON.stringify({ schemaVersion: "ebo.atlas-request/v1", title: "Outcomes", aggregationRequest: "aggregation.json" }));
+    writeFileSync(join(root, "bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "outcomes", title: "Outcomes", cohorts: [{ id: "all", atlasRequest: "atlas.json" }] }));
+    const { buildAtlasBundle } = await import("../src/atlas-bundle.js");
+    await buildAtlasBundle(join(root, "bundle.json"), join(root, "bundle"), { embed: standInEmbed() });
+    const lanes = JSON.parse(readFileSync(join(root, "bundle", "lanes.json"), "utf8")) as { attempts: Array<Record<string, string | null>> };
+    assert.deepEqual([...new Set(lanes.attempts.map(({ condition }) => condition))].sort(), ["Imported · Example-Model · acme-agent 1.19.0", "Imported · Example-Model · acme-agent 2.2.6"]);
+    const lane = lanes.attempts.find(({ attempt_id }) => attempt_id === "example-task__trial1")!;
+    assert.deepEqual([lane.source_outcome, lane.source_outcome_source, lane.source_outcome_release, lane.source_outcome_record, lane.harness_version, lane.terminal_state],
+      ["fail", "Example Board", "v0.1.9", "runs/example/example-task__trial1", "2.2.6", null], "the verdict stays apart from EBO's run status");
+    const { DuckDBInstance } = await import("@duckdb/node-api");
+    const db = await DuckDBInstance.create(":memory:"), c = await db.connect();
+    try {
+      const rows = (await c.runAndReadAll(`SELECT attempt_id, source_outcome, source_outcome_source, source_outcome_release FROM '${join(root, "bundle", "tables", "attempts.parquet")}' ORDER BY attempt_id`)).getRowObjectsJson();
+      assert.deepEqual(rows.map((r) => r.source_outcome), ["pass", "fail", "infra-excluded"]);
+      assert.ok(rows.every((r) => r.source_outcome_source === "Example Board" && r.source_outcome_release === "v0.1.9"));
+    } finally { c.closeSync(); db.closeSync(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

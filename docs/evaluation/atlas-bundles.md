@@ -33,7 +33,9 @@ loads every cohort through the same validation as `ebo atlas build`: corpus
 index, current structural observation sets, assertions and their citations,
 and reviews. A stale or invalid source fails the build. Paths are relative to
 the request file. `condition` names study arms with a regular expression over
-each run bundle's directory name; without it an arm is `<model> · <harness>`.
+each run bundle's directory name; without it an arm is `<model> · <harness>`, and
+an imported arm adds the harness version (`<model> · <harness> <version>`), since
+two releases of one harness can write the same agent name.
 
 With a `condition` pattern, every run bundle must match it. Atlas tables key
 attempts by attempt id and assessments by assertion id, so each must be unique

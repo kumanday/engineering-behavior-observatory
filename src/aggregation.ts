@@ -17,7 +17,7 @@ import { readBoundedFile } from "./scheduler.js";
 import { createRetainedStructuralObservationSet, type StructuralObservationSet } from "./structural-observations.js";
 import { withRetainedEvidenceReuse } from "./retained-evidence.js";
 
-export type AggregationDimension = "task" | "model" | "harness" | "trial" | "capture-qualification" | "evidence-origin";
+export type AggregationDimension = "task" | "model" | "harness" | "harness-version" | "trial" | "capture-qualification" | "evidence-origin" | "source-outcome";
 export type EvidenceOriginSelection = "owned" | "imported" | "separate";
 export type AttemptSelectionPolicy = "all-attempts" | "latest-attempt-per-run";
 
@@ -764,9 +764,12 @@ function dimensionValue(attempt: Attempt, dimension: AggregationDimension): stri
     task: attempt.taskId,
     model: attempt.modelId,
     harness: attempt.harnessId,
+    "harness-version": attempt.harnessVersion,
     trial: attempt.trialId,
     "capture-qualification": attempt.captureQualification,
     "evidence-origin": evidenceOrigin(attempt),
+    // A third party's verdict on an imported trial; owned runs have none, so they group as unavailable.
+    "source-outcome": attempt.sourceOutcome,
   })[dimension];
 }
 

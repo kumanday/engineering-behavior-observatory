@@ -206,6 +206,27 @@
         }
       }
     },
+    "harnessVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "authority"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": ".*\\S.*" },
+        "authority": { "enum": ["operator-declared", "harbor-trial", "leaderboard-policy"] }
+      }
+    },
+    "sourceOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "source", "authority"],
+      "properties": {
+        "outcome": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": ".*\\S.*" },
+        "source": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": ".*\\S.*" },
+        "release": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "record": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "authority": { "const": "third-party" }
+      }
+    },
     "model": {
       "type": "object",
       "additionalProperties": false,

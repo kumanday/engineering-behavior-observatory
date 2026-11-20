@@ -1,10 +1,11 @@
 import { atifCompatibilityIdentity, normalizeAtif } from "./atif-normalizer.js";
 import { atifOverlayReceipts } from "./atif-overlays.js";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { closeSync, mkdirSync, openSync, readSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { assertNoDuplicateJsonKeys, digestBytes, digestMetadata, validateArtifact } from "./artifacts.js";
 import { ATIF_LIMITS, inspectAtifBytes, readAtifFile, atifPointerValue, type AtifInspection } from "./atif-reader.js";
-import type { AtifProducerFingerprint } from "./atif-profiles.js";
+import { listAtifOverlays, type AtifProducerFingerprint } from "./atif-profiles.js";
 import { atifCoreIdentity } from "./atif-core.js";
 import { object } from "./projection-v2.js";
 import { readBoundedFile } from "./scheduler.js";
@@ -29,7 +30,13 @@ export type AtifImportManifest = {
   /** The task this attempt worked on and the model that ran it, as declared on import, with who declared them. */
   task?: ImportDeclaration;
   model?: ImportDeclaration;
+  /** The harness version as the operator declares it; the document's `agent.version` stays recorded as observed. */
+  harnessVersion?: ImportDeclaration;
+  /** A third party's verdict on this trial (such as a leaderboard's pass, fail or infra-excluded), with where it was published. */
+  sourceOutcome?: SourceOutcome;
 };
+/** A third-party assessment of an imported trial. It is the source's verdict, kept apart from EBO's own run status. */
+export type SourceOutcome = { outcome: string; source: string; release?: string; record?: string; authority: "third-party" };
 /** A declared identity and its source: the operator, the Harbor trial record, or the leaderboard's own policy rows. */
 export type ImportDeclaration = { id: string; authority: "operator-declared" | "harbor-trial" | "leaderboard-policy" };
 const bytesDigest = (bytes: Uint8Array): `sha256:${string}` => `sha256:${digestBytes(bytes).value}`;
@@ -39,7 +46,7 @@ export type AtifImportOptions = { sourcePath: string; destination: string; runId
   producer?: AtifProducerFingerprint; converter?: Partial<AtifProducerFingerprint["converter"]>;
   context?: Partial<AtifProducerFingerprint["context"]>; pythonExecutable?: string; modelAliases?: readonly string[];
   /** The task and model to record; the ATIF document's own model string stays recorded as observed. */
-  task?: ImportDeclaration; model?: ImportDeclaration };
+  task?: ImportDeclaration; model?: ImportDeclaration; harnessVersion?: ImportDeclaration; sourceOutcome?: SourceOutcome };
 
 /** Retain bytes first. No trajectory-supplied code is executed. */
 export async function importAtifFile(options: AtifImportOptions) {
@@ -53,7 +60,8 @@ export async function importAtifFile(options: AtifImportOptions) {
     const manifest = readImportManifest(destination);
     if (manifest.source.digest !== bytesDigest(bytes) || manifest.identity.runId !== options.runId || manifest.identity.attemptId !== options.attemptId
         || hash(manifest.blinding ?? null) !== hash(blinding ?? null) || hash(manifest.task ?? null) !== hash(options.task ?? null)
-        || hash(manifest.model ?? null) !== hash(options.model ?? null)) throw new Error("Import destination retains another source or identity; use a new destination.");
+        || hash(manifest.model ?? null) !== hash(options.model ?? null) || hash(manifest.harnessVersion ?? null) !== hash(options.harnessVersion ?? null)
+        || hash(manifest.sourceOutcome ?? null) !== hash(options.sourceOutcome ?? null)) throw new Error("Import destination retains another source or identity; use a new destination.");
     return { manifest, reused: true, evidence: await readImportedBehaviorEvidence(destination) };
   }
   writeFileSync(join(destination, "trajectory.json"), bytes, { flag: "wx", mode: 0o600 });
@@ -79,7 +87,11 @@ export async function importAtifFile(options: AtifImportOptions) {
     inspection: { path: "inspection.json", digest: bytesDigest(inspectionBytes) }, producer, producerAuthority: "document-and-operator", overlays: interpretation.overlays,
     interpretation: { path: "interpretation.json", digest: bytesDigest(interpretationBytes) }, ...(blinding ? { blinding } : {}),
     ...(options.task ? { task: { id: options.task.id, authority: options.task.authority } } : {}),
-    ...(options.model ? { model: { id: options.model.id, authority: options.model.authority } } : {}) };
+    ...(options.model ? { model: { id: options.model.id, authority: options.model.authority } } : {}),
+    ...(options.harnessVersion ? { harnessVersion: { id: options.harnessVersion.id, authority: options.harnessVersion.authority } } : {}),
+    ...(options.sourceOutcome ? { sourceOutcome: { outcome: options.sourceOutcome.outcome, source: options.sourceOutcome.source,
+      ...(options.sourceOutcome.release ? { release: options.sourceOutcome.release } : {}), ...(options.sourceOutcome.record ? { record: options.sourceOutcome.record } : {}),
+      authority: "third-party" as const } } : {}) };
   assertManifest(manifest);
   const projected = await normalizeAtif({ read, producer: manifest.producer, ...manifest.identity, manifestDigest: hash(manifest) });
   const mappingErrors = validateArtifact("ATIF mapping", projected.mapping);
@@ -88,6 +100,78 @@ export async function importAtifFile(options: AtifImportOptions) {
   writeJson(destination, "manifest.json", manifest);
   return { manifest: manifest as AtifImportManifest, reused: false, evidence: withDeclaredAliases({ ...projected,
     mapping: projected.mapping, interpretationRevision: { changed: false, admitted: interpretation, current: interpretation } }, manifest) };
+}
+
+/** One line of an import batch: an `ebo atif import` with its options, paths relative to the batch file. */
+export type AtifBatchLine = { source: string; destination: string; run: string; attempt: string; task?: string; model?: string; profile?: string;
+  harnessVersion?: string; outcome?: { outcome: string; source: string; release?: string; record?: string } };
+export type AtifBatchResult = { line: number; destination: string; status: "imported" | "reused" | "failed"; error?: string };
+
+const BATCH_KEYS = new Set(["source", "destination", "run", "attempt", "task", "model", "profile", "harnessVersion", "outcome"]);
+function batchLine(value: unknown): AtifBatchLine {
+  const line = object(value);
+  const unknown = Object.keys(line).filter((key) => !BATCH_KEYS.has(key));
+  if (unknown.length) throw new Error(`unknown field ${unknown[0]!}`);
+  for (const key of ["source", "destination", "run", "attempt"]) if (typeof line[key] !== "string" || !(line[key] as string).trim()) throw new Error(`${key} must be a non-empty string`);
+  for (const key of ["task", "model", "profile", "harnessVersion"]) if (line[key] !== undefined && (typeof line[key] !== "string" || !(line[key] as string).trim())) throw new Error(`${key} must be a non-empty string`);
+  if (line.outcome !== undefined) {
+    const outcome = object(line.outcome);
+    if (typeof outcome.outcome !== "string" || typeof outcome.source !== "string") throw new Error("outcome needs outcome and source strings");
+    if (Object.keys(outcome).some((key) => !["outcome", "source", "release", "record"].includes(key))) throw new Error("outcome has an unknown field");
+  }
+  return line as unknown as AtifBatchLine;
+}
+
+/**
+ * Imports every line of a JSON Lines batch in this one process, each exactly as `ebo atif import` would, and reports
+ * each line as it finishes. A failed line is reported and the batch continues; destinations already holding the same
+ * admission are reused, so a batch can be rerun after an interruption. `shard` [k, n] takes every n-th line starting
+ * at line k, so n processes can split one batch.
+ */
+export async function importAtifBatch(batchPath: string, options: { shard?: readonly [number, number]; pythonExecutable?: string; onResult?: (result: AtifBatchResult) => void } = {}) {
+  const base = dirname(resolve(batchPath)), [k, n] = options.shard ?? [1, 1];
+  const profiles = listAtifOverlays();
+  const summary = { lines: 0, imported: 0, reused: 0, failed: 0, seconds: 0 };
+  const started = performance.now();
+  for (const [index, text] of readLines(batchPath)) {
+    if (!text.trim() || (index - k) % n !== 0) continue;
+    summary.lines += 1;
+    let destination = "";
+    try {
+      const line = batchLine(JSON.parse(text));
+      destination = resolve(base, line.destination);
+      const profile = line.profile === undefined ? undefined : profiles.find(({ id }) => id === line.profile);
+      if (line.profile !== undefined && profile === undefined) throw new Error(`unknown profile ${line.profile}`);
+      const { reused } = await importAtifFile({ sourcePath: resolve(base, line.source), destination, runId: line.run, attemptId: line.attempt,
+        producer: profile?.producer, pythonExecutable: options.pythonExecutable,
+        ...(line.task ? { task: { id: line.task, authority: "operator-declared" as const } } : {}),
+        ...(line.model ? { model: { id: line.model, authority: "operator-declared" as const } } : {}),
+        ...(line.harnessVersion ? { harnessVersion: { id: line.harnessVersion, authority: "operator-declared" as const } } : {}),
+        ...(line.outcome ? { sourceOutcome: { ...line.outcome, authority: "third-party" as const } } : {}) });
+      summary[reused ? "reused" : "imported"] += 1;
+      options.onResult?.({ line: index, destination, status: reused ? "reused" : "imported" });
+    } catch (error) {
+      summary.failed += 1;
+      options.onResult?.({ line: index, destination, status: "failed", error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  summary.seconds = Math.round((performance.now() - started) / 100) / 10;
+  return summary;
+}
+
+/** The file's lines with 1-based numbers, read in chunks (a 44,000-line batch need not be one string). */
+function* readLines(path: string): Generator<[number, string]> {
+  const fd = openSync(path, "r"), decoder = new StringDecoder("utf8"), chunk = Buffer.allocUnsafe(64 * 1024);
+  let pending = "", number = 0, size: number;
+  try {
+    while ((size = readSync(fd, chunk, 0, chunk.length, null)) !== 0) {
+      const parts = (pending + decoder.write(chunk.subarray(0, size))).split("\n");
+      pending = parts.pop()!;
+      for (const part of parts) yield [++number, part];
+    }
+    pending += decoder.end();
+    if (pending) yield [++number, pending];
+  } finally { closeSync(fd); }
 }
 
 export function readImportManifest(bundleRoot: string): AtifImportManifest {

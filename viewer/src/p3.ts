@@ -2,7 +2,7 @@
 // records; attempt audit; unit native records). Data from p3/build.py and p3/claims.py under data/<study>/p3/.
 // Matrix counts are computed in the browser from the assessment records (exploratory) and compared with the EBO Atlas
 // report tallies where the study has them (certified).
-import { cls, esc, fmtDur, num, shortId, trialLabel } from "./lanes";
+import { cls, esc, fmtDur, num, shortId, sourceOutcomeTitle, trialLabel } from "./lanes";
 import { describable, provide, register, run, target, type Json } from "./registry";
 
 /** What the drawer shows, as data: enough to reopen it exactly (state round-trip, undo, links). */
@@ -29,7 +29,7 @@ export interface Assessment {
   outcome: string; value: string | null; confidence: number | null; rationale: string | null; alternative: string | null; review: string | null;
   evaluator: string; rubric: string | null; cohorts: Record<string, { included?: boolean; disputed?: boolean; review?: string }>; source: string; citations: Citation[];
 }
-export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; harness_id: string; model_id: string; terminal_state: string | null; failure_class: string | null; source_outcome?: string; cohorts: string[]; bundle: string; native_span_seconds: number | null;
+export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; harness_id: string; model_id: string; terminal_state: string | null; failure_class: string | null; source_outcome?: string; source_outcome_source?: string; source_outcome_release?: string; source_outcome_record?: string; harness_version?: string | null; cohorts: string[]; bundle: string; native_span_seconds: number | null;
   native_record_count?: number | null; unmapped_record_count?: number | null; event_count?: number | null; event_types?: Record<string, number>; units?: number; tool_calls?: number }
 interface CertCell { group: Record<string, string>; card: string; family?: string; mode?: string; counts: Record<string, number>; values?: Record<string, number>; denominator: number; assertions: string[]; conditions?: string[] }
 export interface AssessDoc {
@@ -180,7 +180,10 @@ export class Evidence {
       const A = this.audit?.attempts[view.attemptId];
       return { summary: `${view.kind} of ${this.attemptLabel(view.attemptId)}${A ? `: ${A.checks.length} captured checks, ${A.changes.length} source changes, ${A.failure_chains.length} failure chains` : ""}.`,
         // The chains themselves, so a reader (or an assistant) can answer from describe() what the drawer shows.
-        data: { view, checkVerdicts: A?.verdicts ?? [], checkFreshness: A?.freshness_coverage ?? null,
+        data: { view, harnessVersion: this.meta.get(view.attemptId)?.harness_version ?? null,
+          sourceOutcome: this.meta.get(view.attemptId)?.source_outcome ? { outcome: this.meta.get(view.attemptId)!.source_outcome!, source: this.meta.get(view.attemptId)!.source_outcome_source ?? null,
+            release: this.meta.get(view.attemptId)!.source_outcome_release ?? null, record: this.meta.get(view.attemptId)!.source_outcome_record ?? null } : null,
+          checkVerdicts: A?.verdicts ?? [], checkFreshness: A?.freshness_coverage ?? null,
           assessments: this.assessmentsOf(view.attemptId).map((a) => ({ id: a.id, card: a.card, mode: a.mode, outcome: a.outcome, value: a.value, direction: a.direction })),
           failureChains: A?.failure_chains.length ?? null,
           chains: (A?.failure_chains ?? []).map((f) => ({ tool: f.tool, failures: f.failures.length, firstStep: f.first_step, tMs: f.t_ms, signature: f.signature, nextOk: f.next_ok, nextRow: f.next_same_tool })) } as unknown as Json };
@@ -277,10 +280,10 @@ export class Evidence {
     };
     const asm = this.assessmentsOf(attemptId);
     this.drawer.open({ kind: "audit", attemptId }, `Audit · ${trialLabel(m.trial_id)} ${m.short}`, () => `
-      <dl class="kv"><dt>Attempt</dt><dd class="mono small">${esc(m.attempt_id)}</dd><dt>Arm</dt><dd>${esc(m.condition)} (${esc(m.harness_id)} · ${esc(m.model_id)})</dd>
+      <dl class="kv"><dt>Attempt</dt><dd class="mono small">${esc(m.attempt_id)}</dd><dt>Arm</dt><dd>${esc(m.condition)} (${esc(m.harness_id)}${m.harness_version ? ` ${esc(m.harness_version)}` : ""} · ${esc(m.model_id)})</dd>
         <dt>Task / trial</dt><dd>${esc(m.task_id ?? "task unavailable")} · ${esc(trialLabel(m.trial_id))}</dd><dt>Cohorts</dt><dd>${esc(m.cohorts.join(", ") || "—")}</dd>
         <dt>Terminal</dt><dd>${esc(m.terminal_state ?? "unavailable")}${m.failure_class && m.failure_class !== "none" ? ` (${esc(m.failure_class)})` : ""}</dd>
-        ${m.source_outcome ? `<dt>Leaderboard verdict</dt><dd>${esc(m.source_outcome)} (third-party)</dd>` : ""}
+        ${m.source_outcome ? `<dt>${esc(m.source_outcome_source ?? "Third-party")} verdict</dt><dd title="${esc(sourceOutcomeTitle(m))}">${esc(m.source_outcome)} (third-party${m.source_outcome_release ? `, release ${esc(m.source_outcome_release)}` : ""})${m.source_outcome_record ? `<br><span class="mono small">${esc(m.source_outcome_record)}</span>` : ""}</dd>` : ""}
         <dt>Steps</dt><dd>${num(A.steps)} actions (tool calls + compactions)</dd></dl>
       ${asm.length ? `<p>Judge: ${asm.map((a) => `<button class="link" data-assess="${esc(a.id)}" ${target("openAssessment", a.id)}>${esc(a.card)} ${outChip(a.outcome, a.value)}</button>`).join(" ")}</p>` : ""}
       <h4>Final claims vs captured checks</h4>

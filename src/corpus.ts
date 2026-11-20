@@ -62,6 +62,11 @@ export type CorpusIndexEntry = {
   harnessId?: string;
   harnessVersion?: string;
   harnessConfigurationDigest?: DigestString;
+  /** Imports only: a third party's verdict on the trial, its publisher, release and the record it came from. */
+  sourceOutcome?: string;
+  sourceOutcomeSource?: string;
+  sourceOutcomeRelease?: string;
+  sourceOutcomeRecord?: string;
   assessmentMode?: string;
   /** Native child capture can be observational while Harbor verifies the task. */
   captureAssessmentMode?: string;
@@ -299,7 +304,13 @@ function projectManifest(root: string, manifestPath: string): CorpusIndexEntry {
       if (manifest.model !== undefined) entry.modelId = manifest.model.id; else if (observed !== undefined) entry.modelId = observed;
       if (manifest.task !== undefined) entry.taskId = manifest.task.id;
       entry.harnessId = typeof sourceAgent?.name === "string" ? sourceAgent.name : "unknown";
-      entry.harnessVersion = manifest.producer.agent.version ?? "unavailable";
+      // A declared version (two releases of one harness can share an agent name) wins over the document's own.
+      entry.harnessVersion = manifest.harnessVersion?.id ?? manifest.producer.agent.version ?? "unavailable";
+      if (manifest.sourceOutcome !== undefined) {
+        entry.sourceOutcome = manifest.sourceOutcome.outcome; entry.sourceOutcomeSource = manifest.sourceOutcome.source;
+        if (manifest.sourceOutcome.release !== undefined) entry.sourceOutcomeRelease = manifest.sourceOutcome.release;
+        if (manifest.sourceOutcome.record !== undefined) entry.sourceOutcomeRecord = manifest.sourceOutcome.record;
+      }
       entry.captureQualification = "imported"; entry.sharingClass = "restricted";
       entry.evidenceOrigin = "imported"; entry.sourceFormat = manifest.producer.formatVersion;
       entry.captureArtifactIds = [manifest.source.artifactId];
@@ -616,6 +627,7 @@ function assertCorpusIndexEntry(value: unknown, line: number): asserts value is 
     value.modelProvider, value.modelId, value.harnessId, value.harnessVersion, value.assessmentMode, value.terminalState,
     value.failureClass, value.stopReason, value.verifierLocator, value.captureQualification, value.exportStatus,
     value.sharingClass, value.captureAssessmentMode, value.sourceFormat,
+    value.sourceOutcome, value.sourceOutcomeSource, value.sourceOutcomeRelease, value.sourceOutcomeRecord,
   ];
   if (value.schemaVersion !== INDEX_SCHEMA_VERSION
       || !["run", "export", "import", "unknown"].includes(String(value.manifestKind))

@@ -12,7 +12,7 @@
       "type": "object", "additionalProperties": false, "required": ["request", "report"],
       "properties": { "request": { "$ref": "#/$defs/path" }, "report": { "$ref": "#/$defs/path" } }
     },
-    "dimension": { "enum": ["task", "model", "harness", "trial", "capture-qualification", "evidence-origin"] },
+    "dimension": { "enum": ["task", "model", "harness", "harness-version", "trial", "capture-qualification", "evidence-origin", "source-outcome"] },
     "filters": {
       "type": "object",
       "additionalProperties": false,
@@ -20,9 +20,11 @@
         "task": { "$ref": "#/$defs/identifier" },
         "model": { "$ref": "#/$defs/identifier" },
         "harness": { "$ref": "#/$defs/identifier" },
+        "harness-version": { "$ref": "#/$defs/identifier" },
         "trial": { "$ref": "#/$defs/identifier" },
         "capture-qualification": { "$ref": "#/$defs/identifier" },
-        "evidence-origin": { "$ref": "#/$defs/identifier" }
+        "evidence-origin": { "$ref": "#/$defs/identifier" },
+        "source-outcome": { "$ref": "#/$defs/identifier" }
       }
     },
     "request": {
