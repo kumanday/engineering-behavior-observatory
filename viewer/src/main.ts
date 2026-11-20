@@ -46,12 +46,32 @@ async function initDuckDB(): Promise<duckdb.AsyncDuckDB> {
   return db;
 }
 
-interface BundleManifest { schemaVersion?: string; title?: string; study?: { id?: string; title?: string } }
+type EmbeddingSpec = { file: string; provider?: string; model?: string; revision?: string; dimensions: number;
+  run?: { texts: number; distinct: number; cached: number; embedded: number; seconds: number; runtime?: { device: string; deviceName?: string; dtype: string; batchSize: number; textsPerSecond: number | null; warning?: string } } };
+interface BundleManifest { schemaVersion?: string; title?: string; study?: { id?: string; title?: string }; cloud?: { units?: number; embeddings?: EmbeddingSpec }; derivedFrom?: { variant: string } }
+
+/** How the cloud's vectors were made, in words: the header and describe() say the same thing. */
+export function embeddingSummary(spec: EmbeddingSpec | undefined, derived?: string): string {
+  if (!spec) return "Embeddings: not recorded in this bundle";
+  const what = spec.provider === "embeddinggemma" ? `EmbeddingGemma 2 (${spec.model ?? "model unrecorded"})`
+    : spec.provider === "hashed-tfidf" || spec.provider === "local" ? "hashed TF-IDF (offline, no model)" : `${spec.provider ?? "unknown provider"} ${spec.model ?? ""}`.trim();
+  const runtime = spec.run?.runtime;
+  return `Embeddings: ${what} · ${spec.dimensions} dimensions${runtime ? ` · ${runtime.device}${runtime.deviceName ? ` (${runtime.deviceName})` : ""}` : ""}${derived ? ` · recomputed for the ${derived} packet` : ""}`;
+}
 
 async function main() {
   const manifest = await getJson<BundleManifest>("manifest.json");
   const title = manifest?.title ?? manifest?.study?.title ?? "Atlas bundle";
   document.getElementById("bundle-title")!.textContent = title;
+  const embeddings = manifest?.cloud?.embeddings, embeddingText = embeddingSummary(embeddings, manifest?.derivedFrom?.variant);
+  const embeddingEl = document.getElementById("bundle-embeddings")!;
+  embeddingEl.textContent = embeddingText;
+  const pass = embeddings?.run;
+  if (pass) embeddingEl.title = [`${pass.texts.toLocaleString()} units, ${pass.distinct.toLocaleString()} distinct texts (${pass.cached.toLocaleString()} from the cache, ${pass.embedded.toLocaleString()} embedded)`,
+    pass.runtime ? `${pass.runtime.dtype}, batch ${pass.runtime.batchSize}, ${pass.runtime.textsPerSecond ?? "?"} texts/s` : "", embeddings?.revision ? `revision ${embeddings.revision}` : "", pass.runtime?.warning ?? ""].filter(Boolean).join("\n");
+  describable("bundle", { describe: () => ({ summary: `${title}. ${embeddingText}.`,
+    data: { title, units: manifest?.cloud?.units ?? null, embeddings: embeddings ? { provider: embeddings.provider ?? null, model: embeddings.model ?? null, revision: embeddings.revision ?? null,
+      dimensions: embeddings.dimensions, run: (embeddings.run ?? null) as Json } : null, derivedFrom: manifest?.derivedFrom?.variant ?? null } }) });
   document.title = `${title} · EBO Atlas`;
 
   status("Starting DuckDB…");

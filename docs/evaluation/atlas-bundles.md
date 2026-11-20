@@ -24,7 +24,7 @@ ebo atlas bundle verify <bundle-dir>
   "condition": { "pattern": "^(?<task>.+)-(?<condition>direct|sandboxed)-\\d+$" },
   "claims": "claims/behavior-study.json",
   "views": "views/",
-  "embeddings": { "provider": "local" }
+  "embeddings": { "python": ".embeddings-venv/bin/python" }
 }
 ```
 
@@ -47,13 +47,30 @@ is never overwritten.
 `views` names a directory of view specs. `embeddings` chooses how cloud units
 are embedded:
 
-- `local` (the default): TF-IDF over each unit's words, feature-hashed to the
-  requested `dimensions` (default 256). No network call.
-- `fireworks`: each unit's `embed_text` (behavior summaries and message text
-  capped for embedding, never tool output or file contents), with secrets
-  redacted, is sent to Fireworks (`model`, default
-  `accounts/fireworks/models/qwen3-embedding-8b`; needs `FIREWORKS_API_KEY`).
-  Vectors are cached under `cache` by model, dimensions and text digest.
+- `embeddinggemma` (the default): `google/embeddinggemma-2` at a pinned
+  `revision`, run locally through SentenceTransformers in the Python runtime
+  that `scripts/embeddings/requirements.txt` pins. `python` names that
+  runtime's executable, relative to the request; without it the build uses
+  `EBO_EMBEDDINGS_PYTHON` and otherwise stops before reading any attempt.
+  The runtime uses CUDA (bfloat16 where supported), else MPS, else CPU
+  (float32), and says when it falls back to CPU; `device` and `batchSize`
+  override its choices. Each unit's `embed_text` (behavior summaries and
+  message text capped for embedding, never tool output or file contents),
+  with secrets redacted, gets the model card's clustering prompt
+  (`task: clustering | query: `). The published graph mean-pools and
+  L2-normalizes. `dimensions` is 768 by default; 512, 256 and 128 are
+  truncations, normalized again.
+- `hashed-tfidf`: the offline option. TF-IDF over each unit's words,
+  feature-hashed to `dimensions` (default 256). No runtime and no model.
+
+EmbeddingGemma 2 vectors are cached under `cache` (default
+`.atlas-cache/embeddings`) by model, revision, dimensions and redacted text
+digest, so a rebuild embeds only new texts. Each distinct text is embedded
+once. `cloud.embeddings` in the manifest records the provider, model,
+revision and dimensions, and `run` records the pass: units, distinct texts,
+cache hits, texts embedded, and the runtime's device, precision, batch size,
+throughput and package versions. The viewer header and `describe()` name the
+provider.
 
 ## Contents
 

@@ -110,3 +110,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   if (!process.argv[2]) throw new Error("Usage: node dist/test/atlas-fixture.js <new-output-root>");
   console.log(await createAtlasFixture(process.argv[2]));
 }
+
+/** A stand-in for the embedding runtime: writes `vector(text)` for each text (all ones by default) and reports the pass. */
+export function standInEmbed(vector?: (text: string, dimensions: number) => Float32Array) {
+  return async (texts: readonly string[], config: { dimensions: number }, outputPath: string) => {
+    const out = new Float32Array(texts.length * config.dimensions);
+    texts.forEach((text, i) => out.set(vector ? vector(text, config.dimensions) : new Float32Array(config.dimensions).fill(1), i * config.dimensions));
+    writeFileSync(outputPath, new Uint8Array(out.buffer));
+    return { texts: texts.length, distinct: new Set(texts).size, cached: 0, embedded: texts.length, seconds: 0 };
+  };
+}

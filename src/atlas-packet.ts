@@ -334,7 +334,7 @@ async function writePacket({ bundleRoot, bundle, out, variant, viewerRoot, now }
       title: transform(bundle.title),
       cohorts: bundle.cohorts.map((c) => ({ ...c, title: transform(c.title) })),
       derivedFrom: { bundle: bundle.id, manifestSha256: sha256(readFileSync(join(bundleRoot, "manifest.json"))), variant },
-      cloud: { ...bundle.cloud, embeddings: { ...bundle.cloud.embeddings, provider: "local", model: LOCAL_EMBEDDING_MODEL } },
+      cloud: { ...bundle.cloud, embeddings: { file: bundle.cloud.embeddings.file, provider: "hashed-tfidf", model: LOCAL_EMBEDDING_MODEL, dimensions: bundle.cloud.embeddings.dimensions } },
       tables: Object.fromEntries(Object.entries(bundle.tables).filter(([, t]) => shared(t.path)).map(([name, t]) => [name, { ...t, sha256: describe(t.path).sha256 }])),
       files: bundle.files.filter(({ path }) => shared(path)).map(({ path, role }) => ({ path, role, ...describe(path) })),
     };

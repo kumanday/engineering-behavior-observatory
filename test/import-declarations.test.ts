@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+
+import { standInEmbed } from "./atlas-fixture.js";
 import { main } from "../src/cli.js";
 import { readCorpusIndex } from "../src/corpus.js";
 
@@ -49,7 +51,7 @@ test("an ATIF import records a declared task and model; the corpus, aggregation 
 
     writeFileSync(join(root, "bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "declarations", title: "Declarations", cohorts: [{ id: "all", atlasRequest: "atlas.json" }] }));
     const { buildAtlasBundle } = await import("../src/atlas-bundle.js");
-    await buildAtlasBundle(join(root, "bundle.json"), join(root, "bundle"), { embed: async (texts: readonly string[], config: { dimensions: number }) => new Float32Array(texts.length * config.dimensions).fill(1) });
+    await buildAtlasBundle(join(root, "bundle.json"), join(root, "bundle"), { embed: standInEmbed() });
     const lanes = JSON.parse(readFileSync(join(root, "bundle", "lanes.json"), "utf8")) as { attempts: Array<{ condition: string; task_id: string | null }> };
     assert.deepEqual([...new Set(lanes.attempts.map(({ condition }) => condition))], ["Imported · Example-Model · acme-agent"], "one arm for one model, whatever the route");
     assert.ok(lanes.attempts.every(({ task_id }) => task_id === "example-task"));
@@ -74,7 +76,7 @@ test("an ATIF import's step timestamps and metrics give Atlas lanes and cloud ro
     writeFileSync(join(root, "atlas.json"), JSON.stringify({ schemaVersion: "ebo.atlas-request/v1", title: "Timing", aggregationRequest: "aggregation.json" }));
     writeFileSync(join(root, "bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "timing", title: "Timing", cohorts: [{ id: "all", atlasRequest: "atlas.json" }] }));
     const { buildAtlasBundle } = await import("../src/atlas-bundle.js");
-    await buildAtlasBundle(join(root, "bundle.json"), join(root, "bundle"), { embed: async (texts: readonly string[], config: { dimensions: number }) => new Float32Array(texts.length * config.dimensions).fill(1) });
+    await buildAtlasBundle(join(root, "bundle.json"), join(root, "bundle"), { embed: standInEmbed() });
     const lanes = JSON.parse(readFileSync(join(root, "bundle", "lanes.json"), "utf8")) as { attempts: Array<Record<string, unknown>>; usage: Record<string, Array<[number, number]>>; context: Record<string, Array<[number, number]>> };
     const [lane] = lanes.attempts;
     assert.equal(lane!.t_start_ms, Date.parse(at(10)), "the lane starts at the first unit it shows (the user message)");
@@ -113,7 +115,7 @@ test("a placeholder message on a tool-calling step is not a message unit, and a 
     writeFileSync(join(root, "atlas.json"), JSON.stringify({ schemaVersion: "ebo.atlas-request/v1", title: "Placeholder", aggregationRequest: "aggregation.json" }));
     writeFileSync(join(root, "bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "placeholder", title: "Placeholder", cohorts: [{ id: "all", atlasRequest: "atlas.json" }] }));
     const { buildAtlasBundle } = await import("../src/atlas-bundle.js");
-    await buildAtlasBundle(join(root, "bundle.json"), join(root, "bundle"), { embed: async (texts: readonly string[], config: { dimensions: number }) => new Float32Array(texts.length * config.dimensions).fill(1) });
+    await buildAtlasBundle(join(root, "bundle.json"), join(root, "bundle"), { embed: standInEmbed() });
     const { DuckDBInstance } = await import("@duckdb/node-api");
     const db = await DuckDBInstance.create(":memory:", { autoinstall_known_extensions: "false", autoload_known_extensions: "false" });
     const connection = await db.connect();

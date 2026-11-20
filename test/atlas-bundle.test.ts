@@ -14,7 +14,7 @@ import { NativeLines, nativeRecordDigest } from "../src/atlas-evidence.js";
 import { validateClaims } from "../src/atlas-claims.js";
 import { createHash } from "node:crypto";
 import { main } from "../src/cli.js";
-import { createAtlasFixture } from "./atlas-fixture.js";
+import { createAtlasFixture, standInEmbed } from "./atlas-fixture.js";
 
 test("flattened event text keeps string leaves, labels short ones and skips identifiers", () => {
   assert.deepEqual(flattenText({ id: "x1", role: "user", content: [{ type: "text", text: "line one\nline two" }], input: '{"command":"ls"}', isError: false, exitCode: 0 }),
@@ -32,11 +32,11 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
     writeFileSync(requestPath, JSON.stringify(request));
     const out = join(root, "bundle");
     // Deterministic stand-in embeddings: one dimension per character code bucket, no provider call.
-    const embed = async (texts: readonly string[], config: { dimensions: number }) => {
-      const out = new Float32Array(texts.length * config.dimensions);
-      texts.forEach((t, i) => { for (const ch of t) out[i * config.dimensions + (ch.charCodeAt(0) % config.dimensions)]! += 1; });
+    const embed = standInEmbed((text, dimensions) => {
+      const out = new Float32Array(dimensions);
+      for (const ch of text) out[ch.charCodeAt(0) % dimensions]! += 1;
       return out;
-    };
+    });
     const evidenceReuse = { hits: 0, misses: 0 };
     const manifest = await buildAtlasBundle(requestPath, out, { now: () => new Date("2026-10-07T00:00:00.000Z"), embed, evidenceReuse });
     // The build runs inside a reuse scope. This fixture has one assertion per attempt, so every lookup changes attempt.
@@ -110,10 +110,13 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
     await assert.rejects(buildAtlasBundle(requestPath, failed, { embed: async () => { throw new Error("provider unavailable"); } }), /provider unavailable/u);
     assert.equal(existsSync(failed), false);
     assert.deepEqual(readdirSync(root).filter((f) => f.includes(".partial-")), []);
-    // Without a provider in the request, embeddings are local: no network, deterministic.
+    // EmbeddingGemma 2 is the default and needs its runtime; the build says so before reading any attempt.
+    await assert.rejects(buildAtlasBundle(requestPath, join(root, "bundle-no-runtime"), { embedding: {} }), /EBO_EMBEDDINGS_PYTHON/u);
+    // Hashed TF-IDF is the explicit offline option: no runtime, deterministic.
+    writeFileSync(requestPath, JSON.stringify({ ...request, embeddings: { provider: "hashed-tfidf" } }));
     const local = join(root, "bundle-local");
     const localManifest = await buildAtlasBundle(requestPath, local);
-    assert.equal(localManifest.cloud.embeddings.provider, "local");
+    assert.equal(localManifest.cloud.embeddings.provider, "hashed-tfidf");
     assert.deepEqual(readFileSync(join(local, "embeddings.f32")), readFileSync(join(local, "embeddings.f32")));
     writeFileSync(requestPath, JSON.stringify({ ...request, cohorts: [...request.cohorts, request.cohorts[0]] }));
     await assert.rejects(buildAtlasBundle(requestPath, join(root, "bundle-2"), { embed }), /unique/u);
@@ -138,7 +141,7 @@ test("an Atlas bundle labels every result with its producer mode and direction a
     writeFileSync(requestPath, JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "synthetic-modes", title: "Synthetic modes",
       cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], condition: { pattern: "^synthetic-(?<condition>attempt)-\\d+$" } } satisfies AtlasBundleRequest));
     const out = join(root, "bundle");
-    const embed = async (texts: readonly string[], config: { dimensions: number }) => new Float32Array(texts.length * config.dimensions).fill(1);
+    const embed = standInEmbed();
     await buildAtlasBundle(requestPath, out, { now: () => new Date("2026-10-07T00:00:00.000Z"), embed });
     assert.equal(verifyAtlasBundle(out).ok, true);
 

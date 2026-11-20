@@ -12,7 +12,7 @@ export { ownPointer } from "./retained-content.js";
 import { loadAtlas, queryAtlas, type AtlasSource, type AtlasView } from "./atlas.js";
 import { Field, List, makeVector, Table, tableToIPC, Utf8, vectorFromArray } from "apache-arrow";
 import { buildViews, validateClaims, type ClaimsSource } from "./atlas-claims.js";
-import { DEFAULT_FIREWORKS_MODEL, embedTexts, LOCAL_EMBEDDING_MODEL } from "./atlas-embeddings.js";
+import { embeddingConfig as selectEmbeddings, embedTexts, type EmbeddingOptions, type EmbeddingProvider, type EmbeddingRequest, type EmbeddingRun } from "./atlas-embeddings.js";
 import { assessmentDoc, attemptEvidence, NativeLines, nativeRecordDigest } from "./atlas-evidence.js";
 import { laneData, type LaneMeta } from "./atlas-lanes.js";
 import { ATLAS_UNITS_VERSION, deriveUnits, type AtlasUnit } from "./atlas-units.js";
@@ -48,10 +48,10 @@ export type AtlasBundleRequest = {
   claims?: string;
   views?: string;
   /**
-   * Unit embeddings for the cloud. Local (no network) unless the request names a remote provider: `fireworks` sends
-   * each unit's redacted `embed_text` to Fireworks (FIREWORKS_API_KEY) and caches the vectors.
+   * Unit embeddings for the cloud: EmbeddingGemma 2 at 768 dimensions by default, run locally in the pinned Python
+   * runtime (`python`, else EBO_EMBEDDINGS_PYTHON); `hashed-tfidf` is the offline option. See atlas-embeddings.ts.
    */
-  embeddings?: { provider?: "local" | "fireworks"; model?: string; dimensions?: number; cache?: string };
+  embeddings?: EmbeddingRequest;
 };
 
 export type AtlasBundleManifest = {
@@ -67,7 +67,7 @@ export type AtlasBundleManifest = {
   /** A packet's shared copy of a bundle names the bundle it was derived from and the variant. */
   derivedFrom?: { bundle: string; manifestSha256: `sha256:${string}`; variant: "partner" | "restricted" };
   /** The cloud's units and their embeddings; the viewer lays them out with Embedding Atlas (UMAP and clustering). */
-  cloud: { units: number; embeddings: { file: string; provider: "local" | "fireworks"; model: string; dimensions: number } };
+  cloud: { units: number; embeddings: { file: string; provider: EmbeddingProvider; model: string; revision?: string; dimensions: number; run?: EmbeddingRun } };
   tables: Record<string, { path: string; rows: number; sha256: `sha256:${string}` }>;
   files: Array<{ path: string; bytes: number; sha256: `sha256:${string}`; role: string }>;
 };
@@ -278,7 +278,7 @@ async function writeTables(tables: Record<string, Row[]>, directory: string, sin
  * (invalid source, DuckDB, embedding provider) never leaves a partial bundle at the destination.
  */
 export async function buildAtlasBundle(requestPath: string, destination: string,
-  options: { now?: () => Date; embed?: typeof embedTexts; evidenceReuse?: RetainedEvidenceReuseStats } = {}): Promise<AtlasBundleManifest> {
+  options: { now?: () => Date; embed?: typeof embedTexts; embedding?: EmbeddingOptions; evidenceReuse?: RetainedEvidenceReuseStats } = {}): Promise<AtlasBundleManifest> {
   const request = readRequest(requestPath);
   if (existsSync(destination) && readdirSync(destination).length) throw new Error(`Atlas bundle output ${destination} is not empty; choose a new directory.`);
   mkdirSync(dirname(resolve(destination)), { recursive: true });
@@ -322,8 +322,13 @@ function leaderboardLabels(base: string, source: AtlasBundleRequest["leaderboard
 }
 
 async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string, outputRoot: string, sink: TableSink,
-  options: { now?: () => Date; embed?: typeof embedTexts }): Promise<AtlasBundleManifest> {
+  options: { now?: () => Date; embed?: typeof embedTexts; embedding?: EmbeddingOptions }): Promise<AtlasBundleManifest> {
   const base = dirname(resolve(requestPath));
+  // A missing embedding runtime fails here, before hours of attempt processing, not at the end.
+  const embeddingConfig = selectEmbeddings(request.embeddings, base);
+  if (embeddingConfig.provider === "embeddinggemma" && !embeddingConfig.python && !options.embed && !options.embedding?.command) {
+    throw new Error("EmbeddingGemma 2 needs its Python runtime: set embeddings.python in the bundle request or EBO_EMBEDDINGS_PYTHON (install it from scripts/embeddings/requirements.txt), or choose the offline provider \"hashed-tfidf\" explicitly.");
+  }
   const sourceLabels = leaderboardLabels(base, request.leaderboard);
   const condition = request.condition ? new RegExp(request.condition.pattern, "u") : undefined; // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
   const tables: Record<string, Row[]> = Object.fromEntries(Object.keys(ATLAS_TABLES).filter((name) => !STREAMED.has(name)).map((name) => [name, []]));
@@ -598,11 +603,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   const tableIndex = await writeTables(tables, join(outputRoot, "tables"), sink);
 
   // The cloud: units.arrow (Arrow IPC, so DuckDB-WASM needs no extensions) and the embeddings in row order.
-  const provider = request.embeddings?.provider ?? "local";
-  const embeddingConfig = { provider, model: request.embeddings?.model ?? (provider === "fireworks" ? DEFAULT_FIREWORKS_MODEL : LOCAL_EMBEDDING_MODEL),
-    dimensions: request.embeddings?.dimensions ?? 256, cache: resolve(base, request.embeddings?.cache ?? ".atlas-cache/embeddings") };
-  const vectors = await (options.embed ?? embedTexts)(cloud.map((u) => u.embed_text), embeddingConfig);
-  writeFileSync(join(outputRoot, "embeddings.f32"), Buffer.from(vectors.buffer, vectors.byteOffset, vectors.byteLength));
+  const embeddingRun = await (options.embed ?? embedTexts)(cloud.map((u) => u.embed_text), embeddingConfig, join(outputRoot, "embeddings.f32"), options.embedding);
   const strings = (key: string) => cloud.map((u) => (u[key as keyof typeof u] ?? null) as string | null);
   const numbers = (key: string) => cloud.map((u) => (typeof u[key as keyof typeof u] === "number" ? u[key as keyof typeof u] as number : null));
   const lists = (key: string) => vectorFromArray(cloud.map((u) => [...(u[key as keyof typeof u] as string[] ?? [])]), new List(new Field("item", new Utf8(), true)));
@@ -702,7 +703,8 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   const manifest: AtlasBundleManifest = {
     schemaVersion: "ebo.atlas-bundle/v2", id: request.id, title: request.title, builder: ATLAS_BUNDLE_BUILDER, tablesVersion: ATLAS_TABLES_VERSION, unitsVersion: ATLAS_UNITS_VERSION,
     createdAt: (options.now ?? (() => new Date()))().toISOString(), request: { digest: `sha256:${digestMetadata(request).value}` },
-    cloud: { units: cloud.length, embeddings: { file: "embeddings.f32", provider: embeddingConfig.provider, model: embeddingConfig.model, dimensions: embeddingConfig.dimensions } },
+    cloud: { units: cloud.length, embeddings: { file: "embeddings.f32", provider: embeddingConfig.provider, model: embeddingConfig.model,
+      ...(embeddingConfig.revision ? { revision: embeddingConfig.revision } : {}), dimensions: embeddingConfig.dimensions, run: embeddingRun } },
     cohorts, tables: tableIndex, files,
   };
   const errors = validateArtifact("atlas bundle", manifest);
