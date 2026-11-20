@@ -12,10 +12,10 @@ import { EmbeddingAtlas } from "embedding-atlas";
 import { ClusterArmPanel, rowsOf } from "./enrichment";
 import { shortId, SwimlanesPanel, type LanesData } from "./lanes";
 import { STOP_WORDS } from "./stopwords";
-import { ClaimsPanel, Drawer, Evidence, MatrixPanel, type AssessDoc, type AuditDoc, type ClaimsDoc, type DrawerView } from "./p3";
+import { ClaimsPanel, Drawer, Evidence, expandAssessmentIndex, MatrixPanel, type AssessDoc, type AuditDoc, type ClaimsDoc, type DrawerView } from "./p3";
 import { FiguresPanel, type ViewsDoc } from "./views";
 import { prepareCloud } from "./layout";
-import { tableFromJSON, tableToIPC } from "apache-arrow";
+import { tableFromArrays, tableToIPC } from "apache-arrow";
 import {
   commandRunning, decodeState, onCommandBoundary, describable, describe, encodeState, getState, listCommands, provide, recordChange, register, run, setState, subscribe, target,
   type CommandEvent, type Json,
@@ -116,14 +116,25 @@ async function main() {
   const lanesData = await getJson<LanesData>("lanes.json");
   const [assessDoc, auditDoc, claimsDoc, viewsDoc] = await Promise.all([
     getJson<AssessDoc>("assessments.json"), getJson<AuditDoc>("audit.json"), getJson<ClaimsDoc>("claims.json"), getJson<ViewsDoc>("views.json")]);
-  if (assessDoc) {
+  if (assessDoc?.index) {
+    // A large bundle indexes its card results; each attempt's details load when a view of it opens.
+    status(`Loading ${assessDoc.index.rows.toLocaleString()} card results…`);
+    const r = await fetch(file(assessDoc.index.file));
+    assessDoc.assessments = r.ok ? expandAssessmentIndex(assessDoc, new Uint8Array(await r.arrayBuffer())) : [];
+  }
+  if (lanesData?.split) lanesData.usage ??= {};
+  if (assessDoc && viewsDoc?.views.length) {
     // the `assessments` host table view specs may query
-    const rows = assessDoc.assessments.map((x) => ({ id: x.id, attempt_id: x.attempt_id, condition: x.condition, task_id: x.task_id, trial_id: x.trial_id,
-      mode: x.mode, card: x.card, family: x.family, outcome: x.outcome, value: x.value ?? null, direction: x.direction ?? null, confidence: x.confidence ?? null, probability: x.probability ?? null, citations: x.citations.length,
-      in_primary: Boolean(x.cohorts?.primary && x.cohorts.primary.included !== false) }));
+    const xs = assessDoc.assessments;
     const c2 = await db.connect();
-    // IPC bytes, not a Table object: DuckDB-WASM bundles its own apache-arrow
-    if (rows.length) await c2.insertArrowFromIPCStream(tableToIPC(tableFromJSON(rows), "stream"), { name: "assessments", create: true });
+    // IPC bytes, not a Table object: DuckDB-WASM bundles its own apache-arrow. Built column by column: a large bundle
+    // has millions of results.
+    if (xs.length) await c2.insertArrowFromIPCStream(tableToIPC(tableFromArrays({
+      id: xs.map((x) => x.id), attempt_id: xs.map((x) => x.attempt_id), condition: xs.map((x) => x.condition), task_id: xs.map((x) => x.task_id), trial_id: xs.map((x) => x.trial_id),
+      mode: xs.map((x) => x.mode), card: xs.map((x) => x.card), family: xs.map((x) => x.family), outcome: xs.map((x) => x.outcome), value: xs.map((x) => x.value ?? null),
+      direction: xs.map((x) => x.direction ?? null), confidence: xs.map((x) => x.confidence ?? null), probability: xs.map((x) => x.probability ?? null),
+      citations: Int32Array.from(xs, (x) => x.citationCount ?? x.citations.length), in_primary: xs.map((x) => Boolean(x.cohorts?.primary && x.cohorts.primary.included !== false)),
+    }), "stream"), { name: "assessments", create: true });
     else await c2.query("CREATE TABLE assessments (id VARCHAR, attempt_id VARCHAR, condition VARCHAR, task_id VARCHAR, trial_id VARCHAR, mode VARCHAR, card VARCHAR, family VARCHAR, outcome VARCHAR, value VARCHAR, direction VARCHAR, confidence DOUBLE, probability DOUBLE, citations INTEGER, in_primary BOOLEAN)");
     await c2.close();
   }
@@ -137,7 +148,7 @@ async function main() {
     highlight: (rows) => highlight(rows),
     showInLanes: (attemptId, row) => { run("focusAttempt", { attemptId, row: row ?? null }); },
   }) : null;
-  if (lanes) lanes.ev = ev;
+  if (lanes) { lanes.ev = ev; lanes.base = bundleUrl; }
   if (ev) new MatrixPanel(document.getElementById("body-assessments")!, ev);
   else document.getElementById("body-assessments")!.innerHTML = `<p class="empty pad">This bundle has no assessments (assessments.json).</p>`;
   const claimsPanel = ev ? new ClaimsPanel(document.getElementById("body-claims")!, claimsDoc, ev) : null;

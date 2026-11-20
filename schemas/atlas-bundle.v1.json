@@ -40,7 +40,8 @@
             "cache": { "$ref": "#/$defs/path" },
             "python": { "$ref": "#/$defs/path" },
             "device": { "enum": ["auto", "cuda", "mps", "cpu"] },
-            "batchSize": { "type": "integer", "minimum": 1, "maximum": 65536 }
+            "batchSize": { "type": "integer", "minimum": 1, "maximum": 65536 },
+            "layout": { "enum": ["auto", "browser", "build"] }
           }
         }
       }
@@ -67,6 +68,10 @@
           "type": "object", "additionalProperties": false, "required": ["units", "embeddings"],
           "properties": {
             "units": { "type": "integer", "minimum": 0 },
+            "layout": {
+              "type": "object", "additionalProperties": false, "required": ["where"],
+              "properties": { "where": { "enum": ["build", "browser"] }, "run": { "type": "object", "required": ["backend", "device", "units"], "additionalProperties": true } }
+            },
             "embeddings": {
               "type": "object", "additionalProperties": false, "required": ["file", "provider", "model", "dimensions"],
               "properties": { "file": { "$ref": "#/$defs/path" }, "provider": { "enum": ["embeddinggemma", "hashed-tfidf"] }, "model": { "type": "string", "minLength": 1 },

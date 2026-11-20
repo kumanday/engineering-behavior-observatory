@@ -74,6 +74,46 @@ cache hits, texts embedded, and the runtime's device, precision, batch size,
 throughput and package versions. The viewer header and `describe()` name the
 provider.
 
+`layout` chooses where the cloud is laid out. `browser` leaves it to the
+viewer, which runs UMAP over the vectors. `build` lays it out at build time in
+the same runtime: per unit family, identical vectors once, PCA to 128
+dimensions, then cosine UMAP with 15 neighbors, minimum distance 0.1 and seed
+42. It uses cuML on a CUDA device (install `scripts/embeddings/requirements-gpu.txt`
+too) and umap-learn on the CPU elsewhere. `units.arrow` then carries each
+unit's `x`, `y` and nearest `neighbors`, the viewer clusters and labels the
+given positions, and `cloud.layout.run` in the manifest names the backend and
+its timings. `auto` (the default) lays out at build time above 200,000 units
+when the runtime is available, since a browser cannot hold millions of
+768-dimension vectors.
+
+## Large bundles
+
+Above 2,000 attempts the viewer's per-attempt documents are split, so neither
+the build nor the viewer handles one document for the whole study:
+
+- `assessments.json` keeps the cards, cohorts, attempts and certified tallies,
+  with an empty `assessments` list. `assessments.arrow` indexes every card
+  result (id, attempt, card, mode, producer, outcome, value, direction, review,
+  cohort flags, probability, confidence and citation count, the repeated
+  strings as codes into `index.dictionaries`). `assessments/<attempt>.json`
+  holds that attempt's full documents. Certified cells keep their counts and
+  arms without their judgment lists.
+- `audit.json` names `split: "audit/"`, and `audit/<attempt>.json` holds each
+  attempt's audit.
+- `lanes.json` keeps every lane's metadata, and `lanes/<attempt>.json` holds
+  its usage and context series.
+
+The viewer loads the index up front and fetches an attempt's files when its
+task's lanes or one of its drawer views open. The tables are the same either
+way.
+
+The build keeps only the identities of observation sets and card results
+between the cohort pass and the attempt pass, and re-reads each attempt's
+documents in the attempt pass. Tables, cloud rows and viewer documents are
+written as each attempt is processed. Memory is set by the largest cohort's
+validation, about 1.3 MB per attempt on synthetic imports with 93 card results
+each, and the attempt pass takes about a quarter of a second per attempt.
+
 ## Contents
 
 | Path | Content |
@@ -81,7 +121,7 @@ provider.
 | `manifest.json` | `ebo.atlas-bundle/v2`: identity, builder, request digest, cohorts with source and cohort digests, tables with row counts, and every file with size, SHA-256 and role |
 | `reports/<cohort>.json` | the cohort's aggregation report (the certified tallies), with its source and cohort digests |
 | `tables/*.parquet` | Atlas tables v1 (zstd) |
-| `units.arrow`, `embeddings.f32` | the cloud: one row per embedded unit (Arrow IPC) and its vector (float32, row order) |
+| `units.arrow`, `embeddings.f32` | the cloud: one row per embedded unit (Arrow IPC, with `x`, `y` and `neighbors` after a build-time layout) and its vector (float32, row order) |
 | `lanes.json` | swimlanes: lane metadata, cumulative tokens and context per request from normalized usage events |
 | `assessments.json`, `audit.json`, `native/<attempt>.json` | card results per attempt and card (`card`, `family`, `outcome` as present, absent or unknown, `value` on a present dimension card, `mode` and `producer`, the ontology's `direction` for a present result, and for a decision-model result its `probability`, `probabilities`, `thresholds` and what it was `shown`) with an LLM judge's citations linked to units and native lines (SHA-256 of the full line), the judged cards and families in ontology order, the `modes` and `directions` in use, attempt audits, per-unit native records |
 | `claims.json`, `views.json` | validated claims and view specs with their receipts, when the request names them |

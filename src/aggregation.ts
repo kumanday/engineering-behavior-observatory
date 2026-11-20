@@ -194,6 +194,23 @@ export function aggregateEvaluation(
   return aggregateValidatedEvaluation(input, policy);
 }
 
+/** Inputs whose every observation set and assertion was validated against its retained evidence in this process. */
+const validatedInputs = new WeakSet<AggregationInput>();
+
+/**
+ * Aggregates a subset of an input that `aggregateEvaluation` has already validated, without validating its sources
+ * again (Atlas filters a validated source many times). Every subset document must be one of the validated input's
+ * own documents, by identity; anything else is validated as usual.
+ */
+export function aggregateValidatedSubset(validated: AggregationInput, subset: AggregationInput,
+  policy: Pick<AggregationRequest, "groupBy" | "selectedAttemptPolicy" | "recurrence" | "evidenceOrigins">): Promise<AggregationReport> {
+  const observationSets = new Set(validated.observationSets.map(({ document }) => document));
+  const assertions = new Set(validated.assertions.map(({ document }) => document));
+  const contained = validatedInputs.has(validated) && subset.calibrations === validated.calibrations && subset.comparisons === validated.comparisons
+    && subset.observationSets.every(({ document }) => observationSets.has(document)) && subset.assertions.every(({ document }) => assertions.has(document));
+  return aggregateValidatedEvaluation(subset, policy, contained);
+}
+
 export function selectAggregationAttempts(entries: readonly CorpusIndexEntry[], policy: AttemptSelectionPolicy, origins: EvidenceOriginSelection = "owned"): CorpusIndexEntry[] {
   if (!["owned", "imported", "separate"].includes(origins)) throw new Error("Invalid evidence-origin selection.");
   if (!["all-attempts", "latest-attempt-per-run"].includes(policy)) throw new Error("Invalid attempt selection policy.");
@@ -203,6 +220,7 @@ export function selectAggregationAttempts(entries: readonly CorpusIndexEntry[], 
 async function aggregateValidatedEvaluation(
   input: AggregationInput,
   policy: Pick<AggregationRequest, "groupBy" | "selectedAttemptPolicy" | "recurrence" | "evidenceOrigins">,
+  prevalidated = false,
 ): Promise<AggregationReport> {
   assertPolicy(policy);
   const { attempts, duplicates } = uniqueAttempts(input.corpusEntries, policy.evidenceOrigins ?? "owned");
@@ -231,31 +249,44 @@ async function aggregateValidatedEvaluation(
     for (const [bundleRoot, sources] of byBundle) {
       for (const document of sources.observationSets) {
         assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
+        // A validated source's set equals its rebuilt set (that is what was checked), so the document stands in for it.
+        if (prevalidated) { rebuiltSets.set(`${document.runId}\0${document.attemptId}`, document); continue; }
         const rebuilt = await createRetainedStructuralObservationSet(bundleRoot);
         if (canonicalizeMetadata(rebuilt) !== canonicalizeMetadata(document)) throw new Error(`Structural observation set for attempt "${document.attemptId}" is stale.`);
         rebuiltSets.set(`${document.runId}\0${document.attemptId}`, rebuilt);
       }
       for (const document of sources.assertions) {
         assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
-        await validateRetainedBehaviorAssertion(bundleRoot, document);
+        if (!prevalidated) await validateRetainedBehaviorAssertion(bundleRoot, document);
       }
     }
   });
   // Reports keep the order of the request's sources.
   for (const { document } of observationSources.values()) observations.set(`${document.runId}\0${document.attemptId}`, rebuiltSets.get(`${document.runId}\0${document.attemptId}`)!);
   for (const { document } of assertionSources.values()) assertions.set(assertionKey(document), document);
-  for (const { selection } of input.calibrations) await revalidateReviewSample(selection);
+  for (const { selection } of input.calibrations) if (!prevalidated) await revalidateReviewSample(selection);
+  if (!prevalidated) validatedInputs.add(input);
   const reviewOutcomes = reviewOutcomeIndex(input.calibrations);
   const selectedIds = new Set(selected.map(attemptKey));
   const groupBy = attempts.some((attempt) => evidenceOrigin(attempt) === "imported") && !policy.groupBy.includes("evidence-origin")
     ? [...policy.groupBy, "evidence-origin" as const] : [...policy.groupBy];
+  // Each group reads only its members' assertions, in source order: scanning every assertion once per group is
+  // quadratic when a cohort has many groups and millions of card results.
+  const sourceOrder = new Map<string, number>(), byAttempt = new Map<string, Array<[string, BehaviorAssertion]>>();
+  for (const [key, assertion] of assertions) {
+    sourceOrder.set(key, sourceOrder.size);
+    const list = byAttempt.get(attemptKey(assertion));
+    if (list) list.push([key, assertion]); else byAttempt.set(attemptKey(assertion), [[key, assertion]]);
+  }
   const groups = groupAttempts(attempts, groupBy).map(([dimensions, allMembers]) => {
     const members = allMembers.filter((attempt) => selectedIds.has(attemptKey(attempt)));
+    const groupAssertions = new Map(members.flatMap((attempt) => byAttempt.get(attemptKey(attempt)) ?? [])
+      .sort(([a], [b]) => sourceOrder.get(a)! - sourceOrder.get(b)!));
     return {
       dimensions,
-      metrics: groupMetrics(members, attempts, observations, assertions, reviewOutcomes, dimensions),
-      behaviors: behaviorAggregates(members, assertions, reviewOutcomes),
-      directions: directionAggregates(members, assertions),
+      metrics: groupMetrics(members, attempts, observations, groupAssertions, reviewOutcomes, dimensions),
+      behaviors: behaviorAggregates(members, groupAssertions, reviewOutcomes),
+      directions: directionAggregates(members, groupAssertions),
       variations: [
         variation("terminal-state", members, policy.recurrence.minimumOccurrences),
         variation("verifier-status", members, policy.recurrence.minimumOccurrences),

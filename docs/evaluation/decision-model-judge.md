@@ -152,7 +152,8 @@ ebo judge decision-model import study/decision-model.json results.jsonl
 Each line is checked against its retained attempt: the attempt exists in the
 corpus, the card exists, the probabilities have the card's shape and sum to 1,
 and the verdict follows from the thresholds. If any line fails, nothing is
-written. Valid results are written to `<output>/<run>/<attempt>/imported-<digest>.jsonl`
+written. The file is read in two streaming passes, so a file of millions of
+lines needs memory for one attempt's results at a time. Valid results are written to `<output>/<run>/<attempt>/imported-<digest>.jsonl`
 and listed for `assertionSets`. The `evidence` block must describe what the
 external model was actually shown.
 

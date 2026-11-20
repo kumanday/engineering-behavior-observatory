@@ -292,7 +292,7 @@ async function writePacket({ bundleRoot, bundle, out, variant, viewerRoot, now }
   for (const { path, role } of bundleFiles) {
     const source = join(bundleRoot, path);
     const target = `viewer/bundle/${path}`;
-    const layer: Layer = role === "native-records" || role === "audits" ? "L4" : role === "claims" ? "L1" : role === "assessments" ? "L2" : role === "cohort-report" ? "L3" : "L5";
+    const layer: Layer = role === "native-records" || role === "audits" ? "L4" : role === "claims" ? "L1" : role === "assessments" || role === "assessment-details" || role === "assessment-index" ? "L2" : role === "cohort-report" ? "L3" : "L5";
     if (variant === "restricted" && (role === "native-records" || role === "audits" || role === "table")) {
       // The bundle was verified against its manifest above; a withheld payload is not read whole again.
       withheld.push({ path: target, layer, sha256: bundle.files.find((file) => file.path === path)!.sha256, reason: "native records, attempt audits and tables are withheld in the restricted variant" });
@@ -312,6 +312,8 @@ async function writePacket({ bundleRoot, bundle, out, variant, viewerRoot, now }
       const count = { n: 0 };
       let value = JSON.parse(readFileSync(source, "utf8")) as unknown;
       if (variant === "restricted" && role === "assessments") value = withholdCitationText(value as { assessments: Assessment[] });
+      // A large bundle's per-attempt detail files hold the same documents as an inline assessments list.
+      if (variant === "restricted" && role === "assessment-details") value = withholdCitationText({ assessments: value as Assessment[] }).assessments;
       value = shareNativeRecords(value, variant, count, transform);
       put(target, layer, JSON.stringify(redactValue(value, count, transform)));
       redactionsOf.set(target, count.n);

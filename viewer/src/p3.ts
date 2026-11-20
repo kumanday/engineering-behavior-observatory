@@ -4,6 +4,7 @@
 // report tallies where the study has them (certified).
 import { cls, esc, fmtDur, num, shortId, sourceOutcomeTitle, trialLabel } from "./lanes";
 import { describable, provide, register, run, target, type Json } from "./registry";
+import { tableFromIPC } from "apache-arrow";
 
 /** What the drawer shows, as data: enough to reopen it exactly (state round-trip, undo, links). */
 export type DrawerView =
@@ -28,6 +29,8 @@ export interface Assessment {
   direction: string | null; probability?: number | null; probabilities?: Record<string, unknown> | null; thresholds?: { present: number; absent: number } | null;
   outcome: string; value: string | null; confidence: number | null; rationale: string | null; alternative: string | null; review: string | null;
   evaluator: string; rubric: string | null; cohorts: Record<string, { included?: boolean; disputed?: boolean; review?: string }>; source: string; citations: Citation[];
+  /** False for a large bundle's indexed result until its attempt's details are loaded; its citation count is known before. */
+  detailed?: boolean; citationCount?: number;
 }
 export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; harness_id: string; model_id: string; terminal_state: string | null; failure_class: string | null; source_outcome?: string; source_outcome_source?: string; source_outcome_release?: string; source_outcome_record?: string; harness_version?: string | null; cohorts: string[]; bundle: string; native_span_seconds: number | null;
   native_record_count?: number | null; unmapped_record_count?: number | null; event_count?: number | null; event_types?: Record<string, number>; units?: number; tool_calls?: number }
@@ -37,6 +40,37 @@ export interface AssessDoc {
   /** The judged cards and their families, in ontology order. */
   cards?: { id: string; family: string; title: string; directions?: string[] }[]; families?: { id: string; name: string }[];
   certified: Record<string, { source: string; generated_at: string; group_by: string[]; cells: CertCell[] }>; notes: string[];
+  /** A large bundle: the card results are indexed in an Arrow file, and each attempt's details are in `split`<attempt>.json. */
+  index?: { file: string; rows: number; dictionaries: Record<string, string[]> }; split?: string;
+}
+
+/**
+ * The card results of a large bundle, from its index: identity, verdict and cohort flags for every result, enough for
+ * the matrix and lists. Details (what the producer was shown, probabilities, rationale, citations) load per attempt.
+ */
+export function expandAssessmentIndex(doc: AssessDoc, bytes: Uint8Array): Assessment[] {
+  const table = tableFromIPC(bytes), dict = doc.index!.dictionaries;
+  const col = (name: string) => table.getChild(name)!.toArray() as Int32Array | Float32Array;
+  const codes = Object.fromEntries(["card", "mode", "producer", "outcome", "value", "direction", "review", "included", "disputed"].map((name) => [name, col(name)]));
+  const ids = table.getChild("id")!, attempt = col("attempt"), probability = col("probability"), confidence = col("confidence"), citationCounts = col("citations");
+  const cards = new Map((doc.cards ?? []).map((c) => [c.id, c]));
+  const word = (name: string, row: number) => { const code = codes[name]![row]!; return code < 0 ? null : dict[name]![code]!; };
+  const cohortsOf = new Map<string, Assessment["cohorts"]>();
+  const out: Assessment[] = new Array(table.numRows);
+  for (let row = 0; row < table.numRows; row++) {
+    const meta = doc.attempts[attempt[row]!]!, card = word("card", row)!;
+    const key = `${codes.included![row]}|${codes.disputed![row]}`;
+    if (!cohortsOf.has(key)) {
+      const included = (word("included", row) ?? "").split(",").filter(Boolean), disputed = new Set((word("disputed", row) ?? "").split(",").filter(Boolean));
+      cohortsOf.set(key, Object.fromEntries(meta.cohorts.map((c) => [c, { included: included.includes(c), ...(disputed.has(c) ? { disputed: true } : {}) }])));
+    }
+    out[row] = { id: String(ids.get(row)), attempt_id: meta.attempt_id, short: meta.short, condition: meta.condition, task_id: meta.task_id, trial_id: meta.trial_id,
+      card, family: cards.get(card)?.family ?? "", title: cards.get(card)?.title ?? "", mode: word("mode", row)!, producer: word("producer", row) ?? undefined,
+      outcome: word("outcome", row)!, value: word("value", row), direction: word("direction", row),
+      probability: Number.isNaN(probability[row]!) ? null : probability[row]!, confidence: Number.isNaN(confidence[row]!) ? null : confidence[row]!,
+      review: word("review", row), cohorts: cohortsOf.get(key)!, rationale: null, alternative: null, evaluator: word("producer", row) ?? "", rubric: null, source: "", citations: [], detailed: false, citationCount: citationCounts[row]! };
+  }
+  return out;
 }
 interface Run { row_id: number; seq: number; step: number; t_ms: number | null; status: string | null; kinds?: string[]; exit_code?: number | null; output_redirected?: boolean; command?: string; how?: string; paths?: string[]; detected?: string }
 interface AuditAttempt {
@@ -119,24 +153,27 @@ export class Evidence {
   readonly meta: Map<string, AttemptMeta>;
   /** Units cited by any judgment (P3 links snapshot citations to units too, which the P1 `cited` flag misses). */
   readonly citedRows: Set<number>;
-  constructor(private base: string, readonly doc: AssessDoc, readonly audit: AuditDoc | null, readonly drawer: Drawer, readonly hooks: EvidenceHooks) {
+  private readonly byAttempt = new Map<string, Assessment[]>();
+  private readonly loaded = new Map<string, Promise<void>>();
+  constructor(private base: string, readonly doc: AssessDoc, readonly audit: (AuditDoc & { split?: string }) | null, readonly drawer: Drawer, readonly hooks: EvidenceHooks) {
     this.byId = new Map(doc.assessments.map((a) => [a.id, a]));
     this.meta = new Map(doc.attempts.map((a) => [a.attempt_id, a]));
+    for (const a of doc.assessments) (this.byAttempt.get(a.attempt_id) ?? this.byAttempt.set(a.attempt_id, []).get(a.attempt_id)!).push(a);
     this.citedRows = new Set(doc.assessments.flatMap((a) => a.citations.map((c) => c.row_id).filter((r): r is number => r != null)));
     const obj = (properties: Record<string, unknown>, required = Object.keys(properties)) => ({ type: "object", required, properties, additionalProperties: false });
     const attempt = { attemptId: { type: "string" } };
     register<{ id: string }>({ name: "openAssessment", description: "Open a judge assessment: rationale, alternative explanation and cited native records.", args: obj({ id: { type: "string" } }),
-      run: ({ id }) => { this.openAssessment(id); return `Opened assessment ${id}.`; } });
+      run: async ({ id }) => { await this.prepare(this.byId.get(id)?.attempt_id); this.openAssessment(id); return `Opened assessment ${id}.`; } });
     register<{ attemptId: string; row: number }>({ name: "openUnit", description: "Open the native records of one behavior unit.", args: obj({ ...attempt, row: { type: "integer" } }),
-      run: async ({ attemptId, row }) => { await this.openUnit(attemptId, row); return `Opened unit row ${row} of attempt ${shortId(attemptId)}.`; } });
+      run: async ({ attemptId, row }) => { await this.prepare(attemptId); await this.openUnit(attemptId, row); return `Opened unit row ${row} of attempt ${shortId(attemptId)}.`; } });
     register<{ attemptId: string }>({ name: "openAudit", description: "Open an attempt's audit: checks vs source changes vs final claims, failure chains, final message.", args: obj(attempt),
-      run: ({ attemptId }) => { this.openAudit(attemptId); return `Opened the audit of attempt ${shortId(attemptId)}.`; } });
+      run: async ({ attemptId }) => { await this.prepare(attemptId); this.openAudit(attemptId); return `Opened the audit of attempt ${shortId(attemptId)}.`; } });
     register<{ attemptId: string }>({ name: "openChains", description: "Open an attempt's failure chains.", args: obj(attempt),
-      run: ({ attemptId }) => { this.openChains(attemptId); return `Opened the failure chains of attempt ${shortId(attemptId)}.`; } });
+      run: async ({ attemptId }) => { await this.prepare(attemptId); this.openChains(attemptId); return `Opened the failure chains of attempt ${shortId(attemptId)}.`; } });
     register<{ attemptId: string; chain: number }>({ name: "openCompare", description: "Compare a failure chain's last failed call with the next call of the same tool.", args: obj({ ...attempt, chain: { type: "integer", minimum: 0 } }),
-      run: async ({ attemptId, chain }) => { await this.openCompare(attemptId, chain); return `Compared failure chain ${chain + 1} of attempt ${shortId(attemptId)}.`; } });
+      run: async ({ attemptId, chain }) => { await this.prepare(attemptId); await this.openCompare(attemptId, chain); return `Compared failure chain ${chain + 1} of attempt ${shortId(attemptId)}.`; } });
     register<{ attemptId: string; rows: number[] }>({ name: "openChainAt", description: "Open the failure chain containing these units (or the attempt's chains).", args: obj({ ...attempt, rows: { type: "array", items: { type: "integer" } } }),
-      run: async ({ attemptId, rows }) => { await this.openChainAt(attemptId, rows); return `Opened the failure chain at attempt ${shortId(attemptId)}.`; } });
+      run: async ({ attemptId, rows }) => { await this.prepare(attemptId); await this.openChainAt(attemptId, rows); return `Opened the failure chain at attempt ${shortId(attemptId)}.`; } });
     register<{ title: string; items: { attemptId: string; row: number }[] }>({ name: "openFailureGroup", description: "Open failed calls that share a tool and error, across attempts.",
       args: obj({ title: { type: "string" }, items: { type: "array", items: obj({ attemptId: { type: "string" }, row: { type: "integer" } }) } }),
       run: ({ title, items }) => { this.hooks.highlight(items.map(({ row }) => row)); this.openFailures(title, items); return `Opened and highlighted ${items.length} failed calls: ${title}.`; } });
@@ -159,6 +196,7 @@ export class Evidence {
 
   /** Reopen a drawer view from its description. */
   async reopen(view: DrawerView) {
+    await this.prepare(view.kind === "assessment" ? this.byId.get(view.id)?.attempt_id : view.kind === "failures" ? undefined : view.attemptId);
     if (view.kind === "unit") await this.openUnit(view.attemptId, view.row);
     else if (view.kind === "assessment") this.openAssessment(view.id);
     else if (view.kind === "audit") this.openAudit(view.attemptId);
@@ -198,7 +236,31 @@ export class Evidence {
     const m = this.meta.get(id);
     return m ? `${m.condition} · ${trialLabel(m.trial_id)} · ${m.short}${m.cohorts.length ? ` · ${m.cohorts.join(", ")}` : ""}` : id;
   }
-  assessmentsOf(attemptId: string) { return this.doc.assessments.filter((a) => a.attempt_id === attemptId); }
+  assessmentsOf(attemptId: string) { return this.byAttempt.get(attemptId) ?? []; }
+
+  /**
+   * A large bundle keeps each attempt's assessment details and audit in their own files: load them before a view of
+   * the attempt opens. Inline bundles have everything already, so this does nothing for them.
+   */
+  prepare(attemptId: string | undefined): Promise<void> {
+    if (attemptId === undefined || (!this.doc.split && !this.audit?.split)) return Promise.resolve();
+    if (!this.loaded.has(attemptId)) this.loaded.set(attemptId, (async () => {
+      const get = async (path: string) => { try { const r = await fetch(`${this.base}/${path}${attemptId}.json`); return r.ok ? await r.json() : null; } catch { return null; } };
+      const [details, audit] = await Promise.all([this.doc.split ? get(this.doc.split) : null, this.audit?.split ? get(this.audit.split) : null]);
+      for (const full of (details ?? []) as Assessment[]) {
+        const own = this.byId.get(full.id);
+        if (!own) continue;
+        Object.assign(own, full, { detailed: true });
+        for (const c of full.citations) if (c.row_id != null) this.citedRows.add(c.row_id);
+      }
+      if (audit && this.audit) this.audit.attempts[attemptId] = audit as AuditAttempt;
+    })());
+    return this.loaded.get(attemptId)!;
+  }
+  /** Loads the details of many attempts (a task's lanes), a few at a time. */
+  async prepareMany(attemptIds: readonly string[]): Promise<void> {
+    for (let i = 0; i < attemptIds.length; i += 16) await Promise.all(attemptIds.slice(i, i + 16).map((id) => this.prepare(id)));
+  }
 
   recordHtml(r: NativeRec) {
     if (!r.resolved) return `<div class="rec"><div class="rec-h">${esc(r.artifact)} ${esc(r.locator)} · <b>not resolved</b></div></div>`;

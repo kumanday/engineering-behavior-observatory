@@ -23,7 +23,15 @@ export type EmbeddingConfig = {
   provider: EmbeddingProvider; model: string; revision?: string; dimensions: number; cache: string;
   /** The runtime's Python executable (`embeddings.python` in the request, else EBO_EMBEDDINGS_PYTHON). */
   python?: string; device?: "auto" | "cuda" | "mps" | "cpu"; batchSize?: number;
+  /** Where the cloud is laid out: in the browser from the vectors, at build time in the runtime, or `auto` by size. */
+  layout: "auto" | "browser" | "build";
 };
+/** What the build-time layout reports: the backend that ran (cuML on CUDA, else umap-learn on the CPU) and its timings. */
+export type LayoutRun = { backend: string; backendVersion: string; device: string; units: number; pca: number; neighbors: number; minDist: number; seed: number; metric: string;
+  familySeconds: Record<string, number>; packages: Record<string, string>; seconds?: number };
+/** Above this many cloud units the layout is computed at build time when the runtime is available (`layout: "auto"`). */
+export const BUILD_LAYOUT_UNITS = 200_000;
+export const LAYOUT_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "embeddings", "layout.py");
 /** What the embedding runtime reports about one run. */
 export type EmbeddingRuntime = { device: string; deviceName?: string; dtype: string; batchSize: number; textsPerSecond: number | null; seconds: number;
   promptName: string; prompt: string | null; packages: Record<string, string>; warning?: string };
@@ -40,17 +48,19 @@ export const LOCAL_EMBEDDING_MODEL = "ebo-hashed-tfidf-1";
 export const EMBEDDING_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "embeddings", "embed.py");
 
 export type EmbeddingRequest = { provider?: EmbeddingProvider; model?: string; revision?: string; dimensions?: number; cache?: string; python?: string;
-  device?: EmbeddingConfig["device"]; batchSize?: number };
+  device?: EmbeddingConfig["device"]; batchSize?: number; layout?: EmbeddingConfig["layout"] };
 
 /** The provider, model and dimensions a bundle request selects, with EmbeddingGemma 2 at 768 dimensions by default. */
 export function embeddingConfig(request: EmbeddingRequest | undefined, base: string, env: NodeJS.ProcessEnv = process.env): EmbeddingConfig {
   const provider = request?.provider ?? "embeddinggemma";
   const cache = resolve(base, request?.cache ?? ".atlas-cache/embeddings");
-  if (provider === "hashed-tfidf") return { provider, model: LOCAL_EMBEDDING_MODEL, dimensions: request?.dimensions ?? 256, cache };
+  const python = request?.python ? resolve(base, request.python) : env.EBO_EMBEDDINGS_PYTHON;
+  const layout = request?.layout ?? "auto";
+  if (layout === "build" && !python) throw new Error("A build-time layout needs the Python runtime: set embeddings.python in the bundle request or EBO_EMBEDDINGS_PYTHON.");
+  if (provider === "hashed-tfidf") return { provider, model: LOCAL_EMBEDDING_MODEL, dimensions: request?.dimensions ?? 256, cache, layout, ...(python ? { python } : {}) };
   const dimensions = request?.dimensions ?? 768;
   if (!(EMBEDDINGGEMMA_DIMENSIONS as readonly number[]).includes(dimensions)) throw new Error(`EmbeddingGemma 2 embeddings have ${EMBEDDINGGEMMA_DIMENSIONS.join(", ")} dimensions; ${dimensions} was requested.`);
-  const python = request?.python ? resolve(base, request.python) : env.EBO_EMBEDDINGS_PYTHON;
-  return { provider, model: request?.model ?? EMBEDDINGGEMMA_MODEL, revision: request?.revision ?? EMBEDDINGGEMMA_REVISION, dimensions, cache,
+  return { provider, model: request?.model ?? EMBEDDINGGEMMA_MODEL, revision: request?.revision ?? EMBEDDINGGEMMA_REVISION, dimensions, cache, layout,
     ...(python ? { python } : {}), device: request?.device ?? "auto", ...(request?.batchSize ? { batchSize: request.batchSize } : {}) };
 }
 
@@ -123,6 +133,37 @@ async function runEmbedder(config: EmbeddingConfig, inputPath: string, outputPat
     "--device", config.device ?? "auto", "--batch-size", String(config.batchSize ?? 0), "--input", inputPath, "--output", outputPath, "--stats", statsPath];
   const command = options.command ?? (config.python ? [config.python, "-I", EMBEDDING_SCRIPT] : undefined);
   if (!command) throw new Error("EmbeddingGemma 2 needs its Python runtime: set embeddings.python in the bundle request or EBO_EMBEDDINGS_PYTHON (install it from scripts/embeddings/requirements.txt), or choose the offline provider \"hashed-tfidf\" explicitly.");
+  await runRuntime(command, args, options);
+  return JSON.parse(readFileSync(statsPath, "utf8")) as EmbeddingRuntime;
+}
+
+/**
+ * Lays out the cloud at build time: per unit family, PCA to 128 dimensions and cosine UMAP (15 neighbors, minimum
+ * distance 0.1, seed 42) in the runtime, with cuML on CUDA or umap-learn on the CPU. Returns each row's position and
+ * neighbors, in cloud row order.
+ */
+export async function layoutCloud(embeddingsPath: string, dimensions: number, families: readonly string[], config: EmbeddingConfig,
+  options: { command?: readonly string[]; progress?: (line: string) => void } = {}): Promise<{ xy: Float32Array; neighborIds: Int32Array; neighborDistances: Float32Array; k: number; run: LayoutRun }> {
+  const command = options.command ?? (config.python ? [config.python, "-I", LAYOUT_SCRIPT] : undefined);
+  if (!command) throw new Error("A build-time layout needs the Python runtime: set embeddings.python in the bundle request or EBO_EMBEDDINGS_PYTHON.");
+  const scratch = mkdtempSync(join(dirname(resolve(embeddingsPath)), ".layout-"));
+  try {
+    const familiesPath = join(scratch, "families.jsonl"), output = join(scratch, "layout.bin"), stats = join(scratch, "stats.json"), k = 15;
+    const fd = openSync(familiesPath, "w");
+    try { for (let i = 0; i < families.length; i += 65536) writeSync(fd, families.slice(i, i + 65536).map((f) => `${JSON.stringify(f)}\n`).join("")); } finally { closeSync(fd); }
+    const started = performance.now();
+    await runRuntime(command, ["--embeddings", embeddingsPath, "--dimensions", String(dimensions), "--families", familiesPath, "--output", output, "--stats", stats,
+      "--neighbors", String(k)], options);
+    const bytes = readFileSync(output), n = families.length;
+    if (bytes.length !== n * (8 + 8 * k)) throw new Error(`The layout runtime wrote ${bytes.length} bytes for ${n} units.`);
+    const copy = (offset: number, length: number) => bytes.buffer.slice(bytes.byteOffset + offset, bytes.byteOffset + offset + length);
+    return { xy: new Float32Array(copy(0, n * 8)), neighborIds: new Int32Array(copy(n * 8, n * 4 * k)), neighborDistances: new Float32Array(copy(n * 8 + n * 4 * k, n * 4 * k)), k,
+      run: { ...(JSON.parse(readFileSync(stats, "utf8")) as LayoutRun), seconds: Math.round((performance.now() - started) / 100) / 10 } };
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+}
+
+/** Runs one runtime command to completion, relaying its stderr lines and failing with their tail. */
+async function runRuntime(command: readonly string[], args: readonly string[], options: { progress?: (line: string) => void }): Promise<void> {
   const tail: string[] = [];
   await new Promise<void>((accept, reject) => {
     const child = spawn(command[0]!, [...command.slice(1), ...args], { stdio: ["ignore", "ignore", "pipe"] });
@@ -137,7 +178,6 @@ async function runEmbedder(config: EmbeddingConfig, inputPath: string, outputPat
     child.once("close", (code) => (code === 0 ? accept()
       : reject(new Error(`The embedding runtime exited with ${String(code)}: ${redactSecrets([...tail, pending].join("\n").slice(-2000)).text}`))));
   });
-  return JSON.parse(readFileSync(statsPath, "utf8")) as EmbeddingRuntime;
 }
 
 /**
