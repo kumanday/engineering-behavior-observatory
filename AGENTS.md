@@ -62,8 +62,9 @@ or implement beyond the assigned issue.
   abstain. A decision-model result carries probabilities, the thresholds that
   turn them into a verdict, and its producer in place of citations and a
   rationale; `unknown` is its abstention. Every result names its producer mode,
-  and results of the two modes are never pooled. LLM-as-judge
-  is the primary evaluation path; human calibration is optional and recorded separately.
+  and results of the two modes are never pooled. Decision-model judging is the
+  suggested path for cohorts and the LLM judge for audits that need cited
+  steps; human calibration is optional and recorded separately.
 - Export fails closed on unknown sharing classification and excludes secrets,
   environment values, local identifiers, and hidden reasoning.
 - Do not build a custom telemetry backend, graph database, distributed runner,

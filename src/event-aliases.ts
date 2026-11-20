@@ -2,7 +2,7 @@ import type { UniformEvent } from "./uniform-events.js";
 
 /**
  * How the default analysis lane reads an operation identity and a message role from a uniform event. Each consumer
- * names the attributes it accepts. The typed lane uses Operation and EventFactsV2 instead.
+ * names the attributes it accepts.
  */
 export function operationAlias(event: UniformEvent, policy: "structural" | "rating" | "atlas"): string | undefined {
   const keys = policy === "structural" ? ["toolUseId", "toolCallId", "actionId", "callId", "itemId"]

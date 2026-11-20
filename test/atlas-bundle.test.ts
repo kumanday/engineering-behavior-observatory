@@ -40,7 +40,8 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
     const evidenceReuse = { hits: 0, misses: 0 };
     const manifest = await buildAtlasBundle(requestPath, out, { now: () => new Date("2026-10-07T00:00:00.000Z"), embed, evidenceReuse });
     // The build runs inside a reuse scope. This fixture has one assertion per attempt, so every lookup changes attempt.
-    assert.ok(evidenceReuse.misses > 0 && evidenceReuse.hits === 0, JSON.stringify(evidenceReuse));
+    // Each attempt is built once while a cohort is validated and reused for its cases; the bundle pass builds it again.
+    assert.ok(evidenceReuse.misses > 0 && evidenceReuse.hits > 0, JSON.stringify(evidenceReuse));
 
     assert.deepEqual(Object.keys(manifest.tables).sort(), Object.keys(ATLAS_TABLES).sort());
     const runs = source.input.corpusEntries.filter(({ manifestKind }) => manifestKind === "run");
@@ -86,6 +87,8 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
     assert.equal(cards.ontology, "2.0.0");
     assert.deepEqual(cards.cards.map(({ id, family }) => [id, family]), [["EN-04", "EN"], ["VF-03", "VF"]], "judged cards are listed in ontology order");
     assert.deepEqual(cards.families.map(({ id }) => id), ["EN", "VF"]);
+    assert.ok(cards.cards.every((card) => { const { directions } = card as { directions?: string[] }; return Array.isArray(directions) && directions.length > 0
+      && directions.every((d) => ["favourable", "unfavourable", "neutral"].includes(d)); }), "each card lists the directions a present result can have");
     assert.deepEqual(cards.assessments.map(({ card, outcome, value }) => [card, outcome, value]).sort(), [
       ["EN-04", "unknown", null], ["VF-03", "absent", null], ["VF-03", "present", "check after the last edit"], ["VF-03", "present", "check after the last edit"],
       ["VF-03", "present", "last edit after the last check"], ["VF-03", "present", "no check recorded"]]);

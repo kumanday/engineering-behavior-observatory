@@ -15,18 +15,21 @@ import {
 import { assessComparisonEligibility, type ComparisonCapability, type ComparisonReport, type ComparisonRequest } from "./normalization-integrity.js";
 import { readBoundedFile } from "./scheduler.js";
 import { createRetainedStructuralObservationSet, type StructuralObservationSet } from "./structural-observations.js";
+import { withRetainedEvidenceReuse } from "./retained-evidence.js";
 
 export type AggregationDimension = "task" | "model" | "harness" | "trial" | "capture-qualification" | "evidence-origin";
 export type EvidenceOriginSelection = "owned" | "imported" | "separate";
 export type AttemptSelectionPolicy = "all-attempts" | "latest-attempt-per-run";
 
 export type AggregationRequest = {
-  schemaVersion: "ebo.aggregation-request/v1";
+  schemaVersion: "ebo.aggregation-request/v2";
   sources: {
     corpusRoot: string;
     corpusIndex: string;
     observationSets: ReadonlyArray<{ bundleRoot: string; path: string }>;
     assertions: ReadonlyArray<{ bundleRoot: string; path: string }>;
+    /** JSON Lines files of behavior assertions for one bundle, one assertion per line, as decision-model judging writes them. */
+    assertionSets?: ReadonlyArray<{ bundleRoot: string; path: string }>;
     calibrations: ReadonlyArray<{ selection: string; history: string }>;
   };
   groupBy: readonly AggregationDimension[];
@@ -164,6 +167,26 @@ export type AggregationReport = {
 type Attempt = CorpusIndexEntry & { runId: string; attemptId: string };
 type ReviewOutcome = { outcome: ReturnType<typeof effectiveReviewOutcome>; disputed: boolean };
 
+/**
+ * The behavior assertions an aggregation request names: single assertion files and JSON Lines assertion sets, each
+ * bound to its bundle. Paths resolve against `base`. Every assertion is schema-checked here; the aggregation checks it
+ * against its retained bundle.
+ */
+export function readAggregationAssertions(base: string, sources: AggregationRequest["sources"]): Array<{ bundleRoot: string; document: BehaviorAssertion }> {
+  const parse = (text: string, label: string): BehaviorAssertion => {
+    const value = JSON.parse(text) as unknown;
+    const errors = validateArtifact(label, value);
+    if (errors.length > 0) throw new Error(`${label} ${errors[0]!.field}: ${errors[0]!.message}`);
+    return value as BehaviorAssertion;
+  };
+  const read = (path: string, label: string) => new TextDecoder("utf-8", { fatal: true }).decode(readBoundedFile(resolve(base, path), label, undefined, 64 * 1024 * 1024));
+  return [
+    ...sources.assertions.map(({ bundleRoot, path }) => ({ bundleRoot: resolve(base, bundleRoot), document: parse(read(path, "Behavior assertion"), "Behavior assertion") })),
+    ...(sources.assertionSets ?? []).flatMap(({ bundleRoot, path }) => read(path, "Behavior assertion set").split("\n").filter((line) => line.trim() !== "")
+      .map((line, index) => ({ bundleRoot: resolve(base, bundleRoot), document: parse(line, `Behavior assertion set ${path} line ${String(index + 1)}`) }))),
+  ];
+}
+
 export function aggregateEvaluation(
   input: AggregationInput,
   policy: Pick<AggregationRequest, "groupBy" | "selectedAttemptPolicy" | "recurrence" | "evidenceOrigins">,
@@ -191,19 +214,36 @@ async function aggregateValidatedEvaluation(
   const includedSource = ({ document }: { document: { runId: string; attemptId: string } }) => !excludedOriginIds.has(attemptKey(document));
   const observationSources = uniqueBy(input.observationSets.filter(includedSource), ({ document }) => `${document.runId}\0${document.attemptId}`, "observation set");
   const observations = new Map<string, StructuralObservationSet>();
-  for (const { bundleRoot, document } of observationSources.values()) {
-    assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
-    const rebuilt = await createRetainedStructuralObservationSet(bundleRoot);
-    if (canonicalizeMetadata(rebuilt) !== canonicalizeMetadata(document)) throw new Error(`Structural observation set for attempt "${document.attemptId}" is stale.`);
-    observations.set(`${document.runId}\0${document.attemptId}`, rebuilt);
-  }
   const assertionSources = uniqueBy(input.assertions.filter(includedSource), ({ document }) => assertionKey(document), "behavior assertion");
   const assertions = new Map<string, BehaviorAssertion>();
-  for (const { bundleRoot, document } of assertionSources.values()) {
-    assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
-    await validateRetainedBehaviorAssertion(bundleRoot, document);
-    assertions.set(assertionKey(document), document);
-  }
+  // Each bundle's observation set and card results are checked together, so its retained evidence is built once.
+  const byBundle = new Map<string, { observationSets: StructuralObservationSet[]; assertions: BehaviorAssertion[] }>();
+  const rebuiltSets = new Map<string, StructuralObservationSet>();
+  const bundleOf = (bundleRoot: string) => {
+    const key = resolve(bundleRoot);
+    const entry = byBundle.get(key) ?? { observationSets: [], assertions: [] };
+    byBundle.set(key, entry);
+    return entry;
+  };
+  for (const { bundleRoot, document } of observationSources.values()) bundleOf(bundleRoot).observationSets.push(document);
+  for (const { bundleRoot, document } of assertionSources.values()) bundleOf(bundleRoot).assertions.push(document);
+  await withRetainedEvidenceReuse(async () => {
+    for (const [bundleRoot, sources] of byBundle) {
+      for (const document of sources.observationSets) {
+        assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
+        const rebuilt = await createRetainedStructuralObservationSet(bundleRoot);
+        if (canonicalizeMetadata(rebuilt) !== canonicalizeMetadata(document)) throw new Error(`Structural observation set for attempt "${document.attemptId}" is stale.`);
+        rebuiltSets.set(`${document.runId}\0${document.attemptId}`, rebuilt);
+      }
+      for (const document of sources.assertions) {
+        assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
+        await validateRetainedBehaviorAssertion(bundleRoot, document);
+      }
+    }
+  });
+  // Reports keep the order of the request's sources.
+  for (const { document } of observationSources.values()) observations.set(`${document.runId}\0${document.attemptId}`, rebuiltSets.get(`${document.runId}\0${document.attemptId}`)!);
+  for (const { document } of assertionSources.values()) assertions.set(assertionKey(document), document);
   for (const { selection } of input.calibrations) await revalidateReviewSample(selection);
   const reviewOutcomes = reviewOutcomeIndex(input.calibrations);
   const selectedIds = new Set(selected.map(attemptKey));
@@ -429,7 +469,7 @@ function groupMetrics(
         metrics.push(metric(`structural:${extractorId}:${value}`, "attempt", known.filter((knownValue) => knownValue.value === value).length,
           known.length, "attempt", "attempt-with-known-observation", exclusions));
       }
-      if (known.length === 0) metrics.push(unavailableMetric(`structural:${extractorId}`, "attempt", "The eligible denominator is empty.", 0, "attempt", exclusions));
+      if (known.length === 0) metrics.push(unavailableMetric(`structural:${extractorId}`, "attempt", emptyStructuralReason(values), 0, "attempt", exclusions));
     }
   }
   const selectedAssertions = [...assertions.values()].filter(({ runId, attemptId }) => selectedIds.has(`${runId}\0${attemptId}`));
@@ -747,6 +787,21 @@ function indexedMatches(attempts: readonly Attempt[], dimensions: readonly Aggre
 
 function hasMissingDimension(attempt: Attempt, dimensions: readonly AggregationDimension[]): boolean {
   return dimensions.some((dimension) => dimensionValue(attempt, dimension) === undefined);
+}
+
+/**
+ * Why no attempt has a known value. Imported documents do not prove that an attempt was captured whole, so their
+ * attempt-level structural observations are unavailable by design; a count over a partial capture would read as the
+ * attempt's own count. Their recorded-document measures stay in each import's mapping.
+ */
+export function emptyStructuralReason(values: ReadonlyArray<{ status: string; reason?: string } | undefined>): string {
+  const reasons = new Set(values.map((value) => value === undefined ? "observation-set-missing" : value.status === "unavailable" ? value.reason ?? "unavailable" : value.status));
+  if (reasons.size !== 1) return "The eligible denominator is empty.";
+  const [reason] = [...reasons];
+  if (reason === "CAPTURE_COMPLETENESS_UNPROVEN") {
+    return "Imported evidence: the source does not prove the attempt was captured whole, so attempt-level structural counts are unavailable (CAPTURE_COMPLETENESS_UNPROVEN). Recorded-document measures are in each import's mapping.";
+  }
+  return reason === "observation-set-missing" ? "No attempt in the group has an observation set." : `Every attempt's observation is unavailable: ${reason}`;
 }
 
 function metric(id: string, population: AggregateMetric["population"], numerator: number, denominator: number,

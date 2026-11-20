@@ -153,7 +153,7 @@ export async function projectNativeEvidenceV2(evidence: RetainedBehaviorEvidence
 export async function createRetainedBehaviorEvidenceV2(bundleRoot: string): Promise<RetainedBehaviorEvidenceV2> {
   const bytes = readBoundedFile(join(bundleRoot, "manifest.json"), "Retained v2 manifest");
   const manifest = JSON.parse(bytes.toString("utf8")) as { schemaVersion?: string; run?: { harness?: { version?: string }; model?: { id?: string } } };
-  if (manifest.schemaVersion === "ebo.import-manifest/v2") return (await import("./atif-v2.js")).readImportedBehaviorEvidenceV2(bundleRoot);
+  if (manifest.schemaVersion === "ebo.import-manifest/v3") return (await import("./atif-v2.js")).readImportedBehaviorEvidenceV2(bundleRoot);
   const evidence = await createRetainedBehaviorEvidence(bundleRoot);
   if (!manifest.run?.harness?.version) throw new Error("Native v2 manifest has no executed harness version.");
   return projectNativeEvidenceV2(evidence, { manifestDigest: `sha256:${digestBytes(bytes).value}`, harnessVersion: manifest.run.harness.version, modelAliases: manifest.run.model?.id ? [manifest.run.model.id] : [] });

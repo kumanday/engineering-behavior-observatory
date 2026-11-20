@@ -15,7 +15,8 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { assertNoDuplicateJsonKeys, canonicalizeMetadata, digestMetadata, validateArtifact, validateExportManifest, validateRunManifestEvidence, writeMetadataAtomically } from "./artifacts.js";
-import { aggregateEvaluation, type AggregationRequest } from "./aggregation.js";
+import { aggregateEvaluation, readAggregationAssertions, type AggregationRequest } from "./aggregation.js";
+import { importDecisionModelResults, runDecisionModelJudge, type DecisionModelProvider } from "./decision-model-judge.js";
 import { serveAtlas, writeAtlas, type AtlasFilters } from "./atlas.js";
 import {
   buildCorpusIndex,
@@ -57,7 +58,7 @@ import {
   type SemanticJudgeRequest,
 } from "./semantic-judge.js";
 import { createRetainedStructuralObservationSet } from "./structural-observations.js";
-import { serveAtlasBundle } from "./atlas-viewer.js";
+import { atlasViewerFreshness, serveAtlasBundle } from "./atlas-viewer.js";
 import { serveRunMonitor } from "./run-monitor.js";
 import { runOpenResponsesCommand } from "./open-responses-cli.js";
 import { buildAtlasBundle, verifyAtlasBundle } from "./atlas-bundle.js";
@@ -93,10 +94,10 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo harbor <inspect|prepare|admit|freeze|status|doctor|compile|convert-legacy|environment|job|run> ...
        ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...
        ebo atif overlays
-       ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--profile <overlay-context-id>] [--python <executable>]
+       ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--model <name>] [--profile <overlay-context-id>] [--python <executable>]
        ebo atif import-leaderboard <cohort-request.json> <store> [--python <executable>]
        ebo atif read-leaderboard <store> <cohort-digest>
-       ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--profile <overlay-context-id>] [--python <executable>]
+       ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--task <id>] [--model <name>] [--profile <overlay-context-id>] [--python <executable>]
        ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
@@ -108,7 +109,7 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo open-responses analyze <recording-root> <output.json> [--schema <openapi.json>]
        ebo export create <run-bundle-root> <policy.json> <export-root>
        ebo corpus build <corpus-root> <index.jsonl>
-       ebo corpus query <index.jsonl> [--kind|--run|--attempt|--task|--model|--harness|--assessment-mode|--terminal|--failure-class|--verifier-status|--capture|--export-status|--sharing-class <value>]
+       ebo corpus query <index.jsonl> [--kind|--run|--attempt|--task|--model|--route|--harness|--assessment-mode|--terminal|--failure-class|--verifier-status|--capture|--export-status|--sharing-class <value>]
        ebo corpus validate <corpus-root> <index.jsonl>
        ebo corpus pack <export-root> <policy.json> <archive.tar.gz>
        ebo corpus unpack <archive.tar.gz> <destination-root>
@@ -130,6 +131,8 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo judge prepare <run-bundle-root> <observations.json> <spec.json> <request.json> [--ratings <ratings.json>]
        ebo judge run <run-bundle-root> <observations.json> <request.json> <output-root> [--ratings <ratings.json>]
        ebo judge batch <batch.json>
+       ebo judge decision-model <run.json>
+       ebo judge decision-model import <run.json> <results.jsonl>
        ebo calibration sample <sources.json> <criteria.json> <selection.json>
        ebo calibration packet <selection.json> <output-root>
        ebo calibration inspect <packet.json> <assertion-id> [event-id]
@@ -147,7 +150,7 @@ export function main(
   write: (message: string) => void = (message) => {
     process.stdout.write(message);
   },
-  dependencies: { semanticJudgeBackend?: SemanticJudgeBackend; runtime?: StudyRuntimeBinding } = {},
+  dependencies: { semanticJudgeBackend?: SemanticJudgeBackend; runtime?: StudyRuntimeBinding; decisionModel?: DecisionModelProvider } = {},
 ): number | Promise<number> {
   const runtimeFlag = args.indexOf("--runtime-study");
   if (runtimeFlag !== -1) {
@@ -252,6 +255,8 @@ export function main(
     return (async () => {
     try {
       if (args[1] === "build" && args.length === 6 && args[4] === "--variant") {
+        const freshness = atlasViewerFreshness();
+        if (freshness.warning) process.stderr.write(`${freshness.warning}\n`);
         const manifest = await buildPacket(args[2]!, args[3]!, { variant: args[5] as PacketVariant });
         write(`Built ${manifest.packet.variant} packet ${manifest.packet.id}: ${manifest.files.length} files, ${manifest.withheld.length} withheld\n`);
         return 0;
@@ -301,6 +306,8 @@ export function main(
       }
       if (args[1] === "serve" && args[2] === "--bundle" && args[3] && (args.length === 4 || (args.length === 6 && args[4] === "--port"))) {
         const server = await serveAtlasBundle(args[3], args[5] === undefined ? 13012 : Number(args[5]));
+        const freshness = atlasViewerFreshness();
+        if (freshness.warning) process.stderr.write(`${freshness.warning}\n`);
         const address = server.address();
         write(`Atlas viewer listening at http://127.0.0.1:${typeof address === "object" && address ? address.port : 13012}\n`);
         return 0;
@@ -402,6 +409,34 @@ export function main(
       } finally {
         process.off("SIGINT", stop);
         process.off("SIGTERM", stop);
+      }
+    })();
+  }
+
+  if (args[0] === "judge" && args[1] === "decision-model") {
+    const importing = args[2] === "import";
+    const [specPath, resultsPath] = importing ? [args[3], args[4]] : [args[2], undefined];
+    if (specPath === undefined || args.length !== (importing ? 5 : 3)) {
+      write("Usage: ebo judge decision-model <run.json>\n       ebo judge decision-model import <run.json> <results.jsonl>\n");
+      return 1;
+    }
+    return (async () => {
+      try {
+        if (importing) {
+          const imported = await importDecisionModelResults(specPath, resultsPath!);
+          write(`Imported ${String(imported.results)} decision-model result(s) for ${String(imported.attempts)} attempt(s).\n`);
+          write(`${JSON.stringify({ assertionSets: imported.assertionSets }, null, 2)}\n`);
+          return 0;
+        }
+        const summary = await runDecisionModelJudge(specPath, { ...(dependencies.decisionModel === undefined ? {} : { provider: dependencies.decisionModel }) });
+        write(`Judged ${String(summary.attempts)} attempt(s): ${String(summary.batches.written)} batch(es) written, ${String(summary.batches.skipped)} already done, `
+          + `${String(summary.batches.failed)} failed, ${String(summary.attemptsWithoutSteps)} without steps; ${String(summary.results)} card result(s) from ${String(summary.requests)} request(s).\n`);
+        for (const failure of summary.failures.slice(0, 20)) write(`failed ${failure.runId}/${failure.attemptId} ${failure.batch}: ${failure.error}\n`);
+        if (summary.failures.length > 0) write("Run the same command again to retry the failed batches; finished batches are skipped.\n");
+        return summary.failures.length > 0 ? 1 : 0;
+      } catch (error) {
+        write(`${errorMessage(error)}\n`);
+        return 1;
       }
     })();
   }
@@ -553,11 +588,11 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
     const directory = args[1], store = importing ? args[2] : undefined;
     const flags = args.slice(importing ? 3 : 2), values = new Map<string, string>();
     if (!directory || importing && !store || flags.length % 2) {
-      write("Usage: ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--profile <overlay-context-id>] [--python <executable>] [--originals <bindings.json>]\n"); return 1;
+      write("Usage: ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--model <name>] [--profile <overlay-context-id>] [--python <executable>] [--originals <bindings.json>]\n"); return 1;
     }
     for (let index = 0; index < flags.length; index += 2) {
       const flag = flags[index]!, value = flags[index + 1]!;
-      if (!["--namespace", "--profile", "--python", "--originals"].includes(flag) || values.has(flag) || value.startsWith("--")) {
+      if (!["--namespace", "--model", "--profile", "--python", "--originals"].includes(flag) || values.has(flag) || value.startsWith("--")) {
         write("Harbor import options require unique recognized flags and values.\n"); return 1;
       }
       values.set(flag, value);
@@ -570,7 +605,8 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
       if (!Array.isArray(document) || document.some((value) => value === null || typeof value !== "object"
           || typeof value.sourceReference !== "string" || typeof value.directory !== "string")) throw new Error("Original bindings require an array of sourceReference/directory records.");
       const options = { directory, namespace, pythonExecutable: values.get("--python"), originals: document as HarborOriginalBinding[] };
-      const result = importing ? await importHarborTrial({ ...options, store: store!, producer: profile?.producer }) : await inspectHarborTrial(options);
+      const result = importing ? await importHarborTrial({ ...options, store: store!, producer: profile?.producer,
+        ...(values.has("--model") ? { model: { id: values.get("--model")!, authority: "operator-declared" as const } } : {}) }) : await inspectHarborTrial(options);
       const inspection = result.inspection;
       const status = "status" in result ? result.status : inspection.status;
       write(`${JSON.stringify({ status, executionId: inspection.execution?.id,
@@ -588,10 +624,10 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
   if (args[0] === "import") {
     const [_, sourcePath, destination, ...flags] = args;
     const values = new Map<string, string>();
-    if (!sourcePath || !destination || flags.length % 2) { write("Usage: ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--profile <overlay-context-id>] [--python <executable>]\n"); return 1; }
+    if (!sourcePath || !destination || flags.length % 2) { write("Usage: ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--task <id>] [--model <name>] [--profile <overlay-context-id>] [--python <executable>]\n"); return 1; }
     for (let index = 0; index < flags.length; index += 2) {
       const flag = flags[index]!, value = flags[index + 1]!;
-      if (!["--run", "--attempt", "--profile", "--python"].includes(flag) || values.has(flag) || value.startsWith("--")) {
+      if (!["--run", "--attempt", "--task", "--model", "--profile", "--python"].includes(flag) || values.has(flag) || value.startsWith("--")) {
         write("ATIF import requires unique, recognized options with values.\n"); return 1;
       }
       values.set(flag, value);
@@ -600,7 +636,9 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
     if (!values.has("--run") || !values.has("--attempt")) { write("ATIF import requires --run and --attempt. Producer metadata is read from the document.\n"); return 1; }
     try {
       const result = await importAtifFile({ sourcePath, destination, runId: values.get("--run")!, attemptId: values.get("--attempt")!,
-        producer: profile?.producer, pythonExecutable: values.get("--python") });
+        producer: profile?.producer, pythonExecutable: values.get("--python"),
+        ...(values.has("--task") ? { task: { id: values.get("--task")!, authority: "operator-declared" as const } } : {}),
+        ...(values.has("--model") ? { model: { id: values.get("--model")!, authority: "operator-declared" as const } } : {}) });
       write(`${JSON.stringify({ destination, reused: result.reused, qualification: result.manifest.qualification, mapping: result.evidence.mapping }, null, 2)}\n`);
       return 0;
     } catch (error) { write(`ATIF import failed: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
@@ -652,6 +690,8 @@ async function runAggregationCommand(args: string[], write: (message: string) =>
     };
     const destination = resolve(outputPath);
     prepareDerivedParent(corpusRoot, destination);
+    // Refuse an existing destination before the aggregation runs, not after.
+    if (existsSync(destination)) throw new Error(`Aggregation report destination ${outputPath} already exists; choose a new path.`);
     const report = await aggregateEvaluation({
       lineage: {
         requestDigest: `sha256:${digestMetadata(request).value}`,
@@ -662,10 +702,7 @@ async function runAggregationCommand(args: string[], write: (message: string) =>
         bundleRoot: resolve(base, bundleRoot),
         document: resolveJson<StructuralObservationSet>(path, "Structural observation set"),
       })),
-      assertions: source.assertions.map(({ bundleRoot, path }) => ({
-        bundleRoot: resolve(base, bundleRoot),
-        document: resolveJson<BehaviorAssertion>(path, "Behavior assertion"),
-      })),
+      assertions: readAggregationAssertions(base, source),
       calibrations: source.calibrations.map(({ selection, history }) => ({
         selection: resolveJson<ReviewSample>(selection, "Review sample"),
         history: resolveJson<ReviewHistory>(history, "Review history"),
@@ -818,6 +855,7 @@ function parseCorpusQuery(args: string[]): CorpusIndexQuery {
     "--attempt": "attemptId",
     "--task": "taskId",
     "--model": "modelId",
+    "--route": "modelRoute",
     "--harness": "harnessId",
     "--assessment-mode": "assessmentMode",
     "--terminal": "terminalState",
@@ -852,8 +890,10 @@ async function runObservationsCommand(args: string[], write: (message: string) =
       const index = readCorpusIndex(second);
       const issues = validateCorpusIndex(first, index);
       if (issues.length > 0) throw new Error(`Corpus index is not current: ${issues[0]!.manifestPath} ${issues[0]!.message}`);
-      const selected = queryCorpusIndex(index, { ...parseCorpusQuery(args.slice(4)), manifestKind: "run" });
-      if (selected.length === 0) throw new Error("Corpus selection matched no retained run bundles.");
+      // Run bundles and ATIF imports both have observations; `--kind` narrows the selection to one of them.
+      const query = parseCorpusQuery(args.slice(4));
+      const selected = queryCorpusIndex(index, query).filter(({ manifestKind }) => manifestKind === "run" || manifestKind === "import");
+      if (selected.length === 0) throw new Error("Corpus selection matched no retained run bundles or imports.");
       const outputRoot = resolve(third);
       const outputParent = prepareDerivedParent(first, outputRoot);
       if (existsSync(outputRoot)) throw new Error("Structural observation corpus destination already exists.");
@@ -871,7 +911,7 @@ async function runObservationsCommand(args: string[], write: (message: string) =
       } finally {
         if (!published) rmSync(stagingRoot, { recursive: true, force: true });
       }
-      write(`Created structural observations for ${selected.length} corpus run bundle(s).\n`);
+      write(`Created structural observations for ${selected.length} corpus bundle(s).\n`);
       return 0;
     }
   } catch (error) {

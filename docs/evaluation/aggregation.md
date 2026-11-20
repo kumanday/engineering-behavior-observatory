@@ -14,7 +14,7 @@ The request uses paths relative to `request.json`:
 
 ```json
 {
-  "schemaVersion": "ebo.aggregation-request/v1",
+  "schemaVersion": "ebo.aggregation-request/v2",
   "sources": {
     "corpusRoot": "corpus",
     "corpusIndex": "corpus-index.jsonl",
@@ -38,6 +38,11 @@ The request uses paths relative to `request.json`:
   }]
 }
 ```
+
+`sources.assertions` lists single card-result files. `sources.assertionSets`
+lists JSON Lines files with one card result per line, bound to one bundle each;
+[decision-model judging](decision-model-judge.md) writes its results this way
+and lists the files in its run summary.
 
 Grouping dimensions are `task`, `model`, `harness`, `trial`, and
 `capture-qualification`. `all-attempts` is the evidence-preserving default.
@@ -162,8 +167,13 @@ owned-only behavior and output shape.
 
 Imported qualification never contributes to the capture-qualified numerator.
 Missing imported failure classes and terminal states are excluded from those
-rates with explicit reasons; they are not observed zeroes. Exact structural
-attempt measures retain the importer's coverage limits.
+rates with explicit reasons; they are not observed zeroes. Structural metrics
+(latency, tokens, cost, tool operations, failures, repetitions and validation
+order) are attempt-level counts, and an imported document does not prove that
+the attempt was captured whole. They are unavailable for imported attempts, and
+each such metric gives the reason `CAPTURE_COMPLETENESS_UNPROVEN`. The counts
+of the recorded document stay in each import's mapping, and Atlas shows its
+units and occurrences.
 
 Comparison candidates bind imported origin to their indexed manifest and
 observation set. Admission overlay digests remain audit metadata rather than

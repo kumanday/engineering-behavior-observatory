@@ -26,6 +26,8 @@ export class ClusterArmPanel {
   private sort: "difference" | "size" = "difference";
   private selected: number | null = null;
   private strata = 1;                       // distinct harnesses in the study
+  private sharedHarnesses = 0;              // harnesses with two or more arms; only those give a within-harness comparison
+  private soloArms = 0;                     // arms alone on their harness: within-harness expected equals observed
   private stratify = false;                 // expected counts pooled within the same harness
   private seq = 0;
   private strataChecked = false;
@@ -46,7 +48,14 @@ export class ClusterArmPanel {
       run: ({ sort }) => { this.sort = sort; this.render(); return `Clusters sorted by ${sort}.`; } });
     register<{ withinHarness: boolean }>({ name: "setClusterBaseline", description: "Compute expected counts from arms on the same harness, or from all arms.",
       args: { type: "object", required: ["withinHarness"], properties: { withinHarness: { type: "boolean" } }, additionalProperties: false },
-      run: async ({ withinHarness }) => { this.stratify = withinHarness; await this.refresh(); return `Expected counts from ${withinHarness ? "arms on the same harness" : "all arms"}.`; } });
+      run: async ({ withinHarness }) => {
+        await this.checkStrata();
+        if (withinHarness && !this.sharedHarnesses) {
+          this.stratify = false; await this.refresh();
+          return "Expected counts from all arms: every harness has one arm, so arms on the same harness would give expected = observed (z = 0).";
+        }
+        this.stratify = withinHarness; await this.refresh(); return `Expected counts from ${withinHarness ? "arms on the same harness" : "all arms"}.`;
+      } });
     register<{ id: number | null }>({ name: "selectCluster", description: "Select a cluster row (highlights its units in the cloud); null clears.",
       args: { type: "object", required: ["id"], properties: { id: { type: ["integer", "null"] } }, additionalProperties: false },
       run: async ({ id }) => { await this.select(id); return id === null ? "Cleared the cluster selection." : `Selected cluster ${id}.`; } });
@@ -57,7 +66,8 @@ export class ClusterArmPanel {
     provide({ key: "clusters", get: () => ({ family: this.family, sort: this.sort, withinHarness: this.stratify, selected: this.selected }),
       apply: async (st: { family: (typeof FAMILIES)[number]; sort: "difference" | "size"; withinHarness: boolean; selected: number | null }) => {
         const refresh = st.withinHarness !== this.stratify;
-        this.family = st.family; this.sort = st.sort; this.stratify = st.withinHarness;
+        await this.checkStrata();
+        this.family = st.family; this.sort = st.sort; this.stratify = st.withinHarness && this.sharedHarnesses > 0;
         if (refresh) await this.refresh(); else this.render();
         await this.select(st.selected);
       } });
@@ -68,7 +78,7 @@ export class ClusterArmPanel {
   describe() {
     const rows = this.visibleRows();
     return {
-      summary: `${rows.length} ${this.family === "all" ? "" : this.family + " "}clusters, ${rows.filter((r) => r.maxAbsZ >= 3).length} with an arm at |z| ≥ 3, ${this.predicate ? "inside the cloud selection" : "all units"}; expected counts from ${this.stratify ? "arms on the same harness" : "all arms"}. Exploratory.`,
+      summary: `${rows.length} ${this.family === "all" ? "" : this.family + " "}clusters, ${rows.filter((r) => r.maxAbsZ >= 3).length} with an arm at |z| ≥ 3, ${this.predicate ? "inside the cloud selection" : "all units"}; expected counts from ${this.stratify ? "arms on the same harness" : "all arms"}${this.baselineNote()}. Exploratory.`,
       data: { family: this.family, filtered: this.predicate !== null, rows: rows.map((r) => ({ cluster: r.id, label: r.label, family: r.family, units: r.size,
         cells: r.cells.map((c) => ({ arm: c.arm, observed: c.o, expected: Number(c.e.toFixed(3)), z: Number(c.z.toFixed(3)), attempts: c.k, attemptsInArm: c.kArm })) })) },
     };
@@ -83,14 +93,27 @@ export class ClusterArmPanel {
     return this.predicate ? `(${this.predicate})` : "TRUE";
   }
 
+  /** Harness strata, counted once: the within-harness baseline needs a harness with two or more arms. */
+  private async checkStrata() {
+    if (this.strataChecked) return;
+    this.strataChecked = true;
+    const perHarness = rowsOf(await this.coordinator.query(`SELECT coalesce(harness_id, '') AS harness, count(DISTINCT condition) AS arms FROM units GROUP BY ALL`));
+    this.strata = Math.max(1, perHarness.length);
+    this.sharedHarnesses = perHarness.filter((r) => Number(r.arms) > 1).length;
+    this.soloArms = this.sharedHarnesses ? perHarness.filter((r) => Number(r.arms) === 1).length : 0;
+    // Compare models on the same harness by default, when some harness has more than one arm; otherwise pool.
+    this.stratify = this.strata > 1 && this.sharedHarnesses > 0;
+  }
+
+  private baselineNote() {
+    if (this.strata > 1 && !this.sharedHarnesses) return " (every harness has one arm, so a same-harness baseline would equal the observed counts)";
+    return this.stratify && this.soloArms ? ` (${this.soloArms} arm${this.soloArms === 1 ? " is" : "s are"} alone on its harness, so its z is 0)` : "";
+  }
+
   private async refresh() {
     const seq = ++this.seq;
     const where = this.where();
-    if (this.strata === 1 && !this.strataChecked) {
-      this.strataChecked = true;
-      this.strata = rowsOf(await this.coordinator.query(`SELECT count(DISTINCT harness_id) AS n FROM units`))[0]?.n ?? 1;
-      this.stratify = this.strata > 1;   // compare models on the same harness by default
-    }
+    await this.checkStrata();
     const stratum = this.stratify ? "coalesce(harness_id, '')" : "''";
     // Expected counts are pooled over the arms of the same family (and, when stratified, the same harness):
     // E = n(cluster, stratum) · n(arm, family) / n(family, stratum). Arms are assumed to belong to one stratum.
@@ -158,7 +181,7 @@ export class ClusterArmPanel {
           <div class="seg" role="radiogroup" aria-label="Unit family">
             ${FAMILIES.map((f) => `<button role="radio" aria-checked="${f === this.family}" data-family="${f}" ${target("setClusterFamily", f)}>${f}</button>`).join("")}
           </div>
-          ${this.strata > 1 ? `<label class="field">Expected from
+          ${this.strata > 1 && this.sharedHarnesses ? `<label class="field">Expected from
             <select data-stratify ${target("setClusterBaseline")}>
               <option value="1" ${this.stratify ? "selected" : ""}>arms on the same harness</option>
               <option value="0" ${this.stratify ? "" : "selected"}>all arms</option>
@@ -176,7 +199,7 @@ export class ClusterArmPanel {
       </div>
       <p class="legend">
         Each cell: share of that arm's units <em>in the same family</em> that fall in the cluster, then units · attempts with ≥1 unit here / attempts of the arm${this.predicate ? " inside the cloud selection" : ""}.
-        Fill: <span class="sw pos"></span> over- / <span class="sw neg"></span> under-represented vs. the pooled arms${this.stratify ? " <em>on the same harness</em>" : ""} (observed ÷ expected), drawn only where |z| ≥ 2; ▲▼ mark |z| ≥ 3.
+        Fill: <span class="sw pos"></span> over- / <span class="sw neg"></span> under-represented vs. the pooled arms${this.stratify ? " <em>on the same harness</em>" : ""} (observed ÷ expected), drawn only where |z| ≥ 2; ▲▼ mark |z| ≥ 3${esc(this.baselineNote())}.
         Exploratory: units within an attempt are not independent, so read the attempt counts before the percentages.
       </p>
       <div class="table-wrap">

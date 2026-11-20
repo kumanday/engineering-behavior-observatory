@@ -4,15 +4,15 @@
 // Two lanes can be aligned (diff.ts) and the task exported as a Chrome trace for Perfetto (trace.ts).
 import type { Coordinator } from "@uwdata/mosaic-core";
 import { rowsOf } from "./enrichment";
-import { alignLanes, renderDiff } from "./diff";
+import { alignLanes, describeDiff, renderDiff } from "./diff";
 import { downloadTrace } from "./trace";
 import type { Evidence } from "./p3";
 import { renderTotals, type TotalsState } from "./totals";
-import { describable, provide, register, run, target } from "./registry";
+import { describable, provide, register, run, target, type Json } from "./registry";
 
 export interface LaneMeta {
   attempt_id: string; task_id: string | null; condition: string; trial_id: string | null; harness_id: string; model_id: string;
-  terminal_state: string | null; failure_class: string | null; capture_qualification: string; t_start_ms: number | null; t_end_ms: number | null;
+  terminal_state: string | null; failure_class: string | null; capture_qualification: string; source_outcome?: string; t_start_ms: number | null; t_end_ms: number | null;
   units: number; tools: number; errors: number | null; compactions: number; cited_units: number;
   usage_semantics: "per-turn" | "per-turn (native)" | "final-only" | "none"; tokens_total: number | null; cost_usd: number | null; context_max: number | null;
 }
@@ -47,6 +47,10 @@ export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ 
 /** A class-name token from bundle data: anything outside [A-Za-z0-9_-] becomes "_" (bundle content is untrusted). */
 export const cls = (s: unknown) => String(s ?? "").replace(/[^A-Za-z0-9_-]/g, "_");
 /** A number from bundle data for markup; a missing or non-numeric value renders as "—" (unavailable), never 0 or markup. */
+/** A UUID or hex id reads by its first eight characters; any other id (a leaderboard trial name) reads whole. */
+export const shortId = (id: string) => (/^[0-9a-f]{8}(?:-?[0-9a-f]{4,})+$/iu.test(id) || /^[0-9a-f]{16,}$/iu.test(id) ? id.slice(0, 8) : id);
+/** A lane none of whose units has a recorded time (a source that writes no step timestamps). */
+export const untimedLane = (us: readonly Pick<Unit, "timed" | "t0_ms" | "unit_kind">[]) => us.length > 0 && !us.some((u) => u.unit_kind !== "episode" && u.timed && u.t0_ms != null);
 export const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? String(x) : "—");
 const fmtTok = (n: number | null) => n == null ? "" : n >= 1e9 ? (n / 1e9).toFixed(1) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "k" : String(n);
 export const laneDurationMs = (lane: Pick<LaneMeta, "t_start_ms" | "t_end_ms">): number | null => lane.t_start_ms === null || lane.t_end_ms === null ? null : lane.t_end_ms - lane.t_start_ms;
@@ -62,7 +66,7 @@ const ROW = { msg: [2, 8], tool: [11, 29], ribbon: [31, 42], mark: [44, 54] } as
 
 export class SwimlanesPanel {
   private task: string | null;
-  private axis: "time" | "step" = "time";
+  private axis: "time" | "step";
   private zoom = 1;
   private ribbon: "context" | "cumulative" | "off" = "context";
   private armFilter = "all";
@@ -71,6 +75,7 @@ export class SwimlanesPanel {
   private predicate: string | null = null;
   private predSet: Set<number> | null = null;
   private focus: { id: number; label: string } | null = null;
+  private lastDiff: ReturnType<typeof describeDiff> | null = null;   // what the diff view shows, for describe()
   private picked: string[] = [];           // attempt ids chosen for the diff (max 2)
   private mode: "lanes" | "diff" | "totals" = "lanes";
   private totals: TotalsState = { anchor: "compaction", n: 10 };
@@ -86,17 +91,18 @@ export class SwimlanesPanel {
               private onHighlight: (ids: number[] | null) => void) {
     this.tasks = [...new Set(data.attempts.map((a) => a.task_id))].sort();
     this.task = this.tasks[0] ?? null;
+    this.axis = this.hasElapsedTime() ? "time" : "step";
     this.tip = document.createElement("div");
     this.tip.className = "tip"; this.tip.hidden = true;
     document.body.appendChild(this.tip);
     new ResizeObserver(() => { if (this.units.length && this.mode === "lanes") this.drawPlot(); }).observe(root);
     const obj = (properties: Record<string, unknown>, required = Object.keys(properties)) => ({ type: "object", required, properties, additionalProperties: false });
     register<{ task: string | null }>({ name: "setLaneTask", description: "Show the swimlanes of one task.", args: obj({ task: { enum: this.tasks } }),
-      run: async ({ task }) => { this.task = task; this.picked = []; this.mode = "lanes"; if (this.armFilter !== "all" && !this.arms().includes(this.armFilter)) this.armFilter = "all"; await this.load(); return `Swimlanes show task ${task}.`; } });
+      run: async ({ task }) => { this.task = task; if (!this.hasElapsedTime()) this.axis = "step"; this.picked = []; this.mode = "lanes"; if (this.armFilter !== "all" && !this.arms().includes(this.armFilter)) this.armFilter = "all"; await this.load(); return `Swimlanes show task ${task}.`; } });
     register<{ arm: string }>({ name: "setLaneArm", description: "Show one arm's attempts (or all arms).", args: obj({ arm: { type: "string" } }),
       run: ({ arm }) => { this.armFilter = arm; this.render(); return `Swimlanes show ${arm === "all" ? "all arms" : arm}.`; } });
     register<{ axis: "time" | "step" }>({ name: "setLaneAxis", description: "Lay lanes out by elapsed time or by action order.", args: obj({ axis: { enum: ["time", "step"] } }),
-      run: ({ axis }) => { this.axis = axis; this.render(); return `Swimlane axis: ${axis}.`; } });
+      run: ({ axis }) => { this.axis = this.hasElapsedTime() ? axis : "step"; this.render(); return `Swimlane axis: ${this.axis}.`; } });
     register<{ ribbon: "context" | "cumulative" | "off" }>({ name: "setLaneRibbon", description: "Token ribbon: context per request, cumulative tokens, or off.", args: obj({ ribbon: { enum: ["context", "cumulative", "off"] } }),
       run: ({ ribbon }) => { this.ribbon = ribbon; this.render(); return `Token ribbon: ${ribbon}.`; } });
     register<{ zoom: number }>({ name: "setLaneZoom", description: "Horizontal zoom of the swimlanes (1-24).", args: obj({ zoom: { type: "integer", minimum: 1, maximum: 24 } }),
@@ -112,7 +118,7 @@ export class SwimlanesPanel {
     register<{ row: number | null }>({ name: "selectLaneUnit", description: "Select a unit in the swimlanes (highlights it in the cloud and opens its native records); null clears.", args: obj({ row: { type: ["integer", "null"] } }),
       run: async ({ row }) => { await this.selectUnit(row); return row === null ? "Cleared the unit selection." : `Selected unit row ${row}.`; } });
     register<{ attemptId: string }>({ name: "highlightAttempt", description: "Highlight one attempt's units in the cloud.", args: obj({ attemptId: { type: "string" } }),
-      run: ({ attemptId }) => { this.onHighlight((this.byLane.get(attemptId) ?? []).map((u) => u.row_id)); return `Highlighted attempt ${attemptId.slice(0, 8)} in the cloud.`; } });
+      run: ({ attemptId }) => { this.onHighlight((this.byLane.get(attemptId) ?? []).map((u) => u.row_id)); return `Highlighted attempt ${shortId(attemptId)} in the cloud.`; } });
     register<{ anchor: TotalsState["anchor"] }>({ name: "setTotalsAnchor", description: "In totals, look at what follows each compaction or each failed call.", args: obj({ anchor: { enum: ["compaction", "failure"] } }),
       run: ({ anchor }) => { this.totals = { ...this.totals, anchor }; this.mode = "totals"; this.render(); return `Totals anchor: ${anchor}.`; } });
     register<{ n: number }>({ name: "setTotalsWindow", description: "In totals, the number of actions after each anchor.", args: obj({ n: { enum: [5, 10, 20, 50] } }),
@@ -124,20 +130,28 @@ export class SwimlanesPanel {
       apply: async (st: { task: string | null; arm: string; axis: "time" | "step"; ribbon: "context" | "cumulative" | "off"; zoom: number; mode: "lanes" | "diff" | "totals"; picked: string[];
         cluster: { id: number; label: string } | null; row: number | null; totals: TotalsState; stretch: number | null }) => {
         const reload = st.task !== this.task || !this.units.length;
-        Object.assign(this, { task: st.task, armFilter: st.arm, axis: st.axis, ribbon: st.ribbon, zoom: st.zoom, mode: st.mode, picked: [...st.picked], focus: st.cluster, totals: { ...st.totals }, stretch: st.stretch });
+        Object.assign(this, { task: st.task, armFilter: st.arm, axis: this.hasElapsedTime(st.task) ? st.axis : "step", ribbon: st.ribbon, zoom: st.zoom, mode: st.mode, picked: [...st.picked], focus: st.cluster, totals: { ...st.totals }, stretch: st.stretch });
         if (reload) await this.load(); else this.render();
         await this.selectUnit(st.row, false);
       } });
     describable("lanes", this);
   }
 
+  private hasElapsedTime(task = this.task) {
+    return this.data.attempts.some((lane) => lane.task_id === task && (laneDurationMs(lane) ?? 0) > 0);
+  }
+
   /** What the swimlanes show: visible attempts with their totals, failures and usage source. */
+  private untimedCount(lanes: LaneMeta[]) { return lanes.filter((l) => untimedLane(this.byLane.get(l.attempt_id) ?? [])).length; }
+
   describe() {
     const lanes = this.lanes();
+    if (this.mode === "diff" && this.lastDiff) return { summary: `Aligned diff of task ${this.task}: ${this.lastDiff.summary}`, data: { task: this.task, mode: this.mode, stretch: this.stretch, ...this.lastDiff.data } as unknown as Json };
     return {
-      summary: `${lanes.length} attempts of task ${this.task}${this.armFilter === "all" ? "" : ` in arm ${this.armFilter}`}, ${this.mode} view, ${this.axis} axis${this.focus ? `, cluster ${this.focus.id} emphasized` : ""}.`,
+      summary: `${lanes.length} attempts of task ${this.task}${this.armFilter === "all" ? "" : ` in arm ${this.armFilter}`}, ${this.mode} view, ${this.axis} axis${this.axis === "time" && this.untimedCount(lanes) ? ` (${this.untimedCount(lanes)} without recorded times, drawn as a note; the Steps axis shows their actions)` : ""}${this.focus ? `, cluster ${this.focus.id} emphasized` : ""}.`,
       data: { task: this.task, arm: this.armFilter, mode: this.mode, lanes: lanes.map((l) => ({ attemptId: l.attempt_id, condition: l.condition, trial: l.trial_id, terminal: l.terminal_state,
-        durationMs: laneDurationMs(l), tools: l.tools, errors: l.errors, compactions: l.compactions, citedUnits: l.cited_units, failureChains: this.ev?.chainsOf(l.attempt_id).length ?? null,
+        sourceOutcome: l.source_outcome ?? null,
+        durationMs: laneDurationMs(l), timesRecorded: !untimedLane(this.byLane.get(l.attempt_id) ?? []), tools: l.tools, errors: l.errors, compactions: l.compactions, citedUnits: l.cited_units, failureChains: this.ev?.chainsOf(l.attempt_id).length ?? null,
         usage: l.usage_semantics, tokens: l.tokens_total })) },
     };
   }
@@ -231,14 +245,14 @@ export class SwimlanesPanel {
       <div class="panel-head">
         <div>
           <h2>Swimlanes</h2>
-          <p class="sub">${this.mode === "totals" ? `Totals: all ${this.data.attempts.filter((a) => a.task_id === this.task).length} attempts in every arm (arm filter and cloud selection not applied)` : `${lanes.length} attempts`} · ${esc(this.task ?? "task unavailable")} · ${this.axis === "time" ? "elapsed time from each attempt's first unit" : "action order"}${this.predicate ? " · dimmed outside the cloud selection" : ""}
+          <p class="sub">${this.mode === "totals" ? `Totals: all ${this.data.attempts.filter((a) => a.task_id === this.task).length} attempts in every arm (arm filter and cloud selection not applied)` : `${lanes.length} attempts`} · ${esc(this.task ?? "task unavailable")} · ${this.axis === "time" ? `elapsed time from each attempt's first unit${this.untimedCount(lanes) ? ` · ${this.untimedCount(lanes)} without recorded times` : ""}` : this.hasElapsedTime() ? "action order" : "recorded action order · elapsed timing unavailable"}${this.predicate ? " · dimmed outside the cloud selection" : ""}
           ${this.focus ? ` · <span class="chip">cluster: ${esc(this.focus.label.replace(/`/g, ""))} (${focusN}) <button class="chip-x" data-unfocus ${target("clearLaneClusterFocus")} aria-label="Clear cluster focus">×</button></span>` : ""}</p>
         </div>
         <div class="controls">
           <label class="field">Task <select data-task ${target("setLaneTask")}>${this.tasks.map((t) => `<option value="${esc(JSON.stringify(t))}" ${t === this.task ? "selected" : ""}>${esc(t ?? "task unavailable")}</option>`).join("")}</select></label>
           <label class="field">Arm <select data-arm ${target("setLaneArm")}><option value="all">All arms</option>${this.arms().map((a) => `<option ${a === this.armFilter ? "selected" : ""}>${esc(a)}</option>`).join("")}</select></label>
           <div class="seg" role="radiogroup" aria-label="X axis">
-            <button role="radio" aria-checked="${this.axis === "time"}" data-axis="time" ${target("setLaneAxis", "time")}>Time</button><button role="radio" aria-checked="${this.axis === "step"}" data-axis="step" ${target("setLaneAxis", "step")}>Steps</button>
+            <button role="radio" aria-checked="${this.axis === "time"}" data-axis="time" ${this.hasElapsedTime() ? "" : 'disabled title="Elapsed timing unavailable for this task"'} ${target("setLaneAxis", "time")}>Time</button><button role="radio" aria-checked="${this.axis === "step"}" data-axis="step" ${target("setLaneAxis", "step")}>Steps</button>
           </div>
           <label class="field">Ribbon <select data-ribbon ${target("setLaneRibbon")}>${(["context", "cumulative", "off"] as const).map((r) => `<option value="${r}" ${r === this.ribbon ? "selected" : ""}>${r === "context" ? "Context per request" : r === "cumulative" ? "Cumulative tokens" : "Off"}</option>`).join("")}</select></label>
           <label class="field">Zoom <input type="range" min="1" max="24" step="1" value="${this.zoom}" data-zoom ${target("setLaneZoom")} aria-label="Horizontal zoom"></label>
@@ -318,11 +332,14 @@ export class SwimlanesPanel {
         const pickedIdx = this.picked.indexOf(l.attempt_id);
         const tok = esc([typeof l.cost_usd === "number" ? `$${l.cost_usd.toFixed(2)}` : "", typeof l.context_max === "number" && l.context_max ? `ctx ≤${fmtTok(l.context_max)}` : ""].filter(Boolean).join(" · "));
         const tokTitle = `${typeof l.tokens_total === "number" ? fmtTok(l.tokens_total) + " tokens processed" : "no token usage reported"}${typeof l.cost_usd === "number" ? ` · $${l.cost_usd.toFixed(2)}` : ""}${typeof l.context_max === "number" && l.context_max ? ` · largest context of one request ${l.context_max.toLocaleString()}` : ""} · usage source: ${l.usage_semantics}`;
+        const prefix = l.task_id ? `${l.task_id}__` : "";
+        const shortTrial = prefix && l.trial_id?.startsWith(prefix) ? l.trial_id.slice(prefix.length) : l.trial_id;
+        const terminal = l.terminal_state ?? (l.capture_qualification === "imported" ? null : "unavailable");
         labels += `<div class="lane-label ${pickedIdx >= 0 ? "picked" : ""}" style="height:${LANE_H}px" data-lane="${esc(l.attempt_id)}">
           <label class="pick"><input type="checkbox" data-pick="${esc(l.attempt_id)}" ${target("toggleLanePick", l.attempt_id)} ${pickedIdx >= 0 ? "checked" : ""} aria-label="Select ${esc(trialLabel(l.trial_id))} for alignment">${pickedIdx >= 0 ? `<b>${"AB"[pickedIdx]}</b>` : ""}</label>
-          <div class="ll-main"><span class="ll-title">${esc(trialLabel(l.trial_id))}${l.terminal_state !== "completed" ? ` <span class="badge">${esc(l.terminal_state ?? "unavailable")}</span>` : ""} <span class="muted" title="${esc(tokTitle)}">${tok}</span></span>
-          <span class="ll-meta">${fmtDur(laneDurationMs(l))} · ${num(l.tools)} ${l.capture_qualification === "imported" ? "projected tools" : "tools"} · ${num(l.errors)} err${l.compactions ? ` · <span title="${num(l.compactions)} compactions">┆${num(l.compactions)}</span>` : ""}</span>
-          <span class="ll-id" title="${esc(`${l.attempt_id} · cohorts: ${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).join(", ") || "—"} · token usage source: ${l.usage_semantics === "none" ? "none recorded (not zero)" : l.usage_semantics}`)}"><span class="mono">${esc(l.attempt_id.slice(0, 8))}</span>${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).map((c) => ` <span class="coh">${esc(c)}</span>`).join("")} · ${l.usage_semantics === "none" ? "<span class=\"no-usage\">no usage recorded</span>" : `usage: ${esc(l.usage_semantics)}`}</span></div>
+          <div class="ll-main"><span class="ll-title"><span title="${esc(trialLabel(l.trial_id))}">${esc(trialLabel(shortTrial))}</span>${terminal && terminal !== "completed" ? ` <span class="badge">${esc(terminal)}</span>` : ""}${l.source_outcome ? ` <span class="muted" title="Third-party Harness Leaderboard verdict">Leaderboard: ${esc(l.source_outcome)}</span>` : ""} <span class="muted" title="${esc(tokTitle)}">${tok}</span></span>
+          <span class="ll-meta">${fmtDur(laneDurationMs(l))} · ${num(l.tools)} ${l.capture_qualification === "imported" ? "projected tools" : "tools"} · ${l.errors === null ? `<span title="${esc(l.capture_qualification === "imported" ? "Tool failures unavailable: ATIF has no tool-failure field, so imported results do not establish success or failure (not zero)" : "Tool failures unavailable (not zero)")}">— err</span>` : `${num(l.errors)} err`}${l.compactions ? ` · <span title="${num(l.compactions)} compactions">┆${num(l.compactions)}</span>` : ""}</span>
+          <span class="ll-id" title="${esc(`${l.attempt_id} · cohorts: ${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).join(", ") || "—"} · token usage source: ${l.usage_semantics === "none" ? `none recorded (not zero)${l.capture_qualification === "imported" ? "; the source declares no step or final token metrics" : ""}` : `${l.usage_semantics}${l.capture_qualification === "imported" ? " (declared by the source)" : ""}`}`)}"><span class="mono">${esc(shortId(l.attempt_id))}</span>${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).map((c) => ` <span class="coh">${esc(c)}</span>`).join("")} · ${l.usage_semantics === "none" ? "<span class=\"no-usage\">no usage recorded</span>" : `usage: ${esc(l.usage_semantics)}`}</span></div>
           ${this.ev?.audit && this.ev.chainsOf(l.attempt_id).length ? `<button class="icon-btn fail-btn" data-chains="${esc(l.attempt_id)}" ${target("openChains", l.attempt_id)} title="Failure chains: failed calls and the next call of the same tool">✕ ${this.ev.chainsOf(l.attempt_id).length}</button>` : ""}
           ${this.ev?.audit ? `<button class="icon-btn" data-audit="${esc(l.attempt_id)}" ${target("openAudit", l.attempt_id)} title="Audit: checks vs source changes vs final claims, failure chains, final message">Audit</button>` : ""}
           <button class="icon-btn" data-lane-hl="${esc(l.attempt_id)}" ${target("highlightAttempt", l.attempt_id)} title="Highlight this attempt in the cloud" aria-label="Highlight attempt in cloud">◎</button>
@@ -338,6 +355,13 @@ export class SwimlanesPanel {
         let failRun: number[] | null = null, failRows: number[] = [];
         const failBand = (r: number[]) => `<rect class="band-fail-svg hit-fail" data-fail="${esc(l.attempt_id)}|${failRows.map(num).join(",")}" x="${r[0].toFixed(1)}" y="${ROW.mark[1] - 4}" width="${Math.max(4, r[1] - r[0]).toFixed(1)}" height="6"><title>Failure chain: click for the failed call vs the next call of that tool</title></rect>`;
         let nextStep = 0;                       // messages on the Steps axis go before the next action
+        // On the time axis a lane with no recorded unit time has no place to draw its actions: it says so instead of
+        // stacking them at 0 m beside the timed lanes. The Steps axis shows its actions in order.
+        if (this.axis === "time" && untimedLane(us)) {
+          body += `<text class="untimed-t" x="6" y="${ROW.tool[1]}">no times recorded · Steps shows its ${num(steps(l.attempt_id).length)} actions in order</text></g>`;
+          y += LANE_H;
+          continue;
+        }
         for (const u of us) {
           if (stepIdx.has(u.row_id)) nextStep = stepIdx.get(u.row_id)! + 1;
           const dim = this.emphasized(u) ? "" : " dim";
@@ -422,7 +446,7 @@ export class SwimlanesPanel {
     const lane = this.data.attempts.find((a) => a.attempt_id === u.attempt_id);
     const t0 = Math.min(...(this.byLane.get(u.attempt_id) ?? []).filter((x) => x.t0_ms != null).map((x) => x.t0_ms!));
     this.tip.innerHTML = `<div class="tip-title">${esc(unitTitle(u))}</div>
-      <div class="tip-arm">${esc(u.condition)} · ${esc(trialLabel(lane?.trial_id))} · ${esc(u.attempt_id.slice(0, 8))} · ${(() => { const st = (this.byLane.get(u.attempt_id) ?? []).filter((x) => x.unit_kind === "tool" || x.unit_kind === "compaction"); const i = st.findIndex((x) => x.row_id === u.row_id); return i >= 0 ? `step ${i + 1} · ` : ""; })()}unit #${u.seq}</div>
+      <div class="tip-arm">${esc(u.condition)} · ${esc(trialLabel(lane?.trial_id))} · ${esc(shortId(u.attempt_id))} · ${(() => { const st = (this.byLane.get(u.attempt_id) ?? []).filter((x) => x.unit_kind === "tool" || x.unit_kind === "compaction"); const i = st.findIndex((x) => x.row_id === u.row_id); return i >= 0 ? `step ${i + 1} · ` : ""; })()}unit #${u.seq}</div>
       <table>
         <tr><td>Kind</td><td>${esc(u.unit_kind)}${u.unit_kind === "tool" ? ` · ${esc(u.cat)}` : ""}${u.status ? ` · ${esc(u.status)}` : ""}</td></tr>
         <tr><td>At</td><td>${u.t0_ms != null ? fmtDur(u.t0_ms - t0) : "—"}${u.timed ? "" : " (untimed; placed after the previous unit)"}${u.duration_seconds ? ` · ${u.duration_seconds.toFixed(1)} s` : ""}</td></tr>
@@ -444,6 +468,7 @@ export class SwimlanesPanel {
     const view = this.root.querySelector<HTMLElement>(".lanes-view")!;
     const [a, b] = this.picked.map((id) => this.data.attempts.find((x) => x.attempt_id === id)!);
     const result = alignLanes(this.byLane.get(a.attempt_id) ?? [], this.byLane.get(b.attempt_id) ?? []);
+    this.lastDiff = describeDiff(a, b, result);
     renderDiff(view, a, b, result, this, this.zoom);
   }
 

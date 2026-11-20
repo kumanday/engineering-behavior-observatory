@@ -58,6 +58,8 @@ The [evaluation reading path](evaluation/README.md) explains how the parts fit:
   [normalization integrity](evaluation/normalization-integrity.md)
 - [Structural observations](evaluation/structural-observations.md) and
   [occurrence ratings](evaluation/occurrence-ratings.md)
+- [Decision-model judging](evaluation/decision-model-judge.md): whole cohorts
+  on every recorded step, resumable and in parts
 - [Behavior assertions](evaluation/behavior-assertions.md) and
   [semantic judging](evaluation/semantic-judge.md)
 - [Behavior ontology](evaluation/behavior-ontology.md): the 93 cards every

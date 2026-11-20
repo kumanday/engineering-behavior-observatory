@@ -108,9 +108,11 @@ names its producer mode. No report pools the two modes.
 | Abstains with | `unknown`, when the probability lies between the thresholds | `unknown`, with a reason |
 | Suited to | Volume: whole cohorts | Audits that need the cited steps |
 
-EBO 2.0 validates, aggregates, calibrates and displays decision-model results.
-The command that produces them is in progress. A decision-model result produced
-elsewhere is checked with `ebo assertions validate`. The LLM judge
+[Decision-model judging](../evaluation/decision-model-judge.md) is the
+suggested mode for cohorts. `ebo judge decision-model` judges every attempt in
+a corpus, asks the cards in batches, resumes after an interruption and can take
+the cards a few at a time. `ebo judge decision-model import` validates and
+writes results produced by another pipeline into the same record. The LLM judge
 runs through `ebo judge prepare|run|batch`
 ([semantic judging](../evaluation/semantic-judge.md)). It sees a selection of
 an attempt's events, not the whole attempt, and its rationale is model text
@@ -225,7 +227,7 @@ used formats are shortened.
 | Format | Written by | Read by | What it is |
 | :--- | :--- | :--- | :--- |
 | `ebo.atif-inspection/v1` | `ebo atif inspect`, `ebo atif import` | `ebo validate`, import reader | Result of an offline ATIF read |
-| `ebo.import-manifest/v2`, `ebo.atif-core-mapping/v1`, `ebo.atif-interpretation/v1` | `ebo atif import` | import reader, `ebo corpus build` | Imported bundle manifest, mapping report, interpretation receipt |
+| `ebo.import-manifest/v3`, `ebo.atif-core-mapping/v1`, `ebo.atif-interpretation/v1` | `ebo atif import` | import reader, `ebo corpus build` | Imported bundle manifest, mapping report, interpretation receipt |
 | `ebo.atif-overlay/v1` | shipped with EBO; listed by `ebo atif overlays` | `ebo atif import\|import-harbor` | Producer overlay definition |
 | `ebo.atif-producer-profile/v1`, `ebo.pi-atif-mapping/v1` | shipped schemas | `ebo validate` | Producer profile and Pi mapping definitions |
 | `ebo.harbor-trial-inspection/v1` | `ebo atif inspect-harbor`, `ebo atif import-harbor` | Harbor import reader | Eligibility check of a Harbor trial |
@@ -261,7 +263,9 @@ them as separate files.
 | `ebo.judge-prepare-spec/v2` | operator-authored | `ebo judge prepare` | Spec for building a judge request |
 | `ebo.semantic-judge-request/v2` | `ebo judge prepare` or operator-authored | `ebo judge run\|batch` | LLM-judge request for one card |
 | `ebo.semantic-judge-input/v2`, `ebo.semantic-judgment/v4` | `ebo judge run\|batch` | `ebo validate` | Exact judge input; judgment or failure record |
-| `ebo.behavior-assertion/v2` | `ebo judge run\|batch` (LLM judge); decision-model command in progress | `ebo assertions validate`, `ebo calibration sample`, `ebo aggregate build` and others | One card result for one attempt, from either producer mode |
+| `ebo.behavior-assertion/v2` | `ebo judge run\|batch` (LLM judge), `ebo judge decision-model` and its `import` | `ebo assertions validate`, `ebo calibration sample`, `ebo aggregate build` and others | One card result for one attempt, from either producer mode |
+| `ebo.decision-model-run/v1` | operator-authored | `ebo judge decision-model` | Corpus, cards, provider, thresholds and pacing of a decision-model run |
+| `ebo.decision-model-result/v1` | another decision-model pipeline | `ebo judge decision-model import` | One card's probabilities from outside EBO, with its producer and evidence |
 
 ### Review and calibration
 
@@ -279,8 +283,8 @@ them as separate files.
 
 | Format | Written by | Read by | What it is |
 | :--- | :--- | :--- | :--- |
-| `ebo.corpus-index-entry/v1` | `ebo corpus build` | `ebo corpus query\|validate`, `ebo aggregate build` and others | Index line for one bundle |
-| `ebo.aggregation-request/v1` | operator-authored | `ebo aggregate build`, `ebo atlas build` | What to aggregate and how to group it |
+| `ebo.corpus-index-entry/v2` | `ebo corpus build` | `ebo corpus query\|validate`, `ebo aggregate build` and others | Index line for one bundle |
+| `ebo.aggregation-request/v2` | operator-authored | `ebo aggregate build`, `ebo atlas build` | Sources (single results and result sets), grouping and comparisons |
 | `ebo.aggregation-report/v2` | `ebo aggregate build` | Atlas | Per-card verdicts, directions and metrics per group |
 | `ebo.comparison-request/v2` | operator-authored | `ebo comparison check` | Candidates to compare on one measure |
 | `ebo.comparison-report/v2` | `ebo comparison check` | `ebo validate`, `ebo aggregate build` | Whether the comparison is eligible |
@@ -353,11 +357,3 @@ These are stated goals. None of them is in 2.0.
   citation that carries the digest of the exact value it points to, and a
   gate that holds a judgment until the occurrence ratings it depends on exist.
   The main judge already hides the evaluated model's name from the judge.
-
-## In progress
-
-- **Decision-model judging command.** It renders every step of an attempt,
-  asks the judge model about cards in batches, and writes
-  `ebo.behavior-assertion/v2` results for a whole cohort. A documented path
-  will also write the same record from results produced elsewhere. The
-  judging section above will describe it once it is merged.

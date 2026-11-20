@@ -28,11 +28,13 @@ export type NativeRecordDoc = { artifact: string; locator: string; resolved: boo
 export function nativeRecordDigest(file: Buffer | null, locator: string, policy?: "canonical-json-pointers/v1"): { sha256: string; source_sha256?: string; text?: string; chars: number; binary?: boolean } | undefined {
   if (file === null) return undefined;
   if (policy === "canonical-json-pointers/v1" && locator.startsWith("#")) {
+    const source = parsedSource(file);
+    if (source === undefined) return undefined;
     try {
-      const value = readEvidencePointer(JSON.parse(file.toString("utf8").replace(/^\uFEFF/u, "")), locator);
+      const value = readEvidencePointer(source.document, locator);
       if (!value.found) return undefined;
       const text = canonicalizeMetadata(value.value);
-      return { sha256: createHash("sha256").update(text).digest("hex"), source_sha256: digestBytes(file).value, text, chars: text.length };
+      return { sha256: createHash("sha256").update(text).digest("hex"), source_sha256: source.sha256, text, chars: text.length };
     } catch { return undefined; }
   }
   const line = /^line:(\d+)/u.exec(locator);
@@ -42,6 +44,20 @@ export function nativeRecordDigest(file: Buffer | null, locator: string, policy?
   }
   const binary = file.subarray(0, 8192).includes(0);
   return { sha256: createHash("sha256").update(file).digest("hex"), chars: file.length, ...(binary ? { binary: true } : { text: file.toString("utf8") }) };
+}
+
+/**
+ * One parse and one digest per source buffer: an imported attempt cites hundreds of pointer records in the same
+ * document. Keyed by the buffer object, so the entry ends with the buffer; callers do not mutate source buffers.
+ */
+const parsedSources = new WeakMap<Buffer, { document: unknown; sha256: string } | null>();
+function parsedSource(file: Buffer): { document: unknown; sha256: string } | undefined {
+  if (!parsedSources.has(file)) {
+    let source: { document: unknown; sha256: string } | null = null;
+    try { source = { document: JSON.parse(file.toString("utf8").replace(/^\uFEFF/u, "")) as unknown, sha256: digestBytes(file).value }; } catch { source = null; }
+    parsedSources.set(file, source);
+  }
+  return parsedSources.get(file) ?? undefined;
 }
 
 const CHECK_WORD = /\b(tsc|typecheck|type-check|types?|lint|eslint|tests?|test:ci|jest|suites?|build|coverage)\b/iu;
@@ -92,7 +108,8 @@ export class NativeLines {
     if (!match) {
       let file: Buffer | null = null;
       try { file = this.retainedFile ?? readFileSync(join(this.bundleRoot, relativePath)); } catch { file = null; }
-      if (this.imported && file !== null) {
+      // The imported source is checked against its admission once; later records read the same verified buffer.
+      if (this.imported && file !== null && file !== this.retainedFile) {
         if (file.length !== this.importedSource!.bytes || `sha256:${digestBytes(file).value}` !== this.importedSource!.digest) throw new Error("Imported Atlas source bytes differ from admission.");
         this.retainedFile = file;
       }

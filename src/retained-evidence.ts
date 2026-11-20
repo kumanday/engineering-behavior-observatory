@@ -10,6 +10,7 @@ import { digestMetadata, inspectRetainedArtifact } from "./artifacts.js";
 import { ANTIGRAVITY_HARNESS, ANTIGRAVITY_CLIENT, ANTIGRAVITY_ADAPTER_VERSION, ANTIGRAVITY_CONTRACT_DIGEST, qualifyRetainedAntigravityCapture, describeAndValidateAntigravityDataset } from "./antigravity.js";
 import { factoryModelSelection } from "./factory-model.js";
 import { FACTORY_HARNESS, qualifyFactoryCapture, describeAndValidateFactoryDataset } from "./factory-droid.js";
+import { lstatSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { CLAUDE_AGENT_SDK_HARNESS, readQualifiedRunCapture, createAgentSdkNativeEvidenceResolver } from "./agent-sdk-normalizer.js";
 import { projectAgentSdkBehaviorEvidence } from "./behavior-assertions.js";
@@ -49,52 +50,84 @@ export type RetainedBehaviorEvidence = {
 };
 
 export type RetainedEvidenceReuseStats = { hits: number; misses: number };
-type EvidenceReuse = { stats: RetainedEvidenceReuseStats; entry?: { key: string; evidence: RetainedBehaviorEvidence } };
+/** A file's content digest, remembered with the stat that identifies the bytes it was computed from. */
+type FileDigest = { stat: string; digest: string };
+type EvidenceReuse = { stats: RetainedEvidenceReuseStats; entry?: { key: string; evidence: RetainedBehaviorEvidence }; files: Map<string, FileDigest> };
 const evidenceReuse = new AsyncLocalStorage<EvidenceReuse>();
 
 /**
  * Let one operation (a build) reuse the evidence it has just validated instead of rebuilding it for each
  * assertion of the same attempt. The scope holds one attempt's evidence at a time and ends with the
- * operation; nothing is shared process-wide. Every lookup hashes the current manifest and retained
- * artifact bytes, so changed sources are never reused.
+ * operation; nothing is shared process-wide. Every lookup hashes the current manifest and keys on the
+ * content digest of each bound artifact. A digest is recomputed whenever the file's device, inode, size,
+ * modification or change time differs from when it was hashed, so changed sources are never reused.
  */
 export async function withRetainedEvidenceReuse<T>(operation: () => Promise<T>,
   stats: RetainedEvidenceReuseStats = { hits: 0, misses: 0 }): Promise<T> {
-  const state: EvidenceReuse = { stats };
+  // A nested operation shares the enclosing scope, so evidence validated by an outer build is not rebuilt.
+  if (evidenceReuse.getStore() !== undefined) return operation();
+  const state: EvidenceReuse = { stats, files: new Map() };
   try { return await evidenceReuse.run(state, operation); }
-  finally { state.entry = undefined; }
+  finally { state.entry = undefined; state.files.clear(); }
 }
 
-/** Current bytes of a run bundle's manifest and every listed artifact; undefined when they cannot all be hashed. */
-async function evidenceSourceKey(bundleRoot: string): Promise<string | undefined> {
+/**
+ * Current bytes of a bundle's manifest and of everything it binds: every listed artifact of a run bundle, or the
+ * admitted source, inspection and interpretation of an ATIF import. Undefined when they cannot all be hashed.
+ */
+async function evidenceSourceKey(bundleRoot: string, files: Map<string, FileDigest>): Promise<string | undefined> {
+  const remembered = async (path: string, compute: () => Promise<string> | string): Promise<string> => {
+    const s = lstatSync(path, { bigint: true });
+    const stat = `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`;
+    const known = files.get(path);
+    if (known?.stat === stat) return known.digest;
+    const digest = await compute();
+    files.set(path, { stat, digest });
+    return digest;
+  };
   try {
     const manifestBytes = readBoundedFile(join(bundleRoot, "manifest.json"), "Run manifest");
-    const manifest = JSON.parse(manifestBytes.toString("utf8")) as Partial<RunManifest>;
-    if (isAtifImportSchema(manifest.schemaVersion) || !Array.isArray(manifest.evidence)) return undefined;
+    const manifest = JSON.parse(manifestBytes.toString("utf8")) as Partial<RunManifest> & { schemaVersion?: string; source?: { path?: unknown }; inspection?: { path?: unknown }; interpretation?: { path?: unknown } };
     const hash = createHash("sha256").update(resolve(bundleRoot)).update("\0").update(manifestBytes);
+    if (isAtifImportSchema(manifest.schemaVersion)) {
+      for (const path of [manifest.source?.path, manifest.inspection?.path, manifest.interpretation?.path]) {
+        if (typeof path !== "string") return undefined;
+        const file = join(bundleRoot, path);
+        hash.update(`\0${path}\0`).update(await remembered(file, () => createHash("sha256").update(readBoundedFile(file, "Imported artifact", undefined, 1024 * 1024 * 1024)).digest("hex")));
+      }
+      return hash.digest("hex");
+    }
+    if (!Array.isArray(manifest.evidence)) return undefined;
     for (const { relativePath } of manifest.evidence) {
-      const { digest, sizeBytes } = await inspectRetainedArtifact(bundleRoot, relativePath);
-      hash.update(`\0${relativePath}\0${digest.value}\0${String(sizeBytes)}`);
+      hash.update(`\0${relativePath}\0`).update(await remembered(join(bundleRoot, relativePath), async () => {
+        const { digest, sizeBytes } = await inspectRetainedArtifact(bundleRoot, relativePath);
+        return `${digest.value}\0${String(sizeBytes)}`;
+      }));
     }
     return hash.digest("hex");
   } catch { return undefined; }
 }
 
+let evidenceBuilds = 0;
+/** How many times retained evidence has been built from its sources in this process; a test hook for reuse. */
+export function retainedEvidenceBuildCount(): number { return evidenceBuilds; }
+
 export async function createRetainedBehaviorEvidence(bundleRoot: string): Promise<RetainedBehaviorEvidence> {
   const reuse = evidenceReuse.getStore();
-  const key = reuse && await evidenceSourceKey(bundleRoot);
-  // Imports and bundles whose bytes cannot all be hashed are always rebuilt, so their failures stay explicit.
+  const key = reuse && await evidenceSourceKey(bundleRoot, reuse.files);
+  // Bundles whose bytes cannot all be hashed are always rebuilt, so their failures stay explicit.
   if (!reuse || key === undefined) return buildRetainedBehaviorEvidence(bundleRoot);
   if (reuse.entry?.key === key) { reuse.stats.hits++; return reuse.entry.evidence; }
   reuse.stats.misses++;
   // Release the previous attempt's capture before constructing the next one.
   reuse.entry = undefined;
   const evidence = await buildRetainedBehaviorEvidence(bundleRoot);
-  if (await evidenceSourceKey(bundleRoot) === key) reuse.entry = { key, evidence };
+  if (await evidenceSourceKey(bundleRoot, reuse.files) === key) reuse.entry = { key, evidence };
   return evidence;
 }
 
 async function buildRetainedBehaviorEvidence(bundleRoot: string): Promise<RetainedBehaviorEvidence> {
+  evidenceBuilds += 1;
   const manifest = JSON.parse(readBoundedFile(join(bundleRoot, "manifest.json"), "Run manifest").toString("utf8")) as RunManifest;
   if (isAtifImportSchema(manifest.schemaVersion)) return readRetainedBehaviorEvidence(bundleRoot);
   const recorded = readRunVerification(bundleRoot, manifest);

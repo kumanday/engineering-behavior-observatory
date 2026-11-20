@@ -34,9 +34,10 @@ ebo atlas build atlas.json atlas-output
 ebo atlas serve atlas.json
 ```
 
-Open `http://127.0.0.1:13011`. Model, harness, task, trial, capture, outcome,
-review, mode, family, card, verdict, direction and text filters select a
-reproducible cohort. Apply with the button or Enter; controls and evidence
+Open `http://127.0.0.1:13011`. Model, route, harness, task, trial, capture,
+outcome, review, mode, family, card, verdict, direction and text filters select
+a reproducible cohort. For an import, the model is the model's own name and the
+route is the model string its source records, such as a routed provider path. Apply with the button or Enter; controls and evidence
 disclosures use native keyboard behavior. Each case shows its producer mode and, for a present
 result, the card's [direction](../evaluation/behavior-ontology.md#direction)
 beside the verdict. Expand an LLM-judge case for rationale, alternative
@@ -166,7 +167,7 @@ links and operator narrative lack portable field classifications and are
 excluded. Local review access never grants sharing approval. Nothing uploads,
 emails or publishes the report.
 
-Shared summaries accept model, harness, task, trial, capture and outcome
+Shared summaries accept model, route, harness, task, trial, capture and outcome
 filters. Review, mode, family, card, verdict, direction and free-text
 evidence filters are rejected: even without case details, their selected-cohort counts would disclose
 semantic or human-review findings that have no export approval.

@@ -173,8 +173,14 @@ export function behaviorDirection(card: BehaviorCard, decision: BehaviorDecision
 
 /** Canonical digest of an ontology: the identity of the exact card texts a result was produced against. */
 export function behaviorOntologyDigest(ontology: BehaviorOntology): `sha256:${string}` {
-  return `sha256:${digestMetadata(ontology).value}`;
+  // A frozen ontology (the shipped one is) cannot change, so its digest is computed once; validation checks it per assertion.
+  const known = frozenDigests.get(ontology);
+  if (known !== undefined) return known;
+  const digest = `sha256:${digestMetadata(ontology).value}` as const;
+  if (Object.isFrozen(ontology) && Object.isFrozen(ontology.cards)) frozenDigests.set(ontology, digest);
+  return digest;
 }
+const frozenDigests = new WeakMap<BehaviorOntology, `sha256:${string}`>();
 
 /** Families in ontology order, each with its cards in ontology order. */
 export function behaviorCardFamilies(ontology: BehaviorOntology): Array<BehaviorCardFamily & { cards: BehaviorCard[] }> {

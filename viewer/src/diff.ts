@@ -50,6 +50,27 @@ const summarize = (us: Unit[]) => {
 };
 const catCounts = (us: Unit[]) => { const c: Record<string, number> = {}; for (const u of actions(us)) c[u.unit_kind === "compaction" ? "compaction" : u.cat] = (c[u.unit_kind === "compaction" ? "compaction" : u.cat] ?? 0) + 1; return c; };
 
+const summarizeText = (us: Unit[]) => {
+  const c = new Map<string, number>();
+  for (const u of us) c.set(unitTitle(u), (c.get(unitTitle(u)) ?? 0) + 1);
+  return [...c].sort((x, y) => y[1] - x[1]).slice(0, 3).map(([k, v]) => ({ action: k, count: v }));
+};
+
+/** What the aligned diff shows, for describe(): the aligned share, each divergent stretch and the category counts. */
+export function describeDiff(A: LaneMeta, B: LaneMeta, r: AlignResult) {
+  const laneA = r.ops.filter((o) => o.a).map((o) => o.a!), laneB = r.ops.filter((o) => o.b).map((o) => o.b!);
+  const ca = catCounts(laneA), cb = catCounts(laneB);
+  const keys = [...CATS.map((c) => c.key as string), "compaction"].filter((k) => ca[k] || cb[k]);
+  const share = r.nA + r.nB ? (2 * r.matched) / (r.nA + r.nB) : 0;
+  return {
+    summary: `${(share * 100).toFixed(0)}% of actions align (${r.matched} shared in order) between A ${A.attempt_id} (${r.nA} actions) and B ${B.attempt_id} (${r.nB} actions); ${r.segments.length} divergent stretches of 3 or more actions.`,
+    data: { a: { attemptId: A.attempt_id, condition: A.condition, trial: A.trial_id, actions: r.nA }, b: { attemptId: B.attempt_id, condition: B.condition, trial: B.trial_id, actions: r.nB },
+      alignedShare: Number(share.toFixed(4)), matched: r.matched,
+      stretches: r.segments.map((s, n) => ({ index: n, position: Number((s.i0 / Math.max(1, r.ops.length)).toFixed(4)), a: s.a.length, b: s.b.length, aDid: summarizeText(s.a), bDid: summarizeText(s.b) })),
+      categories: keys.map((k) => ({ category: k, a: ca[k] ?? 0, b: cb[k] ?? 0, delta: (cb[k] ?? 0) - (ca[k] ?? 0) })) },
+  };
+}
+
 export function renderDiff(view: HTMLElement, A: LaneMeta, B: LaneMeta, r: AlignResult, panel: SwimlanesPanel, zoom = 1) {
   const laneA = r.ops.filter((o) => o.a).map((o) => o.a!), laneB = r.ops.filter((o) => o.b).map((o) => o.b!);
   const t0A = Math.min(...laneA.filter((u) => u.t0_ms != null).map((u) => u.t0_ms!)), t0B = Math.min(...laneB.filter((u) => u.t0_ms != null).map((u) => u.t0_ms!));

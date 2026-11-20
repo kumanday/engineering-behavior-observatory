@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:ebo:schema:import-manifest:v2",
+  "$id": "urn:ebo:schema:import-manifest:v3",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,7 +19,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": "ebo.import-manifest/v2"
+      "const": "ebo.import-manifest/v3"
     },
     "importer": {
       "type": "object",
@@ -180,6 +180,52 @@
         "digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "authority"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": ".*\\S.*"
+        },
+        "authority": {
+          "enum": [
+            "operator-declared",
+            "harbor-trial",
+            "leaderboard-policy"
+          ]
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "authority"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": ".*\\S.*"
+        },
+        "authority": {
+          "enum": [
+            "operator-declared",
+            "harbor-trial",
+            "leaderboard-policy"
+          ]
         }
       }
     }

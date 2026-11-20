@@ -39,7 +39,7 @@ export type CorpusSourceIssue = {
 };
 
 export type CorpusIndexEntry = {
-  schemaVersion: "ebo.corpus-index-entry/v1";
+  schemaVersion: "ebo.corpus-index-entry/v2";
   manifestKind: "run" | "export" | "import" | "unknown";
   manifestPath: string;
   manifestDigest: DigestString;
@@ -54,7 +54,10 @@ export type CorpusIndexEntry = {
   fixtureId?: string;
   fixtureDigest?: DigestString;
   modelProvider?: string;
+  /** The model's own name: declared on import, or the run's configured model. */
   modelId?: string;
+  /** Imports only: the model string the source document records, such as a routed provider path. */
+  modelRoute?: string;
   modelConfigurationDigest?: DigestString;
   harnessId?: string;
   harnessVersion?: string;
@@ -90,6 +93,7 @@ export type CorpusIndexQuery = Partial<Pick<CorpusIndexEntry,
   | "manifestKind"
   | "runId"
   | "attemptId"
+  | "modelRoute"
   | "taskId"
   | "modelId"
   | "harnessId"
@@ -107,7 +111,7 @@ export type CorpusIndexValidationIssue = {
   message: string;
 };
 
-const INDEX_SCHEMA_VERSION = "ebo.corpus-index-entry/v1" as const;
+const INDEX_SCHEMA_VERSION = "ebo.corpus-index-entry/v2" as const;
 const MAX_CORPUS_MANIFESTS = 100_000;
 const MAX_CORPUS_INDEX_BYTES = 512 * 1024 * 1024;
 const MAX_PORTABLE_ARCHIVE_BYTES = 512 * 1024 * 1024;
@@ -289,7 +293,11 @@ function projectManifest(root: string, manifestPath: string): CorpusIndexEntry {
       const { manifest, read } = readAtifImportAdmission(manifestRoot);
       entry.runId = manifest.identity.runId; entry.attemptId = manifest.identity.attemptId;
       const sourceAgent = isRecord(read.document?.agent) ? read.document.agent : undefined;
-      if (typeof sourceAgent?.model_name === "string" && sourceAgent.model_name.trim() && sourceAgent.model_name.length <= 1024) entry.modelId = sourceAgent.model_name;
+      const observed = typeof sourceAgent?.model_name === "string" && sourceAgent.model_name.trim() && sourceAgent.model_name.length <= 1024 ? sourceAgent.model_name : undefined;
+      if (observed !== undefined) entry.modelRoute = observed;
+      // A declared model names the arm; without one, the observed string is all there is.
+      if (manifest.model !== undefined) entry.modelId = manifest.model.id; else if (observed !== undefined) entry.modelId = observed;
+      if (manifest.task !== undefined) entry.taskId = manifest.task.id;
       entry.harnessId = typeof sourceAgent?.name === "string" ? sourceAgent.name : "unknown";
       entry.harnessVersion = manifest.producer.agent.version ?? "unavailable";
       entry.captureQualification = "imported"; entry.sharingClass = "restricted";

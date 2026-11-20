@@ -1283,7 +1283,7 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("structural-observations.v1.json"));
   ajv.addSchema(readSchema("atif-inspection.v1.json"));
   ajv.addSchema(readSchema("evidence-companion.v1.json"));
-  ajv.addSchema(readSchema("import-manifest.v2.json"));
+  ajv.addSchema(readSchema("import-manifest.v3.json"));
   ajv.addSchema(readSchema("pi-atif-mapping.v1.json"));
   ajv.addSchema(readSchema("atif-core-mapping.v1.json"));
   ajv.addSchema(readSchema("atif-overlay.v1.json"));
@@ -1297,6 +1297,7 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("study-runtime-bindings.v1.json"));
   ajv.addSchema(readSchema("human-calibration.v1.json"));
   ajv.addSchema(readSchema("aggregation.v1.json"));
+  ajv.addSchema(readSchema("decision-model-judge.v1.json"));
   ajv.addSchema(readSchema("occurrence-ratings.v1.json"));
   ajv.addSchema(readSchema("claim-checks.v1.json"));
   ajv.addSchema(readSchema("atlas-bundle.v1.json"));
@@ -1335,7 +1336,7 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.atif-overlay/v1", requiredValidator(ajv, "urn:ebo:schema:atif-overlay:v1")],
     ["ebo.pi-atif-mapping/v1", requiredValidator(ajv, "urn:ebo:schema:pi-atif-mapping:v1")],
     ["ebo.evidence-companion/v1", requiredValidator(ajv, "urn:ebo:schema:evidence-companion:v1")],
-    ["ebo.import-manifest/v2", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v2")],
+    ["ebo.import-manifest/v3", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v3")],
     ["ebo.atif-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:atif-inspection:v1")],
     ["ebo.atif-producer-profile/v1", requiredValidator(ajv, "urn:ebo:schema:atif-producer-profile:v1")],
     ["ebo.task-packet/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet.v1.schema.json")],
@@ -1379,7 +1380,9 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.human-review-decision/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/decision")],
     ["ebo.review-history/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/history")],
     ["ebo.calibration-summary/v2", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/summary")],
-    ["ebo.aggregation-request/v1", requiredValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/request")],
+    ["ebo.aggregation-request/v2", requiredValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/request")],
+    ["ebo.decision-model-run/v1", requiredValidator(ajv, "urn:ebo:schema:decision-model-judge:v1#/$defs/run")],
+    ["ebo.decision-model-result/v1", requiredValidator(ajv, "urn:ebo:schema:decision-model-judge:v1#/$defs/result")],
     ["ebo.aggregation-report/v2", requiredValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/report")],
     ["ebo.deepseek-runtime-composition/v1", requiredValidator(ajv, "https://ebo.dev/schemas/deepseek-runtime-composition.v1.schema.json")],
     ["ebo.harbor-admission/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-admission.v1.schema.json")],

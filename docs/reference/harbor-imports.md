@@ -31,8 +31,10 @@ the original task checksum, agent/model configuration and declared start. A
 conflicting reuse of the UUID cannot replace the retained execution record.
 
 Capture revisions hash the original execution identity, native agent-file
-inventory and retained ATIF bytes. Document-derived producer metadata and optional converter context also enter
-the stored capture revision. An ATIF backfill or changed native log therefore
+inventory and retained ATIF bytes. Document-derived producer metadata, optional converter context, the
+task and any declared model also enter the stored capture revision. The import
+manifest declares the task from the trial record (`harbor-trial`); `--model`
+declares the model (`operator-declared`). An ATIF backfill or changed native log therefore
 creates a revision of the same execution. Assessment IDs separately bind the
 trial-result bytes, verifier-file inventory and original executor. Regrading or
 rewriting an assessment does not manufacture another agent attempt.

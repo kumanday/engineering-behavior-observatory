@@ -86,7 +86,9 @@ Atlas tables v1, all keyed by stable EBO identities (`event_key` is
 Units 1.0.0 are the comparable steps of an attempt: a tool unit is one EBO tool
 operation (call, result and hooks), a message unit one completed visible
 message, compaction and delegation units are EBO occurrences, and an episode is
-a message plus the tool units that follow it. Unit ids are
+a message plus the tool units that follow it. A converter placeholder such as
+`[tool call]`, written as the message of a turn that only calls tools, is not a
+message unit; that turn's calls are its tool units. Unit ids are
 `<attemptId>/<first event id>`. Their command classification reads command
 text and is heuristic.
 

@@ -113,6 +113,23 @@ test("Atlas pointer readback uses the same canonical value digest and preserves 
   assert.equal(nativeRecordDigest(bytes, "#")!.source_sha256, undefined, "legacy whole-file digest semantics remain intact");
 });
 
+test("pointer readback parses and hashes a source buffer once for all its records", () => {
+  const source = fixture(), bytes = Buffer.from(JSON.stringify(source, null, 2));
+  const parse = JSON.parse;
+  let parses = 0;
+  JSON.parse = ((...args: Parameters<typeof JSON.parse>) => { parses++; return parse(...args); }) as typeof JSON.parse;
+  try {
+    const first = nativeRecordDigest(bytes, "#/steps/1/tool_calls/0", "canonical-json-pointers/v1")!;
+    const second = nativeRecordDigest(bytes, "#/steps/1", "canonical-json-pointers/v1")!;
+    assert.equal(parses, 1);
+    assert.equal(first.source_sha256, second.source_sha256);
+    // A different buffer is its own source, even with the same bytes.
+    nativeRecordDigest(Buffer.from(bytes), "#/steps/1", "canonical-json-pointers/v1");
+    assert.equal(parses, 2);
+  } finally { JSON.parse = parse; }
+  assert.equal(nativeRecordDigest(Buffer.from("{"), "#/steps/1", "canonical-json-pointers/v1"), undefined);
+});
+
 test("imported Atlas native records retain exact pointers and reject stale source bytes", { skip: !python }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "ebo-atif-atlas-"));
   try {

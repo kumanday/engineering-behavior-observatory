@@ -203,9 +203,7 @@ export async function validateBehaviorAssertion(
   } else if (assertion.evidence.events.included > assertion.evidence.events.total) {
     throw new Error("LLM-judge evidence description is inconsistent.");
   }
-  await validateNormalizedDataset(dataset, resolver);
-
-  const datasetDigest = digest(dataset);
+  const datasetDigest = await validatedDatasetDigest(dataset, resolver);
   if (assertion.dataset.schemaVersion !== dataset.schemaVersion || assertion.dataset.digest !== datasetDigest) {
     throw new Error("Behavior assertion normalized dataset version or digest does not match.");
   }
@@ -213,10 +211,11 @@ export async function validateBehaviorAssertion(
     throw new Error("Behavior assertion belongs to the wrong run or attempt.");
   }
   const eventIds = new Set<string>();
-  const events = new Map(dataset.events.map((event) => [event.id, event]));
-  const records = new Map(dataset.nativeRecords.map((record) => [referenceKey(record.reference), record]));
+  const citations = isDecisionModelAssertion(assertion) ? [] : assertion.judgment.citations;
+  // The lookups are built only for an assertion with citations; a decision-model assertion has none.
+  const { events, records } = citations.length ? datasetLookups(dataset) : { events: new Map<string, never>(), records: new Map<string, never>() };
   const resolved: ResolvedBehaviorCitation[] = [];
-  for (const citation of isDecisionModelAssertion(assertion) ? [] : assertion.judgment.citations) {
+  for (const citation of citations) {
     if (eventIds.has(citation.eventId)) throw new Error(`Behavior assertion cites event "${citation.eventId}" more than once.`);
     eventIds.add(citation.eventId);
     const event = events.get(citation.eventId);
@@ -328,6 +327,24 @@ export async function projectAgentSdkBehaviorEvidence(bundleRoot: string): Promi
   return { capture, dataset, resolver, coverage };
 }
 
+/**
+ * A dataset is validated against its resolver and digested once; every card result checked against the same retained
+ * evidence reuses that result. The cache follows the objects, so it ends with the evidence.
+ */
+const validatedDatasets = new WeakMap<NormalizedDataset, WeakMap<NativeEvidenceResolver, Promise<DigestString>>>();
+function validatedDatasetDigest(dataset: NormalizedDataset, resolver: NativeEvidenceResolver): Promise<DigestString> {
+  const byResolver = validatedDatasets.get(dataset) ?? new WeakMap<NativeEvidenceResolver, Promise<DigestString>>();
+  validatedDatasets.set(dataset, byResolver);
+  let result = byResolver.get(resolver);
+  if (result === undefined) {
+    result = validateNormalizedDataset(dataset, resolver).then(() => digest(dataset));
+    byResolver.set(resolver, result);
+    // A failed validation is not remembered: the next check runs it again and reports the same failure.
+    result.catch(() => byResolver.delete(resolver));
+  }
+  return result;
+}
+
 export async function validateRetainedBehaviorAssertion(bundleRoot: string, assertion: BehaviorAssertion, review?: BehaviorReview): Promise<readonly ResolvedBehaviorCitation[]> {
   const { dataset, resolver, capture } = await createRetainedBehaviorEvidence(bundleRoot);
   const citations = await validateBehaviorAssertion(assertion, dataset, resolver, undefined, capture);
@@ -337,6 +354,16 @@ export async function validateRetainedBehaviorAssertion(bundleRoot: string, asse
 
 function digest(value: unknown): DigestString {
   return `sha256:${digestMetadata(value).value}`;
+}
+
+/** Events by id and native records by reference, once per dataset's arrays (every assertion of an attempt shares them). */
+const lookups = new WeakMap<object, { events: Map<string, NormalizedDataset["events"][number]>; records: Map<string, NormalizedDataset["nativeRecords"][number]> }>();
+function datasetLookups(dataset: NormalizedDataset) {
+  const known = lookups.get(dataset.nativeRecords);
+  if (known !== undefined && lookups.get(dataset.events) === known) return known;
+  const built = { events: new Map(dataset.events.map((event) => [event.id, event])), records: new Map(dataset.nativeRecords.map((record) => [referenceKey(record.reference), record])) };
+  lookups.set(dataset.nativeRecords, built); lookups.set(dataset.events, built);
+  return built;
 }
 
 function referenceKey(reference: NativeEvidenceReference): string {

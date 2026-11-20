@@ -293,7 +293,8 @@ ebo observations corpus \
 ```
 
 The single-run form writes the explicit `<run-id>-<attempt-id>.json` path used
-below. The corpus form writes `sha256-<digest>.json` files; locate a selected
+below. The corpus form covers the run bundles and ATIF imports the selection
+matches (`--kind run` or `--kind import` narrows it) and writes `sha256-<digest>.json` files; locate a selected
 attempt before judging it, for example with
 `rg -l '"attemptId":"<attempt-id>"' study/observations/sha256-*.json`, and pass
 that exact path to `judge run`. Process `qualified-with-gaps` captures only

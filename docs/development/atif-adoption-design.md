@@ -56,7 +56,7 @@ actual retained capture content and are labelled as authored evidence.
 ## Digests and migration
 
 Raw sources, old manifests, packets and the qualified rc.1 archive remain
-immutable. New imports use `ebo.import-manifest/v2`, which binds source and
+immutable. New imports use `ebo.import-manifest/v3`, which binds source and
 inspection digests, document-derived producer declarations, optional operator
 context and admission overlay IDs/digests. An interpretation receipt binds core, compatibility projection
 and overlay implementation identities.
