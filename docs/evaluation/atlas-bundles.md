@@ -109,7 +109,7 @@ over-represented facets (the viewer's method, with connected dense regions as
 clusters), and writes `labels.json`. `units.arrow` then keeps the columns the
 viewer filters, colours, brushes and queries on. Each repeated string column
 (attempt, arm, model, harness, task, trial, kind, tool, command head, check,
-status, target, error signature, cluster label) is stored as codes into one
+status, source outcome, target, error signature, cluster label) is stored as codes into one
 dictionary for the whole table. A unit's text is shortened to a 96-character
 `label`. Per-unit ids, event keys, neighbors and unused counts are left out;
 full texts stay in the tables and native records. `cloud.layout.compact` in
@@ -163,7 +163,7 @@ each, and the attempt pass takes about a quarter of a second per attempt.
 | `manifest.json` | `ebo.atlas-bundle/v2`: identity, builder, request digest, cohorts with source and cohort digests, tables with row counts, and every file with size, SHA-256 and role |
 | `reports/<cohort>.json` | the cohort's aggregation report (the certified tallies), with its source and cohort digests |
 | `tables/*.parquet` | Atlas tables v1 (zstd) |
-| `units.arrow`, `embeddings.f32` | the cloud: one row per embedded unit (Arrow IPC, with `x`, `y` and `neighbors` after a build-time layout) and its vector (float32, row order) |
+| `units.arrow`, `embeddings.f32` | the cloud: one row per embedded unit (Arrow IPC, with its attempt's `source_outcome`, and `x`, `y` and `neighbors` after a build-time layout) and its vector (float32, row order) |
 | `lanes.json` | swimlanes: lane metadata, cumulative tokens and context per request from normalized usage events |
 | `assessments.json`, `audit.json`, `native/<attempt>.json` | card results per attempt and card (`card`, `family`, `outcome` as present, absent or unknown, `value` on a present dimension card, `mode` and `producer`, the ontology's `direction` for a present result, and for a decision-model result its `probability`, `probabilities`, `thresholds` and what it was `shown`) with an LLM judge's citations linked to units and native lines (SHA-256 of the full line), the judged cards and families in ontology order, the `modes` and `directions` in use, attempt audits, per-unit native records |
 | `claims.json`, `views.json` | validated claims and view specs with their receipts, when the request names them |

@@ -724,7 +724,7 @@ export async function processAttempt(job: AttemptJob): Promise<AttemptResult> {
   for (const unit of ownUnits.filter((u) => u.embed).sort((a, b) => Number(a.seq) - Number(b.seq))) {
     const t0 = unit.t_start && Number.isFinite(Date.parse(unit.t_start)) ? Date.parse(unit.t_start) : null;
     const t1 = unit.t_end && Number.isFinite(Date.parse(unit.t_end)) ? Date.parse(unit.t_end) : null;
-    const row = { ...unit, row_id: cloudRows.length, t0_ms: t0 ?? carriedTime, t1_ms: t0 === null ? carriedTime : t1 ?? t0, timed: t0 !== null };
+    const row = { ...unit, row_id: cloudRows.length, source_outcome: outcome?.outcome ?? null, t0_ms: t0 ?? carriedTime, t1_ms: t0 === null ? carriedTime : t1 ?? t0, timed: t0 !== null };
     if (t0 !== null) carriedTime = unit.unit_kind === "episode" ? t0 : t1 ?? t0;
     cloudRows.push(row);
     rowsOfAttempt.push(row);
@@ -892,7 +892,7 @@ export function writeJsonFile(path: string, value: unknown, indent = 0): void {
 }
 
 const CLOUD_STRINGS = ["unit_id", "attempt_id", "unit_kind", "subkind", "role", "episode_id", "model_id", "harness_id", "task_id", "trial_id", "condition",
-  "terminal_state", "tool_name", "tool_kind", "command_head", "check_kind", "target", "status", "error_signature", "first_event_key", "embed_text"] as const;
+  "terminal_state", "tool_name", "tool_kind", "command_head", "check_kind", "target", "status", "error_signature", "first_event_key", "embed_text", "source_outcome"] as const;
 const CLOUD_NUMBERS = ["seq", "exit_code", "duration_seconds", "input_chars", "output_chars", "output_lines", "lines_added", "lines_removed", "tool_count",
   "error_count", "event_count", "t0_ms", "t1_ms"] as const;
 const CLOUD_LISTS = ["check_kinds", "writes", "occurrences", "cited_assessments"] as const;
@@ -923,7 +923,7 @@ class CloudWriter {
 export const COMPACT_UNITS = 1_000_000;
 /** Compact cloud columns stored as one dictionary each: low-cardinality strings that repeat on every unit. */
 const COMPACT_DICTIONARIES = ["attempt_id", "condition", "model_id", "harness_id", "task_id", "trial_id", "unit_kind", "family", "subkind", "role", "tool_name", "tool_kind",
-  "command_head", "check_kind", "status", "terminal_state", "target", "error_signature", "cluster_label"] as const;
+  "command_head", "check_kind", "status", "terminal_state", "source_outcome", "target", "error_signature", "cluster_label"] as const;
 /** The compact cloud's text label: the start of a unit's embedded text, enough for a tooltip or table row. */
 export const COMPACT_LABEL_CHARS = 96;
 type CompactCloud = { clusterId: Int32Array; clusterOf: (id: number) => string | null; labels: ReturnType<typeof clusterCloud>["labels"]; dictionaries: Map<string, Map<string, number>> };

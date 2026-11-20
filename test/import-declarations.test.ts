@@ -207,6 +207,31 @@ test("imports declare a harness version and a third-party outcome; arms separate
       assert.deepEqual(rows.map((r) => r.source_outcome), ["pass", "fail", "infra-excluded"]);
       assert.ok(rows.every((r) => r.source_outcome_source === "Example Board" && r.source_outcome_release === "v0.1.9"));
     } finally { c.closeSync(); db.closeSync(); }
+
+    // Every cloud row carries its attempt's verdict, in the full cloud and in the compact one, so the cloud colours and filters by it.
+    const { tableFromIPC } = await import("apache-arrow");
+    const verdict = new Map(lanes.attempts.map(({ attempt_id, source_outcome }) => [attempt_id, source_outcome]));
+    const outcomesOf = (dir: string) => {
+      const units = tableFromIPC(readFileSync(join(root, dir, "units.arrow")));
+      assert.ok(units.numRows > 0);
+      return Array.from({ length: units.numRows }, (_, row) => [String(units.getChild("attempt_id")!.get(row)), units.getChild("source_outcome")!.get(row) as string | null] as const);
+    };
+    const full = outcomesOf("bundle");
+    for (const [attempt, outcome] of full) assert.equal(outcome, verdict.get(attempt), attempt);
+    assert.deepEqual([...new Set(full.map(([, outcome]) => outcome))].sort(), ["fail", "infra-excluded", "pass"]);
+    writeFileSync(join(root, "bundle-compact.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "outcomes-compact", title: "Outcomes",
+      cohorts: [{ id: "all", atlasRequest: "atlas.json" }], embeddings: { provider: "hashed-tfidf", layout: "build" } }));
+    const layout = async (_path: string, _dimensions: number, given: readonly string[]) => {
+      const n = given.length, k = 4;
+      return { xy: Float32Array.from({ length: 2 * n }, (_, i) => i % 7), neighborIds: new Int32Array(n * k).fill(-1), neighborDistances: new Float32Array(n * k), k,
+        run: { backend: "stand-in", backendVersion: "0", device: "cpu", units: n, pca: 128, neighbors: k, minDist: 0.1, seed: 42, metric: "cosine", familySeconds: {}, packages: {} } };
+    };
+    process.env.EBO_EMBEDDINGS_PYTHON = "/unused/python";
+    try {
+      const manifest = await buildAtlasBundle(join(root, "bundle-compact.json"), join(root, "compact"), { layout, compactCloud: true });
+      assert.equal(manifest.cloud.layout?.compact, true);
+    } finally { delete process.env.EBO_EMBEDDINGS_PYTHON; }
+    assert.deepEqual(outcomesOf("compact"), full);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
