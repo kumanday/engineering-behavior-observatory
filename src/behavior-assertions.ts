@@ -211,10 +211,11 @@ export async function validateBehaviorAssertion(
     throw new Error("Behavior assertion belongs to the wrong run or attempt.");
   }
   const eventIds = new Set<string>();
-  const events = new Map(dataset.events.map((event) => [event.id, event]));
-  const records = new Map(dataset.nativeRecords.map((record) => [referenceKey(record.reference), record]));
+  const citations = isDecisionModelAssertion(assertion) ? [] : assertion.judgment.citations;
+  // The lookups are built only for an assertion with citations; a decision-model assertion has none.
+  const { events, records } = citations.length ? datasetLookups(dataset) : { events: new Map<string, never>(), records: new Map<string, never>() };
   const resolved: ResolvedBehaviorCitation[] = [];
-  for (const citation of isDecisionModelAssertion(assertion) ? [] : assertion.judgment.citations) {
+  for (const citation of citations) {
     if (eventIds.has(citation.eventId)) throw new Error(`Behavior assertion cites event "${citation.eventId}" more than once.`);
     eventIds.add(citation.eventId);
     const event = events.get(citation.eventId);
@@ -353,6 +354,16 @@ export async function validateRetainedBehaviorAssertion(bundleRoot: string, asse
 
 function digest(value: unknown): DigestString {
   return `sha256:${digestMetadata(value).value}`;
+}
+
+/** Events by id and native records by reference, once per dataset's arrays (every assertion of an attempt shares them). */
+const lookups = new WeakMap<object, { events: Map<string, NormalizedDataset["events"][number]>; records: Map<string, NormalizedDataset["nativeRecords"][number]> }>();
+function datasetLookups(dataset: NormalizedDataset) {
+  const known = lookups.get(dataset.nativeRecords);
+  if (known !== undefined && lookups.get(dataset.events) === known) return known;
+  const built = { events: new Map(dataset.events.map((event) => [event.id, event])), records: new Map(dataset.nativeRecords.map((record) => [referenceKey(record.reference), record])) };
+  lookups.set(dataset.nativeRecords, built); lookups.set(dataset.events, built);
+  return built;
 }
 
 function referenceKey(reference: NativeEvidenceReference): string {

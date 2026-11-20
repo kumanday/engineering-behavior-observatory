@@ -10,7 +10,7 @@ import baseWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-base.worker.js?u
 import { Coordinator, wasmConnector } from "@uwdata/mosaic-core";
 import { EmbeddingAtlas } from "embedding-atlas";
 import { ClusterArmPanel, rowsOf } from "./enrichment";
-import { SwimlanesPanel, type LanesData } from "./lanes";
+import { shortId, SwimlanesPanel, type LanesData } from "./lanes";
 import { STOP_WORDS } from "./stopwords";
 import { ClaimsPanel, Drawer, Evidence, MatrixPanel, type AssessDoc, type AuditDoc, type ClaimsDoc, type DrawerView } from "./p3";
 import { FiguresPanel, type ViewsDoc } from "./views";
@@ -153,7 +153,7 @@ async function main() {
     run: ({ on }) => { setPanelFocus(on); return on ? "Panel expanded." : "Cloud shown."; } });
   register<{ attemptId: string; row?: number | null }>({ name: "focusAttempt", description: "Show one attempt in the swimlanes, optionally selecting a unit (row id).",
     args: obj({ attemptId: { type: "string" }, row: { type: ["integer", "null"] } }, ["attemptId"]),
-    run: async ({ attemptId, row }) => { if (!lanes) return "This bundle has no swimlanes."; await showTab("lanes"); await lanes.focusAttempt(attemptId, row ?? null); return `Swimlanes show attempt ${attemptId.slice(0, 8)}.`; } });
+    run: async ({ attemptId, row }) => { if (!lanes) return "This bundle has no swimlanes."; await showTab("lanes"); await lanes.focusAttempt(attemptId, row ?? null); return `Swimlanes show attempt ${shortId(attemptId)}.`; } });
   register<{ id: string | null }>({ name: "focusClaim", description: "Open the claims tab on one claim; null clears the focus.", args: obj({ id: { type: ["string", "null"] } }),
     run: async ({ id }) => { await showTab("claims"); claimsPanel?.focus(id); return id ? `Claim ${id} in focus.` : "Cleared the claim focus."; } });
   register<{ id: string | null }>({ name: "focusView", description: "Open the figures tab on one view spec; null clears the focus.", args: obj({ id: { type: ["string", "null"] } }),
@@ -256,7 +256,7 @@ async function main() {
     args: obj({ x: { type: "number" }, y: { type: "number" }, scale: { type: "number", exclusiveMinimum: 0 } }),
     run: async ({ x, y, scale }) => { await setCloudState({ viewport: { x, y, scale } }); return `Cloud viewport at (${x.toFixed(2)}, ${y.toFixed(2)}), scale ${scale.toFixed(2)}.`; } });
   register<{ rectangle?: { xMin: number; yMin: number; xMax: number; yMax: number }; polygon?: { x: number; y: number }[] }>({ name: "selectRange",
-    description: "Brush the cloud with a rectangle or a lasso polygon in data units; every linked panel filters to it.",
+    description: "Brush the cloud with a rectangle or a lasso polygon in data units. Clusters × arm counts only the brushed units and the swimlanes dim units outside it; assessments, claims and figures keep counting every attempt.",
     args: { type: "object", properties: { rectangle: obj({ xMin: { type: "number" }, yMin: { type: "number" }, xMax: { type: "number" }, yMax: { type: "number" } }), polygon: { type: "array", minItems: 3, items: point } }, additionalProperties: false },
     run: async ({ rectangle, polygon }) => { await setCloudState({ brush: rectangle ?? polygon ?? null }); return rectangle ? "Brushed a rectangle in the cloud." : "Brushed a lasso in the cloud."; } });
   register({ name: "clearSelection", description: "Clear the cloud brush and highlight.", args: obj({}),
@@ -270,9 +270,13 @@ async function main() {
       await new Promise((r) => setTimeout(r, 50));   // a tool that changes the predicate settles like the named cloud commands
       await refreshing;
       lastCloudResult = result;
-      return `Ran Embedding Atlas tool ${tool}.`;
+      // The result travels with the command's reply; a long one is cut here and stays whole in window.ebo.cloudResult().
+      const json = result === undefined ? "" : JSON.stringify(result) ?? "";
+      const shown = json.length > CLOUD_RESULT_CHARS ? `${json.slice(0, CLOUD_RESULT_CHARS)}… (${json.length.toLocaleString()} characters; the whole result is in window.ebo.cloudResult())` : json;
+      return `Ran Embedding Atlas tool ${tool}.${shown ? ` Result: ${shown}` : ""}`;
     } });
   let lastCloudResult: unknown = null;
+  const CLOUD_RESULT_CHARS = 20_000;
   provide({ key: "highlight", get: () => ({ rows: highlighted }), apply: (st: { rows: number[] | null }) => { highlight(st.rows); } });
   provide({ key: "cloud", get: () => {
       const st = cloudState();

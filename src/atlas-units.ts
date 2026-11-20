@@ -159,6 +159,7 @@ const nativeEventType = (event: UniformEvent) => {
   return [a.eventType, a.itemType, a.method].find((v): v is string => typeof v === "string") ?? event.source.nativeType;
 };
 
+const PLACEHOLDER = /^\[[\p{L} _-]{1,32}\]$/u;
 const time = (event: UniformEvent) => (event.nativeTime.status === "known" ? event.nativeTime.value : null);
 const seconds = (a: string | null, b: string | null) => (a && b && Number.isFinite(Date.parse(a)) && Number.isFinite(Date.parse(b)) ? (Date.parse(b) - Date.parse(a)) / 1000 : null);
 const EXIT_TEXT = /(?:Exit code|Process exited with code|exit status|exited with code|command failed)\s*[:=]?\s*(-?\d+)/iu;
@@ -190,6 +191,8 @@ export function deriveUnits({ attemptId, events, occurrences, resolveContent, ev
     error_count: null, t_start: time(first), t_end: time(first), first: index.get(first.id)!, eventParts: [],
   });
   const drafts: Draft[] = [];
+  const callingSteps = new Set(events.filter((event) => event.family === "tool" && event.phase === "before" && typeof event.attributes.stepPointer === "string")
+    .map((event) => String(event.attributes.stepPointer)));
   const texts = new Map<Draft, string>();   // message text and compaction summaries, for the embedding text
   const claimed = new Set<string>();
 
@@ -293,6 +296,9 @@ export function deriveUnits({ attemptId, events, occurrences, resolveContent, ev
     const text = texts2.join("").trim();
     // An Agent SDK continuation message opens a compacted session; the compaction unit carries it.
     if (!text || (role === "harness" && text.startsWith("This session is being continued"))) continue;
+    // A converter placeholder (such as "[tool call]") standing in for a turn with no text is not a message: its calls
+    // are tool units, and the turn would otherwise stack every such unit on one cloud point.
+    if (PLACEHOLDER.test(text) && callingSteps.has(String(event.attributes.stepPointer ?? ""))) continue;
     const unit = blank("message", event);
     unit.role = role; unit.subkind = role;
     unit.eventParts = parts;

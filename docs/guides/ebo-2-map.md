@@ -227,7 +227,7 @@ used formats are shortened.
 | Format | Written by | Read by | What it is |
 | :--- | :--- | :--- | :--- |
 | `ebo.atif-inspection/v1` | `ebo atif inspect`, `ebo atif import` | `ebo validate`, import reader | Result of an offline ATIF read |
-| `ebo.import-manifest/v2`, `ebo.atif-core-mapping/v1`, `ebo.atif-interpretation/v1` | `ebo atif import` | import reader, `ebo corpus build` | Imported bundle manifest, mapping report, interpretation receipt |
+| `ebo.import-manifest/v3`, `ebo.atif-core-mapping/v1`, `ebo.atif-interpretation/v1` | `ebo atif import` | import reader, `ebo corpus build` | Imported bundle manifest, mapping report, interpretation receipt |
 | `ebo.atif-overlay/v1` | shipped with EBO; listed by `ebo atif overlays` | `ebo atif import\|import-harbor` | Producer overlay definition |
 | `ebo.atif-producer-profile/v1`, `ebo.pi-atif-mapping/v1` | shipped schemas | `ebo validate` | Producer profile and Pi mapping definitions |
 | `ebo.harbor-trial-inspection/v1` | `ebo atif inspect-harbor`, `ebo atif import-harbor` | Harbor import reader | Eligibility check of a Harbor trial |
@@ -283,7 +283,7 @@ them as separate files.
 
 | Format | Written by | Read by | What it is |
 | :--- | :--- | :--- | :--- |
-| `ebo.corpus-index-entry/v1` | `ebo corpus build` | `ebo corpus query\|validate`, `ebo aggregate build` and others | Index line for one bundle |
+| `ebo.corpus-index-entry/v2` | `ebo corpus build` | `ebo corpus query\|validate`, `ebo aggregate build` and others | Index line for one bundle |
 | `ebo.aggregation-request/v2` | operator-authored | `ebo aggregate build`, `ebo atlas build` | Sources (single results and result sets), grouping and comparisons |
 | `ebo.aggregation-report/v2` | `ebo aggregate build` | Atlas | Per-card verdicts, directions and metrics per group |
 | `ebo.comparison-request/v2` | operator-authored | `ebo comparison check` | Candidates to compare on one measure |

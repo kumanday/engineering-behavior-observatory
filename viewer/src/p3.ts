@@ -2,7 +2,7 @@
 // records; attempt audit; unit native records). Data from p3/build.py and p3/claims.py under data/<study>/p3/.
 // Matrix counts are computed in the browser from the assessment records (exploratory) and compared with the EBO Atlas
 // report tallies where the study has them (certified).
-import { cls, esc, fmtDur, num, trialLabel } from "./lanes";
+import { cls, esc, fmtDur, num, shortId, trialLabel } from "./lanes";
 import { describable, provide, register, run, target, type Json } from "./registry";
 
 /** What the drawer shows, as data: enough to reopen it exactly (state round-trip, undo, links). */
@@ -29,13 +29,13 @@ export interface Assessment {
   outcome: string; value: string | null; confidence: number | null; rationale: string | null; alternative: string | null; review: string | null;
   evaluator: string; rubric: string | null; cohorts: Record<string, { included?: boolean; disputed?: boolean; review?: string }>; source: string; citations: Citation[];
 }
-export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; harness_id: string; model_id: string; terminal_state: string | null; failure_class: string | null; cohorts: string[]; bundle: string; native_span_seconds: number | null;
+export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; harness_id: string; model_id: string; terminal_state: string | null; failure_class: string | null; source_outcome?: string; cohorts: string[]; bundle: string; native_span_seconds: number | null;
   native_record_count?: number | null; unmapped_record_count?: number | null; event_count?: number | null; event_types?: Record<string, number>; units?: number; tool_calls?: number }
 interface CertCell { group: Record<string, string>; card: string; family?: string; mode?: string; counts: Record<string, number>; values?: Record<string, number>; denominator: number; assertions: string[]; conditions?: string[] }
 export interface AssessDoc {
   study: string; cohorts: { id: string; title: string; certified: boolean; report: string | null }[]; attempts: AttemptMeta[]; assessments: Assessment[];
   /** The judged cards and their families, in ontology order. */
-  cards?: { id: string; family: string; title: string }[]; families?: { id: string; name: string }[];
+  cards?: { id: string; family: string; title: string; directions?: string[] }[]; families?: { id: string; name: string }[];
   certified: Record<string, { source: string; generated_at: string; group_by: string[]; cells: CertCell[] }>; notes: string[];
 }
 interface Run { row_id: number; seq: number; step: number; t_ms: number | null; status: string | null; kinds?: string[]; exit_code?: number | null; output_redirected?: boolean; command?: string; how?: string; paths?: string[]; detected?: string }
@@ -128,15 +128,15 @@ export class Evidence {
     register<{ id: string }>({ name: "openAssessment", description: "Open a judge assessment: rationale, alternative explanation and cited native records.", args: obj({ id: { type: "string" } }),
       run: ({ id }) => { this.openAssessment(id); return `Opened assessment ${id}.`; } });
     register<{ attemptId: string; row: number }>({ name: "openUnit", description: "Open the native records of one behavior unit.", args: obj({ ...attempt, row: { type: "integer" } }),
-      run: async ({ attemptId, row }) => { await this.openUnit(attemptId, row); return `Opened unit row ${row} of attempt ${attemptId.slice(0, 8)}.`; } });
+      run: async ({ attemptId, row }) => { await this.openUnit(attemptId, row); return `Opened unit row ${row} of attempt ${shortId(attemptId)}.`; } });
     register<{ attemptId: string }>({ name: "openAudit", description: "Open an attempt's audit: checks vs source changes vs final claims, failure chains, final message.", args: obj(attempt),
-      run: ({ attemptId }) => { this.openAudit(attemptId); return `Opened the audit of attempt ${attemptId.slice(0, 8)}.`; } });
+      run: ({ attemptId }) => { this.openAudit(attemptId); return `Opened the audit of attempt ${shortId(attemptId)}.`; } });
     register<{ attemptId: string }>({ name: "openChains", description: "Open an attempt's failure chains.", args: obj(attempt),
-      run: ({ attemptId }) => { this.openChains(attemptId); return `Opened the failure chains of attempt ${attemptId.slice(0, 8)}.`; } });
+      run: ({ attemptId }) => { this.openChains(attemptId); return `Opened the failure chains of attempt ${shortId(attemptId)}.`; } });
     register<{ attemptId: string; chain: number }>({ name: "openCompare", description: "Compare a failure chain's last failed call with the next call of the same tool.", args: obj({ ...attempt, chain: { type: "integer", minimum: 0 } }),
-      run: async ({ attemptId, chain }) => { await this.openCompare(attemptId, chain); return `Compared failure chain ${chain + 1} of attempt ${attemptId.slice(0, 8)}.`; } });
+      run: async ({ attemptId, chain }) => { await this.openCompare(attemptId, chain); return `Compared failure chain ${chain + 1} of attempt ${shortId(attemptId)}.`; } });
     register<{ attemptId: string; rows: number[] }>({ name: "openChainAt", description: "Open the failure chain containing these units (or the attempt's chains).", args: obj({ ...attempt, rows: { type: "array", items: { type: "integer" } } }),
-      run: async ({ attemptId, rows }) => { await this.openChainAt(attemptId, rows); return `Opened the failure chain at attempt ${attemptId.slice(0, 8)}.`; } });
+      run: async ({ attemptId, rows }) => { await this.openChainAt(attemptId, rows); return `Opened the failure chain at attempt ${shortId(attemptId)}.`; } });
     register<{ title: string; items: { attemptId: string; row: number }[] }>({ name: "openFailureGroup", description: "Open failed calls that share a tool and error, across attempts.",
       args: obj({ title: { type: "string" }, items: { type: "array", items: obj({ attemptId: { type: "string" }, row: { type: "integer" } }) } }),
       run: ({ title, items }) => { this.hooks.highlight(items.map(({ row }) => row)); this.openFailures(title, items); return `Opened and highlighted ${items.length} failed calls: ${title}.`; } });
@@ -180,7 +180,9 @@ export class Evidence {
       const A = this.audit?.attempts[view.attemptId];
       return { summary: `${view.kind} of ${this.attemptLabel(view.attemptId)}${A ? `: ${A.checks.length} captured checks, ${A.changes.length} source changes, ${A.failure_chains.length} failure chains` : ""}.`,
         // The chains themselves, so a reader (or an assistant) can answer from describe() what the drawer shows.
-        data: { view, verdicts: A?.verdicts ?? [], failureChains: A?.failure_chains.length ?? null,
+        data: { view, checkVerdicts: A?.verdicts ?? [], checkFreshness: A?.freshness_coverage ?? null,
+          assessments: this.assessmentsOf(view.attemptId).map((a) => ({ id: a.id, card: a.card, mode: a.mode, outcome: a.outcome, value: a.value, direction: a.direction })),
+          failureChains: A?.failure_chains.length ?? null,
           chains: (A?.failure_chains ?? []).map((f) => ({ tool: f.tool, failures: f.failures.length, firstStep: f.first_step, tMs: f.t_ms, signature: f.signature, nextOk: f.next_ok, nextRow: f.next_same_tool })) } as unknown as Json };
     }
     return { summary: `${view.kind} view in the drawer.`, data: view as unknown as Json };
@@ -278,6 +280,7 @@ export class Evidence {
       <dl class="kv"><dt>Attempt</dt><dd class="mono small">${esc(m.attempt_id)}</dd><dt>Arm</dt><dd>${esc(m.condition)} (${esc(m.harness_id)} · ${esc(m.model_id)})</dd>
         <dt>Task / trial</dt><dd>${esc(m.task_id ?? "task unavailable")} · ${esc(trialLabel(m.trial_id))}</dd><dt>Cohorts</dt><dd>${esc(m.cohorts.join(", ") || "—")}</dd>
         <dt>Terminal</dt><dd>${esc(m.terminal_state ?? "unavailable")}${m.failure_class && m.failure_class !== "none" ? ` (${esc(m.failure_class)})` : ""}</dd>
+        ${m.source_outcome ? `<dt>Leaderboard verdict</dt><dd>${esc(m.source_outcome)} (third-party)</dd>` : ""}
         <dt>Steps</dt><dd>${num(A.steps)} actions (tool calls + compactions)</dd></dl>
       ${asm.length ? `<p>Judge: ${asm.map((a) => `<button class="link" data-assess="${esc(a.id)}" ${target("openAssessment", a.id)}>${esc(a.card)} ${outChip(a.outcome, a.value)}</button>`).join(" ")}</p>` : ""}
       <h4>Final claims vs captured checks</h4>
@@ -465,7 +468,9 @@ export class MatrixPanel {
   private modes() { return [...new Set(this.ev.doc.assessments.map((a) => a.mode))].sort(); }
   /** Judged card ids in ontology order when the bundle lists them, else sorted. */
   private cats() {
-    const judged = new Set(this.ev.doc.assessments.filter((a) => a.mode === this.mode).map((a) => a.card));
+    // A direction filter leaves out cards the ontology never gives that direction (they could only show zeros).
+    const possible = (id: string) => this.direction === "all" || !(this.ev.doc.cards?.find((c) => c.id === id)?.directions) || this.ev.doc.cards!.find((c) => c.id === id)!.directions!.includes(this.direction);
+    const judged = new Set(this.ev.doc.assessments.filter((a) => a.mode === this.mode && possible(a.card)).map((a) => a.card));
     const listed = (this.ev.doc.cards ?? []).map((c) => c.id).filter((id) => judged.has(id));
     return [...listed, ...[...judged].filter((id) => !listed.includes(id)).sort()];
   }

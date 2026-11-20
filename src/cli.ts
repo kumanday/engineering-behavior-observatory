@@ -58,7 +58,7 @@ import {
   type SemanticJudgeRequest,
 } from "./semantic-judge.js";
 import { createRetainedStructuralObservationSet } from "./structural-observations.js";
-import { serveAtlasBundle } from "./atlas-viewer.js";
+import { atlasViewerFreshness, serveAtlasBundle } from "./atlas-viewer.js";
 import { serveRunMonitor } from "./run-monitor.js";
 import { runOpenResponsesCommand } from "./open-responses-cli.js";
 import { buildAtlasBundle, verifyAtlasBundle } from "./atlas-bundle.js";
@@ -94,10 +94,10 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo harbor <inspect|prepare|admit|freeze|status|doctor|compile|convert-legacy|environment|job|run> ...
        ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...
        ebo atif overlays
-       ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--profile <overlay-context-id>] [--python <executable>]
+       ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--model <name>] [--profile <overlay-context-id>] [--python <executable>]
        ebo atif import-leaderboard <cohort-request.json> <store> [--python <executable>]
        ebo atif read-leaderboard <store> <cohort-digest>
-       ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--profile <overlay-context-id>] [--python <executable>]
+       ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--task <id>] [--model <name>] [--profile <overlay-context-id>] [--python <executable>]
        ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
@@ -109,7 +109,7 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo open-responses analyze <recording-root> <output.json> [--schema <openapi.json>]
        ebo export create <run-bundle-root> <policy.json> <export-root>
        ebo corpus build <corpus-root> <index.jsonl>
-       ebo corpus query <index.jsonl> [--kind|--run|--attempt|--task|--model|--harness|--assessment-mode|--terminal|--failure-class|--verifier-status|--capture|--export-status|--sharing-class <value>]
+       ebo corpus query <index.jsonl> [--kind|--run|--attempt|--task|--model|--route|--harness|--assessment-mode|--terminal|--failure-class|--verifier-status|--capture|--export-status|--sharing-class <value>]
        ebo corpus validate <corpus-root> <index.jsonl>
        ebo corpus pack <export-root> <policy.json> <archive.tar.gz>
        ebo corpus unpack <archive.tar.gz> <destination-root>
@@ -255,6 +255,8 @@ export function main(
     return (async () => {
     try {
       if (args[1] === "build" && args.length === 6 && args[4] === "--variant") {
+        const freshness = atlasViewerFreshness();
+        if (freshness.warning) process.stderr.write(`${freshness.warning}\n`);
         const manifest = await buildPacket(args[2]!, args[3]!, { variant: args[5] as PacketVariant });
         write(`Built ${manifest.packet.variant} packet ${manifest.packet.id}: ${manifest.files.length} files, ${manifest.withheld.length} withheld\n`);
         return 0;
@@ -304,6 +306,8 @@ export function main(
       }
       if (args[1] === "serve" && args[2] === "--bundle" && args[3] && (args.length === 4 || (args.length === 6 && args[4] === "--port"))) {
         const server = await serveAtlasBundle(args[3], args[5] === undefined ? 13012 : Number(args[5]));
+        const freshness = atlasViewerFreshness();
+        if (freshness.warning) process.stderr.write(`${freshness.warning}\n`);
         const address = server.address();
         write(`Atlas viewer listening at http://127.0.0.1:${typeof address === "object" && address ? address.port : 13012}\n`);
         return 0;
@@ -584,11 +588,11 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
     const directory = args[1], store = importing ? args[2] : undefined;
     const flags = args.slice(importing ? 3 : 2), values = new Map<string, string>();
     if (!directory || importing && !store || flags.length % 2) {
-      write("Usage: ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--profile <overlay-context-id>] [--python <executable>] [--originals <bindings.json>]\n"); return 1;
+      write("Usage: ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--model <name>] [--profile <overlay-context-id>] [--python <executable>] [--originals <bindings.json>]\n"); return 1;
     }
     for (let index = 0; index < flags.length; index += 2) {
       const flag = flags[index]!, value = flags[index + 1]!;
-      if (!["--namespace", "--profile", "--python", "--originals"].includes(flag) || values.has(flag) || value.startsWith("--")) {
+      if (!["--namespace", "--model", "--profile", "--python", "--originals"].includes(flag) || values.has(flag) || value.startsWith("--")) {
         write("Harbor import options require unique recognized flags and values.\n"); return 1;
       }
       values.set(flag, value);
@@ -601,7 +605,8 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
       if (!Array.isArray(document) || document.some((value) => value === null || typeof value !== "object"
           || typeof value.sourceReference !== "string" || typeof value.directory !== "string")) throw new Error("Original bindings require an array of sourceReference/directory records.");
       const options = { directory, namespace, pythonExecutable: values.get("--python"), originals: document as HarborOriginalBinding[] };
-      const result = importing ? await importHarborTrial({ ...options, store: store!, producer: profile?.producer }) : await inspectHarborTrial(options);
+      const result = importing ? await importHarborTrial({ ...options, store: store!, producer: profile?.producer,
+        ...(values.has("--model") ? { model: { id: values.get("--model")!, authority: "operator-declared" as const } } : {}) }) : await inspectHarborTrial(options);
       const inspection = result.inspection;
       const status = "status" in result ? result.status : inspection.status;
       write(`${JSON.stringify({ status, executionId: inspection.execution?.id,
@@ -619,10 +624,10 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
   if (args[0] === "import") {
     const [_, sourcePath, destination, ...flags] = args;
     const values = new Map<string, string>();
-    if (!sourcePath || !destination || flags.length % 2) { write("Usage: ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--profile <overlay-context-id>] [--python <executable>]\n"); return 1; }
+    if (!sourcePath || !destination || flags.length % 2) { write("Usage: ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--task <id>] [--model <name>] [--profile <overlay-context-id>] [--python <executable>]\n"); return 1; }
     for (let index = 0; index < flags.length; index += 2) {
       const flag = flags[index]!, value = flags[index + 1]!;
-      if (!["--run", "--attempt", "--profile", "--python"].includes(flag) || values.has(flag) || value.startsWith("--")) {
+      if (!["--run", "--attempt", "--task", "--model", "--profile", "--python"].includes(flag) || values.has(flag) || value.startsWith("--")) {
         write("ATIF import requires unique, recognized options with values.\n"); return 1;
       }
       values.set(flag, value);
@@ -631,7 +636,9 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
     if (!values.has("--run") || !values.has("--attempt")) { write("ATIF import requires --run and --attempt. Producer metadata is read from the document.\n"); return 1; }
     try {
       const result = await importAtifFile({ sourcePath, destination, runId: values.get("--run")!, attemptId: values.get("--attempt")!,
-        producer: profile?.producer, pythonExecutable: values.get("--python") });
+        producer: profile?.producer, pythonExecutable: values.get("--python"),
+        ...(values.has("--task") ? { task: { id: values.get("--task")!, authority: "operator-declared" as const } } : {}),
+        ...(values.has("--model") ? { model: { id: values.get("--model")!, authority: "operator-declared" as const } } : {}) });
       write(`${JSON.stringify({ destination, reused: result.reused, qualification: result.manifest.qualification, mapping: result.evidence.mapping }, null, 2)}\n`);
       return 0;
     } catch (error) { write(`ATIF import failed: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
@@ -848,6 +855,7 @@ function parseCorpusQuery(args: string[]): CorpusIndexQuery {
     "--attempt": "attemptId",
     "--task": "taskId",
     "--model": "modelId",
+    "--route": "modelRoute",
     "--harness": "harnessId",
     "--assessment-mode": "assessmentMode",
     "--terminal": "terminalState",

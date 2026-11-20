@@ -469,7 +469,7 @@ function groupMetrics(
         metrics.push(metric(`structural:${extractorId}:${value}`, "attempt", known.filter((knownValue) => knownValue.value === value).length,
           known.length, "attempt", "attempt-with-known-observation", exclusions));
       }
-      if (known.length === 0) metrics.push(unavailableMetric(`structural:${extractorId}`, "attempt", "The eligible denominator is empty.", 0, "attempt", exclusions));
+      if (known.length === 0) metrics.push(unavailableMetric(`structural:${extractorId}`, "attempt", emptyStructuralReason(values), 0, "attempt", exclusions));
     }
   }
   const selectedAssertions = [...assertions.values()].filter(({ runId, attemptId }) => selectedIds.has(`${runId}\0${attemptId}`));
@@ -787,6 +787,21 @@ function indexedMatches(attempts: readonly Attempt[], dimensions: readonly Aggre
 
 function hasMissingDimension(attempt: Attempt, dimensions: readonly AggregationDimension[]): boolean {
   return dimensions.some((dimension) => dimensionValue(attempt, dimension) === undefined);
+}
+
+/**
+ * Why no attempt has a known value. Imported documents do not prove that an attempt was captured whole, so their
+ * attempt-level structural observations are unavailable by design; a count over a partial capture would read as the
+ * attempt's own count. Their recorded-document measures stay in each import's mapping.
+ */
+export function emptyStructuralReason(values: ReadonlyArray<{ status: string; reason?: string } | undefined>): string {
+  const reasons = new Set(values.map((value) => value === undefined ? "observation-set-missing" : value.status === "unavailable" ? value.reason ?? "unavailable" : value.status));
+  if (reasons.size !== 1) return "The eligible denominator is empty.";
+  const [reason] = [...reasons];
+  if (reason === "CAPTURE_COMPLETENESS_UNPROVEN") {
+    return "Imported evidence: the source does not prove the attempt was captured whole, so attempt-level structural counts are unavailable (CAPTURE_COMPLETENESS_UNPROVEN). Recorded-document measures are in each import's mapping.";
+  }
+  return reason === "observation-set-missing" ? "No attempt in the group has an observation set." : `Every attempt's observation is unavailable: ${reason}`;
 }
 
 function metric(id: string, population: AggregateMetric["population"], numerator: number, denominator: number,

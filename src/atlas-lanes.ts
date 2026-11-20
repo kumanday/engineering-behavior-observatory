@@ -11,15 +11,14 @@ import type { UniformEvent } from "./uniform-events.js";
  */
 export type LaneMeta = {
   attempt_id: string; task_id: string | null; condition: string | null; trial_id: string | null; harness_id: string | null; model_id: string | null;
-  terminal_state: string | null; failure_class: string | null; capture_qualification: string | null; t_start_ms: number | null; t_end_ms: number | null;
+  terminal_state: string | null; failure_class: string | null; capture_qualification: string | null; source_outcome?: string; t_start_ms: number | null; t_end_ms: number | null;
   units: number; tools: number; errors: number | null; compactions: number; cited_units: number;
   usage_semantics: "per-turn" | "final-only" | "none"; tokens_total: number | null; cost_usd: number | null; context_max: number | null;
   output_tokens: "per-request" | "final-only" | "none";
 };
 export type LanesData = { attempts: LaneMeta[]; usage: Record<string, Array<[number, number]>>; context: Record<string, Array<[number, number]>> };
 
-type Attempt = { attempt_id: string; task_id: string | null; condition: string | null; trial_id: string | null; harness_id: string | null; model_id: string | null;
-  terminal_state: string | null; failure_class: string | null; capture_qualification: string | null };
+type Attempt = Pick<LaneMeta, "attempt_id" | "task_id" | "condition" | "trial_id" | "harness_id" | "model_id" | "terminal_state" | "failure_class" | "capture_qualification" | "source_outcome">;
 
 const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const ms = (t: string | null | undefined) => (t && Number.isFinite(Date.parse(t)) ? Date.parse(t) : null);

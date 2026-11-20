@@ -18,6 +18,10 @@ URL parameters: `bundle` (bundle URL, default `./bundle/`), `panel` (`clusters` 
 `figures`), `labels` (`facet` = the bundle's cluster labels, `auto` = Embedding Atlas auto-labels with our stop words),
 `color` (column the cloud is colored by; default `condition`, `none` for uncolored).
 
+`npm run build` builds the CLI only. Each viewer build writes `viewer/dist/build-stamp.json` with the digest of the
+viewer sources. In a source checkout, `ebo atlas serve --bundle` and `ebo packet build` warn when `viewer/dist` was
+built from other sources or has no stamp; an installed package ships the build without its sources and is not checked.
+
 While iterating: `npm run dev --workspace viewer` serves the viewer with hot reload; put a bundle at
 `viewer/public/bundle/` or pass `?bundle=<url>` to a served one. Asset names are stable, so a rebuild overwrites
 `dist/` in place.
@@ -55,10 +59,14 @@ assistant issued it.
   The smoke test fails when a visible control outside the cloud has no registered command.
 - **The cloud**: Embedding Atlas registers its own tools through `modelContext` (chart state, SQL, layouts,
   screenshots). `setViewport`, `selectRange` (rectangle or lasso), `setLegendSelection` and `clearSelection` use its
-  `chart_set_state`; `cloudTool` runs any of its tools. A programmatic brush filters the linked panels exactly as a
-  drawn one does.
+  `chart_set_state`; `cloudTool` runs any of its tools and replies with the tool's result as JSON (cut at 20,000
+  characters). A brush, drawn or programmatic, scopes Clusters × arm to the brushed units and dims units outside it
+  in the swimlanes. Assessments, claims and figures count judgments per attempt and card, so they keep their full
+  counts under a brush.
 - **Describe**: each panel's `describe()` returns a summary and the numbers it shows, from the same queries it renders.
-- `window.ebo` exposes `run`, `commands`, `getState`, `setState`, `describe`, `subscribe` and `listCloudTools`.
+- `window.ebo` exposes `run`, `commands`, `getState`, `setState`, `encodeState`, `decodeState`, `describe`,
+  `subscribe`, `listCloudTools`, `cloudResult` (the whole result of the last `cloudTool` run, for example `data_query`
+  rows) and `drawerViews`.
 - `#assistant` is an empty mount point for the Agent Mode chat panel.
 
 The browser registers the table as `units`. Panels query it with SQL through the shared coordinator.
@@ -68,10 +76,13 @@ The browser registers the table as `units`. Panels query it with SQL through the
 One row per cluster, one column per arm (condition). Within each family (messages, episodes, tools):
 
 - **share**: the arm's units in the cluster ÷ the arm's units in that family
-- **expected** E = n_cluster · n_arm,family / n_family (the count if arms were pooled). When the study has more than
-  one harness, the default is **Expected from: arms on the same harness**: cluster and family counts are taken within
+- **expected** E = n_cluster · n_arm,family / n_family (the count if arms were pooled). When some harness has two or
+  more arms, the default is **Expected from: arms on the same harness**: cluster and family counts are taken within
   the arm's harness, so Grok 4.7 is compared with Grok 4.6 on the same harness rather than with other harnesses'
-  tool surfaces (pooled: 60 clusters at |z| ≥ 3, mostly harness vocabulary; within harness: 23; units v0.3, uncapped text)
+  tool surfaces (pooled: 60 clusters at |z| ≥ 3, mostly harness vocabulary; within harness: 23; units v0.3, uncapped text).
+  An arm alone on its harness has expected = observed there, so its z is 0 and the panel says how many such arms
+  there are. When every harness has one arm, as in a leaderboard cohort, expected counts are pooled and the
+  same-harness choice is not offered.
 - **adjusted residual** z = (O − E) / √(E · (1 − n_cluster/n_family) · (1 − n_arm,family/n_family))
 - **attempts**: attempts with ≥ 1 unit in the cluster / attempts in the arm
 
@@ -97,6 +108,8 @@ One lane per attempt for the selected task, grouped by arm. Rows inside a lane:
 - **messages** as ticks; **tool calls** as bars on the elapsed-time axis (or one slot per action on the Steps axis),
   colored by action category (inspect, edit/write, read tool, check, other shell, git, other; fixed order, palette
   validated for light and dark);
+  a lane whose source records no step times shows "no times recorded" on the time axis, and its actions in order on
+  the Steps axis;
 - **token ribbon**: context tokens per model request (input + cache read + cache write; shows growth and compaction
   drops) or cumulative tokens; scaled to the largest lane shown. Sources: pi-sdk per-message usage and Codex
   cumulative snapshots from the normalized events; Claude Agent SDK per-message usage from the native `session.jsonl`

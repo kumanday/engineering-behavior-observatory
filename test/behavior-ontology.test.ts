@@ -54,6 +54,11 @@ test("the shipped behavior ontology validates and keeps its declared shape", () 
   const reworded = draft();
   card(reworded, "OR-01").definition += " Reworded.";
   assert.notEqual(behaviorOntologyDigest(reworded), behaviorOntologyDigest(ontology));
+  // An unfrozen ontology is digested on every call, so a later edit gives a new digest.
+  const before = behaviorOntologyDigest(reworded);
+  card(reworded, "OR-01").definition += " Again.";
+  assert.notEqual(behaviorOntologyDigest(reworded), before);
+  assert.equal(behaviorOntologyDigest(ontology), behaviorOntologyDigest(structuredClone(ontology)), "the remembered digest of the frozen ontology is its content digest");
 });
 
 test("ontology validation rejects broken references, shapes and fields that are not part of a card", () => {

@@ -1283,7 +1283,7 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("structural-observations.v1.json"));
   ajv.addSchema(readSchema("atif-inspection.v1.json"));
   ajv.addSchema(readSchema("evidence-companion.v1.json"));
-  ajv.addSchema(readSchema("import-manifest.v2.json"));
+  ajv.addSchema(readSchema("import-manifest.v3.json"));
   ajv.addSchema(readSchema("pi-atif-mapping.v1.json"));
   ajv.addSchema(readSchema("atif-core-mapping.v1.json"));
   ajv.addSchema(readSchema("atif-overlay.v1.json"));
@@ -1336,7 +1336,7 @@ function loadValidators(): Map<string, ValidateFunction> {
     ["ebo.atif-overlay/v1", requiredValidator(ajv, "urn:ebo:schema:atif-overlay:v1")],
     ["ebo.pi-atif-mapping/v1", requiredValidator(ajv, "urn:ebo:schema:pi-atif-mapping:v1")],
     ["ebo.evidence-companion/v1", requiredValidator(ajv, "urn:ebo:schema:evidence-companion:v1")],
-    ["ebo.import-manifest/v2", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v2")],
+    ["ebo.import-manifest/v3", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v3")],
     ["ebo.atif-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:atif-inspection:v1")],
     ["ebo.atif-producer-profile/v1", requiredValidator(ajv, "urn:ebo:schema:atif-producer-profile:v1")],
     ["ebo.task-packet/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet.v1.schema.json")],

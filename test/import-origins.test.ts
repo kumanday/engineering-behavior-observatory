@@ -28,7 +28,7 @@ import { probeClaudeAgentSdkCapabilities } from "../src/agent-sdk.js";
 
 const digest = `sha256:${"a".repeat(64)}` as const;
 const python = process.env.EBO_ATIF_TEST_PYTHON;
-const entry = (origin: "owned" | "imported"): CorpusIndexEntry => ({ schemaVersion: "ebo.corpus-index-entry/v1", manifestKind: origin === "owned" ? "run" : "import",
+const entry = (origin: "owned" | "imported"): CorpusIndexEntry => ({ schemaVersion: "ebo.corpus-index-entry/v2", manifestKind: origin === "owned" ? "run" : "import",
   manifestPath: `${origin}/manifest.json`, manifestDigest: digest, runId: origin, attemptId: origin, harnessId: "same-executed-agent",
   ...(origin === "owned" ? { terminalState: "completed", failureClass: "none" } : {}),
   captureQualification: origin === "owned" ? "qualified" : "imported", captureArtifactIds: [], verifierArtifactIds: [], verifierStatuses: [], exportArtifactIds: [], issues: [] });

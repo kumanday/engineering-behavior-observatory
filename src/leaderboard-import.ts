@@ -106,7 +106,11 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
       if (originalSnapshots.has(original.sourceReference) && originalSnapshots.get(original.sourceReference) !== directory) throw new Error("Original source binding is ambiguous.");
       originalSnapshots.set(original.sourceReference, directory);
     }
-    const imported = await importHarborTrial({ directory: join(store, "native-sources", inspected.inspection.snapshotDigest.slice(7)), store: join(store, "harbor"), namespace: "huggingface-bucket:joelniklaus/harness-leaderboard", producer: profile?.producer, additionalModelAliases: aliases, originals: [...originalSnapshots].map(([sourceReference, directory]) => ({ sourceReference, directory })), pythonExecutable });
+    // The leaderboard groups its rows by model first; that group names the model the trial ran.
+    const modelGroups = [...new Set(selection.rows.filter(({ id }) => id === binding.factId).map(({ group }) => group[0]!))];
+    const model = modelGroups.length === 1 && modelGroups[0]!.trim() ? { id: modelGroups[0]!, authority: "leaderboard-policy" as const } : undefined;
+    const imported = await importHarborTrial({ directory: join(store, "native-sources", inspected.inspection.snapshotDigest.slice(7)), store: join(store, "harbor"), namespace: "huggingface-bucket:joelniklaus/harness-leaderboard", producer: profile?.producer, additionalModelAliases: aliases,
+      ...(model === undefined ? {} : { model }), originals: [...originalSnapshots].map(([sourceReference, directory]) => ({ sourceReference, directory })), pythonExecutable });
     if (imported.status !== "imported") { cases.push({ factId: binding.factId, status: "inspect-only", reason: "HARBOR_ADMISSION_UNAVAILABLE" }); continue; }
     readHarborCapture(join(store, "harbor"), imported.binding.captureRevision, imported.inspection.snapshotDigest, imported.inspectionDigest);
     const executionId = imported.binding.execution.id;
@@ -135,7 +139,7 @@ export async function importLeaderboardCohort(request: LeaderboardCohortRequest,
   for (const member of orderedMembers) {
     const root = join(store, "harbor", "captures", member.captureRevision.slice(7));
     const manifest = JSON.parse(readClosedImportFile(root, "manifest.json", 1024 * 1024).toString("utf8"));
-    for (const path of ["manifest.json", "trajectory.json", "inspection.json", ...manifest.schemaVersion === "ebo.import-manifest/v2" ? ["interpretation.json"] : []]) {
+    for (const path of ["manifest.json", "trajectory.json", "inspection.json", ...manifest.schemaVersion === "ebo.import-manifest/v3" ? ["interpretation.json"] : []]) {
       files.set(`${member.corpusPath}/${path}`, readClosedImportFile(root, path, path === "trajectory.json" ? 64 * 1024 * 1024 : 32 * 1024 * 1024));
     }
   }
@@ -174,7 +178,8 @@ export function readLeaderboardCohort(store: string, id: Hash) {
   if (metadataHash(selection) !== manifest.selectionDigest || selection.inputDigest !== metadataHash(input) || selection.status !== "available"
       || metadataHash(scan) !== manifest.scanDigest || scan.scannerDigest !== manifest.scannerDigest || scan.status !== "clean" || selection.policyDigest !== metadataHash(LEADERBOARD_PUBLIC_POLICY)
       || metadataHash(selection.policy) !== selection.policyDigest || input.policyRevision !== LEADERBOARD_PUBLIC_POLICY.revision || input.historyCompleteness !== manifest.historyCompleteness) throw new Error("Cohort derivation receipts are stale.");
-  if (metadataHash(readCorpusIndex(join(root, "corpus-index.jsonl"))) !== metadataHash(buildCorpusIndex(join(root, "corpus")))) throw new Error("Cohort corpus index is stale.");
+  const corpusIndex = readCorpusIndex(join(root, "corpus-index.jsonl"));
+  if (metadataHash(corpusIndex) !== metadataHash(buildCorpusIndex(join(root, "corpus")))) throw new Error("Cohort corpus index is stale.");
   noStoreLinks(store, `sources/${hashId(manifest.sourceSnapshotDigest)}`);
   const inventory = parseImportJson(readClosedImportFile(join(store, "sources", hashId(manifest.sourceSnapshotDigest)), "inventory.json", 4 * 1024 * 1024));
   if (metadataHash({ source: inventory.source, artifacts: inventory.artifacts }) !== manifest.sourceSnapshotDigest || !Array.isArray(inventory.artifacts) || inventory.artifacts.length > 4096) throw new Error("Cohort protected source inventory is stale.");
@@ -230,7 +235,8 @@ export function readLeaderboardCohort(store: string, id: Hash) {
         || retained.inspection.execution!.id !== member.executionId || retained.inspection.assessment!.id !== member.assessmentId) throw new Error("Cohort capture membership is stale.");
   }
   if (manifest.cases.some((item) => item.status === "imported" && !importedFacts.has(item.factId))) throw new Error("Cohort imported case has no execution.");
-  return { manifest, root };
+  const facts = policy.rows.map(({ sourceIndex }) => policyInput.facts[sourceIndex]!).filter(({ id }) => typeof id === "string" && importedFacts.has(id));
+  return { manifest, root, corpusIndex, facts };
 }
 
 /** Reopens only immutable receipts, never the operator's original local source paths. */

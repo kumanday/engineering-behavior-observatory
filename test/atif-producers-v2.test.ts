@@ -53,7 +53,7 @@ test("only Pi and Codex have optional overlays; other producer fixtures use core
       const sourcePath = join(root, `${family}.json`), destination = join(root, family);
       writeFileSync(sourcePath, JSON.stringify(fixture(family)));
       const admitted = await importAtifFile({ sourcePath, destination, runId: "r", attemptId: family });
-      assert.equal(admitted.manifest.schemaVersion, "ebo.import-manifest/v2");
+      assert.equal(admitted.manifest.schemaVersion, "ebo.import-manifest/v3");
       assert.equal(admitted.manifest.qualification, "imported");
       const old = await readImportedBehaviorEvidence(destination), evidence = await readImportedBehaviorEvidenceV2(destination);
       assert.ok(old.dataset.events.length > 0); assert.ok(evidence.dataset.operations.length > 0);

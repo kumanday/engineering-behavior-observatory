@@ -71,6 +71,40 @@ test("identical cohort imports reuse byte-identical capture manifests and one ex
     if (reordered.status === "imported") assert.equal(reordered.cohortId, first.cohortId);
   } finally { f.cleanup(); }
 });
+test("Atlas uses verified leaderboard task and trial labels and keeps source verdicts separate", { skip: !python }, async () => {
+  const f = fixture();
+  try {
+    const cohort = await importLeaderboardCohort(f.request, f.store, python);
+    assert.equal(cohort.status, "imported");
+    if (cohort.status !== "imported") return;
+    const aggregation = join(f.root, "aggregation.json"), atlas = join(f.root, "atlas.json");
+    write(aggregation, { schemaVersion: "ebo.aggregation-request/v2", sources: {
+      corpusRoot: join(cohort.cohortRoot, "corpus"), corpusIndex: join(cohort.cohortRoot, "corpus-index.jsonl"),
+      observationSets: [], assertions: [], calibrations: [],
+    }, groupBy: ["harness"], selectedAttemptPolicy: "all-attempts", evidenceOrigins: "imported", recurrence: { minimumOccurrences: 2 }, comparisons: [] });
+    write(atlas, { schemaVersion: "ebo.atlas-request/v1", title: "Imported test", aggregationRequest: aggregation });
+    const request = join(f.root, "bundle.json"), output = join(f.root, "atlas-bundle");
+    write(request, { schemaVersion: "ebo.atlas-bundle-request/v2", id: "imported-test", title: "Imported test",
+      cohorts: [{ id: "test", atlasRequest: atlas }], leaderboard: { store: f.store, cohortId: cohort.cohortId } });
+    const { buildAtlasBundle } = await import("../src/atlas-bundle.js");
+    await buildAtlasBundle(request, output);
+    const lanes = JSON.parse(readFileSync(join(output, "lanes.json"), "utf8")).attempts;
+    assert.equal(lanes.length, 1);
+    assert.equal(lanes[0].task_id, "adaptive-rejection-sampler");
+    assert.equal(lanes[0].trial_id, "trial-0");
+    assert.equal(lanes[0].source_outcome, "fail");
+    assert.equal(lanes[0].terminal_state, null);
+    assert.equal(lanes[0].capture_qualification, "imported");
+    // The corpus index carries the task from the trial record and the model from the leaderboard's own policy rows.
+    const indexed = readFileSync(join(cohort.cohortRoot, "corpus-index.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line) as { manifestKind: string; manifestPath: string; taskId?: string; modelId?: string });
+    const imported = indexed.find(({ manifestKind }) => manifestKind === "import")!;
+    const manifest = JSON.parse(readFileSync(join(cohort.cohortRoot, "corpus", imported.manifestPath), "utf8")) as { task?: { authority: string }; model?: { id: string; authority: string } };
+    assert.equal(manifest.task?.authority, "harbor-trial");
+    assert.equal(manifest.model?.authority, "leaderboard-policy");
+    assert.equal(imported.modelId, manifest.model?.id);
+    assert.ok(imported.taskId);
+  } finally { f.cleanup(); }
+});
 test("ATIF backfills revise capture data while preserving the execution and earlier cohort", { skip: !python }, async () => {
   const f = fixture();
   try {
