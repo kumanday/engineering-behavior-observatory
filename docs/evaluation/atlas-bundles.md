@@ -60,7 +60,8 @@ are embedded:
   The runtime uses CUDA (bfloat16 where supported), else MPS, else CPU
   (float32), and says when it falls back to CPU. Batches hold texts of
   similar token length, sized by padded tokens: at most `tokenBudget` tokens
-  (32,768 on CUDA, about 5.5 GB in bfloat16; 16,384 on MPS; 8,192 on CPU) and
+  (16,384 on CUDA and MPS, 8,192 on CPU; on a 24 GB card 32,768 peaked near
+  19 GB with 2,048-token texts) and
   at most `batchSize` texts (512, 128, 64). Throughput follows tokens, so a
   larger budget gains little. Each text keeps at most `maxTokens` tokens,
   prompt included (2,048, which no unit's capped text exceeds). A batch that

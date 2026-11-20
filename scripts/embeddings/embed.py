@@ -19,7 +19,9 @@ import sys
 import time
 
 CHUNK = 16384  # texts read, length-sorted and written per step: bounded memory, and a rerun resumes from the last chunk
-TOKEN_BUDGET = {"cuda": 32768, "mps": 16384, "cpu": 8192}  # padded tokens per batch; about 5.5 GB on CUDA in bfloat16
+# Padded tokens per batch. On a 24 GB CUDA card in bfloat16 a budget of 32,768 peaked near 19 GB with 2,048-token
+# texts (attention grows with length squared); 16,384 leaves headroom and, throughput being token-bound, costs nothing.
+TOKEN_BUDGET = {"cuda": 16384, "mps": 16384, "cpu": 8192}
 BATCH_LIMIT = {"cuda": 512, "mps": 128, "cpu": 64}
 
 
@@ -114,7 +116,7 @@ def main():
             if not texts:
                 break
             # Token-sorted batches waste little padding; rows are written back in input order.
-            lengths = [min(args.max_tokens, n) for n in token_counts(model.tokenizer, [prompt + t for t in texts])]
+            lengths = token_counts(model.tokenizer, [prompt + t for t in texts], args.max_tokens)
             order = sorted(range(len(texts)), key=lambda i: lengths[i])
             out = np.empty((len(texts), args.dimensions), dtype=np.float32)
             for members in batches(order, lengths, batch, budget):
@@ -143,9 +145,9 @@ def main():
         json.dump(stats, file)
 
 
-def token_counts(tokenizer, texts):
-    """Each text's token count with special tokens, as the model will see it before the --max-tokens cut."""
-    return [len(ids) for ids in tokenizer(texts, add_special_tokens=True, truncation=False)["input_ids"]]
+def token_counts(tokenizer, texts, max_length):
+    """Each text's token count with special tokens, cut to `max_length` as the model will see it."""
+    return [len(ids) for ids in tokenizer(texts, add_special_tokens=True, truncation=True, max_length=max_length)["input_ids"]]
 
 
 def batches(order, lengths, limit, budget):
