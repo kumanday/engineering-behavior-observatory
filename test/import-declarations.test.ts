@@ -248,3 +248,26 @@ test("a batch creates its destinations' parent directories", async () => {
     assert.match(usage, /numbered from 1/u);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("an over-long tool name is shortened with a marker instead of refusing the import", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-import-long-name-"));
+  try {
+    const base = JSON.parse(readFileSync(new URL("../../test/fixtures/atif/core/acme.json", import.meta.url), "utf8")) as { steps: Array<{ tool_calls?: Array<{ function_name: string }> }> };
+    const longName = `bash -lc ${"x".repeat(2000)}`;
+    base.steps[2]!.tool_calls![0]!.function_name = longName;
+    writeFileSync(join(root, "source.json"), JSON.stringify(base));
+    let output = "";
+    assert.equal(await main(["atif", "import", join(root, "source.json"), join(root, "trial"), "--run", "r", "--attempt", "a"], (text) => { output += text; }), 0, output);
+    const { readImportedBehaviorEvidence } = await import("../src/atif-import.js");
+    const evidence = await readImportedBehaviorEvidence(join(root, "trial"));
+    const shortened = evidence.dataset.events.filter((event) => Array.isArray(event.attributes.shortenedAttributes));
+    assert.ok(shortened.length > 0);
+    for (const event of shortened) {
+      const name = String(event.attributes.toolName);
+      assert.ok(name.length <= 512 && name.startsWith("bash -lc xxx") && /more characters in the native record\]$/u.test(name), name.slice(-80));
+      assert.deepEqual(event.attributes.shortenedAttributes, ["toolName"]);
+    }
+    // The retained document keeps the whole name.
+    assert.equal((JSON.parse(readFileSync(join(root, "trial", "trajectory.json"), "utf8")) as typeof base).steps[2]!.tool_calls![0]!.function_name, longName);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

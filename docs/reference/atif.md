@@ -71,7 +71,10 @@ Each measurement describes its recorded document. Embedded children have
 independent sources and populations, including when their agent versions
 differ. Parent totals are not added to child totals. Missing fields remain
 unknown; an explicitly empty call collection can establish a document-level
-zero. A zero never establishes the absence of activity outside that document.
+zero. An event attribute longer than 512 characters (a producer that writes a
+whole command as the tool name) is shortened with a marker and named in the
+event's `shortenedAttributes`; the complete value stays in the retained
+document. A zero never establishes the absence of activity outside that document.
 
 Tool calls and results correlate by `tool_call_id` within their issuing step.
 Repeated IDs in different steps remain distinct. Missing or ambiguous identities
