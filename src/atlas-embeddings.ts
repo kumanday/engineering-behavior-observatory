@@ -22,7 +22,7 @@ export type EmbeddingProvider = "embeddinggemma" | "hashed-tfidf";
 export type EmbeddingConfig = {
   provider: EmbeddingProvider; model: string; revision?: string; dimensions: number; cache: string;
   /** The runtime's Python executable (`embeddings.python` in the request, else EBO_EMBEDDINGS_PYTHON). */
-  python?: string; device?: "auto" | "cuda" | "mps" | "cpu"; batchSize?: number;
+  python?: string; device?: "auto" | "cuda" | "mps" | "cpu"; batchSize?: number; tokenBudget?: number; maxTokens?: number;
   /** Where the cloud is laid out: in the browser from the vectors, at build time in the runtime, or `auto` by size. */
   layout: "auto" | "browser" | "build";
 };
@@ -33,7 +33,7 @@ export type LayoutRun = { backend: string; backendVersion: string; device: strin
 export const BUILD_LAYOUT_UNITS = 200_000;
 export const LAYOUT_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "embeddings", "layout.py");
 /** What the embedding runtime reports about one run. */
-export type EmbeddingRuntime = { device: string; deviceName?: string; dtype: string; batchSize: number; textsPerSecond: number | null; seconds: number;
+export type EmbeddingRuntime = { device: string; deviceName?: string; dtype: string; batchSize: number; tokenBudget?: number; maxTokens?: number; textsPerSecond: number | null; seconds: number;
   promptName: string; prompt: string | null; packages: Record<string, string>; warning?: string };
 /** What one embedding pass did, recorded in the bundle manifest. */
 export type EmbeddingRun = { texts: number; distinct: number; cached: number; embedded: number; seconds: number; runtime?: EmbeddingRuntime };
@@ -44,11 +44,13 @@ export const EMBEDDINGGEMMA_MODEL = "google/embeddinggemma-2";
 export const EMBEDDINGGEMMA_REVISION = "f9972ac22e696a105c482202646979e33e4b5a1e";
 export const EMBEDDINGGEMMA_DIMENSIONS = [768, 512, 256, 128] as const;
 export const EMBEDDINGGEMMA_PROMPT_NAME = "Clustering";
+/** Tokens kept per text, prompt included; covers every text the unit caps allow. */
+export const EMBEDDINGGEMMA_MAX_TOKENS = 2048;
 export const LOCAL_EMBEDDING_MODEL = "ebo-hashed-tfidf-1";
 export const EMBEDDING_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "embeddings", "embed.py");
 
 export type EmbeddingRequest = { provider?: EmbeddingProvider; model?: string; revision?: string; dimensions?: number; cache?: string; python?: string;
-  device?: EmbeddingConfig["device"]; batchSize?: number; layout?: EmbeddingConfig["layout"] };
+  device?: EmbeddingConfig["device"]; batchSize?: number; tokenBudget?: number; maxTokens?: number; layout?: EmbeddingConfig["layout"] };
 
 /** The provider, model and dimensions a bundle request selects, with EmbeddingGemma 2 at 768 dimensions by default. */
 export function embeddingConfig(request: EmbeddingRequest | undefined, base: string, env: NodeJS.ProcessEnv = process.env): EmbeddingConfig {
@@ -61,7 +63,8 @@ export function embeddingConfig(request: EmbeddingRequest | undefined, base: str
   const dimensions = request?.dimensions ?? 768;
   if (!(EMBEDDINGGEMMA_DIMENSIONS as readonly number[]).includes(dimensions)) throw new Error(`EmbeddingGemma 2 embeddings have ${EMBEDDINGGEMMA_DIMENSIONS.join(", ")} dimensions; ${dimensions} was requested.`);
   return { provider, model: request?.model ?? EMBEDDINGGEMMA_MODEL, revision: request?.revision ?? EMBEDDINGGEMMA_REVISION, dimensions, cache, layout,
-    ...(python ? { python } : {}), device: request?.device ?? "auto", ...(request?.batchSize ? { batchSize: request.batchSize } : {}) };
+    ...(python ? { python } : {}), device: request?.device ?? "auto", ...(request?.batchSize ? { batchSize: request.batchSize } : {}),
+    ...(request?.tokenBudget ? { tokenBudget: request.tokenBudget } : {}), ...(request?.maxTokens ? { maxTokens: request.maxTokens } : {}) };
 }
 
 const words = (text: string) => text.toLowerCase().match(/`[^`]{1,60}`|[a-z][a-z0-9_./:-]{1,40}/gu) ?? [];
@@ -130,7 +133,8 @@ class VectorCache {
 /** Runs the pinned runtime over `inputPath` (JSON lines), relaying its progress, and returns its stats. */
 async function runEmbedder(config: EmbeddingConfig, inputPath: string, outputPath: string, statsPath: string, options: EmbeddingOptions): Promise<EmbeddingRuntime> {
   const args = ["--model", config.model, "--revision", config.revision!, "--dimensions", String(config.dimensions), "--prompt-name", EMBEDDINGGEMMA_PROMPT_NAME,
-    "--device", config.device ?? "auto", "--batch-size", String(config.batchSize ?? 0), "--input", inputPath, "--output", outputPath, "--stats", statsPath];
+    "--device", config.device ?? "auto", "--batch-size", String(config.batchSize ?? 0), "--token-budget", String(config.tokenBudget ?? 0),
+    "--max-tokens", String(config.maxTokens ?? EMBEDDINGGEMMA_MAX_TOKENS), "--input", inputPath, "--output", outputPath, "--stats", statsPath];
   const command = options.command ?? (config.python ? [config.python, "-I", EMBEDDING_SCRIPT] : undefined);
   if (!command) throw new Error("EmbeddingGemma 2 needs its Python runtime: set embeddings.python in the bundle request or EBO_EMBEDDINGS_PYTHON (install it from scripts/embeddings/requirements.txt), or choose the offline provider \"hashed-tfidf\" explicitly.");
   await runRuntime(command, args, options);
@@ -211,7 +215,8 @@ export async function embedTexts(texts: readonly string[], config: EmbeddingConf
     try { writeSync(fd, new Uint8Array(vectors.buffer, vectors.byteOffset, vectors.byteLength)); } finally { closeSync(fd); }
     return { texts: texts.length, distinct: new Set(texts).size, cached: 0, embedded: texts.length, seconds: (performance.now() - started) / 1000 };
   }
-  const key = createHash("sha256").update(`${config.provider}\0${config.model}\0${config.revision ?? ""}\0${config.dimensions}`).digest("hex").slice(0, 16);
+  // The default token cap cuts no text the unit caps allow, so it leaves the key (and existing caches) as they were.
+  const key = createHash("sha256").update(`${config.provider}\0${config.model}\0${config.revision ?? ""}\0${config.dimensions}${config.maxTokens && config.maxTokens !== EMBEDDINGGEMMA_MAX_TOKENS ? `\0${String(config.maxTokens)}` : ""}`).digest("hex").slice(0, 16);
   const cache = new VectorCache(join(config.cache, key), config.dimensions);
   // Output row i is the vector of distinct text slot[i]; what reaches the runtime is the redacted text.
   const slotOf = new Map<string, number>(), slot = new Int32Array(texts.length), distinct: Array<{ text: string; key: Buffer; hex: string }> = [];
@@ -230,10 +235,30 @@ export async function embedTexts(texts: readonly string[], config: EmbeddingConf
       const input = join(scratch, "texts.jsonl"), vectors = join(scratch, "vectors.f32"), stats = join(scratch, "stats.json");
       const fd = openSync(input, "w");
       try { for (const { text } of missing) writeSync(fd, `${JSON.stringify(text)}\n`); } finally { closeSync(fd); }
-      runtime = await runEmbedder(config, input, vectors, stats, options);
-      const bytes = readFileSync(vectors);
-      if (bytes.length !== missing.length * 4 * config.dimensions) throw new Error(`The embedding runtime wrote ${bytes.length / (4 * config.dimensions)} vectors for ${missing.length} texts.`);
-      cache.append(missing.map(({ key: k }) => k), bytes);
+      // The runtime flushes each chunk before reporting it as embedded; each reported chunk goes into the cache
+      // at once, so a run that fails later (out of memory, a lost machine) keeps what it embedded and a rerun resumes.
+      const row = 4 * config.dimensions;
+      let kept = 0;
+      const keep = (upTo: number) => {
+        if (upTo <= kept) return;
+        const fd = openSync(vectors, "r"), bytes = Buffer.alloc((upTo - kept) * row);
+        try { if (readSync(fd, bytes, 0, bytes.length, kept * row) !== bytes.length) return; } finally { closeSync(fd); }
+        cache.append(missing.slice(kept, upTo).map(({ key: k }) => k), bytes);
+        kept = upTo;
+      };
+      const progress = (line: string) => {
+        options.progress?.(line);
+        const embedded = /^\{.*"embedded":\s*(\d+)/u.exec(line)?.[1];
+        if (embedded !== undefined && existsSync(vectors)) keep(Math.min(missing.length, Number(embedded)));
+      };
+      try {
+        runtime = await runEmbedder(config, input, vectors, stats, { ...options, progress });
+      } catch (error) {
+        throw kept ? new Error(`${(error as Error).message}\n${String(kept)} of ${String(missing.length)} new vectors were cached; a rerun embeds only the rest.`) : error;
+      }
+      const written = statSync(vectors).size;
+      if (written !== missing.length * row) throw new Error(`The embedding runtime wrote ${written / row} vectors for ${missing.length} texts.`);
+      keep(missing.length);
     } finally { rmSync(scratch, { recursive: true, force: true }); }
   }
   const rowOf = Int32Array.from(distinct, ({ hex }) => cache.rows.get(hex)!);

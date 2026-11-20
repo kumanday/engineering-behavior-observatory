@@ -16,7 +16,14 @@ if (process.env.STAND_IN_FAIL) { console.error(JSON.stringify({ error: "boom" })
 fs.appendFileSync(process.env.STAND_IN_SEEN, texts.map((t) => JSON.stringify(t) + "\\n").join(""));
 const out = new Float32Array(texts.length * d);
 texts.forEach((t, i) => { out[i * d] = t.length; out[i * d + 1] = [...t].reduce((s, c) => s + c.codePointAt(0), 0); });
-fs.writeFileSync(arg("--output"), new Uint8Array(out.buffer));
+// Like embed.py: each chunk is flushed, then reported as embedded; STAND_IN_FAIL_AFTER fails after that many chunks.
+const chunk = Number(process.env.STAND_IN_CHUNK ?? texts.length) || 1;
+fs.writeFileSync(arg("--output"), new Uint8Array(0));
+for (let start = 0, n = 0; start < texts.length; start += chunk, n++) {
+  if (process.env.STAND_IN_FAIL_AFTER && n === Number(process.env.STAND_IN_FAIL_AFTER)) { console.error(JSON.stringify({ error: "out of memory" })); process.exit(4); }
+  fs.appendFileSync(arg("--output"), new Uint8Array(out.buffer, start * d * 4, Math.min(chunk, texts.length - start) * d * 4));
+  console.error(JSON.stringify({ embedded: Math.min(texts.length, start + chunk), seconds: 0.01 }));
+}
 console.error(JSON.stringify({ device: "cpu", warning: "No CUDA or MPS device is available; embedding on CPU, which is much slower." }));
 fs.writeFileSync(arg("--stats"), JSON.stringify({ model: arg("--model"), revision: arg("--revision"), promptName: arg("--prompt-name"), prompt: "task: clustering | query: ",
   dimensions: d, device: "cpu", dtype: "float32", batchSize: 32, texts: texts.length, seconds: 0.01, textsPerSecond: 100, packages: { python: "stand-in" } }));
@@ -109,4 +116,46 @@ test("the runtime check loads the model before a build starts and reports a brok
     await checkEmbeddingRuntime(embeddingConfig({ provider: "hashed-tfidf", python: ok }, root, {}), { layout: false });
     assert.equal(readFileSync(seen, "utf8").trim().split("\n").length, 2);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a run that fails after some chunks keeps their vectors, and the rerun embeds only the rest", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-embeddings-resume-"));
+  try {
+    const script = join(root, "stand-in.cjs"), seen = join(root, "seen.jsonl");
+    writeFileSync(script, STAND_IN);
+    Object.assign(process.env, { STAND_IN_SEEN: seen, STAND_IN_CHUNK: "2", STAND_IN_FAIL_AFTER: "2" });
+    const config = embeddingConfig({ dimensions: 128, cache: "cache" }, root, {});
+    const texts = ["a", "bb", "ccc", "dddd", "eeeee"];
+    await assert.rejects(embedTexts(texts, config, join(root, "a.f32"), { command: [process.execPath, script] }),
+      /exited with 4[\s\S]*out of memory[\s\S]*4 of 5 new vectors were cached/u);
+    delete process.env.STAND_IN_FAIL_AFTER;
+    writeFileSync(seen, "");
+    const rerun = await embedTexts(texts, config, join(root, "b.f32"), { command: [process.execPath, script] });
+    assert.deepEqual([rerun.cached, rerun.embedded], [4, 1]);
+    assert.deepEqual(readFileSync(seen, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string), ["eeeee"]);
+    assert.deepEqual(rows(join(root, "b.f32"), 128).map(([length]) => length), [1, 2, 3, 4, 5]);
+  } finally {
+    for (const name of ["STAND_IN_SEEN", "STAND_IN_CHUNK", "STAND_IN_FAIL_AFTER"]) delete process.env[name];
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the runtime sizes batches by padded tokens and caps each text's tokens", { skip: process.platform === "win32" }, async () => {
+  // embed.py's batching is plain Python, importable without the model runtime.
+  const { execFileSync } = await import("node:child_process");
+  const script = join(process.cwd(), "scripts/embeddings/embed.py");
+  const program = [
+    "import importlib.util, json, sys",
+    "sys.dont_write_bytecode = True",
+    "spec = importlib.util.spec_from_file_location('embed', sys.argv[1]); embed = importlib.util.module_from_spec(spec); spec.loader.exec_module(embed)",
+    "lengths = [10, 10, 10, 10, 400, 400, 900, 3000]",
+    "print(json.dumps([list(b) for b in embed.batches(sorted(range(8), key=lambda i: lengths[i]), lengths, 3, 1000)]))",
+  ].join("\n");
+  let python: string | undefined;
+  for (const candidate of ["python3", "python"]) { try { execFileSync(candidate, ["--version"], { stdio: "ignore" }); python = candidate; break; } catch { /* next */ } }
+  if (!python) return;
+  const out = JSON.parse(execFileSync(python, ["-I", "-c", program, script], { encoding: "utf8" })) as number[][];
+  // At most 3 texts per batch and 1,000 padded tokens; a text over the budget goes alone.
+  assert.deepEqual(out, [[0, 1, 2], [3, 4], [5], [6], [7]]);
+  assert.match(readFileSync(script, "utf8"), /model\.max_seq_length = args\.max_tokens/u);
 });

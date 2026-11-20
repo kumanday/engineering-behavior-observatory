@@ -41,6 +41,8 @@
             "python": { "$ref": "#/$defs/path" },
             "device": { "enum": ["auto", "cuda", "mps", "cpu"] },
             "batchSize": { "type": "integer", "minimum": 1, "maximum": 65536 },
+            "tokenBudget": { "type": "integer", "minimum": 1, "maximum": 16777216 },
+            "maxTokens": { "type": "integer", "minimum": 16, "maximum": 32768 },
             "layout": { "enum": ["auto", "browser", "build"] }
           }
         }

@@ -58,8 +58,14 @@ are embedded:
   and embeds one text, and imports the layout backend when the layout may run
   at build time. A missing package fails the build in seconds.
   The runtime uses CUDA (bfloat16 where supported), else MPS, else CPU
-  (float32), and says when it falls back to CPU; `device` and `batchSize`
-  override its choices. Each unit's `embed_text` (behavior summaries and
+  (float32), and says when it falls back to CPU. Batches hold texts of
+  similar token length, sized by padded tokens: at most `tokenBudget` tokens
+  (32,768 on CUDA, about 5.5 GB in bfloat16; 16,384 on MPS; 8,192 on CPU) and
+  at most `batchSize` texts (512, 128, 64). Throughput follows tokens, so a
+  larger budget gains little. Each text keeps at most `maxTokens` tokens,
+  prompt included (2,048, which no unit's capped text exceeds). A batch that
+  runs out of device memory is halved and retried. `device`, `batchSize`,
+  `tokenBudget` and `maxTokens` override these choices. Each unit's `embed_text` (behavior summaries and
   message text capped for embedding, never tool output or file contents),
   with secrets redacted, gets the model card's clustering prompt
   (`task: clustering | query: `). The published graph mean-pools and
@@ -71,10 +77,12 @@ are embedded:
 EmbeddingGemma 2 vectors are cached under `cache` (default
 `.atlas-cache/embeddings`) by model, revision, dimensions and redacted text
 digest, so a rebuild embeds only new texts. Each distinct text is embedded
-once. `cloud.embeddings` in the manifest records the provider, model,
+once. The runtime embeds 16,384 texts per chunk, and each finished chunk goes
+into the cache at once, so a run that fails partway keeps its vectors and the
+rerun embeds only the rest. A `maxTokens` other than 2,048 has its own cache. `cloud.embeddings` in the manifest records the provider, model,
 revision and dimensions, and `run` records the pass: units, distinct texts,
-cache hits, texts embedded, and the runtime's device, precision, batch size,
-throughput and package versions. The viewer header and `describe()` name the
+cache hits, texts embedded, and the runtime's device, precision, batch and
+token limits, throughput and package versions. The viewer header and `describe()` name the
 provider.
 
 `layout` chooses where the cloud is laid out. `browser` leaves it to the
