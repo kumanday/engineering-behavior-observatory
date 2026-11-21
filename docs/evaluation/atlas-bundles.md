@@ -224,6 +224,11 @@ browser.
 
 The export uses one DuckDB thread and a 4 GB memory budget, and spills to the
 build's temporary staging directory, so a study whose event table exceeds
-memory still builds. Within one build, an attempt's validated evidence is
+memory still builds. A bundle of millions of units needs a Node heap above
+16 GB during unit build (about 32 GB for 6.8 million units), set with
+`--max-old-space-size`. On Linux, V8 maps its heap in 256 KB pages, and the
+stock `vm.max_map_count` of 65,530 stops it near 16 GB whatever the flag says
+("semi-space copy Allocation failed"); raise it first, for example with
+`sysctl -w vm.max_map_count=1048576`. Within one build, an attempt's validated evidence is
 reused for that attempt's further assertions; every reuse first hashes the
 manifest and each listed artifact again, and changed bytes force a rebuild.
