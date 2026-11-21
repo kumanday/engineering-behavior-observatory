@@ -55,8 +55,9 @@ are embedded:
   runtime's executable, relative to the request; without it the build uses
   `EBO_EMBEDDINGS_PYTHON` and otherwise stops before reading any attempt.
   Before reading any attempt, the build checks the runtime: it loads the model
-  and embeds one text, and imports the layout backend when the layout may run
-  at build time. A missing package fails the build in seconds.
+  and embeds one text, and builds the layout backend's estimators when the
+  layout may run at build time. A missing package or an argument the backend
+  does not take fails the build in seconds.
   The runtime uses CUDA (bfloat16 where supported), else MPS, else CPU
   (float32), and says when it falls back to CPU. Batches hold texts of
   similar token length, sized by padded tokens: at most `tokenBudget` tokens

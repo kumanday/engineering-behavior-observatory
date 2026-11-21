@@ -34,6 +34,23 @@ def backend():
     return "umap-learn", umap.__version__
 
 
+def estimators(name, dims, neighbors, args):
+    """PCA, UMAP and (for cuML) nearest neighbors for one family, built with each backend's own arguments."""
+    if name == "cuml":
+        from cuml.decomposition import PCA
+        from cuml.manifold import UMAP
+        from cuml.neighbors import NearestNeighbors
+        # cuML's PCA takes no random_state: its eigendecomposition solver has no random step.
+        return (PCA(n_components=dims),
+                UMAP(n_neighbors=neighbors, n_components=2, metric="cosine", min_dist=args.min_dist, random_state=args.seed),
+                NearestNeighbors(n_neighbors=neighbors + 1, metric="cosine"))
+    import umap
+    from sklearn.decomposition import PCA
+    return (PCA(n_components=dims, random_state=args.seed),
+            umap.UMAP(n_neighbors=neighbors, n_components=2, metric="cosine", min_dist=args.min_dist, random_state=args.seed),
+            None)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--embeddings")
@@ -41,7 +58,7 @@ def main():
     parser.add_argument("--families")
     parser.add_argument("--output")
     parser.add_argument("--stats")
-    parser.add_argument("--check", action="store_true", help="import the layout backend and exit")
+    parser.add_argument("--check", action="store_true", help="build the layout backend's estimators and exit")
     parser.add_argument("--pca", type=int, default=128)
     parser.add_argument("--neighbors", type=int, default=15)
     parser.add_argument("--min-dist", type=float, default=0.1)
@@ -52,7 +69,8 @@ def main():
 
     name, version = backend()
     if args.check:
-        import sklearn  # noqa: F401 - the CPU path's PCA
+        # Building the estimators checks each backend's arguments, which an import alone would not.
+        estimators(name, 2, 2, args)
         print(json.dumps({"ok": True, "backend": name, "backendVersion": version}))
         return
     if not all([args.embeddings, args.dimensions, args.families, args.output, args.stats]):
@@ -90,22 +108,15 @@ def main():
         else:
             dims = min(args.pca, unique.shape[1], m - 1)
             neighbors = min(k, m - 1)
+            pca, model, knn = estimators(name, dims, neighbors, args)
             if name == "cuml":
                 import cupy
-                from cuml.decomposition import PCA
-                from cuml.manifold import UMAP
-                from cuml.neighbors import NearestNeighbors
                 data = cupy.asarray(unique)
-                reduced = PCA(n_components=dims, random_state=args.seed).fit_transform(data) if dims < unique.shape[1] else data
-                layout = cupy.asnumpy(UMAP(n_neighbors=neighbors, n_components=2, metric="cosine", min_dist=args.min_dist,
-                                           random_state=args.seed).fit_transform(reduced)).astype(np.float32)
-                knn = NearestNeighbors(n_neighbors=neighbors + 1, metric="cosine").fit(reduced)
-                dist, idx = (cupy.asnumpy(a) for a in knn.kneighbors(reduced))
+                reduced = pca.fit_transform(data) if dims < unique.shape[1] else data
+                layout = cupy.asnumpy(model.fit_transform(reduced)).astype(np.float32)
+                dist, idx = (cupy.asnumpy(a) for a in knn.fit(reduced).kneighbors(reduced))
             else:
-                import umap
-                from sklearn.decomposition import PCA
-                reduced = PCA(n_components=dims, random_state=args.seed).fit_transform(unique) if dims < unique.shape[1] else unique
-                model = umap.UMAP(n_neighbors=neighbors, n_components=2, metric="cosine", min_dist=args.min_dist, random_state=args.seed)
+                reduced = pca.fit_transform(unique) if dims < unique.shape[1] else unique
                 layout = model.fit_transform(reduced).astype(np.float32)
                 # umap-learn keeps its k-nearest-neighbor result on the model.
                 idx, dist = model._knn_indices, model._knn_dists

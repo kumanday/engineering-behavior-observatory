@@ -160,6 +160,43 @@ test("the runtime sizes batches by padded tokens and caps each text's tokens", {
   assert.match(readFileSync(script, "utf8"), /model\.max_seq_length = args\.max_tokens/u);
 });
 
+test("the layout check builds the cuML estimators with cuML's own arguments", { skip: process.platform === "win32" }, async () => {
+  // Stand-ins for cupy and cuML whose constructors take the arguments cuML 26.10's do: its PCA has no random_state.
+  const { execFileSync } = await import("node:child_process");
+  const script = join(process.cwd(), "scripts/embeddings/layout.py");
+  const program = [
+    "import json, runpy, sys, types",
+    "sys.dont_write_bytecode = True",
+    "def module(name, **attrs):",
+    "    m = types.ModuleType(name); m.__dict__.update(attrs); sys.modules[name] = m; return m",
+    "class PCA:",
+    "    def __init__(self, *, handle=None, copy=True, iterated_power=15, n_components=None, svd_solver='auto', tol=1e-7, verbose=False, whiten=False, output_type=None): self.n_components = n_components",
+    "class UMAP:",
+    "    def __init__(self, *, n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, random_state=None, **rest): pass",
+    "class NearestNeighbors:",
+    "    def __init__(self, *, n_neighbors=5, metric='euclidean', **rest): pass",
+    "module('numpy')",
+    "module('cupy', cuda=types.SimpleNamespace(runtime=types.SimpleNamespace(getDeviceCount=lambda: 1)))",
+    "module('cuml', __version__='26.10.00')",
+    "module('cuml.decomposition', PCA=PCA); module('cuml.manifold', UMAP=UMAP); module('cuml.neighbors', NearestNeighbors=NearestNeighbors)",
+    "sys.argv = [sys.argv[1], '--check']",
+    "runpy.run_path(sys.argv[0], run_name='__main__')",
+  ].join("\n");
+  let python: string | undefined;
+  for (const candidate of ["python3", "python"]) { try { execFileSync(candidate, ["--version"], { stdio: "ignore" }); python = candidate; break; } catch { /* next */ } }
+  if (!python) return;
+  const out = JSON.parse(execFileSync(python, ["-I", "-c", program, script], { encoding: "utf8" })) as { ok: boolean; backend: string; backendVersion: string };
+  assert.deepEqual(out, { ok: true, backend: "cuml", backendVersion: "26.10.00" });
+  // A seed passed to cuML's PCA fails the check, before any unit is built or embedded.
+  const seeded = readFileSync(script, "utf8").replace("PCA(n_components=dims),", "PCA(n_components=dims, random_state=args.seed),");
+  assert.notEqual(seeded, readFileSync(script, "utf8"));
+  const dir = mkdtempSync(join(tmpdir(), "ebo-layout-check-"));
+  try {
+    writeFileSync(join(dir, "layout.py"), seeded);
+    assert.throws(() => execFileSync(python, ["-I", "-c", program, join(dir, "layout.py")], { encoding: "utf8", stdio: "pipe" }), /random_state/u);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("the runtime replaces a lone surrogate in its input, which tokenizers reject", { skip: process.platform === "win32" }, async () => {
   const { execFileSync } = await import("node:child_process");
   const script = join(process.cwd(), "scripts/embeddings/embed.py");
