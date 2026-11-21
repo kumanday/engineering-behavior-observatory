@@ -84,7 +84,7 @@ test("Atlas uses verified leaderboard task and trial labels and keeps source ver
     }, groupBy: ["harness"], selectedAttemptPolicy: "all-attempts", evidenceOrigins: "imported", recurrence: { minimumOccurrences: 2 }, comparisons: [] });
     write(atlas, { schemaVersion: "ebo.atlas-request/v1", title: "Imported test", aggregationRequest: aggregation });
     const request = join(f.root, "bundle.json"), output = join(f.root, "atlas-bundle");
-    write(request, { schemaVersion: "ebo.atlas-bundle-request/v2", id: "imported-test", title: "Imported test",
+    write(request, { schemaVersion: "ebo.atlas-bundle-request/v2", id: "imported-test", title: "Imported test", embeddings: { provider: "hashed-tfidf" },
       cohorts: [{ id: "test", atlasRequest: atlas }], leaderboard: { store: f.store, cohortId: cohort.cohortId } });
     const { buildAtlasBundle } = await import("../src/atlas-bundle.js");
     await buildAtlasBundle(request, output);

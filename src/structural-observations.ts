@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { createAgentSdkBehaviorEvidence } from "./behavior-assertions.js";
 import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
 
-import { canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
+import { canonicalizeMetadata, digestMetadataOnce, validateArtifact } from "./artifacts.js";
 import { extractOccurrences, type Occurrence, type OccurrenceCoverage } from "./occurrences.js";
 import {
   type AdapterCoverageReport,
@@ -138,7 +138,7 @@ export function createStructuralObservationSet(
     assessmentMode,
     extractorVersion: STRUCTURAL_EXTRACTOR_VERSION,
     normalization: {
-      datasetDigest: `sha256:${digestMetadata(dataset).value}`,
+      datasetDigest: `sha256:${digestMetadataOnce(dataset).value}`,
       adapter: structuredClone(dataset.adapter),
       capabilityProfile: structuredClone(dataset.capabilityProfile),
       coverage: structuredClone(coverage),

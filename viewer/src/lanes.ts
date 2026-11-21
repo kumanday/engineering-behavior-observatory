@@ -12,11 +12,13 @@ import { describable, provide, register, run, target, type Json } from "./regist
 
 export interface LaneMeta {
   attempt_id: string; task_id: string | null; condition: string; trial_id: string | null; harness_id: string; model_id: string;
-  terminal_state: string | null; failure_class: string | null; capture_qualification: string; source_outcome?: string; t_start_ms: number | null; t_end_ms: number | null;
+  terminal_state: string | null; failure_class: string | null; capture_qualification: string; source_outcome?: string; source_outcome_source?: string; source_outcome_release?: string; source_outcome_record?: string; harness_version?: string | null; t_start_ms: number | null; t_end_ms: number | null;
   units: number; tools: number; errors: number | null; compactions: number; cited_units: number;
   usage_semantics: "per-turn" | "per-turn (native)" | "final-only" | "none"; tokens_total: number | null; cost_usd: number | null; context_max: number | null;
 }
-export interface LanesData { attempts: LaneMeta[]; usage: Record<string, [number, number][]>; context?: Record<string, [number, number][]> }
+export interface LanesData { attempts: LaneMeta[]; usage: Record<string, [number, number][]>; context?: Record<string, [number, number][]>;
+  /** A large bundle: each attempt's usage and context series are in `split`<attempt>.json, loaded with its task. */
+  split?: string }
 export interface Unit {
   row_id: number; attempt_id: string; seq: number; unit_kind: string; subkind: string | null; tool_kind: string | null; tool_name: string | null;
   check_kind: string | null; error_signature: string | null; command_head: string | null; target: string | null; status: string | null;
@@ -49,8 +51,15 @@ export const cls = (s: unknown) => String(s ?? "").replace(/[^A-Za-z0-9_-]/g, "_
 /** A number from bundle data for markup; a missing or non-numeric value renders as "—" (unavailable), never 0 or markup. */
 /** A UUID or hex id reads by its first eight characters; any other id (a leaderboard trial name) reads whole. */
 export const shortId = (id: string) => (/^[0-9a-f]{8}(?:-?[0-9a-f]{4,})+$/iu.test(id) || /^[0-9a-f]{16,}$/iu.test(id) ? id.slice(0, 8) : id);
+/** The cloud column with a unit's text: the full embedded text, or a compact cloud's short label. */
+let unitText = "embed_text";
+export function setUnitTextColumn(column: string): void { unitText = column; }
+
 /** A lane none of whose units has a recorded time (a source that writes no step timestamps). */
 export const untimedLane = (us: readonly Pick<Unit, "timed" | "t0_ms" | "unit_kind">[]) => us.length > 0 && !us.some((u) => u.unit_kind !== "episode" && u.timed && u.t0_ms != null);
+/** Where a third-party verdict comes from: its publisher, release and record. It is not EBO's run status. */
+export const sourceOutcomeTitle = (l: { source_outcome_source?: string; source_outcome_release?: string; source_outcome_record?: string }) =>
+  `Third-party verdict from ${l.source_outcome_source ?? "an external source"}${l.source_outcome_release ? `, release ${l.source_outcome_release}` : ""}${l.source_outcome_record ? `, record ${l.source_outcome_record}` : ""}; separate from EBO's run status`;
 export const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? String(x) : "—");
 const fmtTok = (n: number | null) => n == null ? "" : n >= 1e9 ? (n / 1e9).toFixed(1) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "k" : String(n);
 export const laneDurationMs = (lane: Pick<LaneMeta, "t_start_ms" | "t_end_ms">): number | null => lane.t_start_ms === null || lane.t_end_ms === null ? null : lane.t_end_ms - lane.t_start_ms;
@@ -86,6 +95,7 @@ export class SwimlanesPanel {
   private tasks: (string | null)[];
 
   ev: Evidence | null = null;               // P3 evidence (native records, audits); optional
+  base = location.href;                     // the bundle URL, for a large bundle's per-attempt lane series
 
   constructor(private root: HTMLElement, private coordinator: Coordinator, private data: LanesData,
               private onHighlight: (ids: number[] | null) => void) {
@@ -150,7 +160,8 @@ export class SwimlanesPanel {
     return {
       summary: `${lanes.length} attempts of task ${this.task}${this.armFilter === "all" ? "" : ` in arm ${this.armFilter}`}, ${this.mode} view, ${this.axis} axis${this.axis === "time" && this.untimedCount(lanes) ? ` (${this.untimedCount(lanes)} without recorded times, drawn as a note; the Steps axis shows their actions)` : ""}${this.focus ? `, cluster ${this.focus.id} emphasized` : ""}.`,
       data: { task: this.task, arm: this.armFilter, mode: this.mode, lanes: lanes.map((l) => ({ attemptId: l.attempt_id, condition: l.condition, trial: l.trial_id, terminal: l.terminal_state,
-        sourceOutcome: l.source_outcome ?? null,
+        sourceOutcome: l.source_outcome ? { outcome: l.source_outcome, source: l.source_outcome_source ?? null, release: l.source_outcome_release ?? null, record: l.source_outcome_record ?? null } : null,
+        harnessVersion: l.harness_version ?? null,
         durationMs: laneDurationMs(l), timesRecorded: !untimedLane(this.byLane.get(l.attempt_id) ?? []), tools: l.tools, errors: l.errors, compactions: l.compactions, citedUnits: l.cited_units, failureChains: this.ev?.chainsOf(l.attempt_id).length ?? null,
         usage: l.usage_semantics, tokens: l.tokens_total })) },
     };
@@ -176,15 +187,33 @@ export class SwimlanesPanel {
     const res = await this.coordinator.query(`
       SELECT row_id, attempt_id, seq, unit_kind, subkind, tool_kind, tool_name, check_kind, error_signature, command_head, target, status,
              t0_ms, t1_ms, timed, cluster_id, cluster_label, coalesce(cited, false) AS cited,
-             coalesce(array_to_string(occurrences, ','), '') AS occ, left(embed_text, 280) AS text,
+             coalesce(array_to_string(occurrences, ','), '') AS occ, left(${unitText}, 280) AS text,
              duration_seconds, condition, ${CAT_SQL} AS cat
       FROM units WHERE ${this.task === null ? "task_id IS NULL" : `task_id = '${this.task.replace(/'/g, "''")}'`} AND unit_kind IN ('tool', 'message', 'compaction', 'episode')
       ORDER BY attempt_id, seq`);
+    if (seq !== this.seq) return;
+    // A large bundle's lane series and audits load with the task they belong to.
+    const ids = this.data.attempts.filter((a) => a.task_id === this.task).map((a) => a.attempt_id);
+    await Promise.all([this.loadSeries(ids), this.ev?.prepareMany(ids)]);
     if (seq !== this.seq) return;
     this.units = rowsOf(res) as Unit[];
     this.byLane = new Map();
     for (const u of this.units) (this.byLane.get(u.attempt_id) ?? this.byLane.set(u.attempt_id, []).get(u.attempt_id)!).push(u);
     await this.refreshPredicate();
+  }
+
+  private async loadSeries(ids: readonly string[]) {
+    if (!this.data.split) return;
+    this.data.context ??= {};
+    const missing = ids.filter((id) => !(id in this.data.usage) && !(id in this.data.context!));
+    for (let i = 0; i < missing.length; i += 16) await Promise.all(missing.slice(i, i + 16).map(async (id) => {
+      try {
+        const r = await fetch(new URL(`${this.data.split}${id}.json`, this.base).href);
+        const series = r.ok ? await r.json() as { usage: [number, number][] | null; context: [number, number][] | null } : null;
+        if (series?.usage) this.data.usage[id] = series.usage;
+        if (series?.context) this.data.context![id] = series.context;
+      } catch { /* a missing series shows as none recorded */ }
+    }));
   }
 
   async setPredicate(p: string | null) {
@@ -337,7 +366,7 @@ export class SwimlanesPanel {
         const terminal = l.terminal_state ?? (l.capture_qualification === "imported" ? null : "unavailable");
         labels += `<div class="lane-label ${pickedIdx >= 0 ? "picked" : ""}" style="height:${LANE_H}px" data-lane="${esc(l.attempt_id)}">
           <label class="pick"><input type="checkbox" data-pick="${esc(l.attempt_id)}" ${target("toggleLanePick", l.attempt_id)} ${pickedIdx >= 0 ? "checked" : ""} aria-label="Select ${esc(trialLabel(l.trial_id))} for alignment">${pickedIdx >= 0 ? `<b>${"AB"[pickedIdx]}</b>` : ""}</label>
-          <div class="ll-main"><span class="ll-title"><span title="${esc(trialLabel(l.trial_id))}">${esc(trialLabel(shortTrial))}</span>${terminal && terminal !== "completed" ? ` <span class="badge">${esc(terminal)}</span>` : ""}${l.source_outcome ? ` <span class="muted" title="Third-party Harness Leaderboard verdict">Leaderboard: ${esc(l.source_outcome)}</span>` : ""} <span class="muted" title="${esc(tokTitle)}">${tok}</span></span>
+          <div class="ll-main"><span class="ll-title"><span title="${esc(trialLabel(l.trial_id))}">${esc(trialLabel(shortTrial))}</span>${terminal && terminal !== "completed" ? ` <span class="badge">${esc(terminal)}</span>` : ""}${l.source_outcome ? ` <span class="muted" title="${esc(sourceOutcomeTitle(l))}">${esc(l.source_outcome_source ?? "Third party")}: ${esc(l.source_outcome)}</span>` : ""} <span class="muted" title="${esc(tokTitle)}">${tok}</span></span>
           <span class="ll-meta">${fmtDur(laneDurationMs(l))} · ${num(l.tools)} ${l.capture_qualification === "imported" ? "projected tools" : "tools"} · ${l.errors === null ? `<span title="${esc(l.capture_qualification === "imported" ? "Tool failures unavailable: ATIF has no tool-failure field, so imported results do not establish success or failure (not zero)" : "Tool failures unavailable (not zero)")}">— err</span>` : `${num(l.errors)} err`}${l.compactions ? ` · <span title="${num(l.compactions)} compactions">┆${num(l.compactions)}</span>` : ""}</span>
           <span class="ll-id" title="${esc(`${l.attempt_id} · cohorts: ${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).join(", ") || "—"} · token usage source: ${l.usage_semantics === "none" ? `none recorded (not zero)${l.capture_qualification === "imported" ? "; the source declares no step or final token metrics" : ""}` : `${l.usage_semantics}${l.capture_qualification === "imported" ? " (declared by the source)" : ""}`}`)}"><span class="mono">${esc(shortId(l.attempt_id))}</span>${(this.ev?.meta.get(l.attempt_id)?.cohorts ?? []).map((c) => ` <span class="coh">${esc(c)}</span>`).join("")} · ${l.usage_semantics === "none" ? "<span class=\"no-usage\">no usage recorded</span>" : `usage: ${esc(l.usage_semantics)}`}</span></div>
           ${this.ev?.audit && this.ev.chainsOf(l.attempt_id).length ? `<button class="icon-btn fail-btn" data-chains="${esc(l.attempt_id)}" ${target("openChains", l.attempt_id)} title="Failure chains: failed calls and the next call of the same tool">✕ ${this.ev.chainsOf(l.attempt_id).length}</button>` : ""}
@@ -452,7 +481,7 @@ export class SwimlanesPanel {
         <tr><td>At</td><td>${u.t0_ms != null ? fmtDur(u.t0_ms - t0) : "—"}${u.timed ? "" : " (untimed; placed after the previous unit)"}${u.duration_seconds ? ` · ${u.duration_seconds.toFixed(1)} s` : ""}</td></tr>
         <tr><td>Cluster</td><td>${u.cluster_id >= 0 ? esc((u.cluster_label ?? "").replace(/`/g, "")) : "noise"}</td></tr>
         ${u.occ ? `<tr><td>Occurrences</td><td>${esc(u.occ.replace(/,/g, ", "))}</td></tr>` : ""}
-        ${u.cited || this.ev?.citedRows.has(u.row_id) ? `<tr><td>Judge</td><td>cited by ${this.ev ? this.ev.doc.assessments.filter((a) => a.citations.some((c) => c.row_id === u.row_id)).map((a) => `${esc(a.card)} (${esc(a.outcome)})`).join(", ") || "an assessment" : "an assessment"}</td></tr>` : ""}
+        ${u.cited || this.ev?.citedRows.has(u.row_id) ? `<tr><td>Judge</td><td>cited by ${this.ev ? this.ev.assessmentsOf(u.attempt_id).filter((a) => a.citations.some((c) => c.row_id === u.row_id)).map((a) => `${esc(a.card)} (${esc(a.outcome)})`).join(", ") || "an assessment" : "an assessment"}</td></tr>` : ""}
       </table>
       <div class="tip-text">${esc(u.text ?? "")}</div>${this.ev ? `<div class="tip-hint">Click for the native record</div>` : ""}`;
     this.tip.hidden = false;

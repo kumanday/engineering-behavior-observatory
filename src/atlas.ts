@@ -4,14 +4,14 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { aggregateEvaluation, evidenceOrigin, readAggregationAssertions, selectAggregationAttempts, type BehaviorAggregate, type AggregationInput, type AggregationReport, type AggregationRequest } from "./aggregation.js";
+import { aggregateEvaluation, aggregateValidatedSubset, evidenceOrigin, readAggregationAssertions, selectAggregationAttempts, type BehaviorAggregate, type AggregationInput, type AggregationReport, type AggregationRequest } from "./aggregation.js";
 import { assertNoDuplicateJsonKeys, canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifacts.js";
 import { isDecisionModelAssertion, producerLabel, type BehaviorAssertion } from "./behavior-assertions.js";
 import { behaviorDirection, resolveBehaviorCard } from "./behavior-ontology.js";
 import type { AgentSdkNativeRecord } from "./agent-sdk-normalizer.js";
 import { createRetainedBehaviorEvidence, withRetainedEvidenceReuse } from "./retained-evidence.js";
-import { readCorpusIndex, validateCorpusIndex } from "./corpus.js";
-import { readPortableRunBundleExport, sanitizeDerivedExport, type LocatedSecretFinding, type PortableExportPolicy } from "./exports.js";
+import { readCorpusIndex, validateCorpusIndexInParallel } from "./corpus.js";
+import { environmentSensitiveValues, readPortableRunBundleExport, sanitizeDerivedExport, type LocatedSecretFinding, type PortableExportPolicy } from "./exports.js";
 import { assertCalibrationDestination, effectiveReviewOutcome, isDisputedReviewOutcome, type ReviewDecision } from "./human-calibration.js";
 import { readBoundedFile } from "./scheduler.js";
 import type { SecretFinding } from "./redaction.js";
@@ -98,12 +98,16 @@ export function atlasDirectionRows(view: AtlasView) {
 const digest = (value: unknown): Digest => `sha256:${digestMetadata(value).value}`;
 const attemptKey = (value: { runId?: string; attemptId?: string }) => `${value.runId}\0${value.attemptId}`;
 
-export async function loadAtlas(requestPath: string): Promise<AtlasSource> {
+/**
+ * `display: false` is for builders that read cases only for their identities and digests (the Atlas bundle): case
+ * documents are then the validated originals, not display-sanitized copies, and must not be shown as they are.
+ */
+export async function loadAtlas(requestPath: string, options: { display?: boolean } = {}): Promise<AtlasSource> {
   // One scope for the validation pass and the case pass, so an attempt's evidence is rebuilt only when it changes.
-  return withRetainedEvidenceReuse(() => loadAtlasSource(requestPath));
+  return withRetainedEvidenceReuse(() => loadAtlasSource(requestPath, options.display ?? true));
 }
 
-async function loadAtlasSource(requestPath: string): Promise<AtlasSource> {
+async function loadAtlasSource(requestPath: string, display: boolean): Promise<AtlasSource> {
   const request = readJson(requestPath) as AtlasRequest;
   exactKeys(request, ["schemaVersion", "aggregationRequest", "title", "operatorNarrative", "reviewPackets", "traces", "grafanaUrl", "atlasUrl", "tempoDatasourceUid", "sharing"]);
   if (request.schemaVersion !== "ebo.atlas-request/v1" || typeof request.title !== "string" || !request.title.trim() || typeof request.aggregationRequest !== "string") throw new Error("Invalid or incompatible Atlas request.");
@@ -129,7 +133,8 @@ async function loadAtlasSource(requestPath: string): Promise<AtlasSource> {
   const source = aggregation.sources;
   const corpusRoot = resolve(aggregateBase, source.corpusRoot);
   const corpusEntries = readCorpusIndex(resolve(aggregateBase, source.corpusIndex));
-  const issues = validateCorpusIndex(corpusRoot, corpusEntries);
+  // Manifests are re-projected in worker processes; a bundle build checks a shared corpus once for all its cohorts.
+  const issues = await validateCorpusIndexInParallel(corpusRoot, corpusEntries);
   if (issues.length) throw new Error("Atlas corpus index is stale or invalid; rebuild and validate it before querying.");
   const input: AggregationInput = {
     lineage: { requestDigest: digest(aggregation), corpusIndexDigest: digest(corpusEntries) }, corpusEntries,
@@ -144,8 +149,17 @@ async function loadAtlasSource(requestPath: string): Promise<AtlasSource> {
   const secretFindings: CaseSecretFinding[] = [];
   const located = (caseKey: string, location: string) => ({ path, ...finding }: LocatedSecretFinding) => { secretFindings.push({ ...finding, caseKey, caseLocation: `${location}${path}` }); };
   const seenAssertions = new Set<string>();
+  // One environment scan for every document sanitized here, and assertions indexed by attempt (a per-attempt scan
+  // of every assertion is quadratic in the corpus).
+  const environment = display ? environmentSensitiveValues() : [];
+  const safe = (value: unknown, onFinding: (finding: LocatedSecretFinding) => void) => (display ? displaySafe(value, onFinding, environment) : value);
+  const assertionsOf = new Map<string, typeof input.assertions[number][]>();
+  for (const item of input.assertions) {
+    const key = attemptKey(item.document), list = assertionsOf.get(key);
+    if (list) list.push(item); else assertionsOf.set(key, [item]);
+  }
   for (const entry of selectAggregationAttempts(corpusEntries, "all-attempts", aggregation.evidenceOrigins)) {
-    const ownAssertions = input.assertions.filter(({ document }) => attemptKey(document) === attemptKey(entry));
+    const ownAssertions = assertionsOf.get(attemptKey(entry)) ?? [];
     const context = { origin: evidenceOrigin(entry), ...(entry.sourceFormat ? { sourceFormat: entry.sourceFormat } : {}),
       ...(entry.producerProfileDigest ? { producerProfileDigest: entry.producerProfileDigest } : {}), runId: entry.runId!, attemptId: entry.attemptId!, model: entry.modelId ?? "unavailable", route: entry.modelRoute ?? "none", harness: entry.harnessId ?? "unavailable", harnessVersion: entry.harnessVersion ?? "unavailable", task: entry.taskId ?? "unavailable", trial: entry.trialId ?? "unavailable", capture: entry.captureQualification ?? "unavailable", outcome: entry.terminalState ?? "unavailable", ...(entry.retryOf ? { retryOf: entry.retryOf } : {}) };
     let trace: AtlasCase["trace"];
@@ -165,19 +179,21 @@ async function loadAtlasSource(requestPath: string): Promise<AtlasSource> {
       const latest = reviews[0];
       const outcome = latest ? effectiveReviewOutcome(latest.candidate, latest.history.decisions) : assertion.judgment.verdict === "unknown" ? "judge-abstained" : "unreviewed";
       const review = latest && isDisputedReviewOutcome(latest.candidate, latest.history.decisions) ? "disputed" : ({ "judge-abstained": "abstained", unreviewed: "proposed", unresolved: "insufficient-evidence", confirmed: "confirmed", rejected: "rejected" } as const)[outcome];
-      const evidence = await createRetainedBehaviorEvidence(bundleRoot);
       const caseKey = assertionDigest.slice(7);
-      // A decision-model result has no citations: it carries probabilities only.
-      const citations = (isDecisionModelAssertion(assertion) ? [] : assertion.judgment.citations).map((citation, index) => {
+      // A decision-model result has no citations: it carries probabilities only, and needs no evidence here.
+      const cited = isDecisionModelAssertion(assertion) ? [] : assertion.judgment.citations;
+      const evidence = cited.length ? await createRetainedBehaviorEvidence(bundleRoot) : undefined;
+      const citations = cited.map((citation, index) => {
+        if (evidence === undefined) throw new Error("Atlas citation cannot resolve to normalized and native evidence.");
         const normalizedEvent = evidence.dataset.events.find(({ id }) => id === citation.eventId);
         const native = evidence.capture.records.find(({ reference }) => canonicalizeMetadata(reference) === canonicalizeMetadata(citation.nativeReference));
         if (!normalizedEvent || !native) throw new Error("Atlas citation cannot resolve to normalized and native evidence.");
         const location = `/citations/${String(index)}`;
-        return { ...citation, normalizedEvent: displaySafe(normalizedEvent, located(caseKey, `${location}/normalizedEvent`)), nativeRecord: displaySafe(evidence.dataset.adapter.harness === "claude-agent-sdk" ? (native.record as AgentSdkNativeRecord).document : native.record, located(caseKey, `${location}/nativeRecord`)) };
+        return { ...citation, normalizedEvent: safe(normalizedEvent, located(caseKey, `${location}/normalizedEvent`)), nativeRecord: safe(evidence.dataset.adapter.harness === "claude-agent-sdk" ? (native.record as AgentSdkNativeRecord).document : native.record, located(caseKey, `${location}/nativeRecord`)) };
       });
       const decisions = [...new Map(reviews.flatMap(({ history }) => history.decisions.filter(({ assertion: binding }) => binding.id === assertion.id && binding.digest === assertionDigest)).map((decision) => [digest(decision), decision])).values()];
-      cases.push({ ...context, key: caseKey, assertion: displaySafe(assertion, located(caseKey, "/assertion")) as BehaviorAssertion, assertionDigest, mode: assertion.producer.mode, family: resolveBehaviorCard(assertion.behavior).family, card: assertion.behavior.cardId, verdict: assertion.judgment.verdict,
-        direction: behaviorDirection(resolveBehaviorCard(assertion.behavior), assertion.judgment) ?? "none", review, decisions: displaySafe(decisions, located(caseKey, "/decisions")) as ReviewDecision[], citations, ...(trace ? { trace } : {}) });
+      cases.push({ ...context, key: caseKey, assertion: safe(assertion, located(caseKey, "/assertion")) as BehaviorAssertion, assertionDigest, mode: assertion.producer.mode, family: resolveBehaviorCard(assertion.behavior).family, card: assertion.behavior.cardId, verdict: assertion.judgment.verdict,
+        direction: behaviorDirection(resolveBehaviorCard(assertion.behavior), assertion.judgment) ?? "none", review, decisions: safe(decisions, located(caseKey, "/decisions")) as ReviewDecision[], citations, ...(trace ? { trace } : {}) });
     }
   }
   return { request, aggregation, input, corpusRoot, requestPath: resolve(requestPath), cases, sourceDigest: digest({ request, lineage: validated.sourceLineage }), secretFindings };
@@ -194,7 +210,8 @@ export async function queryAtlas(source: AtlasSource, filters: AtlasFilters = {}
   // remain in aggregation so a verdict filter cannot erase a disagreeing rerun.
   const ids = new Set(matches.map(attemptKey));
   const corpusEntries = source.input.corpusEntries.filter((entry) => ids.has(attemptKey(entry)));
-  const report = await aggregateEvaluation({ ...source.input, lineage: { ...source.input.lineage, corpusIndexDigest: digest(corpusEntries) }, corpusEntries, observationSets: source.input.observationSets.filter(({ document }) => ids.has(attemptKey(document))), assertions: source.input.assertions.filter(({ document }) => ids.has(attemptKey(document))) }, source.aggregation);
+  // The source was validated when it loaded; a filtered view aggregates its documents without validating them again.
+  const report = await aggregateValidatedSubset(source.input, { ...source.input, lineage: { ...source.input.lineage, corpusIndexDigest: digest(corpusEntries) }, corpusEntries, observationSets: source.input.observationSets.filter(({ document }) => ids.has(attemptKey(document))), assertions: source.input.assertions.filter(({ document }) => ids.has(attemptKey(document))) }, source.aggregation);
   const filterOptions = Object.fromEntries(ATLAS_FILTERS.filter((key) => key !== "q").map((key) => [key, [...new Set(eligibleCases.map((item) => String(item[key])))].sort()]));
   const sourceAttempts = new Set(source.input.corpusEntries.filter(({ manifestKind }) => manifestKind === "run" || manifestKind === "import").map(attemptKey)).size;
   const caseIndex = new Map(matches.map(({ key }, index) => [key, index]));
@@ -283,7 +300,7 @@ export async function serveAtlas(requestPath: string, port = 13011): Promise<Ser
 }
 
 function readJson(path: string): unknown { const text = readBoundedFile(path).toString("utf8"); assertNoDuplicateJsonKeys(text); return JSON.parse(text); }
-function displaySafe(value: unknown, onFinding?: (finding: LocatedSecretFinding) => void): unknown { return sanitizeDerivedExport(value, { sharingClass: "partner", maxArtifactBytes: 16 * 1024 * 1024, maxStringBytes: 128 * 1024 }, [], onFinding); }
+function displaySafe(value: unknown, onFinding?: (finding: LocatedSecretFinding) => void, environment?: readonly string[]): unknown { return sanitizeDerivedExport(value, { sharingClass: "partner", maxArtifactBytes: 16 * 1024 * 1024, maxStringBytes: 128 * 1024 }, [], onFinding, environment); }
 function readArtifact<T>(path: string): T { const value = readJson(path); const errors = validateArtifact(path, value); if (errors.length) throw new Error(`Invalid Atlas source: ${errors[0]!.field} ${errors[0]!.message}`); return value as T; }
 function exactKeys(value: unknown, keys: readonly string[]): void { if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !keys.includes(key))) throw new Error("Unknown or invalid Atlas fields."); }
 function localUrl(value: string): string { const url = new URL(value); if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) || url.username || url.password || url.search || url.hash || url.pathname !== "/") throw new Error("Atlas integration URL must be a local HTTP origin."); return url.origin; }

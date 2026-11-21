@@ -33,10 +33,17 @@
         "embeddings": {
           "type": "object", "additionalProperties": false,
           "properties": {
-            "provider": { "enum": ["local", "fireworks"] },
+            "provider": { "enum": ["embeddinggemma", "hashed-tfidf"] },
             "model": { "type": "string", "minLength": 1 },
+            "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
             "dimensions": { "type": "integer", "minimum": 1, "maximum": 8192 },
-            "cache": { "$ref": "#/$defs/path" }
+            "cache": { "$ref": "#/$defs/path" },
+            "python": { "$ref": "#/$defs/path" },
+            "device": { "enum": ["auto", "cuda", "mps", "cpu"] },
+            "batchSize": { "type": "integer", "minimum": 1, "maximum": 65536 },
+            "tokenBudget": { "type": "integer", "minimum": 1, "maximum": 16777216 },
+            "maxTokens": { "type": "integer", "minimum": 16, "maximum": 32768 },
+            "layout": { "enum": ["auto", "browser", "build"] }
           }
         }
       }
@@ -63,9 +70,26 @@
           "type": "object", "additionalProperties": false, "required": ["units", "embeddings"],
           "properties": {
             "units": { "type": "integer", "minimum": 0 },
+            "layout": {
+              "type": "object", "additionalProperties": false, "required": ["where"],
+              "properties": { "where": { "enum": ["build", "browser"] }, "compact": { "const": true }, "run": { "type": "object", "required": ["backend", "device", "units"], "additionalProperties": true } }
+            },
             "embeddings": {
               "type": "object", "additionalProperties": false, "required": ["file", "provider", "model", "dimensions"],
-              "properties": { "file": { "$ref": "#/$defs/path" }, "provider": { "enum": ["local", "fireworks"] }, "model": { "type": "string", "minLength": 1 }, "dimensions": { "type": "integer", "minimum": 1, "maximum": 8192 } }
+              "properties": { "file": { "$ref": "#/$defs/path" }, "provider": { "enum": ["embeddinggemma", "hashed-tfidf"] }, "model": { "type": "string", "minLength": 1 },
+                "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" }, "dimensions": { "type": "integer", "minimum": 1, "maximum": 8192 },
+                "run": {
+                  "type": "object", "additionalProperties": false, "required": ["texts", "distinct", "cached", "embedded", "seconds"],
+                  "properties": {
+                    "texts": { "type": "integer", "minimum": 0 }, "distinct": { "type": "integer", "minimum": 0 }, "cached": { "type": "integer", "minimum": 0 },
+                    "embedded": { "type": "integer", "minimum": 0 }, "seconds": { "type": "number", "minimum": 0 },
+                    "runtime": {
+                      "type": "object", "additionalProperties": true, "required": ["device", "dtype", "batchSize", "textsPerSecond", "seconds", "packages"],
+                      "properties": { "device": { "type": "string" }, "dtype": { "type": "string" }, "batchSize": { "type": "integer", "minimum": 1 },
+                        "textsPerSecond": { "type": ["number", "null"] }, "seconds": { "type": "number" }, "packages": { "type": "object", "additionalProperties": { "type": "string" } } }
+                    }
+                  }
+                } }
             }
           }
         },

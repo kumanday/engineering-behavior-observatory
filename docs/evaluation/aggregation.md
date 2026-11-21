@@ -44,8 +44,16 @@ lists JSON Lines files with one card result per line, bound to one bundle each;
 [decision-model judging](decision-model-judge.md) writes its results this way
 and lists the files in its run summary.
 
-Grouping dimensions are `task`, `model`, `harness`, `trial`, and
-`capture-qualification`. `all-attempts` is the evidence-preserving default.
+Each attempt's observation set and card results are checked against its
+retained evidence in worker processes when there are many attempts
+(`EBO_WORKERS`, by default one fewer than the machine's cores, at most 16). A
+failure reports the first failing attempt in source order, as a serial check
+would.
+
+Grouping dimensions are `task`, `model`, `harness`, `harness-version`, `trial`,
+`capture-qualification`, `evidence-origin` and `source-outcome`. `source-outcome`
+is a third party's verdict on an imported trial, as its import declared it;
+owned runs have none and group as unavailable. `all-attempts` is the evidence-preserving default.
 `trial` is the queue's retained numeric trial index; legacy bundles without it
 remain unavailable and are excluded from trial-matched comparisons.
 `latest-attempt-per-run` selects the highest declared attempt number regardless
@@ -87,6 +95,15 @@ A dimension card also has `values`: each named value's count among the
 attempts judged present (`present-attempt-card`), with the absent and unknown
 attempts listed as exclusions.
 
+Each group lists its selected attempts in `attempts`, as indices into
+`sourceLineage.manifests`. A card entry records its card results as `members`,
+their count and one digest over their sorted digests, and lists in
+`exceptions` only the results whose flags differ from the default: excluded
+by conflicting reruns, disputed, or carrying a review outcome other than
+`unreviewed` (`judge-abstained` for an unknown verdict). `behaviorMembers`
+rebuilds every result with its flags from the report and the card results,
+and rejects results that do not reproduce the count and digest.
+
 Each group's `directions` array is the second view of the same results. Its
 producers are the ones of the per-card entries: the full `producer`,
 configuration digest included, and for an LLM judge the `rubric`. It has one
@@ -121,8 +138,10 @@ and unavailable remain distinct. Rebuild older corpus indexes before using
 them; source manifests and native artifacts are never rewritten.
 
 Every report retains the logical request and corpus-index digests plus the
-exact admitted manifest, observation-set, assertion, calibration, and
-comparison-gate digests. Moving the report therefore does not detach its
+exact admitted manifest, observation-set, calibration, and comparison-gate
+digests. Card results are recorded per attempt: the number of results and one
+digest over their sorted digests, so a cohort of millions of results keeps one
+lineage entry per attempt. Moving the report therefore does not detach its
 metrics from their rebuild inputs.
 
 Observation and assertion sources name their retained bundle so the build can

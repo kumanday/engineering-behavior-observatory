@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   aggregateEvaluation,
+  assertionLineage,
   assessComparisonEligibility,
   buildCorpusIndex,
   validateArtifact,
@@ -248,3 +249,22 @@ function metric(group: AggregationReport["groups"][number], id: string) {
 function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8"));
 }
+
+test("assertion lineage holds one entry per attempt, so a cohort over 100,000 card results fits the report", async () => {
+  // 1,100 attempts × 93 cards = 102,300 card results, past the 100,000-item cap on each lineage array.
+  const documents = Array.from({ length: 1_100 * 93 }, (_, index) => ({ runId: `run-${String(Math.floor(index / 93) % 7)}`, attemptId: `attempt-${String(Math.floor(index / 93))}`,
+    id: `assertion-${String(index)}`, behavior: { cardId: `card-${String(index % 93)}` } }));
+  const lineage = assertionLineage(documents);
+  assert.equal(lineage.length, 1_100);
+  assert.deepEqual(lineage.slice(0, 2).map(({ runId, attemptId, count }) => ({ runId, attemptId, count })),
+    [{ runId: "run-0", attemptId: "attempt-0", count: 93 }, { runId: "run-1", attemptId: "attempt-1", count: 93 }]);
+  // The digest covers the attempt's sorted result digests: source order does not change it, a changed result does.
+  assert.deepEqual(assertionLineage(documents.slice(0, 93).reverse()), lineage.slice(0, 1));
+  const changed = documents.slice(0, 93).map((document, index) => index === 5 ? { ...document, behavior: { cardId: "card-other" } } : document);
+  assert.notEqual(assertionLineage(changed)[0]!.digest, lineage[0]!.digest);
+  const report = await aggregateEvaluation({ corpusEntries: [entry("run-a", "attempt-a1", 1, { terminalState: "completed", verifierStatuses: ["passed"] })], observationSets: [], assertions: [], calibrations: [], comparisons: [] },
+    { groupBy: ["task"], selectedAttemptPolicy: "all-attempts", recurrence: { minimumOccurrences: 2 } });
+  assert.deepEqual(validateArtifact("aggregate", { ...report, sourceLineage: { ...report.sourceLineage, assertions: lineage } }), []);
+  const perResult = documents.map(({ runId, attemptId }, index) => ({ runId, attemptId, count: 1, digest: `sha256:${index.toString(16).padStart(64, "0")}` }));
+  assert.match(validateArtifact("aggregate", { ...report, sourceLineage: { ...report.sourceLineage, assertions: perResult } }).map(({ message }) => message).join("\n"), /100000 items/u);
+});

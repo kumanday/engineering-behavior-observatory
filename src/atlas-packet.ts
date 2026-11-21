@@ -292,7 +292,7 @@ async function writePacket({ bundleRoot, bundle, out, variant, viewerRoot, now }
   for (const { path, role } of bundleFiles) {
     const source = join(bundleRoot, path);
     const target = `viewer/bundle/${path}`;
-    const layer: Layer = role === "native-records" || role === "audits" ? "L4" : role === "claims" ? "L1" : role === "assessments" ? "L2" : role === "cohort-report" ? "L3" : "L5";
+    const layer: Layer = role === "native-records" || role === "audits" ? "L4" : role === "claims" ? "L1" : role === "assessments" || role === "assessment-details" || role === "assessment-index" ? "L2" : role === "cohort-report" ? "L3" : "L5";
     if (variant === "restricted" && (role === "native-records" || role === "audits" || role === "table")) {
       // The bundle was verified against its manifest above; a withheld payload is not read whole again.
       withheld.push({ path: target, layer, sha256: bundle.files.find((file) => file.path === path)!.sha256, reason: "native records, attempt audits and tables are withheld in the restricted variant" });
@@ -312,6 +312,8 @@ async function writePacket({ bundleRoot, bundle, out, variant, viewerRoot, now }
       const count = { n: 0 };
       let value = JSON.parse(readFileSync(source, "utf8")) as unknown;
       if (variant === "restricted" && role === "assessments") value = withholdCitationText(value as { assessments: Assessment[] });
+      // A large bundle's per-attempt detail files hold the same documents as an inline assessments list.
+      if (variant === "restricted" && role === "assessment-details") value = withholdCitationText({ assessments: value as Assessment[] }).assessments;
       value = shareNativeRecords(value, variant, count, transform);
       put(target, layer, JSON.stringify(redactValue(value, count, transform)));
       redactionsOf.set(target, count.n);
@@ -334,7 +336,7 @@ async function writePacket({ bundleRoot, bundle, out, variant, viewerRoot, now }
       title: transform(bundle.title),
       cohorts: bundle.cohorts.map((c) => ({ ...c, title: transform(c.title) })),
       derivedFrom: { bundle: bundle.id, manifestSha256: sha256(readFileSync(join(bundleRoot, "manifest.json"))), variant },
-      cloud: { ...bundle.cloud, embeddings: { ...bundle.cloud.embeddings, provider: "local", model: LOCAL_EMBEDDING_MODEL } },
+      cloud: { ...bundle.cloud, embeddings: { file: bundle.cloud.embeddings.file, provider: "hashed-tfidf", model: LOCAL_EMBEDDING_MODEL, dimensions: bundle.cloud.embeddings.dimensions } },
       tables: Object.fromEntries(Object.entries(bundle.tables).filter(([, t]) => shared(t.path)).map(([name, t]) => [name, { ...t, sha256: describe(t.path).sha256 }])),
       files: bundle.files.filter(({ path }) => shared(path)).map(({ path, role }) => ({ path, role, ...describe(path) })),
     };

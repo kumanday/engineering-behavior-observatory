@@ -12,7 +12,7 @@ import {
 } from "../src/decision-model-judge.js";
 import type { DecisionAnswer, DecisionQuestion } from "../src/decision-models.js";
 import { excerpt, renderStepExcerpt } from "../src/step-excerpt.js";
-import { createAtlasFixture } from "./atlas-fixture.js";
+import { createAtlasFixture, standInEmbed } from "./atlas-fixture.js";
 
 const ontology = loadDefaultBehaviorOntology();
 const card = (id: string) => ontology.cards.find((item) => item.id === id)!;
@@ -262,7 +262,7 @@ test("two attempts of one run with the same answers keep distinct result ids thr
     writeFileSync(join(root, "aggregation.json"), JSON.stringify(aggregation));
     writeFileSync(join(root, "atlas.json"), JSON.stringify({ schemaVersion: "ebo.atlas-request/v1", title: "Ids", aggregationRequest: "aggregation.json" }));
     writeFileSync(join(root, "bundle.json"), JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "ids", title: "Ids", cohorts: [{ id: "all", atlasRequest: "atlas.json" }] }));
-    await buildAtlasBundle(join(root, "bundle.json"), join(root, "atlas-bundle"), { embed: async (texts: readonly string[], config: { dimensions: number }) => new Float32Array(texts.length * config.dimensions).fill(1) });
+    await buildAtlasBundle(join(root, "bundle.json"), join(root, "atlas-bundle"), { embed: standInEmbed() });
     const docs = JSON.parse(readFileSync(join(root, "atlas-bundle", "assessments.json"), "utf8")) as { assessments: unknown[] };
     assert.equal(docs.assessments.length, 2);
 
@@ -270,7 +270,7 @@ test("two attempts of one run with the same answers keep distinct result ids thr
     const clash = JSON.parse(readFileSync(join(root, imported.assertionSets[1]!.path), "utf8").trim()) as DecisionModelAssertion;
     writeFileSync(join(root, imported.assertionSets[1]!.path), `${JSON.stringify({ ...clash, id: ids[0] })}\n`);
     const before = retainedEvidenceBuildCount();
-    await assert.rejects(buildAtlasBundle(join(root, "bundle.json"), join(root, "atlas-bundle-2"), { embed: async (texts: readonly string[], config: { dimensions: number }) => new Float32Array(texts.length * config.dimensions).fill(1) }), /names two different assertions/u);
+    await assert.rejects(buildAtlasBundle(join(root, "bundle.json"), join(root, "atlas-bundle-2"), { embed: standInEmbed() }), /names two different assertions/u);
     assert.equal(retainedEvidenceBuildCount() - before, 0);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

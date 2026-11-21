@@ -17,7 +17,7 @@ writeCorpusIndex(join(root, 'index.jsonl'), buildCorpusIndex(join(root, 'corpus'
 write('aggregation.json', { schemaVersion: 'ebo.aggregation-request/v2', sources: { corpusRoot: 'corpus', corpusIndex: 'index.jsonl', observationSets: [{ bundleRoot: 'corpus/import', path: 'observations.json' }], assertions: [], calibrations: [] }, groupBy: ['harness'], selectedAttemptPolicy: 'all-attempts', evidenceOrigins: 'imported', recurrence: { minimumOccurrences: 2 }, comparisons: [] });
 write('atlas.json', { schemaVersion: 'ebo.atlas-request/v1', aggregationRequest: 'aggregation.json', title: 'Imported trajectory: structural pilot' });
 write('claims-source.json', { study: 'imported-structural-pilot', source: { file: 'retained import', title: 'Structural import pilot' }, number_kinds: {}, claims: [] });
-write('bundle-request.json', { schemaVersion: 'ebo.atlas-bundle-request/v2', id: 'imported-structural-pilot', title: 'Imported trajectory: structural pilot', claims: 'claims-source.json', cohorts: [{ id: 'imported', atlasRequest: 'atlas.json' }] });
+write('bundle-request.json', { schemaVersion: 'ebo.atlas-bundle-request/v2', id: 'imported-structural-pilot', title: 'Imported trajectory: structural pilot', embeddings: { provider: 'hashed-tfidf' }, claims: 'claims-source.json', cohorts: [{ id: 'imported', atlasRequest: 'atlas.json' }] });
 await buildAtlasBundle(join(root, 'bundle-request.json'), join(root, 'atlas'));
 const verification = verifyAtlasBundle(join(root, 'atlas')); write('verification.json', verification);
 console.log(JSON.stringify({ output: join(root, 'atlas'), verified: verification.ok }));
