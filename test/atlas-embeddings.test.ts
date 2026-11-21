@@ -197,6 +197,34 @@ test("the layout check builds the cuML estimators with cuML's own arguments", { 
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("the layout lays out each distinct vector once, reading rows in chunks", { skip: process.platform === "win32" }, async () => {
+  const { execFileSync } = await import("node:child_process");
+  const script = join(process.cwd(), "scripts/embeddings/layout.py");
+  // 150,000 rows of one family over 3 chunks, with 7 planted distinct vectors; the family's rows are every other row.
+  const program = [
+    "import importlib.util, json, sys",
+    "sys.dont_write_bytecode = True",
+    "import numpy as np",
+    "spec = importlib.util.spec_from_file_location('layout', sys.argv[1]); layout = importlib.util.module_from_spec(spec); spec.loader.exec_module(layout)",
+    "planted = np.random.default_rng(1).standard_normal((7, 16)).astype('<f4')",
+    "which = np.arange(300000) % 7",
+    "vectors = planted[which]",
+    "rows = np.arange(0, 300000, 2)",
+    "unique, inverse = layout.distinct_rows(vectors, rows)",
+    "ok_rows = bool(np.array_equal(unique[inverse], vectors[rows]))",
+    "groups = {int(w): sorted(set(inverse[which[rows] == w].tolist())) for w in range(7)}",
+    "print(json.dumps({'distinct': int(unique.shape[0]), 'rows': int(inverse.shape[0]), 'same': ok_rows, 'groups': [len(g) for g in groups.values()], 'apart': len({g[0] for g in groups.values()})}))",
+  ].join("\n");
+  let python: string | undefined;
+  for (const candidate of ["python3", "python"]) {
+    try { execFileSync(candidate, ["-I", "-c", "import numpy"], { stdio: "ignore" }); python = candidate; break; } catch { /* next */ }
+  }
+  if (!python) return;
+  const out = JSON.parse(execFileSync(python, ["-I", "-c", program, script], { encoding: "utf8" })) as Record<string, unknown>;
+  // Every row maps back to its own vector; duplicates share one distinct index (so one place), and the 7 stay apart.
+  assert.deepEqual(out, { distinct: 7, rows: 150000, same: true, groups: [1, 1, 1, 1, 1, 1, 1], apart: 7 });
+});
+
 test("the runtime replaces a lone surrogate in its input, which tokenizers reject", { skip: process.platform === "win32" }, async () => {
   const { execFileSync } = await import("node:child_process");
   const script = join(process.cwd(), "scripts/embeddings/embed.py");

@@ -34,6 +34,27 @@ def backend():
     return "umap-learn", umap.__version__
 
 
+DIGEST_CHUNK = 65536
+
+
+def distinct_rows(vectors, rows):
+    """The family's distinct vectors and, per row, the index of its distinct vector.
+
+    Rows are compared by a 128-bit digest, read from the memory-mapped input in chunks, so only the distinct vectors are
+    ever copied: a family of millions of units with few distinct vectors needs memory for those few, not for every row."""
+    import hashlib
+
+    import numpy as np
+
+    parts = []
+    for start in range(0, len(rows), DIGEST_CHUNK):
+        chunk = np.ascontiguousarray(vectors[rows[start:start + DIGEST_CHUNK]])
+        parts.append(b"".join(hashlib.blake2b(row.tobytes(), digest_size=16).digest() for row in chunk))
+    keys = np.frombuffer(b"".join(parts), dtype="V16")
+    _, first, inverse = np.unique(keys, return_index=True, return_inverse=True)
+    return np.ascontiguousarray(vectors[rows[first]]), inverse.reshape(-1)
+
+
 def estimators(name, dims, neighbors, args):
     """PCA, UMAP and (for cuML) nearest neighbors for one family, built with each backend's own arguments."""
     if name == "cuml":
@@ -92,11 +113,7 @@ def main():
     for family in sorted(set(families.tolist())):
         started = time.monotonic()
         rows = np.flatnonzero(families == family)
-        block = np.ascontiguousarray(vectors[rows])
-        # Rows compared as opaque bytes: far faster than a lexicographic sort of float rows.
-        keys = block.view(np.dtype((np.void, block.dtype.itemsize * block.shape[1]))).reshape(-1)
-        _, first, inverse = np.unique(keys, return_index=True, return_inverse=True)
-        unique, inverse = block[first], inverse.reshape(-1)
+        unique, inverse = distinct_rows(vectors, rows)
         m = unique.shape[0]
         log(family=family, units=int(len(rows)), distinct=int(m))
         if m < 10:
