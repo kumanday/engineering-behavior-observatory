@@ -25,7 +25,7 @@ v2 projection modules are unaffected by the additional ATIF producer profiles.
 Use `inventoryMigrationStudy`, `planMigrationV2`, `prepareMigrationTargetV2`,
 `createMigrationTargetV2` and `reconcileMigration` through the library API. Select
 study roots explicitly and preserve their receipts. The
-[migration accounting guide](../../docs/development/migration-accounting.md)
+[migration accounting guide](https://github.com/kumanday/engineering-behavior-observatory/blob/153b6853ae2145f60aa96a5b46546af80387dcd2/docs/development/migration-accounting.md)
 describes limits, runtime pins and the historical missing-wall-limit exception.
 That exception admits an observed legacy omission without inventing a limit.
 
