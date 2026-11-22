@@ -93,15 +93,6 @@ lists all of them.
 
 ## Known limits
 
-- **Build time.** A bundle spends most of its unit build hashing: each native
-  record pointer re-reads and re-hashes its whole trajectory, and imported
-  sources are hashed again for every card result. A 939-attempt bundle took
-  88 minutes.
-- **Untimed swimlanes.** On the time axis, an attempt with no step timestamps is
-  drawn as a stub at 0 m beside timed lanes and is not marked as untimed.
-- **Viewer build.** `npm run build` builds the CLI but not the viewer
-  (`build:viewer` and `prepack` build both), and `ebo atlas serve` in a source
-  checkout serves whatever `viewer/dist` holds.
 - **Harness configuration.** A harness configuration has no field of its own.
   Two arms with the same harness version and different settings merge unless
   the import declares a distinguishing version, for example with semver build
