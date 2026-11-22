@@ -62,7 +62,7 @@ import { cleanupWorkspace, materializeWorkspace } from "./workspaces.js";
 export const PI_HARNESS = "pi-sdk";
 export const PI_CONFIG_SCHEMA_VERSION = "ebo.pi-config/v1";
 export const PI_ADAPTER_VERSION = "1.0.0";
-export const PI_NORMALIZATION_ADAPTER_VERSION = "1.0.0";
+export const PI_NORMALIZATION_ADAPTER_VERSION = "1.1.0";
 export const PINNED_PI_SDK_VERSION = "1.1.0";
 
 const ATTEMPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -1103,10 +1103,13 @@ function mapPiRecord(
     if (["tool_execution_start", "tool_execution_update", "tool_execution_end"].includes(kind)) {
       const toolCallId = text(payload.toolCallId);
       const args = payload.args;
+      // Pi's bash tool returns its exit code in the result's structured content.
+      const structured = isRecord(payload.result) && isRecord(payload.result.structuredContent) ? payload.result.structuredContent : undefined;
+      const exitCode = Number.isSafeInteger(structured?.exit_code) ? structured!.exit_code as number : undefined;
       return [event(kind, "tool", kind.endsWith("start") ? "before" : kind.endsWith("end") ? "after" : "during", { kind: "tool", id: text(payload.toolName) },
         { kind: "operation", ...(toolCallId === undefined ? {} : { id: toolCallId }) }, compactAttributes({
           toolCallId, toolName: text(payload.toolName), inputDigest: args === undefined ? undefined : `sha256:${digestMetadata(args).value}`,
-          isError: typeof payload.isError === "boolean" ? payload.isError : undefined,
+          isError: typeof payload.isError === "boolean" ? payload.isError : undefined, exitCode,
         }))];
     }
     if (["compaction_start", "compaction_end"].includes(kind)) return [event(kind, "context", kind.endsWith("start") ? "before" : "after", { kind: "harness" }, { kind: "session", id: sourceId }, { boundary: "compaction", subtype: "compact_boundary" })];
