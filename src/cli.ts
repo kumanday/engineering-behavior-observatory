@@ -100,7 +100,8 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--model <name>] [--profile <overlay-context-id>] [--python <executable>]
        ebo atif import-leaderboard <cohort-request.json> <store> [--python <executable>]
        ebo atif read-leaderboard <store> <cohort-digest>
-       ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--task <id>] [--model <name>] [--profile <overlay-context-id>] [--python <executable>]
+       ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--task <id>] [--model <name>] [--harness-version <version>] [--outcome <verdict> --outcome-source <publisher> [--outcome-release <release>] [--outcome-record <trial path>]] [--profile <overlay-context-id>] [--python <executable>]
+       ebo atif import-batch <batch.jsonl> [--shard <k>/<n>] [--python <executable>]
        ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
