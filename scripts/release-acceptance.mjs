@@ -98,8 +98,10 @@ try {
       if (!existsSync(source) || statSync(source).isDirectory()) continue;
       const text = readFileSync(source, "utf8");
       const sourceCode = /\.(?:[cm]?js|[cm]?ts)$/u.test(path);
+      // An OpenAPI document's object keys are field names from its schemas (a log-probability `token`), not values,
+      // so it is scanned as text, which still finds credential-shaped values.
       const mediaType = path.endsWith(".jsonl") ? "application/x-ndjson"
-        : path.endsWith(".json") ? "application/json"
+        : path.endsWith(".json") && !isOpenApiDocument(text) ? "application/json"
           : "text/plain";
       const scannedText = sourceCode ? maskSourceIdentifierAssignments(text, path, typescript) : text;
       if (containsPortableLocalHomePath(sourceCode ? maskSourceLogicalRoots(text, path, typescript) : text, mediaType) || containsPortableSecretPattern(scannedText, mediaType)) {
@@ -196,6 +198,15 @@ function markdownFiles(directory) {
     else if (entry.name.endsWith(".md")) files.push(path);
   }
   return files;
+}
+
+function isOpenApiDocument(text) {
+  try {
+    const value = JSON.parse(text);
+    return typeof value?.openapi === "string" && typeof value.paths === "object";
+  } catch {
+    return false;
+  }
 }
 
 function forbiddenPackagePath(path) {
