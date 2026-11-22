@@ -6,7 +6,9 @@ import { compareEventDisplayOrder as compareEvents, mergeNativeEventStreams, nat
  * repeated operation, one compaction, one delegation. Each cites exactly its own events. Rules that read command
  * text are labeled heuristic.
  */
-export const OCCURRENCE_RULES_VERSION = "1.2.0";
+export const OCCURRENCE_RULES_VERSION = "1.3.0";
+/** Rule versions whose occurrences are anchored by native order (1.2.0 and later); occurrences of older rules are legacy. */
+export const NATIVE_ORDER_RULE_VERSIONS: readonly string[] = ["1.2.0", "1.3.0"];
 export const OCCURRENCE_TYPES = ["failure-response", "validation-run", "source-change", "repeated-operation", "compaction", "delegation"] as const;
 export type OccurrenceType = typeof OCCURRENCE_TYPES[number];
 
@@ -14,7 +16,7 @@ export type Occurrence = {
   schemaVersion: "ebo.occurrence/v1";
   id: string;
   type: OccurrenceType;
-  rule: { id: string; version: typeof OCCURRENCE_RULES_VERSION; heuristic: boolean };
+  rule: { id: string; version: string; heuristic: boolean };
   eventIds: string[];
   citations: NativeEvidenceReference[];
   attributes: Record<string, UniformAttributeValue>;
@@ -22,7 +24,9 @@ export type Occurrence = {
 };
 
 export type OccurrenceCoverage =
-  | { type: OccurrenceType; status: "available"; count: number }
+  | { type: OccurrenceType; status: "available"; count: number;
+      /** Occurrences that could not be marked because native order cannot place them, counted without claiming an order. */
+      unordered?: { count: number; reason: string } }
   | { type: OccurrenceType; status: "unavailable"; reason: string };
 
 export type OccurrenceOperation = {
@@ -46,6 +50,9 @@ export type OccurrenceInput = {
   resolveContent?: (reference: NativeEvidenceReference) => unknown;
 };
 
+/** Why some repeats are counted rather than marked. */
+export const UNORDERED_REPEAT_REASON = "Native source order cannot place these identical calls after the first; calls recorded in one ATIF step share one order value.";
+
 const VALIDATION_KINDS = new Set(["test", "typecheck", "lint", "build"]);
 const EDIT_TOOLS = new Set(["edit", "write", "multiedit", "apply_patch", "str_replace", "str_replace_editor", "create",
   "write_file", "edit_file", "notebookedit", "patch", "filechange"]);
@@ -57,7 +64,7 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
   const eventsById = new Map(operations.flatMap(({ events }) => events.map((event) => [event.id, event] as const)));
   const occurrences: Occurrence[] = [];
   let failureOrderUnavailable = false;
-  let repeatedOrderUnavailable = false;
+  let unorderedRepeats = 0;
   let compactionOrderUnavailable = false;
   const add = (type: OccurrenceType, heuristic: boolean, events: readonly UniformEvent[], attributes: Record<string, UniformAttributeValue | undefined>, anchorId?: string) => {
     const sorted = ordered(uniqueEvents(events));
@@ -157,12 +164,15 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
   }
   for (const group of signatures.values()) {
     if (group.length < 2) continue;
+    // Order is decided per group and per call: a group or call that native order cannot place is counted as an
+    // unordered repeat and leaves every other group's marks in place.
     const view = commonOperationView(group, "repetition");
-    if (view === undefined) { repeatedOrderUnavailable = true; continue; }
+    if (view === undefined) { unorderedRepeats += group.length - 1; continue; }
     const sorted = [...group].sort((a, b) => nativeEventPrecedence(view.get(a.id)!.start, view.get(b.id)!.start) ?? compareEvents(view.get(a.id)!.start, view.get(b.id)!.start));
     const first = view.get(sorted[0]!.id)!.start;
     for (const operation of sorted.slice(1)) {
-      if (nativeEventPrecedence(first, view.get(operation.id)!.start) !== -1) { repeatedOrderUnavailable = true; continue; }
+      // A call that native order does not place after the first (in ATIF, a call in the first call's step) is unordered.
+      if (nativeEventPrecedence(first, view.get(operation.id)!.start) !== -1) { unorderedRepeats += 1; continue; }
       add("repeated-operation", false, operation.events, { toolName: operation.toolName, firstEventId: first.id,
         repeatedEventId: view.get(operation.id)!.start.id });
     }
@@ -224,10 +234,13 @@ export function extractOccurrences(input: OccurrenceInput): { occurrences: Occur
     const reason = type === "delegation" && !delegationAvailable
       ? input.delegationCapability.detail ?? "The adapter does not expose delegation."
       : type === "failure-response" ? toolReason ?? (failureOrderUnavailable ? "Native source order cannot establish the failure follow-up population." : undefined)
-        : type === "repeated-operation" ? toolReason ?? (repeatedOrderUnavailable ? "Native source order cannot establish repeated-operation precedence." : undefined)
+        : type === "repeated-operation" ? toolReason
         : type === "compaction" && compactionOrderUnavailable ? "Native order and source clocks cannot establish compaction adjacency."
           : ["validation-run", "source-change"].includes(type) ? toolReason ?? contentReason : undefined;
-    return reason === undefined ? { type, status: "available", count: count(type) } : { type, status: "unavailable", reason };
+    if (reason !== undefined) return { type, status: "unavailable", reason };
+    return type === "repeated-operation" && unorderedRepeats > 0
+      ? { type, status: "available", count: count(type), unordered: { count: unorderedRepeats, reason: UNORDERED_REPEAT_REASON } }
+      : { type, status: "available", count: count(type) };
   });
   const unavailable = new Set(coverage.filter(({ status }) => status === "unavailable").map(({ type }) => type));
   return { occurrences: occurrences.filter(({ type }) => !unavailable.has(type)), coverage };
@@ -343,6 +356,7 @@ export function checkKindsOf(command: string): string[] {
     else if (["prettier", "black", "gofmt"].includes(program)) words.push("format");
     else if (["jest", "vitest", "mocha", "pytest", "playwright"].includes(program)) words.push("test");
     else if (["cargo", "go"].includes(program) && tokens[1] === "test") words.push("test");
+    else if (program === "node" && tokens.slice(1).some((token) => token === "--test" || token.startsWith("--test="))) words.push("test");
     else if (PACKAGE_RUNNERS.has(program) || ["expo", "deno", "turbo", "nx"].includes(program)) {
       const args = tokens.slice(1, 7).filter((token) => !token.startsWith("-")).join(" ").toLowerCase();
       if (/\b(tsc|typecheck|type-check|check-types)\b/u.test(args)) words.push("typecheck");

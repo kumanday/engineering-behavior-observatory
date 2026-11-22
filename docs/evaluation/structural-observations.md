@@ -87,16 +87,17 @@ each assertion outcome with its native verifier citation.
 ## Occurrences
 
 Extractors `1.1.0` and later add `occurrences` beside the attempt-level counts
-(`1.2.0` uses occurrence rules `1.1.0`). Each
+(`1.2.0` writes occurrence rules `1.3.0` and reads sets written with rules
+`1.2.0`). Each
 occurrence is one instance of a pattern and lists only its own events and native
 records, so a judge or reviewer can open exactly that instance:
 
 | Type | One occurrence | Rule |
 | :--- | :--- | :--- |
 | `failure-response` | within one resolved session, agent and order domain: consecutive explicit failures of one tool, then the next call of that tool that starts after the last failure; `lastFailureEventId`, `responseEventId` | exact |
-| `validation-run` | one call whose command runs a test, typecheck, lint or build, classified per command segment; version, help and list invocations (`--version`, `--help`, `--listTests`) and Playwright's non-test subcommands (`install`, `show-report`, `codegen`) are not runs; `result`, `reportedExitCode`, `outputRedirected` | heuristic |
+| `validation-run` | one call whose command runs a test, typecheck, lint or build (including Node's `node --test`), classified per command segment; version, help and list invocations (`--version`, `--help`, `--listTests`) and Playwright's non-test subcommands (`install`, `show-report`, `codegen`) are not runs; `result`, `reportedExitCode`, `outputRedirected` | heuristic |
 | `source-change` | an explicit mutation record, or an edit/write tool call or shell command that writes a source path and has a native success result (`detectedBy`); failed or unfinished attempts are not changes | heuristic except explicit mutations |
-| `repeated-operation` | a call with the same tool and input digest as an earlier one | exact |
+| `repeated-operation` | a call with the same tool and input digest as an earlier one, when native order places it after that call | exact |
 | `compaction` | adjacent compaction records with no tool event or model/user message between them and no repeated record kind; a partial boundary stays on its own | heuristic |
 | `delegation` | the records of one delegated task, joined by task or agent ID | exact |
 
@@ -107,3 +108,10 @@ output does not count, and validation runs report it as `reportedExitCode`.
 unavailable with a reason: delegation when the adapter does not expose it, and
 command-based types when native tool content is not available. An unavailable
 type is never an observed zero.
+
+Repeat order is decided per group of identical calls and per call. A repeat
+that native order cannot place after the first call of its group, such as an
+identical call in the same ATIF step, is not marked; the repeated-operation
+coverage stays available and adds `unordered` with the number of such repeats
+and the reason. Every repeat that native order does place is marked, whatever
+other groups in the attempt contain.

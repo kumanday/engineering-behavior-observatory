@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { checkKindsOf, extractOccurrences, findCommand, shellWrites, type OccurrenceOperation } from "../src/occurrences.js";
+import { checkKindsOf, extractOccurrences, findCommand, shellWrites, UNORDERED_REPEAT_REASON, type OccurrenceOperation } from "../src/occurrences.js";
 import type { UniformEvent } from "../src/uniform-events.js";
 import { compareEventDisplayOrder, nativeEventPrecedence } from "../src/event-order.js";
 import { occurrenceRequest } from "../src/occurrence-ratings.js";
@@ -43,7 +43,7 @@ test("source precedence recognizes a later call after an untimed failure result"
   const chain = occurrences.find(({ type }) => type === "failure-response")!;
   assert.equal(chain.attributes.lastFailureEventId, "event-11");
   assert.equal(chain.attributes.responseEventId, "event-20");
-  assert.equal(chain.rule.version, "1.2.0");
+  assert.equal(chain.rule.version, "1.3.0");
   assert.equal(chain.rule.heuristic, true);
   assert.equal(coverage.find(({ type }) => type === "failure-response")!.status, "available");
 });
@@ -215,10 +215,28 @@ test("unknown source order with known clocks withholds exact occurrence coverage
   for (const operation of [failed, other]) operation.events = operation.events.map((value) => ({ ...value,
     nativeOrder: { status: "unknown", reason: "No source ordinal" } }));
   const result = extract([failed, other]);
-  for (const type of ["failure-response", "repeated-operation"]) {
-    assert.equal(result.coverage.find((value) => value.type === type)!.status, "unavailable");
-    assert.equal(result.occurrences.some((value) => value.type === type), false);
-  }
+  assert.equal(result.coverage.find((value) => value.type === "failure-response")!.status, "unavailable");
+  assert.equal(result.occurrences.some((value) => value.type === "failure-response"), false);
+  // A repeat that native order cannot place is counted, not marked, and leaves the coverage available.
+  assert.deepEqual(result.coverage.find((value) => value.type === "repeated-operation"),
+    { type: "repeated-operation", status: "available", count: 0, unordered: { count: 1, reason: UNORDERED_REPEAT_REASON } });
+  assert.equal(result.occurrences.some((value) => value.type === "repeated-operation"), false);
+});
+
+test("one unordered repeat leaves every repeat that native order places marked, in its own group and in others", () => {
+  // Group "same": calls 1 and 2 share one order value (one ATIF step); call 3 is in a later step.
+  const first = call(1, "Bash", "same").operation, sameStep = call(2, "Bash", "same").operation, later = call(3, "Bash", "same").operation;
+  sameStep.events = sameStep.events.map((value) => ({ ...value, nativeOrder: { status: "known", value: value.phase === "before" ? 10 : 11, domain: "session" } }));
+  // Group "other": ordered, call 5 repeats call 4. Group "unplaced": no native order at all.
+  const other = call(4, "Bash", "other").operation, otherRepeat = call(5, "Bash", "other").operation;
+  const unplaced = [call(6, "Bash", "unplaced").operation, call(7, "Bash", "unplaced").operation];
+  for (const operation of unplaced) operation.events = operation.events.map((value) => ({ ...value, nativeOrder: { status: "unknown", reason: "No source ordinal" } }));
+  const result = extract([later, sameStep, first, otherRepeat, other, ...unplaced]);
+  const marked = result.occurrences.filter(({ type }) => type === "repeated-operation").map(({ attributes }) => attributes.repeatedEventId).sort();
+  assert.deepEqual(marked, ["event-30", "event-50"], "the later-step repeat and the other group's repeat are marked");
+  assert.deepEqual(result.coverage.find(({ type }) => type === "repeated-operation"),
+    { type: "repeated-operation", status: "available", count: 2, unordered: { count: 2, reason: UNORDERED_REPEAT_REASON } },
+    "the same-step duplicate and the unplaced group's repeat are counted as unordered");
 });
 
 test("rating support facts use source precedence and abstain across clock-only domains", () => {
@@ -241,6 +259,10 @@ test("classifies every check a command runs per segment and the source paths it 
   assert.deepEqual(checkKindsOf("npx jest --listTests && pnpm exec playwright show-report"), []);
   assert.deepEqual(checkKindsOf("npx playwright test e2e/login.spec.ts"), ["test"]);
   assert.deepEqual(checkKindsOf("npx jest add"), ["test"], "a test selector named like a setup command is still a run");
+  assert.deepEqual(checkKindsOf("cd app && node --test calculator.test.mjs"), ["test"], "Node's built-in test runner is a test run");
+  assert.deepEqual(checkKindsOf("node --test --test-reporter=spec test/"), ["test"]);
+  assert.deepEqual(checkKindsOf("node calculator.test.mjs"), [], "running a file is not a check without the runner flag");
+  assert.deepEqual(checkKindsOf("node --test --help"), [], "a help query is not a check run");
   assert.deepEqual(shellWrites("node -e \"require('fs').writeFileSync('src/app.tsx', s)\""), ["src/app.tsx"]);
   assert.deepEqual(shellWrites("sed -i 's/a/b/' src/lib/util.ts && cat src/lib/util.ts > /tmp/out.log"), ["src/lib/util.ts"]);
   assert.deepEqual(shellWrites("pnpm test 2>&1 | tail"), []);

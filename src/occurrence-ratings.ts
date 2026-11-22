@@ -4,7 +4,7 @@ import { canonicalizeMetadata, digestMetadata, validateArtifact } from "./artifa
 import { runCodexStructuredTurn, type CodexTurnSettings } from "./codex-judge.js";
 import type { SemanticJudgeBackendResult } from "./semantic-judge.js";
 import { decide, verifyDecisionRecord, resolveDecisionModel, type DecideOptions, type DecisionAnswer, type DecisionProviderConfig, type DecisionQuestion, type DecisionRecord } from "./decision-models.js";
-import { findCommand, type Occurrence, type OccurrenceType } from "./occurrences.js";
+import { findCommand, NATIVE_ORDER_RULE_VERSIONS, type Occurrence, type OccurrenceType } from "./occurrences.js";
 import { createRetainedBehaviorEvidence } from "./retained-evidence.js";
 import { createStructuralObservationSet, nativeContentResolver, type StructuralObservationSet } from "./structural-observations.js";
 import type { NativeEvidenceReference, UniformEvent } from "./uniform-events.js";
@@ -182,7 +182,7 @@ export function occurrenceState(
   }
   const calls = [...groups.values()];
   const boundResponse = (events: UniformEvent[]) => events.some(({ id }) => id === occurrence.attributes.responseEventId);
-  const currentFollowUp = occurrence.type === "failure-response" && occurrence.rule.version === "1.2.0";
+  const currentFollowUp = occurrence.type === "failure-response" && NATIVE_ORDER_RULE_VERSIONS.includes(occurrence.rule.version);
   if (currentFollowUp) {
     const terminal = eventsById.get(String(occurrence.attributes.lastFailureEventId));
     const domain = terminal?.nativeOrder.status === "known" ? terminal.nativeOrder.domain : undefined;
@@ -320,7 +320,7 @@ export function occurrenceRequest(
     if (from === undefined || to === undefined) return "unknown";
     let count = 0;
     for (const views of changes) {
-      const change = occurrence.rule.version !== "1.2.0" ? views[0]
+      const change = !NATIVE_ORDER_RULE_VERSIONS.includes(occurrence.rule.version) ? views[0]
         : from.nativeOrder.status !== "known" || to.nativeOrder.status !== "known" || from.nativeOrder.domain !== to.nativeOrder.domain
           ? undefined : views.filter(({ nativeOrder }) => nativeOrder.status === "known" && from.nativeOrder.status === "known" && nativeOrder.domain === from.nativeOrder.domain)
             .sort((a, b) => eventOrder(a, b) ?? 0)[0];
@@ -333,7 +333,7 @@ export function occurrenceRequest(
   };
   const facts: Record<string, unknown> = {};
   if (occurrence.type === "repeated-operation") facts.sourceChangesBetween = between(occurrence.attributes.firstEventId,
-    occurrence.rule.version === "1.2.0" ? occurrence.attributes.repeatedEventId ?? occurrence.eventIds[0] : occurrence.eventIds[0]);
+    NATIVE_ORDER_RULE_VERSIONS.includes(occurrence.rule.version) ? occurrence.attributes.repeatedEventId ?? occurrence.eventIds[0] : occurrence.eventIds[0]);
   if (occurrence.type === "failure-response") {
     facts.sourceChangesBetween = occurrence.attributes.lastFailureEventId === undefined ? "unknown"
       : between(occurrence.attributes.lastFailureEventId, occurrence.attributes.responseEventId);
