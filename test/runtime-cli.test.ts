@@ -61,3 +61,16 @@ test("runtime CLI prepares and admits real probe outputs at the mocked registry 
     assert.equal((await run(["inspect", join(root, "research")])).groups[0].verification["cursor-sdk"].state, "probe-checked");
   } finally {await rm(root, {recursive: true, force: true});}
 });
+
+test("runtime check succeeds for a role that carries no harness verification", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ebo-runtime-cli-support-")); const output: string[] = [];
+  try {
+    const request = join(root, "request.json"); await writeFile(request, JSON.stringify({ studyId: "cli-support", roles: ["codex-judge"] }));
+    const options = fakeSdkRuntimeOptions("9.9.9");
+    assert.equal(await runRuntimeCommandLine(["freeze", root, request], (text) => output.push(text), options), 0, output.join(""));
+    assert.equal(await runRuntimeCommandLine(["check", root, "codex-judge"], (text) => output.push(text), options), 0, output.join(""));
+    const checked = JSON.parse(output.at(-1)!);
+    assert.equal(checked.status, "probed");
+    assert.equal("verification" in checked, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

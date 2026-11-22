@@ -8,8 +8,10 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
   constants,
+  existsSync,
   fsyncSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -312,11 +314,30 @@ export function unpackPortableExport(archivePath: string, destinationRoot: strin
   }
 }
 
+/** Harbor writes one attempt summary (`ebo.harbor-attempt/v1`) beside each attempt's step bundles. */
+const HARBOR_ATTEMPT_SCHEMA = "ebo.harbor-attempt/v1";
+
+/**
+ * Whether `directory` is the root of an `ebo harbor run` attempt: its `ebo/manifest.json` is an attempt summary. Such
+ * an attempt's evidence is its step bundles under `steps/`; `ebo/` holds the summary and `harbor/` Harbor's own
+ * files, which are not EBO corpus manifests.
+ */
+function isHarborAttemptRoot(directory: string): boolean {
+  const summary = join(directory, "ebo", "manifest.json");
+  if (!existsSync(summary) || !lstatSync(summary).isFile()) return false;
+  try {
+    const document = JSON.parse(readBoundedFile(summary, "Harbor attempt summary").toString("utf8")) as unknown;
+    return isRecord(document) && document.schemaVersion === HARBOR_ATTEMPT_SCHEMA;
+  } catch { return false; }
+}
+
 function discoverManifestPaths(root: string): string[] {
   const paths: string[] = [];
   const visit = (directory: string): void => {
+    const harborAttempt = isHarborAttemptRoot(directory);
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
       const path = join(directory, entry.name);
+      if (harborAttempt && entry.isDirectory() && (entry.name === "ebo" || entry.name === "harbor")) continue;
       if (entry.isDirectory()) visit(path);
       else if (entry.name === "manifest.json") {
         if (!entry.isFile()) throw new Error(`Corpus manifest "${path}" is not a regular file.`);

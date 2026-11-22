@@ -12,7 +12,7 @@ import { listAtifProfilesV2 } from "./atif-producers-v2.js";
 import { importHarborTrial, inspectHarborTrial, type HarborOriginalBinding } from "./harbor-import.js";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { assertNoDuplicateJsonKeys, canonicalizeMetadata, digestMetadata, validateArtifact, validateExportManifest, validateRunManifestEvidence, writeMetadataAtomically } from "./artifacts.js";
 import { aggregateEvaluation, readAggregationAssertions, type AggregationRequest } from "./aggregation.js";
@@ -94,7 +94,7 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo matrix compile <experiment.json> <bundle-root> <queue.json> [--freeze-locator <task-id>=<path>]
        ebo queue inspect <queue.json>
        ebo queue validate <queue.json> [experiment.json] [--bundle-root <bundle-root>]
-       ebo harbor <inspect|prepare|admit|freeze|status|doctor|compile|convert-legacy|environment|job|run> ...
+       ebo harbor <inspect|prepare|admit|freeze|status|doctor|build-worker|compile|convert-legacy|environment|job|run> ...
        ebo atif inspect <trajectory.json> [--python <executable>] [--retain <relative-path>]...
        ebo atif overlays
        ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--model <name>] [--profile <overlay-context-id>] [--python <executable>]
@@ -125,6 +125,7 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo monitor <campaign-status.json> [--port <port>] [--interval <ms>]
        ebo atlas bundle build <request.json> <output-root>
        ebo atlas bundle verify <bundle-dir>
+       ebo atlas embeddings check [--python <executable>] [--no-layout]
        ebo packet build <bundle-dir> <output-dir> --variant internal|partner|restricted
        ebo packet verify <packet-dir>
        ebo observations create <run-bundle-root> <output.json>
@@ -303,6 +304,24 @@ export function main(
         write(`Built Atlas bundle ${manifest.id}: ${manifest.cohorts.length} cohorts; ${Object.entries(manifest.tables).map(([name, { rows }]) => `${name} ${rows}`).join(", ")}\n`);
         return 0;
       }
+      if (args[1] === "embeddings" && args[2] === "check") {
+        const flags = args.slice(3);
+        if (flags.some((flag, i) => !["--python", "--no-layout"].includes(flag) && flags[i - 1] !== "--python")) throw new Error("Usage: ebo atlas embeddings check [--python <executable>] [--no-layout]");
+        const embeddings = await import("./atlas-embeddings.js");
+        const missing = [embeddings.EMBEDDING_SCRIPT, embeddings.LAYOUT_SCRIPT, embeddings.EMBEDDINGS_REQUIREMENTS, embeddings.EMBEDDINGS_GPU_REQUIREMENTS].filter((path) => !existsSync(path));
+        if (missing.length) throw new Error(`The embedding runtime's files are missing from this installation: ${missing.join(", ")}`);
+        const python = flagValue(flags, "--python") ?? process.env.EBO_EMBEDDINGS_PYTHON;
+        const report = { scripts: embeddings.EMBEDDINGS_DIRECTORY, requirements: embeddings.EMBEDDINGS_REQUIREMENTS, gpuRequirements: embeddings.EMBEDDINGS_GPU_REQUIREMENTS, python: python ? resolve(python) : null };
+        if (!python) {
+          write(`${JSON.stringify({ ...report, checked: false }, null, 2)}\n`);
+          write(`No runtime to check. Create one with python3 -m venv .embeddings-venv && .embeddings-venv/bin/pip install -r ${embeddings.EMBEDDINGS_REQUIREMENTS}, then run ebo atlas embeddings check --python .embeddings-venv/bin/python.\n`);
+          return 0;
+        }
+        await embeddings.checkEmbeddingRuntime(embeddings.embeddingConfig({ python: resolve(python) }, process.cwd()),
+          { layout: !flags.includes("--no-layout"), progress: (line) => process.stderr.write(`${line}\n`) });
+        write(`${JSON.stringify({ ...report, checked: true, ok: true }, null, 2)}\n`);
+        return 0;
+      }
       if (args[1] === "bundle" && args[2] === "verify" && args.length === 4) {
         const result = verifyAtlasBundle(args[3]!);
         write(`${JSON.stringify(result, null, 2)}\n`);
@@ -322,7 +341,7 @@ export function main(
         write(`Atlas listening at http://127.0.0.1:${typeof address === "object" && address ? address.port : 13011}\n`);
         return 0;
       }
-      if (args[1] !== "build" || !args[2] || !args[3]) throw new Error("Usage: ebo atlas build <request.json> <output-root> [--share] [--filter <name=value>] | atlas serve <request.json> [--port <port>] | atlas serve --bundle <bundle-dir> [--port <port>] | atlas bundle build <request.json> <output-root> | atlas bundle verify <bundle-dir>");
+      if (args[1] !== "build" || !args[2] || !args[3]) throw new Error("Usage: ebo atlas build <request.json> <output-root> [--share] [--filter <name=value>] | atlas serve <request.json> [--port <port>] | atlas serve --bundle <bundle-dir> [--port <port>] | atlas bundle build <request.json> <output-root> | atlas bundle verify <bundle-dir> | atlas embeddings check [--python <executable>] [--no-layout]");
       const filters: AtlasFilters = {};
       let share = false;
       for (let i = 4; i < args.length; i++) {
@@ -1559,6 +1578,8 @@ const harborUsage = `Usage: ebo harbor inspect <task-dir>
        ebo harbor freeze <study-root> <task-source-id>
        ebo harbor status <study-root> <task-source-id>
        ebo harbor doctor [--target local|cloud]
+       ebo harbor build-worker --check
+       ebo harbor build-worker <output-dir> --study <study-root> --node-image <image@sha256:digest> [--platform linux/arm64|linux/amd64] [--context | --adopt <dir>]
        ebo harbor job recover <study-root> <smol-job.json> [--cancel] [--delete]
        ebo harbor environment serve <study-root> <queue.json> [--resume]
        ebo harbor compile <study-root> <experiment.json> <queue.json>
@@ -1599,6 +1620,24 @@ async function runHarborCommand(args: string[], write: (message: string) => void
         const queue = await compileHarborRunQueue(readJson(args[2]!) as never, { studyRoot: args[1]! });
         await writeFile(args[3]!, JSON.stringify(queue, null, 2) + "\n", { flag: "wx", mode: 0o600 });
         write(JSON.stringify({ queuePath: args[3], entries: queue.entries.map(e => ({ runId: e.runId, task: e.taskId, harness: e.harnessId, model: e.modelId })) }) + "\n");
+        return 0;
+      }
+      case "build-worker": {
+        // The builder ships as scripts/build-harbor-runtime.mjs beside dist/ in the package and in a source checkout.
+        const builderPath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "build-harbor-runtime.mjs");
+        const builder = await import(pathToFileURL(builderPath).href) as {
+          checkWorkerSources(): { root: string; sources: string[] };
+          buildHarborRuntime(options: Record<string, unknown>): Promise<unknown>;
+        };
+        if (args[1] === "--check" && args.length === 2) {
+          write(`${JSON.stringify({ ok: true, ...builder.checkWorkerSources() }, null, 2)}\n`);
+          return 0;
+        }
+        const flags = args.slice(2);
+        if (!args[1] || args[1].startsWith("--")) throw new Error("Usage: ebo harbor build-worker --check | build-worker <output-dir> --study <study-root> --node-image <image@sha256:digest> [--platform <platform>] [--context | --adopt <dir>]");
+        const build = await builder.buildHarborRuntime({ destination: args[1], study: flagValue(flags, "--study"), nodeImage: flagValue(flags, "--node-image"),
+          platform: flagValue(flags, "--platform") ?? "linux/arm64", context: flags.includes("--context"), adopt: flagValue(flags, "--adopt") });
+        write(`${JSON.stringify(build, null, 2)}\n`);
         return 0;
       }
       case "doctor": {

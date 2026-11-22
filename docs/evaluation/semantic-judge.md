@@ -72,7 +72,7 @@ declared deadline. `maxBudgetUsd` is an independent optional setting.
     "maxOutputChars": 8192,
     "maxCitations": 8,
     "maxWallClockMs": 30000,
-    "maxTurns": 1,
+    "maxTurns": 3,
     "maxBudgetUsd": 0.1
   },
   "blinding": { "evaluatedModelIdentity": "redact" }
@@ -98,7 +98,8 @@ omitted instead of being shown to the judge as uncitable support.
 
 The default backend is the installed TypeScript Claude Agent SDK. The caller
 supplies model, effort, wall-clock, turn, output, citation, and optional cost
-limits. The runner passes no tools, settings sources, skills, plugins, MCP
+limits. A Claude judgment takes two SDK turns (Claude Agent SDK 0.3.330 reports
+`numTurns: 2` for each), so `maxTurns` must be at least 2; the example allows 3. The runner passes no tools, settings sources, skills, plugins, MCP
 servers, additional directories, or persistent session. It uses an empty
 temporary working directory, strict empty MCP configuration, `dontAsk`
 permissions, and a custom system prompt that treats the delimited trajectory

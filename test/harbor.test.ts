@@ -768,3 +768,15 @@ test("runtime-bound Harbor queues use the versioned reader with frozen source id
  assert.notEqual(queueRunId(reopened, queue.entries[0]!.runId), queue.entries[0]!.runId);
  assert.deepEqual(await readRunQueueVersioned(path, {studyRoot: root, adapter}), queue);
 });
+
+test("a Harbor interpreter that answers nothing reports its exit code and stderr", async () => {
+  const saved = process.env.EBO_HARBOR_PYTHON;
+  process.env.EBO_HARBOR_PYTHON = "/fixture/python";
+  try {
+    await assert.rejects(createHarborAdapter(async () => ({code: 1, stdout: "", stderr: "Traceback (most recent call last):\nModuleNotFoundError: No module named 'harbor'\n"})),
+      (error: Error) => /exited with code 1 before the Harbor adapter answered/.test(error.message) && /No module named 'harbor'/.test(error.message) && !/invalid JSON: $/.test(error.message));
+    await assert.rejects(createHarborAdapter(async () => ({code: 2, stdout: "", stderr: ""})), /exited with code 2 .*wrote nothing to stderr/);
+  } finally {
+    if (saved === undefined) delete process.env.EBO_HARBOR_PYTHON; else process.env.EBO_HARBOR_PYTHON = saved;
+  }
+});

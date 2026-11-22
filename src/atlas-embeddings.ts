@@ -31,7 +31,11 @@ export type LayoutRun = { backend: string; backendVersion: string; device: strin
   familySeconds: Record<string, number>; packages: Record<string, string>; seconds?: number };
 /** Above this many cloud units the layout is computed at build time when the runtime is available (`layout: "auto"`). */
 export const BUILD_LAYOUT_UNITS = 200_000;
-export const LAYOUT_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "embeddings", "layout.py");
+/** The embedding runtime's scripts and pinned requirements, shipped in the package and in a source checkout. */
+export const EMBEDDINGS_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "embeddings");
+export const EMBEDDINGS_REQUIREMENTS = join(EMBEDDINGS_DIRECTORY, "requirements.txt");
+export const EMBEDDINGS_GPU_REQUIREMENTS = join(EMBEDDINGS_DIRECTORY, "requirements-gpu.txt");
+export const LAYOUT_SCRIPT = join(EMBEDDINGS_DIRECTORY, "layout.py");
 /** What the embedding runtime reports about one run. */
 export type EmbeddingRuntime = { device: string; deviceName?: string; dtype: string; batchSize: number; tokenBudget?: number; maxTokens?: number; textsPerSecond: number | null; seconds: number;
   promptName: string; prompt: string | null; packages: Record<string, string>; warning?: string };
@@ -47,10 +51,15 @@ export const EMBEDDINGGEMMA_PROMPT_NAME = "Clustering";
 /** Tokens kept per text, prompt included; covers every text the unit caps allow. */
 export const EMBEDDINGGEMMA_MAX_TOKENS = 2048;
 export const LOCAL_EMBEDDING_MODEL = "ebo-hashed-tfidf-1";
-export const EMBEDDING_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "embeddings", "embed.py");
+export const EMBEDDING_SCRIPT = join(EMBEDDINGS_DIRECTORY, "embed.py");
 
 export type EmbeddingRequest = { provider?: EmbeddingProvider; model?: string; revision?: string; dimensions?: number; cache?: string; python?: string;
   device?: EmbeddingConfig["device"]; batchSize?: number; tokenBudget?: number; maxTokens?: number; layout?: EmbeddingConfig["layout"] };
+
+/** The message for a missing EmbeddingGemma runtime, naming the requirements file of this installation. */
+export function embeddingRuntimeMissing(): string {
+  return `EmbeddingGemma 2 needs its Python runtime: set embeddings.python in the bundle request or EBO_EMBEDDINGS_PYTHON (install it from ${EMBEDDINGS_REQUIREMENTS}; run ebo atlas embeddings check to test it), or choose the offline provider "hashed-tfidf" explicitly.`;
+}
 
 /** The provider, model and dimensions a bundle request selects, with EmbeddingGemma 2 at 768 dimensions by default. */
 export function embeddingConfig(request: EmbeddingRequest | undefined, base: string, env: NodeJS.ProcessEnv = process.env): EmbeddingConfig {
@@ -136,7 +145,7 @@ async function runEmbedder(config: EmbeddingConfig, inputPath: string, outputPat
     "--device", config.device ?? "auto", "--batch-size", String(config.batchSize ?? 0), "--token-budget", String(config.tokenBudget ?? 0),
     "--max-tokens", String(config.maxTokens ?? EMBEDDINGGEMMA_MAX_TOKENS), "--input", inputPath, "--output", outputPath, "--stats", statsPath];
   const command = options.command ?? (config.python ? [config.python, "-I", EMBEDDING_SCRIPT] : undefined);
-  if (!command) throw new Error("EmbeddingGemma 2 needs its Python runtime: set embeddings.python in the bundle request or EBO_EMBEDDINGS_PYTHON (install it from scripts/embeddings/requirements.txt), or choose the offline provider \"hashed-tfidf\" explicitly.");
+  if (!command) throw new Error(embeddingRuntimeMissing());
   await runRuntime(command, args, options);
   return JSON.parse(readFileSync(statsPath, "utf8")) as EmbeddingRuntime;
 }
@@ -175,7 +184,7 @@ export async function checkEmbeddingRuntime(config: EmbeddingConfig, options: { 
   if (config.provider === "embeddinggemma") {
     await runRuntime([config.python, "-I", EMBEDDING_SCRIPT], ["--model", config.model, "--revision", config.revision!, "--dimensions", String(config.dimensions),
       "--prompt-name", EMBEDDINGGEMMA_PROMPT_NAME, "--device", config.device ?? "auto", "--check"], options).catch((error: Error) => {
-      throw new Error(`The embedding runtime failed its check before the build started (install scripts/embeddings/requirements.txt): ${error.message}`);
+      throw new Error(`The embedding runtime failed its check before the build started (install ${EMBEDDINGS_REQUIREMENTS}): ${error.message}`);
     });
   }
   if (options.layout) {

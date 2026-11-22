@@ -20,7 +20,9 @@ npm exec --package=engineering-behavior-observatory -- ebo --help
 
 The package name is `engineering-behavior-observatory` and the executable is
 `ebo`. Avoid `npx ebo`, which targets another package. These installations
-include the runtime and documentation. The synthetic demo below requires a
+include the runtime, the documentation, the Harbor worker builder
+(`ebo harbor build-worker`) and the embedding runtime's scripts and pinned
+requirements (`ebo atlas embeddings check`). The synthetic demo below requires a
 source checkout because its generator and test fixtures are not packaged.
 
 ## Install from source

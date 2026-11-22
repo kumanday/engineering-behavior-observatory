@@ -15,6 +15,19 @@ import {fetchRuntimeReleases} from '../dist/src/runtime-registry.js';
 import {selectRuntimeRelease} from '../dist/src/runtime-resolution.js';
 import {checkRuntimeSecurity} from '../dist/src/runtime-security.js';
 
+/** EBO's root: a source checkout or the installed package. The builder reads only from here, whatever the cwd. */
+export const EBO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+/** What the guest worker is built from. `dist/harbor-worker/` carries the npm lock, which npm never packs at the root. */
+export const WORKER_SOURCES = ['package.json', 'dist/src/harbor/worker.js', 'dist/harbor-worker/package.json', 'dist/harbor-worker/package-lock.json',
+  'dist/harbor-worker/viewer/package.json', 'schemas', 'contracts', 'ontology', 'verification'];
+
+/** The builder's preflight: every worker source is present under EBO's root. Returns the root and the sources. */
+export function checkWorkerSources(root = EBO_ROOT) {
+  const missing = WORKER_SOURCES.filter(path => !existsSync(resolve(root, path)));
+  if (missing.length) throw new Error(`EBO's Harbor worker sources are missing under ${root}: ${missing.join(', ')}. In a source checkout, run npm run build first.`);
+  return {root, sources: WORKER_SOURCES};
+}
+
 const BUILD_SCRIPT = String.raw`
 import importlib.metadata,json,sys,uuid
 from smol import Machine,MachineConfig,ConnectOptions,ResourceSpec,MountSpec,ExecOptions
@@ -69,7 +82,7 @@ export async function buildHarborRuntime({destination, study, nodeImage, platfor
   if (!Object.hasOwn(PLATFORMS, platform)) throw new Error('Use --platform linux/arm64 or linux/amd64.');
   if (context && adopt) throw new Error('Use --context to write a build context or --adopt to accept its output, not both.');
   if (platform !== 'linux/arm64' && !context && !adopt && !provider) throw new Error('A local Smol VM builds linux/arm64 only. Write a build context with --context, build it on a native builder, then --adopt its output.');
-  if (!existsSync('dist/src/harbor/worker.js')) throw new Error('Run npm run build first.');
+  checkWorkerSources();
   destination = resolve(destination);
   mkdirSync(dirname(destination), {recursive: true});
   const staging = await mkdtemp(resolve(dirname(destination), '.ebo-worker-build-'));
@@ -95,20 +108,20 @@ async function buildWorker({destination, studyRoot, nodeImage, platform, context
   if (!guestKeys.length || guestKeys.some(key => !/^[a-f0-9]{64}$/u.test(key))) throw new Error(`The study lock must contain ${target.lock} installations.`);
   const smolKey = lock.groups.find(group => group.roles.includes('smol'))?.installation.key;
   if (smolKey && !/^[a-f0-9]{64}$/u.test(smolKey)) throw new Error('The host Smol receipt must have a frozen cache identity.');
-  const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
+  const packageJson = JSON.parse(readFileSync(resolve(EBO_ROOT, 'package.json'), 'utf8'));
   const nodeVersion = packageJson.engines.node;
   const npmVersion = /^npm@(\d+\.\d+\.\d+)$/u.exec(packageJson.packageManager)?.[1];
   if (!/^\d+\.\d+\.\d+$/.test(nodeVersion)) throw new Error('The coordinating Node version must be exact.');
   if (!npmVersion) throw new Error('The coordinating npm version must be exact.');
   mkdirSync(destination, {recursive: true});
   const imageBinding = provider || context || adopt ? undefined : await readOciDescriptorBinding(nodeImage, "linux-arm64");
-  const request = {image: nodeImage, configDigest: imageBinding?.configDigest, mounts: [{source: process.cwd(), target: '/source', readOnly: true}, {source: studyRoot, target: '/study', readOnly: true}, {source: destination, target: '/output', readOnly: false}], command: `
+  const request = {image: nodeImage, configDigest: imageBinding?.configDigest, mounts: [{source: EBO_ROOT, target: '/source', readOnly: true}, {source: studyRoot, target: '/study', readOnly: true}, {source: destination, target: '/output', readOnly: false}], command: `
     test "$(node --version)" = "v${nodeVersion}"
     test "$(node -p 'process.platform + ":" + process.arch')" = "linux:${target.node}"
     mkdir /runtime
-    cp /source/package.json /source/package-lock.json /runtime/
+    cp /source/dist/harbor-worker/package.json /source/dist/harbor-worker/package-lock.json /runtime/
     mkdir /runtime/viewer
-    cp /source/viewer/package.json /runtime/viewer/
+    cp /source/dist/harbor-worker/viewer/package.json /runtime/viewer/
     cd /runtime
     test "$(node /toolchain/bin/npm-cli.js --version)" = "${npmVersion}"
     touch .ebo-npm-user.rc .ebo-npm-global.rc
@@ -116,7 +129,7 @@ async function buildWorker({destination, studyRoot, nodeImage, platform, context
     rm .ebo-npm-user.rc .ebo-npm-global.rc
     cp /usr/local/bin/node ./node
     for path in dist schemas contracts ontology verification; do cp -R /source/$path ./$path; done
-    rm -rf ./dist/test
+    rm -rf ./dist/test ./dist/harbor-worker
     ${fixtures ? 'mkdir -p dist/test; cp /source/dist/test/harbor-provider-worker.js dist/test/' : ''}
     mkdir -p study/runtimes/cache
     cp /study/runtimes/lock.json study/runtimes/
@@ -185,7 +198,7 @@ COPY --from=worker /opt/ebo /opt/ebo
 /** Inputs are copied, not mounted: a remote builder sees only this directory. */
 async function writeBuildContext({destination, studyRoot, nodeImage, platform, command, guestKeys, smolKey, lock, nodeVersion, npmVersion}, provider) {
   const copy = (from, to) => cpSync(from, resolve(destination, to), {recursive: true, verbatimSymlinks: true});
-  for (const path of ['package.json', 'package-lock.json', 'viewer/package.json', 'dist', 'schemas', 'contracts', 'ontology', 'verification']) copy(path, `source/${path}`);
+  for (const path of ['package.json', 'dist', 'schemas', 'contracts', 'ontology', 'verification']) copy(resolve(EBO_ROOT, path), `source/${path}`);
   copy(resolve(studyRoot, 'runtimes/lock.json'), 'study/runtimes/lock.json');
   for (const key of guestKeys) copy(resolve(studyRoot, 'runtimes/cache', key), `study/runtimes/cache/${key}`);
   if (smolKey && !guestKeys.includes(smolKey)) copy(resolve(studyRoot, 'runtimes/cache', smolKey, '.ebo-runtime-receipt.json'), `study/runtimes/cache/${smolKey}/.ebo-runtime-receipt.json`);
@@ -218,6 +231,10 @@ function adoptBuildOutput({destination, adopt, nodeImage, platform, lock}) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const flag = name => {const index = process.argv.indexOf(name); return index < 0 ? undefined : process.argv[index + 1];};
   if (['--factory', '--base', '--image'].some(flag => process.argv.includes(flag))) throw new Error('Select harnesses in the study lock. Use a verified OCI image and localSetup for task preparation.');
+  if (process.argv[2] === '--check') {
+    process.stdout.write(`${JSON.stringify({ok: true, ...checkWorkerSources()}, null, 2)}\n`);
+    process.exit(0);
+  }
   await buildHarborRuntime({destination: process.argv[2] ?? '.ebo/harbor-runtime', study: flag('--study'), nodeImage: flag('--node-image'), platform: flag('--platform') ?? 'linux/arm64',
     context: process.argv.includes('--context'), adopt: flag('--adopt'), fixtures: process.argv.includes('--fixtures')});
 }

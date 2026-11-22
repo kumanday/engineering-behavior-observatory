@@ -17,7 +17,7 @@ import { loadAtlas, queryAtlas, type AtlasSource, type AtlasView } from "./atlas
 import { Bool, Dictionary, Field, Float32, Float64, Int32, List, makeData, makeVector, RecordBatchStreamWriter, Struct, Table, Utf8, vectorFromArray } from "apache-arrow";
 import { clusterCloud, FacetIndex } from "./atlas-clusters.js";
 import { buildViews, validateClaims, type ClaimsSource } from "./atlas-claims.js";
-import { BUILD_LAYOUT_UNITS, checkEmbeddingRuntime, embeddingConfig as selectEmbeddings, embedTexts, layoutCloud, type EmbeddingOptions, type EmbeddingProvider, type EmbeddingRequest, type EmbeddingRun, type LayoutRun } from "./atlas-embeddings.js";
+import { BUILD_LAYOUT_UNITS, checkEmbeddingRuntime, embeddingConfig as selectEmbeddings, embeddingRuntimeMissing, embedTexts, layoutCloud, type EmbeddingOptions, type EmbeddingProvider, type EmbeddingRequest, type EmbeddingRun, type LayoutRun } from "./atlas-embeddings.js";
 import { assessmentDoc, attemptEvidence, NativeLines, nativeRecordDigest } from "./atlas-evidence.js";
 import { laneData, type LaneMeta } from "./atlas-lanes.js";
 import { ATLAS_UNITS_VERSION, clipText, deriveUnits, type AtlasUnit } from "./atlas-units.js";
@@ -125,7 +125,7 @@ export const ATLAS_TABLES: Record<string, Column[]> = {
   edges: [["src_type", S], ["src_id", S], ["rel", S], ["dst_type", S], ["dst_id", S]],
   units: [["unit_id", S], ["attempt_id", S], ["seq", I], ["unit_kind", S], ["subkind", S], ["role", S], ["episode_id", S], ["model_id", S],
     ["harness_id", S], ["task_id", S], ["trial_id", S], ["condition", S], ["terminal_state", S], ["tool_name", S], ["tool_kind", S],
-    ["command", S], ["command_head", S], ["check_kind", S], ["check_kinds", L], ["writes", L], ["target", S], ["status", S], ["exit_code", I],
+    ["command", S], ["command_head", S], ["check_kind", S], ["check_kinds", L], ["writes", L], ["target", S], ["status", S], ["exit_code", I], ["status_source", S],
     ["duration_seconds", F], ["input_chars", I], ["output_chars", I], ["output_lines", I], ["lines_added", I], ["lines_removed", I],
     ["error_signature", S], ["tool_count", I], ["error_count", I], ["t_start", S], ["t_end", S], ["event_count", I], ["first_event_key", S],
     ["cited_assertions", L], ["cited_assessments", L], ["cited", B], ["observation_extractors", L], ["occurrences", L], ["embed", B],
@@ -338,7 +338,7 @@ async function writeAtlasBundle(request: AtlasBundleRequest, requestPath: string
   // A missing embedding runtime fails here, before hours of attempt processing, not at the end.
   const embeddingConfig = selectEmbeddings(request.embeddings, base);
   if (embeddingConfig.provider === "embeddinggemma" && !embeddingConfig.python && !options.embed && !options.embedding?.command) {
-    throw new Error("EmbeddingGemma 2 needs its Python runtime: set embeddings.python in the bundle request or EBO_EMBEDDINGS_PYTHON (install it from scripts/embeddings/requirements.txt), or choose the offline provider \"hashed-tfidf\" explicitly.");
+    throw new Error(embeddingRuntimeMissing());
   }
   if (!options.embed && !options.embedding?.command) await checkEmbeddingRuntime(embeddingConfig, { layout: embeddingConfig.layout !== "browser" && !options.layout, progress: options.embedding?.progress });
   const sourceLabels = leaderboardLabels(base, request.leaderboard);
@@ -892,7 +892,7 @@ export function writeJsonFile(path: string, value: unknown, indent = 0): void {
 }
 
 const CLOUD_STRINGS = ["unit_id", "attempt_id", "unit_kind", "subkind", "role", "episode_id", "model_id", "harness_id", "task_id", "trial_id", "condition",
-  "terminal_state", "tool_name", "tool_kind", "command_head", "check_kind", "target", "status", "error_signature", "first_event_key", "embed_text", "source_outcome"] as const;
+  "terminal_state", "tool_name", "tool_kind", "command_head", "check_kind", "target", "status", "status_source", "error_signature", "first_event_key", "embed_text", "source_outcome"] as const;
 const CLOUD_NUMBERS = ["seq", "exit_code", "duration_seconds", "input_chars", "output_chars", "output_lines", "lines_added", "lines_removed", "tool_count",
   "error_count", "event_count", "t0_ms", "t1_ms"] as const;
 const CLOUD_LISTS = ["check_kinds", "writes", "occurrences", "cited_assessments"] as const;
@@ -923,7 +923,7 @@ class CloudWriter {
 export const COMPACT_UNITS = 1_000_000;
 /** Compact cloud columns stored as one dictionary each: low-cardinality strings that repeat on every unit. */
 const COMPACT_DICTIONARIES = ["attempt_id", "condition", "model_id", "harness_id", "task_id", "trial_id", "unit_kind", "family", "subkind", "role", "tool_name", "tool_kind",
-  "command_head", "check_kind", "status", "terminal_state", "source_outcome", "target", "error_signature", "cluster_label"] as const;
+  "command_head", "check_kind", "status", "status_source", "terminal_state", "source_outcome", "target", "error_signature", "cluster_label"] as const;
 /** The compact cloud's text label: the start of a unit's embedded text, enough for a tooltip or table row. */
 export const COMPACT_LABEL_CHARS = 96;
 type CompactCloud = { clusterId: Int32Array; clusterOf: (id: number) => string | null; labels: ReturnType<typeof clusterCloud>["labels"]; dictionaries: Map<string, Map<string, number>> };

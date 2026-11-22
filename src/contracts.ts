@@ -581,7 +581,12 @@ export function openBundleRegularFile(
     }
     if (!opened.isFile() || current.isSymbolicLink() || !sameFileIdentity(opened, current)
         || !isReadableBundleFile(resolve(currentPath, leaf), opened)) {
-      throw new Error(`${label} "${locator}" is not an isolated regular file.`);
+      const reason = current.isSymbolicLink() ? "it is a symbolic link"
+        : !opened.isFile() ? "it is not a regular file"
+        : !sameFileIdentity(opened, current) ? "it changed while it was opened"
+        : opened.nlink > 1 ? `it has ${opened.nlink} hard links; copy it (cp, not ln) so this path is its only link`
+        : "it is not readable by its owner alone";
+      throw new Error(`${label} "${locator}" is not an isolated regular file: ${reason}.`);
     }
     assertBundleRootHandle(root, root.path, locator);
     return descriptor;
