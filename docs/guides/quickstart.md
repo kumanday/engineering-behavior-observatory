@@ -54,11 +54,11 @@ Replace `ebo` with `npm run ebo --` in later examples.
 
 If a [GitHub release](https://github.com/kumanday/engineering-behavior-observatory/releases)
 provides a package and `SHA256SUMS`, download both files.
-For v0.2.1, from the download directory:
+For 2.0.1, from the download directory:
 
 ```sh
 shasum -a 256 -c SHA256SUMS
-npm install --global ./engineering-behavior-observatory-0.2.1.tgz
+npm install --global ./engineering-behavior-observatory-2.0.1.tgz
 ebo --help
 ```
 

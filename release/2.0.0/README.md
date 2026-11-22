@@ -1,5 +1,9 @@
 # EBO 2.0.0
 
+2.0.0 was tagged and qualified but not published to npm; install
+[2.0.1](../2.0.1/README.md), the first 2.x package, which fixes what using
+2.0.0 found.
+
 EBO 2.0.0 judges agent behavior against a new behavior ontology, in two judging
 modes that write one record. It reads ATIF trajectories from any producer next
 to its own captures, and it runs every capture, judge and worker on software
