@@ -33,12 +33,22 @@ function ends(text: string, limit: number): string {
 /** Only explicit native cwd fields establish workspace identity. Relative paths do not. */
 export function evidenceWorkspaces(value: unknown): string[] {
   const found = new Set<string>();
-  const visit = (entry: unknown): void => {
-    if (Array.isArray(entry)) { entry.forEach(visit); return; }
+  // A tool result is often a JSON document carried as a string (`{"output": ..., "cwd": "/repo"}`); its fields are
+  // explicit native fields too, so a string holding a JSON object or array is read as one, a few encodings deep.
+  const visit = (entry: unknown, encodings = 0): void => {
+    if (typeof entry === "string") {
+      const text = entry.trim();
+      if (encodings >= 3 || text.length > 1_000_000 || !/^["{[]/u.test(text)) return;
+      let parsed: unknown;
+      try { parsed = JSON.parse(text); } catch { return; }
+      visit(parsed, encodings + 1);
+      return;
+    }
+    if (Array.isArray(entry)) { entry.forEach((child) => visit(child, encodings)); return; }
     if (entry === null || typeof entry !== "object") return;
     for (const [key, child] of Object.entries(entry)) {
       if (["cwd", "workdir", "workingDirectory", "working_directory", "workspaceCwd"].includes(key) && typeof child === "string") found.add(child);
-      visit(child);
+      else visit(child, encodings);
     }
   };
   visit(visibleEvidence(value));

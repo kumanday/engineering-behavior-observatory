@@ -505,16 +505,31 @@ async function runClaudeAgentSdkSemanticJudgeOwned(prompt: string, request: Sema
     if (signal?.aborted) return failure("interrupted", "Claude Agent SDK judge was interrupted.");
     if (result === undefined) return failure("provider", "Claude Agent SDK judge ended without a result.");
     const metadata = sdkMetadata(result);
+    // The model's final answer, retained in raw-model-response.json under its own maxOutputChars budget, so start-up
+    // frames that fill raw-response.json cannot hide an answer that fails validation.
+    const rawModelResponse = result.subtype === "success" ? { structuredOutput: result.structured_output ?? null, result: result.result } : { errors: result.errors };
     if (result.subtype !== "success" || result.is_error) {
       return {
         status: "failed",
         kind: "provider",
         message: result.subtype === "success" ? result.result : result.errors.join("\n") || result.subtype,
         raw: { messages: received },
+        rawModelResponse,
         ...metadata,
       };
     }
-    return { status: "completed", response: result.structured_output, raw: { messages: received }, ...metadata };
+    const substitutes = answeringSubstitutes(result.modelUsage, request.evaluator.model);
+    if (substitutes.length > 0) {
+      return {
+        status: "failed",
+        kind: "provider",
+        message: `The Claude Agent SDK answered with ${substitutes.join(", ")}, not the requested model ${request.evaluator.model}; EBO does not accept another model's judgment.`,
+        raw: { messages: received },
+        rawModelResponse,
+        ...metadata,
+      };
+    }
+    return { status: "completed", response: result.structured_output, raw: { messages: received }, rawModelResponse, ...metadata };
   } catch (error) {
     return failure(
       timedOut ? "timeout" : signal?.aborted ? "interrupted" : "provider",
@@ -628,22 +643,20 @@ export function packageSemanticJudgeInput(
   if (semanticJudgePrompt(baseInput(evidenceItems, omitted, includedRedactions)).length > request.limits.maxInputChars) {
     throw new Error("The occurrence ledger exceeds maxInputChars; raise the limit rather than dropping occurrences.");
   }
-  for (const { item, redactions } of candidates) {
-    if (semanticJudgePrompt(baseInput([...evidenceItems, item], omitted, includedRedactions + redactions)).length
-        <= request.limits.maxInputChars) {
-      evidenceItems.push(item);
-      includedRedactions += redactions;
-      continue;
-    }
-    omitted.push(`${item.kind}:${item.id}:maxInputChars`);
-    while (semanticJudgePrompt(baseInput(evidenceItems, omitted, includedRedactions)).length
-        > request.limits.maxInputChars && evidenceItems.length > 0) {
-      const removed = evidenceItems.pop()!;
-      const removedCandidate = candidates.find(({ item: candidate }) => candidate === removed)!;
-      includedRedactions -= removedCandidate.redactions;
-      omitted.push(`${removed.kind}:${removed.id}:maxInputChars`);
-    }
+  // When the selection does not fit, events are dropped from the middle of the selection order, one at a time, so its
+  // opening and closing events (a step-ordered selection's first and last steps) stay; observations go only after
+  // every event. Each dropped item is recorded in `omitted`.
+  const kept = [...candidates];
+  const fits = () => semanticJudgePrompt(baseInput([...evidenceItems, ...kept.map(({ item }) => item)], omitted,
+    includedRedactions + kept.reduce((total, { redactions }) => total + redactions, 0))).length <= request.limits.maxInputChars;
+  while (kept.length > 0 && !fits()) {
+    const events = kept.flatMap(({ item }, index) => (item.kind === "event" ? [index] : []));
+    const index = events.length > 0 ? events[Math.floor((events.length - 1) / 2)]! : kept.length - 1;
+    const removed = kept.splice(index, 1)[0]!.item;
+    omitted.push(`${removed.kind}:${removed.id}:maxInputChars`);
   }
+  evidenceItems.push(...kept.map(({ item }) => item));
+  includedRedactions += kept.reduce((total, { redactions }) => total + redactions, 0);
   const includedEventIds = new Set(evidenceItems.filter(({ kind }) => kind === "event").map(({ id }) => id));
   const structuralSources = new Map(selectedObservations.map(({ id, sourceEventIds }) => [id, sourceEventIds]));
   for (let index = evidenceItems.length - 1; index >= 0; index -= 1) {
@@ -1161,6 +1174,24 @@ function ledgerCitations(input: SemanticJudgeInput): Map<string, { cite: string;
     for (const row of (JSON.parse(item.content) as { rows: LedgerRow[] }).rows) cites.set(row.id, { cite: row.cite.eventId, members: new Set(row.eventIds) });
   }
   return cites;
+}
+
+/**
+ * Models other than the requested one that produced output in this judgment, from the SDK's per-model usage. The SDK
+ * can continue with another model after a safeguard stops the requested one; such an answer is not the requested
+ * model's judgment. A route alias that reports under a single other name is accepted: a substitute is named only when
+ * the requested model also appears, or when more than one model produced output.
+ */
+export function answeringSubstitutes(modelUsage: unknown, requestedModel: string): string[] {
+  if (modelUsage === null || typeof modelUsage !== "object") return [];
+  const requested = requestedModel.replace(/\[[^\]]*\]$/u, "");
+  const canonical = (name: string) => name.split("/").at(-1)!;
+  const entries = Object.entries(modelUsage as Record<string, { outputTokens?: unknown; canonicalModel?: unknown }>);
+  const isRequested = ([name, usage]: [string, { canonicalModel?: unknown }]) => name.replace(/\[[^\]]*\]$/u, "") === requested
+    || typeof usage?.canonicalModel === "string" && usage.canonicalModel === canonical(requested);
+  const answering = entries.filter(([, usage]) => typeof usage?.outputTokens === "number" && usage.outputTokens > 0);
+  const others = answering.filter((entry) => !isRequested(entry)).map(([name]) => name);
+  return entries.some(isRequested) || answering.length > 1 ? others : [];
 }
 
 function sdkMetadata(result: SDKResultMessage): {

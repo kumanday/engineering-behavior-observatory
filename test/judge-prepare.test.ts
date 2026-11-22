@@ -191,6 +191,10 @@ test("the packaged frame counts only occurrences whose events all arrived untrun
   const tight = { ...request, limits: { ...request.limits, maxInputChars: JSON.stringify(full).length - 1500 } };
   const squeezed = packageSemanticJudgeInput(events, capture, observations, tight, `sha256:${"c".repeat(64)}`, "evaluated-model");
   assert.ok(squeezed.selection.omitted.some((entry) => entry.endsWith(":maxInputChars")));
+  // Events go from the middle of the selection: its first and last events stay.
+  const included = new Set(squeezed.evidence.filter(({ kind }) => kind === "event").map(({ id }) => id));
+  const selected = request.selection.eventIds;
+  assert.ok(included.has(selected[0]!) && included.has(selected.at(-1)!), JSON.stringify(squeezed.selection.omitted));
   const after = Object.fromEntries(squeezed.selection.frame!.strata.map(({ type, fullRecords }) => [type, fullRecords]));
   assert.ok(after["validation-run"]! < prepared["validation-run"]!, "omitted events reduce the occurrences counted as full");
 });

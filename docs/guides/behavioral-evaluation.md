@@ -75,7 +75,7 @@ Save `batch.json` alongside the study's `requests`, `observations`, and
 ```
 
 ```sh
-ebo judge batch study/batch.json
+ebo judge batch study/batch.json --runtime-study study
 ```
 
 The batch accepts 1–256 jobs, executes sequentially, and requires distinct,

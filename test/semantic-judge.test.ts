@@ -10,6 +10,7 @@ import { chmodSync } from "node:fs";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { answeringSubstitutes } from "../src/semantic-judge.js";
 
 import type { HookInput, Options, SDKMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 
@@ -147,6 +148,8 @@ test("Claude judge without a deadline reaches its native result and remains canc
   })) as unknown as Parameters<typeof runClaudeAgentSdkSemanticJudge>[2];
   const completed = await runClaudeAgentSdkSemanticJudge("fixture", request, query);
   assert.equal(completed.status, "completed");
+  assert.equal((completed.rawModelResponse as { structuredOutput: { judgment: { verdict: string } } }).structuredOutput.judgment.verdict, "unknown",
+    "the model's answer is retained apart from the SDK's frames");
   const controller = new AbortController();
   const pending = (({ options }: { options: Options }) => ({
     close() {},
@@ -158,6 +161,41 @@ test("Claude judge without a deadline reaches its native result and remains canc
   const interrupted = await runClaudeAgentSdkSemanticJudge("fixture", request, pending, controller.signal);
   assert.equal(interrupted.status, "failed");
   if (interrupted.status === "failed") assert.equal(interrupted.kind, "interrupted");
+});
+
+test("Claude judge refuses a judgment the SDK answered with another model after a safeguard stop", async () => {
+  // Shape of an affected SDK run: the requested route stopped by a safeguard, the SDK continuing once with another
+  // model, the answer valid, and the per-model usage attributing the output to the other model.
+  const request = judgeRequest("fixture-event", "fixture-observation");
+  request.evaluator.model = "example-route/claude-opus-5-5[1m]";
+  const judgment = { verdict: "present", value: null, confidence: "medium", reason: null, missingEvidenceCapability: null,
+    rationale: "fixture", alternativeExplanation: "fixture", claims: [], citations: [] };
+  const run = (modelUsage: Record<string, unknown>) => runClaudeAgentSdkSemanticJudge("fixture", request, (() => ({
+    close() {},
+    async *[Symbol.asyncIterator]() {
+      yield { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Opus 5.5's safeguards stopped the response above · continuing once with that noted" }] } };
+      yield { ...sdkResult({ judgment }), num_turns: 3, modelUsage };
+    },
+  })) as unknown as Parameters<typeof runClaudeAgentSdkSemanticJudge>[2]);
+  const substituted = await run({
+    "example-route/claude-opus-5-5": { canonicalModel: "claude-opus-5-5", inputTokens: 76369, outputTokens: 0, costUSD: 0 },
+    "claude-opus-5": { canonicalModel: "claude-opus-5", inputTokens: 76369, outputTokens: 2857, costUSD: 0.45 },
+  });
+  assert.equal(substituted.status, "failed");
+  if (substituted.status === "failed") {
+    assert.equal(substituted.kind, "provider");
+    assert.match(substituted.message, /answered with claude-opus-5, not the requested model example-route\/claude-opus-5-5\[1m\]/u);
+    assert.ok(substituted.usage, "the per-model usage stays retained with the refusal");
+  }
+  // Both models produced output: still refused.
+  assert.equal((await run({
+    "example-route/claude-opus-5-5": { canonicalModel: "claude-opus-5-5", inputTokens: 10, outputTokens: 5, costUSD: 0 },
+    "claude-opus-5": { canonicalModel: "claude-opus-5", inputTokens: 10, outputTokens: 5, costUSD: 0 },
+  })).status, "failed");
+  // The requested model alone, or a route alias reporting under one other name, is accepted.
+  assert.equal((await run({ "example-route/claude-opus-5-5": { canonicalModel: "claude-opus-5-5", inputTokens: 10, outputTokens: 5, costUSD: 0 } })).status, "completed");
+  assert.deepEqual(answeringSubstitutes({ "claude-test": { outputTokens: 2 } }, "claude-judge-route"), []);
+  assert.deepEqual(answeringSubstitutes({ "example-route/claude-fable-5-2": { outputTokens: 0 }, "claude-opus-4-8": { outputTokens: 900 } }, "example-route/claude-fable-5-2"), ["claude-opus-4-8"]);
 });
 
 test("packages bounded blinded untrusted evidence and retains deterministic proposals, abstentions, and failures", async () => {

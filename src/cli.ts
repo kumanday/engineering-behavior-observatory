@@ -10,7 +10,7 @@ import { readAtifFile } from "./atif-reader.js";
 import { importAtifBatch, importAtifFile } from "./atif-import.js";
 import { listAtifProfilesV2 } from "./atif-producers-v2.js";
 import { importHarborTrial, inspectHarborTrial, type HarborOriginalBinding } from "./harbor-import.js";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -89,7 +89,7 @@ import {
   writeRunQueue,
 } from "./scheduler.js";
 
-const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <command> ...
+const usage = `Usage: ebo [--help] [--version] | validate <artifact.json>... | task-packet <command> ...
        ebo runtime <list|freeze|inspect|check|verify|verification|bind-queue> ...
        ebo matrix compile <experiment.json> <bundle-root> <queue.json> [--freeze-locator <task-id>=<path>]
        ebo queue inspect <queue.json>
@@ -134,8 +134,9 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo assertions validate <run-bundle-root> <assertion.json> [review.json]
        ebo claims check <run-bundle-root> <assertion.json> <output.json> --provider <typesafe|fireworks> [--model <id>] [--choice-confidence <0-1>]
        ebo judge prepare <run-bundle-root> <observations.json> <spec.json> <request.json> [--ratings <ratings.json>]
-       ebo judge run <run-bundle-root> <observations.json> <request.json> <output-root> [--ratings <ratings.json>]
-       ebo judge batch <batch.json>
+       ebo judge run <run-bundle-root> <observations.json> <request.json> <output-root> [--ratings <ratings.json>] --runtime-study <study-root>
+       ebo judge batch <batch.json> --runtime-study <study-root>
+       ebo evidence events <run-bundle-root>
        ebo judge decision-model <run.json>
        ebo judge decision-model import <run.json> <results.jsonl>
        ebo calibration sample <sources.json> <criteria.json> <selection.json>
@@ -167,6 +168,26 @@ export function main(
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
     write(usage);
     return 0;
+  }
+  if (args.length === 1 && args[0] === "--version") {
+    const packageJson = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json"), "utf8")) as { version: string };
+    write(`${packageJson.version}\n`);
+    return 0;
+  }
+  if (args[0] === "evidence" && args[1] === "events") {
+    if (args.length !== 3) { write("Usage: ebo evidence events <run-bundle-root>\n"); return 1; }
+    return (async () => {
+      try {
+        const { createRetainedBehaviorEvidence } = await import("./retained-evidence.js");
+        const evidence = await createRetainedBehaviorEvidence(args[2]!);
+        for (const event of evidence.dataset.events) {
+          write(`${JSON.stringify({ id: event.id, family: event.family, phase: event.phase, actor: event.actor.kind, nativeType: event.source.nativeType,
+            nativeOrder: event.nativeOrder.status === "known" ? event.nativeOrder.value : null, nativeTime: event.nativeTime.status === "known" ? event.nativeTime.value : null,
+            toolName: typeof event.attributes.toolName === "string" ? event.attributes.toolName : null, nativeReference: event.source.nativeReference })}\n`);
+        }
+        return 0;
+      } catch (error) { write(`${errorMessage(error)}\n`); return 1; }
+    })();
   }
 
   if (args[0] === "task-packet") {
@@ -400,7 +421,7 @@ export function main(
       process.on("SIGINT", stop);
       process.on("SIGTERM", stop);
       try {
-        if (args.length !== 3) throw new Error("Usage: ebo judge batch <batch.json>");
+        if (args.length !== 3) throw new Error("Usage: ebo judge batch <batch.json> --runtime-study <study-root>");
         const manifest = readJson(args[2]!) as { jobs?: unknown };
         if (!manifest || typeof manifest !== "object" || Object.keys(manifest).some((key) => key !== "jobs")
             || !Array.isArray(manifest.jobs) || manifest.jobs.length === 0 || manifest.jobs.length > 256) {
@@ -491,7 +512,7 @@ export function main(
     const [, , bundleRoot, observationsPath, requestPath, outputRoot, ratingsFlag, ratingsPath] = args;
     if (bundleRoot === undefined || observationsPath === undefined || requestPath === undefined || outputRoot === undefined
         || !(args.length === 6 || args.length === 8 && ratingsFlag === "--ratings" && ratingsPath !== undefined)) {
-      write("Usage: ebo judge run <run-bundle-root> <observations.json> <request.json> <output-root> [--ratings <ratings.json>]\n");
+      write("Usage: ebo judge run <run-bundle-root> <observations.json> <request.json> <output-root> [--ratings <ratings.json>] --runtime-study <study-root>\n");
       return 1;
     }
     const controller = new AbortController();
