@@ -87,9 +87,9 @@ lists all of them.
   operations directly is planned for a later release.
 - Review samples list single result files; sampling from decision-model result
   sets is planned.
-- The decision model's measured accuracy applies to ATIF trajectories at the
-  0.9 and 0.1 thresholds. Native captures and other thresholds have not been
-  measured.
+- The decision model's measured accuracy applies to `jev-1.14.0` on ATIF
+  trajectories at the 0.9 and 0.1 thresholds. The provider's default model
+  (`jev-1.13.0`), native captures and other thresholds have not been measured.
 
 ## Known limits
 
