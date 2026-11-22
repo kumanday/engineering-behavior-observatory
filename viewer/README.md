@@ -62,7 +62,8 @@ assistant issued it.
   `chart_set_state`; `cloudTool` runs any of its tools and replies with the tool's result as JSON (cut at 20,000
   characters). A brush, drawn or programmatic, scopes Clusters × arm to the brushed units and dims units outside it
   in the swimlanes. Assessments, claims and figures count judgments per attempt and card, so they keep their full
-  counts under a brush.
+  counts under a brush. The colour legend shows the ten most frequent values and folds the rest into "(other N)";
+  `setLegendSelection` refuses a folded or absent value and names the column's count plot, which selects any value.
 - **Describe**: each panel's `describe()` returns a summary and the numbers it shows, from the same queries it renders.
 - `window.ebo` exposes `run`, `commands`, `getState`, `setState`, `encodeState`, `decodeState`, `describe`,
   `subscribe`, `listCloudTools`, `cloudResult` (the whole result of the last `cloudTool` run, for example `data_query`

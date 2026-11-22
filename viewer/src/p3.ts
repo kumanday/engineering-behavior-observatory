@@ -496,8 +496,8 @@ export class MatrixPanel {
     const obj = (properties: Record<string, unknown>, required = Object.keys(properties)) => ({ type: "object", required, properties, additionalProperties: false });
     register<{ cohort: string }>({ name: "setMatrixCohort", description: "Count assessments of one cohort (or all attempts).", args: obj({ cohort: { type: "string" } }),
       run: ({ cohort }) => { this.cohort = cohort; this.sel = null; this.render(); return `Assessments show ${cohort === "all" ? "all attempts" : `cohort ${cohort}`}.`; } });
-    register<{ task: string | null }>({ name: "setMatrixTask", description: "Count assessments of one task (or all tasks).", args: obj({ task: { type: ["string", "null"] } }),
-      run: ({ task }) => { this.task = task; this.sel = null; this.render(); return `Assessments show ${task === "all" ? "all tasks" : task}.`; } });
+    register<{ task: string | null }>({ name: "setMatrixTask", description: "Count assessments of one task. \"all\" counts every task; null counts only attempts whose task is unavailable.", args: obj({ task: { type: ["string", "null"] } }),
+      run: ({ task }) => { this.task = task; this.sel = null; this.render(); return `Assessments show ${task === "all" ? "all tasks" : task ?? "attempts whose task is unavailable"}.`; } });
     register<{ mode: string }>({ name: "setMatrixMode", description: "Show the results of one producer mode: llm-judge or decision-model.", args: obj({ mode: { type: "string" } }),
       run: ({ mode }) => { this.mode = mode; this.sel = null; this.render(); return `Assessments show ${modeLabel(mode)} results.`; } });
     register<{ direction: string }>({ name: "setMatrixDirection", description: "Count only present results of one direction (favourable, unfavourable, neutral), or all results.", args: obj({ direction: { type: "string" } }),

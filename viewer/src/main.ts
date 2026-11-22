@@ -16,6 +16,7 @@ import { setUnitTextColumn, shortId, SwimlanesPanel, type LanesData } from "./la
 const CLOUD_BUDGET_BYTES = 2.5e9;
 const COMPACT_UNITS_HINT = "1,000,000";
 import { STOP_WORDS } from "./stopwords";
+import { LEGEND_LIMIT, unselectableLegendCategories } from "./legend";
 import { ClaimsPanel, Drawer, Evidence, expandAssessmentIndex, MatrixPanel, type AssessDoc, type AuditDoc, type ClaimsDoc, type DrawerView } from "./p3";
 import { FiguresPanel, type ViewsDoc } from "./views";
 import { prepareCloud } from "./layout";
@@ -329,8 +330,24 @@ async function main() {
     run: async ({ rectangle, polygon }) => { await setCloudState({ brush: rectangle ?? polygon ?? null }); return rectangle ? "Brushed a rectangle in the cloud." : "Brushed a lasso in the cloud."; } });
   register({ name: "clearSelection", description: "Clear the cloud brush and highlight.", args: obj({}),
     run: async () => { await setCloudState({ brush: null }); highlight(null); return "Cleared the cloud selection."; } });
-  register<{ categories: string[] }>({ name: "setLegendSelection", description: "Select color-legend categories in the cloud (empty clears).", args: obj({ categories: { type: "array", items: { type: "string" } } }),
-    run: async ({ categories }) => { await setCloudState({ legend: categories.length ? { selection: categories } : null }); return categories.length ? `Legend selection: ${categories.join(", ")}.` : "Cleared the legend selection."; } });
+  register<{ categories: string[] }>({ name: "setLegendSelection",
+    description: `Select color-legend categories in the cloud (empty clears). The legend shows the ${LEGEND_LIMIT} most frequent values and folds the rest into "(other N)"; a folded value is refused, and its column's count plot selects it (cloudTool chart_set_state).`,
+    args: obj({ categories: { type: "array", items: { type: "string" } } }),
+    run: async ({ categories }) => {
+      const id = embeddingChartId();
+      const column = (id ? (atlasState.charts?.[id] as { data?: { category?: string | null } } | undefined)?.data?.category : undefined) ?? (colorBy === "none" ? null : colorBy);
+      if (categories.length && !column) throw new Error("The cloud is not coloured by a column, so its legend has no categories to select.");
+      if (categories.length && column) {
+        const quoted = `"${column.replaceAll('"', '""')}"`;
+        const counts = rowsOf(await coordinator.query(`SELECT CAST(${quoted} AS TEXT) AS value, count(*)::INTEGER AS count FROM units WHERE ${quoted} IS NOT NULL GROUP BY 1`))
+          .map((r) => ({ value: String(r.value), count: Number(r.count) }));
+        const { folded, unknown } = unselectableLegendCategories(categories, counts);
+        if (unknown.length) throw new Error(`No unit has ${column} ${unknown.map((c) => JSON.stringify(c)).join(", ")}.`);
+        if (folded.length) throw new Error(`The colour legend shows the ${LEGEND_LIMIT} most frequent ${column} values and folds the rest into "(other N)", so it cannot select ${folded.map((c) => JSON.stringify(c)).join(", ")}. Select ${folded.length > 1 ? "them" : "it"} in the ${column} count plot (cloudTool chart_set_state on that chart).`);
+      }
+      await setCloudState({ legend: categories.length ? { selection: categories } : null });
+      return categories.length ? `Legend selection: ${categories.join(", ")}.` : "Cleared the legend selection.";
+    } });
   register<{ tool: string; input?: Record<string, unknown> }>({ name: "cloudTool", description: "Run one of Embedding Atlas's own tools (see listCloudTools), e.g. chart_set_state or data_query.",
     args: obj({ tool: { type: "string" }, input: { type: "object" } }, ["tool"]),
     run: async ({ tool, input }) => {
