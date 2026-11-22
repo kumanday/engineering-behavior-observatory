@@ -50,9 +50,27 @@ that writes and reads it.
 - **Google Antigravity CLI** is the ninth native harness, next to Claude Agent
   SDK, Codex, Devin CLI, Cursor, Pi, OpenHands, DeepSeek Harness and Factory
   Droid.
+- **Batch imports with declarations.** `ebo atif import-batch` imports one
+  trial per line and splits a batch across machines with `--shard k/n`. Each
+  trial can declare its harness version, which separates arms that share a
+  harness name, and a third-party outcome with its source, release and record.
+  The outcome stays apart from EBO's run status; aggregation groups by
+  `harness-version` and `source-outcome`. An event attribute longer than 512
+  characters is shortened with a marker and named in the event, and the full
+  value stays in the retained document. ([ATIF](../../docs/reference/atif.md))
 - **Leaderboard labels in Atlas.** An Atlas bundle can name a verified
   leaderboard cohort; imports then show the leaderboard's task and trial names,
   and its verdict apart from EBO's run status.
+- **Atlas at full-leaderboard scale.** One bundle holds a whole leaderboard
+  release: 49,667 attempts in 6 cohorts and 6.8 million cloud units were built
+  and opened in the viewer. EmbeddingGemma 2 is the default embedding, run in a
+  pinned local runtime with a cache that keeps finished vectors through an
+  interruption. Above 200,000 units the cloud is laid out at build time (cuML on
+  a CUDA device, umap-learn elsewhere); above 1,000,000 the bundle writes a
+  compact cloud with build-time clusters and dictionary-coded columns, which
+  the viewer streams into DuckDB. Every cloud unit carries its attempt's
+  `source_outcome`, so the cloud colours and filters by the third-party
+  verdict. ([Atlas bundles](../../docs/evaluation/atlas-bundles.md))
 
 ## Record formats
 
@@ -72,6 +90,31 @@ lists all of them.
 - The decision model's measured accuracy applies to ATIF trajectories at the
   0.9 and 0.1 thresholds. Native captures and other thresholds have not been
   measured.
+
+## Known limits
+
+- **Build time.** A bundle spends most of its unit build hashing: each native
+  record pointer re-reads and re-hashes its whole trajectory, and imported
+  sources are hashed again for every card result. A 939-attempt bundle took
+  88 minutes.
+- **Untimed swimlanes.** On the time axis, an attempt with no step timestamps is
+  drawn as a stub at 0 m beside timed lanes and is not marked as untimed.
+- **Viewer build.** `npm run build` builds the CLI but not the viewer
+  (`build:viewer` and `prepack` build both), and `ebo atlas serve` in a source
+  checkout serves whatever `viewer/dist` holds.
+- **Harness configuration.** A harness configuration has no field of its own.
+  Two arms with the same harness version and different settings merge unless
+  the import declares a distinguishing version, for example with semver build
+  metadata (`2026.11.1+noreasoning`).
+- **Adding attempts to a corpus.** `ebo observations corpus` cannot add
+  attempts to an existing corpus; a cohort that gains attempts needs a full
+  rerun or a separate corpus root.
+- **Tool outcomes of imports.** Imported trajectories carry no tool outcome (no
+  status, exit code, error signature or terminal state), by design: EBO does
+  not infer an exit code from result text. Error views are empty for imported
+  cohorts. ([ATIF](../../docs/reference/atif.md))
+- **Bundle build hosts.** A bundle of millions of units needs a Node heap above
+  16 GB and, on Linux, a raised `vm.max_map_count`.
 
 [Migration](MIGRATION.md) covers moving from 1.x and from the 2.0 release
 candidates. [Qualification](QUALIFICATION.md) covers how this release is

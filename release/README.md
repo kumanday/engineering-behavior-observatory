@@ -5,7 +5,7 @@ For downloads and published artifacts, see
 
 | Version | Changes and verification | Support boundary |
 | :--- | :--- | :--- |
-| [2.0.0](2.0.0/README.md) | Behavior ontology 2.0.0 with decision-model and LLM judging in one record, ATIF import, study runtimes, Smol Cloud workers, Open Responses and the Antigravity CLI harness; no 1.x compatibility | [Qualification](2.0.0/QUALIFICATION.md), [migration](2.0.0/MIGRATION.md) |
+| [2.0.0](2.0.0/README.md) | Behavior ontology 2.0.0 with decision-model and LLM judging in one record, ATIF import with batch shards and declared outcomes, full-leaderboard Atlas bundles with EmbeddingGemma 2, study runtimes, Smol Cloud workers, Open Responses and the Antigravity CLI harness; no 1.x compatibility | [Qualification](2.0.0/QUALIFICATION.md), [migration](2.0.0/MIGRATION.md) |
 | [2.0.0-rc.2](2.0.0-rc.2/README.md) | Unpublished candidate, superseded by 2.0.0: generic ATIF, version-agnostic retained reading and study-frozen runtimes | [Candidate qualification](2.0.0-rc.2/QUALIFICATION.md) |
 | [2.0.0-rc.1](2.0.0-rc.1/README.md) | Unpublished candidate, superseded by 2.0.0: retained ATIF sources, typed v2 analysis and migration accounting | [Candidate qualification](2.0.0-rc.1/QUALIFICATION.md) |
 | [1.4.0](1.4.0/README.md) | Live campaign monitor and retained Pi provider-error session qualification | [Runtime qualification](1.3.0/runtime-qualification.md) |
