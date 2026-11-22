@@ -371,7 +371,7 @@
     "src/bundle-validation-worker.ts": "146df3b6c9a3cde26df4aa9832a1471729fded42f6f56976174625d7b31251eb",
     "src/bundle-validation.ts": "69756ffedaef3ea070ebf59f60dbb70dd87a9c0173143499689deb9ab9d1699e",
     "src/claim-checks.ts": "22110d735e09d9cb78e7c334603ff982e63031bc1d0bb8c4b9db2b6ff51b0d12",
-    "src/cli.ts": "bf60192b50f39fac64cc8520b0cfe9a19caa60b4c163868289eb2c41e45f272f",
+    "src/cli.ts": "d945b4e5c68cfe2b50b87971537f99a6191171d314abd2aa4d19a9727dcd76d5",
     "src/codex-judge.ts": "0c5b92bc12b21bcdad0741e2b14b31cb2abf121742b52c947382a0304ad37c1f",
     "src/codex-run.ts": "ae919708b32e5967af50c59ab2a9c06588540eb509c4ac8e25569203da5e87ed",
     "src/codex.ts": "53e938f73ba87f608e024d66346de70e0d408a77411dfa58d4b1d5dec0e00539",
