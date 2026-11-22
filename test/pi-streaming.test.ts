@@ -52,6 +52,23 @@ test("streamed Pi qualification matches complete-record datasets and raw canonic
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("a Pi tool result's structured exit code reaches the tool event", async () => {
+  const root = fixture();
+  try {
+    const path = join(root, "pi-events.jsonl");
+    const records = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    records[2].payload = { toolCallId: "tool-1", toolName: "bash", isError: true,
+      result: { content: [{ type: "text", text: "Command exited with code 3" }], structuredContent: { output: "", exit_code: 3 } } };
+    writeFileSync(path, records.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    const { dataset } = await describeAndValidatePiDataset(capture(root));
+    const end = dataset.events.find(({ source }) => source.nativeType === "stream:tool_execution_end")!;
+    assert.equal(end.attributes.exitCode, 3);
+    assert.equal(end.attributes.isError, true);
+    const start = dataset.events.find(({ source }) => source.nativeType === "stream:tool_execution_start")!;
+    assert.equal("exitCode" in start.attributes, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("Pi source validation streams traces above 128 MiB and retains full-record digests", async () => {
   const root = fixture();
   try {
