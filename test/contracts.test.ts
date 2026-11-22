@@ -526,9 +526,9 @@ test("configuration references stay inside the bundle without following links", 
     assert.throws(() => resolveBundleConfiguration(bundleRoot, { ...configurationReference, locator: "models/aliased.json" }), /escapes/);
     assert.throws(() => resolveBundleConfiguration(bundleRoot, { ...configurationReference, locator: "models/./model-a.json" }), /unsafe/);
     assert.throws(() => resolveBundleConfiguration(bundleRoot, { ...configurationReference, locator: "models/NUL.json" }), /unsafe/);
-    assert.throws(() => resolveBundleConfiguration(bundleRoot, { ...configurationReference, locator: "models/hardlink.json" }), /isolated regular file/);
+    assert.throws(() => resolveBundleConfiguration(bundleRoot, { ...configurationReference, locator: "models/hardlink.json" }), /isolated regular file: it has 2 hard links; copy it \(cp, not ln\)/);
     assert.throws(() => resolveBundleConfiguration(bundleRoot, { ...configurationReference, locator: "models/.git/model.json" }), /unsafe/);
-    assert.throws(() => resolveBundleConfiguration(bundleRoot, { ...configurationReference, locator: "models" }), /not an isolated regular file/);
+    assert.throws(() => resolveBundleConfiguration(bundleRoot, { ...configurationReference, locator: "models" }), /not an isolated regular file: it is not a regular file/);
   } finally {
     rmSync(bundleRoot, { force: true, recursive: true });
     rmSync(outsideRoot, { force: true, recursive: true });

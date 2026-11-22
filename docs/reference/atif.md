@@ -108,6 +108,12 @@ root document's `final_metrics` form the attempt's final totals; subagent
 documents keep their own populations. Lanes show this usage as declared by the
 source, and an import without metrics shows none recorded, not zero.
 
+Calls in one step share the step's order value, so native order does not say
+which of them came first. An identical call in the same step as the first call
+of its group is therefore not marked as a repeated operation; the observation
+set counts it under the repeated-operation coverage's `unordered` entry. A repeat
+in a later step is marked.
+
 Tool failures are unavailable for imports. ATIF core has no tool-failure field,
 and converter flags in `extra` (such as an `is_error` or `status` entry) follow
 each converter's conventions. Only an overlay verified for a converter

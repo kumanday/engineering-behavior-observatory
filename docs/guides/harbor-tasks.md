@@ -113,11 +113,16 @@ Single-step shared verification retains its weaker, candidate-modified trust
 boundary; it is not independent grading.
 
 ```sh
-npm run build
-node scripts/build-harbor-runtime.mjs study/config/runtime \
+ebo harbor build-worker --check
+ebo harbor build-worker study/config/runtime \
   --study study \
   --node-image <pinned-Node-Linux-arm64-image@sha256:platform-digest>
 ```
+
+The installed package carries everything the builder reads. `--check` confirms
+that, and prints the folder it builds from. In a source checkout, run
+`npm run build` first; `node scripts/build-harbor-runtime.mjs` takes the same
+arguments as `ebo harbor build-worker`.
 
 Use an empty destination. The builder uses the study's local Smol SDK and an
 immutable Linux Node image. It verifies the pinned npm release and installs
@@ -362,8 +367,7 @@ builder writes an OCI build context, and a native `linux/amd64` builder turns it
 into both the worker archive and the guest image:
 
 ```sh
-npm run build
-node scripts/build-harbor-runtime.mjs build/cloud-context \
+ebo harbor build-worker build/cloud-context \
   --study study --platform linux/amd64 --context \
   --node-image <pinned-Node-Linux-amd64-image@sha256:platform-digest>
 ```
@@ -394,7 +398,7 @@ artifacts. Record the pushed **platform-specific manifest digest**. Then adopt
 the output on the coordinator host:
 
 ```sh
-node scripts/build-harbor-runtime.mjs study/config/runtime \
+ebo harbor build-worker study/config/runtime \
   --study study --platform linux/amd64 --adopt build/cloud-output \
   --node-image <the same Node image digest>
 ```
@@ -630,6 +634,9 @@ provenance remains reachable through corpus inspection and portable export.
 Step-specific fixture identities prevent comparisons from pooling different
 steps as repetitions. Use these ordinary step bundles with the existing
 [evidence/export](evidence-and-sharing.md) and [Behavior Atlas](atlas.md) commands.
+`ebo corpus build <output-root> <index.jsonl>` over the output root indexes each
+attempt's step bundles and skips its `ebo/` summary and `harbor/` files, so the
+output root is a corpus root as it stands.
 The Harbor trial summary is not itself a native run bundle or a quality score.
 
 Native step bundles capture execution in observational mode, including when

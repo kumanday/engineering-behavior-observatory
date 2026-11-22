@@ -7,8 +7,13 @@ Cursor, or DeepSeek retained run bundle and an
 
 ```sh
 ebo judge run \
-  <run-bundle-root> <observations.json> <request.json> <output-root>
+  <run-bundle-root> <observations.json> <request.json> <output-root> \
+  --runtime-study <study-root>
 ```
+
+`--runtime-study` names the study whose frozen runtime runs the judge (see
+[study runtimes](../reference/study-runtimes.md#judge-execution)); without it the
+command stops with `RUNTIME_STUDY_LOCK_REQUIRED`.
 
 The judge is an LLM, and it reads a sample. A request names the events and
 structural observations to show, at most `maxEvidenceItems` of them, each cut
@@ -72,17 +77,27 @@ declared deadline. `maxBudgetUsd` is an independent optional setting.
     "maxOutputChars": 8192,
     "maxCitations": 8,
     "maxWallClockMs": 30000,
-    "maxTurns": 1,
+    "maxTurns": 3,
     "maxBudgetUsd": 0.1
   },
   "blinding": { "evaluatedModelIdentity": "redact" }
 }
 ```
 
-Selection is exact. Unknown IDs fail before execution. Optional outcome
+Selection is exact. Unknown IDs fail before execution. `ebo evidence events
+<run-bundle-root>` lists an attempt's normalized events, one JSON line each,
+with the id, family, phase, native type, native order and native record. For an
+ATIF import, the event whose id ends in `message-instant` carries the whole step
+record (message, tool calls and results), so one such event per step selects
+whole steps. Optional outcome
 observations are added only when requested, and the total must remain within
 `maxEvidenceItems`. Per-record truncation and whole-input omission are recorded
-in `input.json`; omitted event IDs cannot be cited. Exact evaluated-model
+in `input.json`; omitted event IDs cannot be cited. `maxInputChars` bounds the
+whole prompt. When the selection does not fit, events are dropped one at a time
+from the middle of the selection order, so its first and last events (in a
+step-ordered selection, the opening and closing steps) stay; structural
+observations go only after every event, and an observation whose source events
+were dropped goes with them. Exact evaluated-model
 strings are redacted from evidence values and keys when requested. Citation
 IDs and native references are never rewritten, and the input records the
 remaining harness, native-type, behavioral, and citation clues that may still
@@ -98,7 +113,8 @@ omitted instead of being shown to the judge as uncitable support.
 
 The default backend is the installed TypeScript Claude Agent SDK. The caller
 supplies model, effort, wall-clock, turn, output, citation, and optional cost
-limits. The runner passes no tools, settings sources, skills, plugins, MCP
+limits. A Claude judgment takes two SDK turns (Claude Agent SDK 0.3.330 reports
+`numTurns: 2` for each), so `maxTurns` must be at least 2; the example allows 3. The runner passes no tools, settings sources, skills, plugins, MCP
 servers, additional directories, or persistent session. It uses an empty
 temporary working directory, strict empty MCP configuration, `dontAsk`
 permissions, and a custom system prompt that treats the delimited trajectory
@@ -118,6 +134,11 @@ For the native Codex backend, set `evaluator.backend` to `codex-app-server`,
 paths resolve against the caller's working directory before isolation; its version
 must match the supported pinned Codex runtime. Set `maxTurns` to `1` and omit `maxBudgetUsd`: this backend
 does not support USD budget enforcement. No automatic provider fallback occurs.
+When the Claude Agent SDK reports that another model produced the answer (for
+example after a safeguard stops the requested model and the SDK continues with
+another one), the judgment is refused as a `provider` failure that names the
+answering model; its per-model usage stays in the record, and no assertion is
+written.
 Backend selection is independent of the evaluated harness.
 Both request and retained judgment validation enforce backend-specific provider,
 effort, limits and environment-policy combinations. A qualified partial Codex
@@ -175,9 +196,10 @@ record enters review, no retry occurs, and native evidence is never changed.
 Timing, cost, and usage are recorded only when the backend reports them;
 otherwise the record says they are unavailable.
 Native Codex records name the replacement environment policy and its exact
-allowlist. Model output, including partial deltas and malformed final text,
-is retained separately in restricted `raw-model-response.json` and referenced
-by optional `rawModelResponse`. It and control-frame `raw-response.json` each
+allowlist. Model output is retained separately in restricted
+`raw-model-response.json` and referenced by optional `rawModelResponse`: on the
+Codex backend, partial deltas and malformed final text; on the Claude backend,
+the SDK result's structured output and result text (or its errors). It and control-frame `raw-response.json` each
 have their own `maxOutputChars` bound; startup or user-echo frames cannot
 consume the model-output retention budget.
 
@@ -215,8 +237,9 @@ Judge responses carry atomic factual claims in `judgment.claims` (prompt version
 exact working directory its cited native records state, or `null` when unknown.
 A present verdict needs at least one claim; absent and unknown verdicts may have none. Validation
 requires an explicit workspace to be the single `cwd`-style value of the cited
-records, so evidence from another checkout cannot verify the submitted
-workspace. The check establishes an explicit native binding; it cannot prove
+records (including such a field inside a tool result that a producer stores as a
+JSON-encoded string), so evidence from another checkout cannot verify the
+submitted workspace. The check establishes an explicit native binding; it cannot prove
 that a shell command did not change directories internally. Assertions without
 claims remain valid. Rationale and alternative explanation stay separate from
 the claims. [Claim checks](occurrence-ratings.md#claim-checks) can route

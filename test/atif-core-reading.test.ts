@@ -294,3 +294,21 @@ test("generic token values retain ATIF source definitions separately from common
   assert.equal(normalized.mapping.measures["output-token-count"]!.status, "unavailable");
   assert.deepEqual(normalized.mapping.measures["source-final-total_prompt_tokens"], { status: "known", value: 22, unit: "tokens" });
 });
+
+test("ebo evidence events lists an attempt's normalized event ids, and ebo --version answers", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-evidence-events-"));
+  try {
+    const source = join(root, "source.json"), destination = join(root, "import");
+    writeFileSync(source, JSON.stringify({ schema_version: "ATIF-v1.7", agent: { name: "acme-agent", version: "9.9.9" },
+      steps: [{ step_id: 1, source: "user", message: "Fix the test." }, { step_id: 2, source: "agent", message: "Done.", llm_call_count: 1, tool_calls: [] }] }));
+    assert.equal(await main(["atif", "import", source, destination, "--run", "cli", "--attempt", "a"], () => {}), 0);
+    let output = "";
+    assert.equal(await main(["evidence", "events", destination], (text) => { output += text; }), 0, output);
+    const listed = output.trim().split("\n").map((line) => JSON.parse(line) as { id: string; nativeReference: { recordLocator: string } });
+    assert.deepEqual(listed.map(({ id }) => id), (await createRetainedBehaviorEvidence(destination)).dataset.events.map(({ id }) => id));
+    assert.ok(listed.some(({ id }) => id.endsWith("message-instant")), JSON.stringify(listed.map(({ id }) => id)));
+    let version = "";
+    assert.equal(await main(["--version"], (text) => { version += text; }), 0);
+    assert.match(version, /^\d+\.\d+\.\d+/u);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

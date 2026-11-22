@@ -355,3 +355,13 @@ function digest(value: unknown): `sha256:${string}` {
 function sha(value: string): `sha256:${string}` {
   return `sha256:${value.repeat(64).slice(0, 64)}`;
 }
+
+test("a claim workspace can come from a cwd field inside a JSON-encoded tool result", async () => {
+  const { evidenceWorkspaces } = await import("../src/evidence-projection.js");
+  // A step whose tool result is a JSON document carried as a string, as some producers write it.
+  const step = { step_id: 7, observation: { results: [{ source_call_id: "call-1", content: JSON.stringify({ output: "ok", exit_code: 0, cwd: "/app" }) }] } };
+  assert.deepEqual(evidenceWorkspaces(step), ["/app"]);
+  assert.deepEqual(evidenceWorkspaces({ content: JSON.stringify(JSON.stringify({ cwd: "/app" })) }), ["/app"], "a doubly encoded result is read too");
+  assert.deepEqual(evidenceWorkspaces({ content: "cwd: /app" }), [], "free text naming a directory is not a cwd field");
+  assert.deepEqual(evidenceWorkspaces({ cwd: "/app", content: JSON.stringify({ cwd: "/other" }) }), ["/app", "/other"], "two stated directories stay ambiguous");
+});

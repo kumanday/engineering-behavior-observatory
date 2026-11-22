@@ -51,7 +51,8 @@ are embedded:
 
 - `embeddinggemma` (the default): `google/embeddinggemma-2` at a pinned
   `revision`, run locally through SentenceTransformers in the Python runtime
-  that `scripts/embeddings/requirements.txt` pins. `python` names that
+  that `scripts/embeddings/requirements.txt` pins (the package ships the file;
+  `ebo atlas embeddings check` prints its path in your installation). `python` names that
   runtime's executable, relative to the request; without it the build uses
   `EBO_EMBEDDINGS_PYTHON` and otherwise stops before reading any attempt.
   Before reading any attempt, the build checks the runtime: it loads the model
@@ -77,6 +78,21 @@ are embedded:
   truncations, normalized again.
 - `hashed-tfidf`: the offline option. TF-IDF over each unit's words,
   feature-hashed to `dimensions` (default 256). No runtime and no model.
+
+Set up the EmbeddingGemma runtime once, then check it:
+
+```sh
+ebo atlas embeddings check
+python3 -m venv .embeddings-venv
+.embeddings-venv/bin/pip install -r <requirements path printed by the check>
+ebo atlas embeddings check --python .embeddings-venv/bin/python
+```
+
+Without a runtime, the check prints where this installation keeps the scripts
+and the pinned requirements (`requirements.txt`, and `requirements-gpu.txt` for
+cuML). With `--python`, or `EBO_EMBEDDINGS_PYTHON`, it runs the same check a
+bundle build runs first: the model loads and embeds one text, and the layout
+backend builds its estimators (`--no-layout` skips the layout check).
 
 EmbeddingGemma 2 vectors are cached under `cache` (default
 `.atlas-cache/embeddings`) by model, revision, dimensions and redacted text
@@ -164,7 +180,7 @@ each, and the attempt pass takes about a quarter of a second per attempt.
 | `manifest.json` | `ebo.atlas-bundle/v2`: identity, builder, request digest, cohorts with source and cohort digests, tables with row counts, and every file with size, SHA-256 and role |
 | `reports/<cohort>.json` | the cohort's aggregation report (the certified tallies), with its source and cohort digests |
 | `tables/*.parquet` | Atlas tables v1 (zstd) |
-| `units.arrow`, `embeddings.f32` | the cloud: one row per embedded unit (Arrow IPC, with its attempt's `source_outcome`, and `x`, `y` and `neighbors` after a build-time layout) and its vector (float32, row order) |
+| `units.arrow`, `embeddings.f32` | the cloud: one row per embedded unit (Arrow IPC, with its attempt's `source_outcome`, and `x`, `y` and `neighbors` after a build-time layout); a tool unit's `status_source` says whether its `status` and `exit_code` come from the harness's result (`native`) or were read from its output text because the harness recorded none (`inferred`) and its vector (float32, row order) |
 | `lanes.json` | swimlanes: lane metadata, cumulative tokens and context per request from normalized usage events |
 | `assessments.json`, `audit.json`, `native/<attempt>.json` | card results per attempt and card (`card`, `family`, `outcome` as present, absent or unknown, `value` on a present dimension card, `mode` and `producer`, the ontology's `direction` for a present result, and for a decision-model result its `probability`, `probabilities`, `thresholds` and what it was `shown`) with an LLM judge's citations linked to units and native lines (SHA-256 of the full line), the judged cards and families in ontology order, the `modes` and `directions` in use, attempt audits, per-unit native records |
 | `claims.json`, `views.json` | validated claims and view specs with their receipts, when the request names them |

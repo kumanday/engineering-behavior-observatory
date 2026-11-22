@@ -530,3 +530,30 @@ test("build-time clusters are dense regions of each family's layout, labelled by
   assert.ok([...clusterId].filter((id) => id >= 0).length >= 0.95 * n, "nearly every unit of a dense group is in its cluster");
   assert.deepEqual(labels.filter(({ priority }) => priority === 1e9).map(({ text }) => text), ["MESSAGES", "TOOLS"]);
 });
+
+test("a captured unit's status follows the harness result; an exit code is read from output text only when the harness records none", () => {
+  const event = (id: string, op: string, phase: "before" | "after", order: number, attributes: Record<string, unknown>) => ({
+    id, runId: "r", attemptId: "a",
+    source: { harness: "claude-agent-sdk", nativeType: phase === "before" ? "tool_use" : "tool_result", nativeReference: { artifactId: "session", recordLocator: `line:${order}` } },
+    nativeOrder: { status: "known", value: order, domain: "sdk" }, nativeTime: { status: "known", value: `2026-10-08T00:00:0${order}.000Z` },
+    actor: { kind: "agent" }, family: "tool", phase, scope: { kind: "operation", id: op }, relations: { parent: { status: "unknown" }, known: [] },
+    attributes: { toolName: "Bash", ...attributes },
+    content: { status: "known", value: [{ nativeReference: { artifactId: "session", recordLocator: `line:${order}` }, mediaType: "application/json" }] },
+  }) as never;
+  const content = new Map<number, unknown>([
+    [1, { command: 'node qualification.mjs fail-first; echo "exit status: $?"' }], [2, { result: "qualification failed\nexit status: 17" }],
+    [3, { command: 'node qualification.mjs fail-first; echo "exit status: $?"' }], [4, { result: "qualification failed\nexit status: 17" }],
+    [5, { command: "node --test calculator.test.mjs" }], [6, { result: "# pass 3" }],
+  ]);
+  const resolve = (reference: { recordLocator: string }) => ({ status: "resolved" as const, value: content.get(Number(reference.recordLocator.match(/line:(\d+)/u)![1])) });
+  const { units } = deriveUnits({ attemptId: "a", resolveContent: resolve, occurrences: [], events: [
+    event("c1", "op1", "before", 1, {}), event("r1", "op1", "after", 2, { isError: false }),
+    event("c2", "op2", "before", 3, {}), event("r2", "op2", "after", 4, {}),
+    event("c3", "op3", "before", 5, {}), event("r3", "op3", "after", 6, { isError: false }),
+  ] });
+  const [native, inferred, nodeTest] = ["op1", "op2", "op3"].map((op) => units.find((u) => u.unit_id === `a/c${op.slice(2)}`)!);
+  assert.deepEqual([native!.status, native!.exit_code, native!.status_source, native!.error_signature], ["ok", null, "native", null],
+    "the harness's is_error: false decides, whatever the agent echoes");
+  assert.deepEqual([inferred!.status, inferred!.exit_code, inferred!.status_source], ["error", 17, "inferred"], "without a harness result field, the text code is used and labelled");
+  assert.deepEqual([nodeTest!.command_head, nodeTest!.check_kind, nodeTest!.check_kinds], ["node --test", "test", ["test"]]);
+});

@@ -203,6 +203,12 @@ async function runAdapterOperation(
 ): Promise<Record<string, unknown>> {
   const scriptPath = materializeAdapterScript();
   const result = await python([interpreter ?? "python3", scriptPath, operation, ...arguments_]);
+  if (!result.stdout.trim()) {
+    // Typically Harbor is not importable: Python fails before the adapter can answer, and only stderr says why.
+    const stderr = result.stderr.trim().split("\n").slice(-5).join("\n").slice(-600);
+    throw new HarborAdapterError("adapter-protocol", `${interpreter ?? "python3"} exited with code ${String(result.code)} before the Harbor adapter answered ("${operation}")` +
+      (stderr ? `; its stderr ends: ${stderr}` : " and wrote nothing to stderr."));
+  }
   const parsed = parseAdapterJson(result.stdout);
   if (result.code === 0) {
     if (parsed.ok !== true) throw new HarborAdapterError("adapter-protocol", `Harbor adapter reported failure with exit code 0 for "${operation}".`);

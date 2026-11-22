@@ -17,7 +17,9 @@ export type AtlasUnit = {
   unit_id: string; attempt_id: string; seq: number; unit_kind: "message" | "tool" | "compaction" | "delegation" | "episode";
   subkind: string | null; role: string | null; episode_id: string | null; tool_name: string | null; tool_kind: string | null;
   command: string | null; command_head: string | null; check_kind: string | null; check_kinds: string[]; writes: string[]; target: string | null;
-  status: string | null; exit_code: number | null; duration_seconds: number | null; input_chars: number | null; output_chars: number | null;
+  status: string | null; exit_code: number | null;
+  /** Where a tool unit's status and exit code come from: the harness's own result (`native`) or the output text (`inferred`). */
+  status_source: "native" | "inferred" | null; duration_seconds: number | null; input_chars: number | null; output_chars: number | null;
   output_lines: number | null; lines_added: number | null; lines_removed: number | null; error_signature: string | null;
   tool_count: number | null; error_count: number | null; t_start: string | null; t_end: string | null; event_count: number;
   first_event_key: string; occurrences: string[]; embed: boolean; embed_text: string; embed_chars: number;
@@ -57,6 +59,8 @@ export function commandHead(command: string): { head: string; segments: number }
   const block = /^(for|while|until|if)\b/u.exec(first);
   if (block) return { head: `${block[1]!}-block`, segments: segs.length };
   let tokens = first.split(/\s+/u).filter(Boolean);
+  // Node's built-in test runner is named by its flag: `node --test <file>` is a test run, `node <file>` is not.
+  if (tokens[0]?.split("/").at(-1) === "node" && tokens.slice(1).some((t) => t === "--test" || t.startsWith("--test="))) return { head: "node --test", segments: segs.length };
   if (tokens.length) {
     let i = 1;
     while (i < tokens.length) {
@@ -194,7 +198,7 @@ export function deriveUnits({ attemptId, events, occurrences, resolveContent, ev
   type Draft = Omit<AtlasUnit, "seq" | "episode_id" | "embed" | "embed_text" | "embed_chars" | "first_event_key" | "event_count" | "occurrences"> & { first: number; eventParts: Array<[string, string]> };
   const blank = (kind: AtlasUnit["unit_kind"], first: UniformEvent): Draft => ({
     unit_id: `${attemptId}/${first.id}`, attempt_id: attemptId, unit_kind: kind, subkind: null, role: null, tool_name: null, tool_kind: null,
-    command: null, command_head: null, check_kind: null, check_kinds: [], writes: [], target: null, status: null, exit_code: null, duration_seconds: null,
+    command: null, command_head: null, check_kind: null, check_kinds: [], writes: [], target: null, status: null, exit_code: null, status_source: null, duration_seconds: null,
     input_chars: null, output_chars: null, output_lines: null, lines_added: null, lines_removed: null, error_signature: null, tool_count: null,
     error_count: null, t_start: time(first), t_end: time(first), first: index.get(first.id)!, eventParts: [],
   });
@@ -245,13 +249,19 @@ export function deriveUnits({ attemptId, events, occurrences, resolveContent, ev
       unit.target = pathHint(findKey(input, ["file_path", "filePath", "path", "file", "target_file", "notebook_path", "pattern", "url", "query"]));
       if (unit.tool_kind === "edit") { const { added, removed } = editLines(input); unit.lines_added = added; unit.lines_removed = removed; }
     }
+    // The harness's own result decides: an error flag, a status, an exit code or the SDK's success hook. Only when it
+    // records none of these is an exit code read from the output text, and the unit is marked as inferred. The text
+    // is the command's output, so `cmd; echo "exit status: $?"` reports cmd's code, not the call's.
     const exitCodes = ordered.flatMap(({ attributes }) => (typeof attributes.exitCode === "number" ? [attributes.exitCode] : []));
-    const exitText = EXIT_TEXT.exec(outputText.slice(0, 1500));
-    unit.exit_code = exitCodes.at(-1) ?? (imported ? null : exitText ? Number(exitText[1]) : null);
+    const nativeSuccess = ordered.some(({ attributes }) => attributes.isError === false || attributes.status === "completed"
+      || attributes.exitCode === 0 || attributes.hook === "PostToolUse");
+    const nativeOutcome = operation.failed || exitCodes.length > 0 || nativeSuccess;
+    const exitText = imported || nativeOutcome ? null : EXIT_TEXT.exec(outputText.slice(0, 1500));
+    unit.exit_code = exitCodes.at(-1) ?? (exitText ? Number(exitText[1]) : null);
     const failed = operation.failed || (unit.exit_code !== null && unit.exit_code !== 0);
-    const explicitSuccess = ordered.some(({ attributes }) => attributes.isError === false || attributes.status === "completed"
-      || attributes.exitCode === 0 || attributes.hook === "PostToolUse") || unit.exit_code === 0;
+    const explicitSuccess = nativeSuccess || unit.exit_code === 0;
     unit.status = failed ? "error" : imported ? explicitSuccess ? "ok" : null : results.length ? "ok" : null;
+    unit.status_source = unit.status === null ? null : nativeOutcome ? "native" : exitText ? "inferred" : results.length ? "native" : null;
     unit.error_signature = failed ? errorSignature(outputText) : null;
     unit.input_chars = input.length ? JSON.stringify(input).length : null;
     // Output size only when the result content resolved; an unresolved result is unavailable, not empty.

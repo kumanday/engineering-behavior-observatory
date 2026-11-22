@@ -271,6 +271,38 @@ test("corpus CLI builds, queries, and validates the local index", () => {
   }
 });
 
+test("a corpus over ebo harbor run output indexes each attempt's step bundles and validates", () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-harbor-corpus-"));
+  const corpus = join(root, "attempts");
+  const indexPath = join(root, "index.jsonl");
+  try {
+    // The layout ebo harbor run writes: an attempt summary in ebo/, Harbor's own files (with a manifest.json of
+    // Harbor's) in harbor/, and one EBO step bundle per step under steps/<index>/bundle/.
+    for (const [attempt, fixture] of [["attempt-a", "task-failed"], ["attempt-b", "interrupted"]] as const) {
+      const attemptRoot = join(corpus, "run-1", attempt);
+      cpSync(join(fixtures, fixture), join(attemptRoot, "steps", "0", "bundle"), { recursive: true });
+      mkdirSync(join(attemptRoot, "ebo"), { recursive: true });
+      writeFileSync(join(attemptRoot, "ebo", "manifest.json"), JSON.stringify({ schemaVersion: "ebo.harbor-attempt/v1", attemptId: attempt, steps: [] }));
+      mkdirSync(join(attemptRoot, "harbor", "trials", attempt, "artifacts"), { recursive: true });
+      writeFileSync(join(attemptRoot, "harbor", "trials", attempt, "artifacts", "manifest.json"), JSON.stringify([{ path: "out.txt" }]));
+    }
+    const entries = buildCorpusIndex(corpus);
+    assert.deepEqual(entries.map(({ manifestPath, manifestKind }) => [manifestPath, manifestKind]), [
+      ["run-1/attempt-a/steps/0/bundle/manifest.json", "run"],
+      ["run-1/attempt-b/steps/0/bundle/manifest.json", "run"],
+    ]);
+    let output = "";
+    assert.equal(main(["corpus", "build", corpus, indexPath], (message) => { output += message; }), 0);
+    assert.equal(main(["corpus", "validate", corpus, indexPath], (message) => { output += message; }), 0, output);
+    // A manifest.json outside an attempt's harbor/ folder is still indexed, and an unknown one still fails validation.
+    mkdirSync(join(corpus, "stray"));
+    writeFileSync(join(corpus, "stray", "manifest.json"), JSON.stringify({ schemaVersion: "other/v1" }));
+    assert.equal(buildCorpusIndex(corpus).find(({ manifestPath }) => manifestPath === "stray/manifest.json")?.manifestKind, "unknown");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("bounded reads honor a caller-supplied archive limit", () => {
   const root = mkdtempSync(join(tmpdir(), "ebo-bounded-read-"));
   const path = join(root, "archive.tar.gz");

@@ -35,6 +35,13 @@ retained lock. `check` rereads withdrawal metadata, queries OSV, verifies the
 installed files and checks the selected SDK's API exports. These commands do not
 submit an agent or judge turn.
 
+A study freezes each role for one platform. `check` and every launch load the
+role's installation in the current process, so they run only where that platform
+matches: a role frozen for a Linux guest fails on a macOS host with
+`RUNTIME_PLATFORM_MISMATCH`. Check such a role inside its guest. A study whose
+agents run in Linux guests and whose judge runs on the host freezes the judge's
+role in a second study for the host platform.
+
 The harness roles are `claude-agent-sdk`, `codex-app-server`, `devin-cli`, `antigravity-cli`,
 `cursor-sdk`, `pi-sdk`, `factory-droid`, `openhands-agent-server` and
 `deepseek-harness`. `codex-judge`, `harbor` and `smol` select supporting runtimes.
@@ -215,7 +222,8 @@ these checks. Each native executor records actual runtime probes in its bundle.
 ## Judge execution
 
 Freeze `codex-judge` for the Codex backend or `claude-agent-sdk` for the Claude
-backend. Pass `--runtime-study <study-root>` to `ebo judge run` or
+backend, for the platform the judge runs on; when the agents' `claude-agent-sdk`
+is frozen for a guest, the judge needs its own study frozen for the host. Pass `--runtime-study <study-root>` to `ebo judge run` or
 `ebo judge batch`. The batch rechecks each job before launch. The same option
 binds the Codex fallback used by `ebo occurrences rate`. Library callers pass
 `runtime: { studyRoot }` to the semantic-judge runner or establish a study

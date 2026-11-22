@@ -72,6 +72,31 @@ test("a clean source checkout packs an executable ebo binary", () => {
     assert.match(output, /^Usage: ebo \[--help\]/);
     assert.equal(realpathSync(join(consumerRoot, "node_modules/.bin/ebo")), realpathSync(join(consumerRoot, "node_modules/engineering-behavior-observatory/dist/src/cli.js")));
     assert.equal(JSON.parse(readFileSync(join(consumerRoot, "node_modules/engineering-behavior-observatory/package.json"), "utf8")).version, JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")).version);
+    const installed = realpathSync(join(consumerRoot, "node_modules/engineering-behavior-observatory"));
+    const ebo = (args: string[]) => spawnSync(join(consumerRoot, "node_modules", ".bin", "ebo"), args, { cwd: consumerRoot, encoding: "utf8" });
+
+    // Harbor lane, first documented step: the worker build preflight finds every source in the installed package,
+    // including the npm lock that npm never packs at the root.
+    const worker = ebo(["harbor", "build-worker", "--check"]);
+    assert.equal(worker.status, 0, worker.stdout + worker.stderr);
+    assert.equal(realpathSync(JSON.parse(worker.stdout).root), installed);
+    assert.deepEqual(readFileSync(join(installed, "dist/harbor-worker/package-lock.json")), readFileSync(join(sourceRoot, "package-lock.json")));
+    const builderUsage = ebo(["harbor", "build-worker", join(installationRoot, "worker-out")]);
+    assert.equal(builderUsage.status, 1);
+    assert.match(builderUsage.stdout + builderUsage.stderr, /--study <frozen-study> --node-image/);
+
+    // Embedding lane, first documented step: the runtime check names the installed requirements and runs the
+    // installed scripts (here through a stand-in interpreter that only proves each script exists).
+    const embeddings = ebo(["atlas", "embeddings", "check"]);
+    assert.equal(embeddings.status, 0, embeddings.stdout + embeddings.stderr);
+    const report = JSON.parse(embeddings.stdout.slice(0, embeddings.stdout.lastIndexOf("}") + 1)) as { requirements: string };
+    assert.equal(realpathSync(report.requirements), join(installed, "scripts/embeddings/requirements.txt"));
+    const python = join(installationRoot, "python-stand-in");
+    writeFileSync(python, '#!/bin/sh\n[ "$1" = "-I" ] && [ -f "$2" ] || { echo "missing script: $2" >&2; exit 3; }\necho "$2" >> "$0.log"\n', { mode: 0o755 });
+    const checked = ebo(["atlas", "embeddings", "check", "--python", python]);
+    assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+    assert.deepEqual(readFileSync(`${python}.log`, "utf8").trim().split("\n").map((path) => realpathSync(path)),
+      [join(installed, "scripts/embeddings/embed.py"), join(installed, "scripts/embeddings/layout.py")]);
   } finally {
     rmSync(installationRoot, { force: true, recursive: true });
   }

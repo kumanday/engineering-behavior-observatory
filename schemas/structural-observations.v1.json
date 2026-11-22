@@ -109,7 +109,7 @@
           "required": ["id", "version", "heuristic"],
           "properties": {
             "id": { "$ref": "#/$defs/identifier" },
-            "version": { "const": "1.2.0" },
+            "version": { "enum": ["1.2.0", "1.3.0"] },
             "heuristic": { "type": "boolean" }
           }
         },
@@ -136,7 +136,8 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["type", "status", "count"],
-          "properties": { "type": { "enum": ["failure-response", "validation-run", "source-change", "repeated-operation", "compaction", "delegation"] }, "status": { "const": "available" }, "count": { "type": "integer", "minimum": 0 } }
+          "properties": { "type": { "enum": ["failure-response", "validation-run", "source-change", "repeated-operation", "compaction", "delegation"] }, "status": { "const": "available" }, "count": { "type": "integer", "minimum": 0 },
+            "unordered": { "type": "object", "additionalProperties": false, "required": ["count", "reason"], "properties": { "count": { "type": "integer", "minimum": 1 }, "reason": { "$ref": "#/$defs/identifier" } } } }
         },
         {
           "type": "object",

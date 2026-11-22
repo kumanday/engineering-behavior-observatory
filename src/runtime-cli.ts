@@ -79,8 +79,10 @@ export async function runRuntimeCommandLine(args: readonly string[], write: (tex
     if (args[0] === "check" && args.length === 3) {
       await withStudyRuntime({ studyRoot: resolve(args[1]!), role: args[2]!, options }, async () => {
         const context = currentStudyRuntime()!;
+        // A supporting role (harbor, smol) has no harness verification; the key is left out rather than undefined.
+        const verification = runtimeExecutionSummary()?.verification;
         emit({ status: "probed", lockDigest: context.launch.lockDigest, role: context.launch.role, probes: context.probes,
-          receiptLocator: context.launch.receiptLocator, warnings: context.launch.warnings, verification: runtimeExecutionSummary()?.verification });
+          receiptLocator: context.launch.receiptLocator, warnings: context.launch.warnings, ...(verification === undefined ? {} : { verification }) });
       }); return 0;
     }
     write("Usage: ebo runtime list | freeze <study-root> <request.json> [--verification-catalog <path>] [--python-wheelhouse <manifest.json>] | inspect <study-root> | check <study-root> <role> | verify <request.json> <candidate.json> | verification inspect <catalog> | verification admit <catalog> <candidate.json> <operator.json> | verification withdraw <catalog> <withdrawal.json> | bind-queue <study-root> <queue.json> <output.json> [--configuration-root <path>]\n"); return 1;

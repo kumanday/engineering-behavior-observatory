@@ -20,7 +20,9 @@ npm exec --package=engineering-behavior-observatory -- ebo --help
 
 The package name is `engineering-behavior-observatory` and the executable is
 `ebo`. Avoid `npx ebo`, which targets another package. These installations
-include the runtime and documentation. The synthetic demo below requires a
+include the runtime, the documentation, the Harbor worker builder
+(`ebo harbor build-worker`) and the embedding runtime's scripts and pinned
+requirements (`ebo atlas embeddings check`). The synthetic demo below requires a
 source checkout because its generator and test fixtures are not packaged.
 
 ## Install from source
@@ -52,11 +54,11 @@ Replace `ebo` with `npm run ebo --` in later examples.
 
 If a [GitHub release](https://github.com/kumanday/engineering-behavior-observatory/releases)
 provides a package and `SHA256SUMS`, download both files.
-For v0.2.1, from the download directory:
+For 2.0.1, from the download directory:
 
 ```sh
 shasum -a 256 -c SHA256SUMS
-npm install --global ./engineering-behavior-observatory-0.2.1.tgz
+npm install --global ./engineering-behavior-observatory-2.0.1.tgz
 ebo --help
 ```
 
