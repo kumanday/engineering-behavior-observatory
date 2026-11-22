@@ -9,12 +9,13 @@ import { tableFromIPC } from "apache-arrow";
 import { ATLAS_TABLES, buildAtlasBundle, flattenText, verifyAtlasBundle, type AtlasBundleRequest } from "../src/atlas-bundle.js";
 import { loadAtlas } from "../src/atlas.js";
 import { laneData } from "../src/atlas-lanes.js";
-import { deriveUnits } from "../src/atlas-units.js";
+import { clipText, deriveUnits } from "../src/atlas-units.js";
 import { NativeLines, nativeRecordDigest } from "../src/atlas-evidence.js";
 import { validateClaims } from "../src/atlas-claims.js";
 import { createHash } from "node:crypto";
 import { main } from "../src/cli.js";
-import { createAtlasFixture } from "./atlas-fixture.js";
+import { createAtlasFixture, standInEmbed } from "./atlas-fixture.js";
+import { clusterCloud, FacetIndex } from "../src/atlas-clusters.js";
 
 test("flattened event text keeps string leaves, labels short ones and skips identifiers", () => {
   assert.deepEqual(flattenText({ id: "x1", role: "user", content: [{ type: "text", text: "line one\nline two" }], input: '{"command":"ls"}', isError: false, exitCode: 0 }),
@@ -32,11 +33,11 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
     writeFileSync(requestPath, JSON.stringify(request));
     const out = join(root, "bundle");
     // Deterministic stand-in embeddings: one dimension per character code bucket, no provider call.
-    const embed = async (texts: readonly string[], config: { dimensions: number }) => {
-      const out = new Float32Array(texts.length * config.dimensions);
-      texts.forEach((t, i) => { for (const ch of t) out[i * config.dimensions + (ch.charCodeAt(0) % config.dimensions)]! += 1; });
+    const embed = standInEmbed((text, dimensions) => {
+      const out = new Float32Array(dimensions);
+      for (const ch of text) out[ch.charCodeAt(0) % dimensions]! += 1;
       return out;
-    };
+    });
     const evidenceReuse = { hits: 0, misses: 0 };
     const manifest = await buildAtlasBundle(requestPath, out, { now: () => new Date("2026-10-07T00:00:00.000Z"), embed, evidenceReuse });
     // The build runs inside a reuse scope. This fixture has one assertion per attempt, so every lookup changes attempt.
@@ -110,10 +111,13 @@ test("an Atlas bundle holds Atlas tables v1 built from the validated cohort, and
     await assert.rejects(buildAtlasBundle(requestPath, failed, { embed: async () => { throw new Error("provider unavailable"); } }), /provider unavailable/u);
     assert.equal(existsSync(failed), false);
     assert.deepEqual(readdirSync(root).filter((f) => f.includes(".partial-")), []);
-    // Without a provider in the request, embeddings are local: no network, deterministic.
+    // EmbeddingGemma 2 is the default and needs its runtime; the build says so before reading any attempt.
+    await assert.rejects(buildAtlasBundle(requestPath, join(root, "bundle-no-runtime"), { embedding: {} }), /EBO_EMBEDDINGS_PYTHON/u);
+    // Hashed TF-IDF is the explicit offline option: no runtime, deterministic.
+    writeFileSync(requestPath, JSON.stringify({ ...request, embeddings: { provider: "hashed-tfidf" } }));
     const local = join(root, "bundle-local");
     const localManifest = await buildAtlasBundle(requestPath, local);
-    assert.equal(localManifest.cloud.embeddings.provider, "local");
+    assert.equal(localManifest.cloud.embeddings.provider, "hashed-tfidf");
     assert.deepEqual(readFileSync(join(local, "embeddings.f32")), readFileSync(join(local, "embeddings.f32")));
     writeFileSync(requestPath, JSON.stringify({ ...request, cohorts: [...request.cohorts, request.cohorts[0]] }));
     await assert.rejects(buildAtlasBundle(requestPath, join(root, "bundle-2"), { embed }), /unique/u);
@@ -138,7 +142,7 @@ test("an Atlas bundle labels every result with its producer mode and direction a
     writeFileSync(requestPath, JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "synthetic-modes", title: "Synthetic modes",
       cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], condition: { pattern: "^synthetic-(?<condition>attempt)-\\d+$" } } satisfies AtlasBundleRequest));
     const out = join(root, "bundle");
-    const embed = async (texts: readonly string[], config: { dimensions: number }) => new Float32Array(texts.length * config.dimensions).fill(1);
+    const embed = standInEmbed();
     await buildAtlasBundle(requestPath, out, { now: () => new Date("2026-10-07T00:00:00.000Z"), embed });
     assert.equal(verifyAtlasBundle(out).ok, true);
 
@@ -312,4 +316,217 @@ test("devin messages: consecutive same-update chunks merge into one message unit
   assert.equal(messages[1]!.event_count, 2);
   assert.equal(messages[1]!.role, "assistant");
   assert.ok(links.some((l) => l.event_key === "a/m2"), "every merged chunk is a linked event part");
+});
+
+test("embed text never ends inside a surrogate pair, so an emoji at the clip boundary reaches the tokenizer whole or not at all", () => {
+  const emoji = "\u{1F600}";
+  assert.equal(clipText(`ab${emoji}`, 3), "ab", "a cut between the halves drops the high half");
+  assert.equal(clipText(`ab${emoji}`, 4), `ab${emoji}`);
+  assert.equal(clipText(`ab${emoji}`, 2), "ab");
+  assert.equal(clipText("ab\ud83d", 3), "ab\ud83d", "a text shorter than the limit is left to toWellFormed");
+  const message = (id: string, order: number) => ({
+    id, runId: "r", attemptId: "a",
+    source: { harness: "devin-cli", nativeType: "session/update:agent_message_chunk", nativeReference: { artifactId: "session", recordLocator: `line:${order}` } },
+    nativeOrder: { status: "known", value: order, domain: "devin-acp-stdio" },
+    nativeTime: { status: "known", value: `2026-10-08T00:00:0${order}.000Z` },
+    actor: { kind: order === 1 ? "user" : "agent" }, family: "message", phase: "instant",
+    scope: { kind: "session", id: "s" },
+    relations: { parent: { status: "unknown" }, known: [] },
+    attributes: { method: "session/update", sessionUpdate: order === 1 ? "user_message_chunk" : "agent_message_chunk" },
+    content: { status: "known", value: [{ nativeReference: { artifactId: "session", recordLocator: `line:${order}#/text` }, mediaType: "application/json" }] },
+  }) as never;
+  // Message embed text is clipped at 1,200 code units: the emoji's high half lands on unit 1,200.
+  const texts = new Map([[1, `${"a".repeat(1199)}${emoji} tail`], [2, "escaped half pair \ud83d here"]]);
+  const resolve = (reference: { recordLocator: string }) => ({ status: "resolved" as const,
+    value: { type: "text", text: texts.get(Number(reference.recordLocator.match(/line:(\d+)/u)![1])) } });
+  const units = deriveUnits({ attemptId: "a", events: [message("u1", 1), message("m1", 2)], occurrences: [], resolveContent: resolve }).units
+    .filter((u) => u.unit_kind === "message");
+  assert.equal(units[0]!.embed_text, "a".repeat(1199));
+  assert.equal(units[1]!.embed_text, "escaped half pair \ufffd here", "a lone surrogate in the transcript becomes U+FFFD");
+  for (const unit of units) assert.ok(unit.embed_text.isWellFormed());
+  // JSON.stringify escapes a lone surrogate and json.loads restores it; well-formed text round-trips as itself.
+  assert.ok(!JSON.stringify(units.map((u) => u.embed_text)).includes("\\ud83d"));
+});
+
+test("a large bundle splits the viewer's per-attempt documents and indexes the card results, with the same content as inline", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-atlas-split-"));
+  try {
+    await createAtlasFixture(join(root, "study"));
+    const requestPath = join(root, "bundle-request.json");
+    writeFileSync(requestPath, JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "synthetic-split", title: "Synthetic split",
+      cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }] } satisfies AtlasBundleRequest));
+    const now = () => new Date("2026-10-07T00:00:00.000Z");
+    await buildAtlasBundle(requestPath, join(root, "inline"), { now, embed: standInEmbed(), splitViewerDocuments: false });
+    const manifest = await buildAtlasBundle(requestPath, join(root, "split"), { now, embed: standInEmbed(), splitViewerDocuments: true });
+    const read = (dir: string, path: string) => JSON.parse(readFileSync(join(root, dir, path), "utf8")) as Record<string, any>;
+    const inline = read("inline", "assessments.json"), split = read("split", "assessments.json");
+    assert.equal(split.assessments.length, 0);
+    assert.equal(split.split, "assessments/");
+    // The per-attempt files hold exactly the inline documents.
+    const fromFiles = readdirSync(join(root, "split", "assessments")).flatMap((f) => read("split", `assessments/${f}`) as unknown as unknown[]);
+    const byId = (docs: unknown[]) => [...docs].sort((a, b) => String((a as { id: string }).id).localeCompare(String((b as { id: string }).id)));
+    assert.deepEqual(byId(fromFiles), byId(inline.assessments));
+    // The index has one row per result, with dictionary codes that decode to the documents' fields.
+    const index = tableFromIPC(readFileSync(join(root, "split", "assessments.arrow")));
+    assert.equal(index.numRows, inline.assessments.length);
+    assert.equal(split.index.rows, inline.assessments.length);
+    const decode = (column: string, row: number) => { const code = Number(index.getChild(column)!.get(row)); return code < 0 ? null : split.index.dictionaries[column][code]; };
+    for (let row = 0; row < index.numRows; row++) {
+      const doc = inline.assessments.find((a: { id: string }) => a.id === index.getChild("id")!.get(row))!;
+      assert.deepEqual([decode("card", row), decode("mode", row), decode("outcome", row), decode("value", row), decode("direction", row), decode("review", row)],
+        [doc.card, doc.mode, doc.outcome, doc.value, doc.direction, doc.review]);
+      assert.equal(split.attempts[Number(index.getChild("attempt")!.get(row))].attempt_id, doc.attempt_id);
+      assert.equal(decode("included", row), Object.entries(doc.cohorts as Record<string, { included?: boolean }>).filter(([, f]) => f.included !== false).map(([id]) => id).sort().join(","));
+    }
+    // Certified cells keep their counts and arms; their judgment lists come from the index.
+    const cells = (doc: Record<string, any>) => Object.values(doc.certified).flatMap((c: any) => c.cells);
+    assert.deepEqual(cells(split), cells(inline).map(({ assertions: _a, ...cell }: any) => cell));
+    // Audits and lane series move to one file per attempt.
+    const audits = read("split", "audit.json");
+    assert.deepEqual([audits.split, Object.keys(audits.attempts).length], ["audit/", 0]);
+    for (const [attemptId, audit] of Object.entries(read("inline", "audit.json").attempts)) {
+      const file = readdirSync(join(root, "split", "audit")).find((f) => read("split", `audit/${f}`).attempt_id === attemptId)!;
+      assert.deepEqual(read("split", `audit/${file}`), audit);
+    }
+    const lanes = read("split", "lanes.json"), inlineLanes = read("inline", "lanes.json");
+    assert.deepEqual([lanes.split, lanes.attempts], ["lanes/", inlineLanes.attempts]);
+    assert.equal(readdirSync(join(root, "split", "lanes")).length, new Set([...Object.keys(inlineLanes.usage), ...Object.keys(inlineLanes.context)]).size);
+    assert.ok(["assessments.arrow", ...readdirSync(join(root, "split", "assessments")).map((f) => `assessments/${f}`)].every((path) => manifest.files.some((file) => file.path === path)));
+    assert.deepEqual(verifyAtlasBundle(join(root, "split")), { ok: true, changed: [], missing: [], unlisted: [] });
+    // The tables do not depend on the layout.
+    for (const name of ["assessments", "units", "attempts"]) assert.equal(manifest.tables[name]!.sha256, (JSON.parse(readFileSync(join(root, "inline", "manifest.json"), "utf8")) as { tables: Record<string, { sha256: string }> }).tables[name]!.sha256, name);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a build-time layout puts positions and neighbors in the cloud table and records which backend ran", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-atlas-layout-"));
+  try {
+    await createAtlasFixture(join(root, "study"));
+    const requestPath = join(root, "bundle-request.json");
+    writeFileSync(requestPath, JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "synthetic-layout", title: "Synthetic layout",
+      cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], embeddings: { provider: "hashed-tfidf" } } satisfies AtlasBundleRequest));
+    let families: readonly string[] = [];
+    // A stand-in for the runtime: unit i at (i, family index), its neighbor the previous unit of its family.
+    const layout = async (_path: string, _dimensions: number, given: readonly string[]) => {
+      families = [...given];
+      const n = given.length, k = 15, xy = new Float32Array(2 * n), neighborIds = new Int32Array(n * k).fill(-1), neighborDistances = new Float32Array(n * k);
+      const last = new Map<string, number>();
+      given.forEach((family, i) => { xy[2 * i] = i; xy[2 * i + 1] = ["messages", "episodes", "tools"].indexOf(family); if (last.has(family)) { neighborIds[i * k] = last.get(family)!; neighborDistances[i * k] = 0.5; } last.set(family, i); });
+      return { xy, neighborIds, neighborDistances, k, run: { backend: "stand-in", backendVersion: "0", device: "cpu", units: n, pca: 128, neighbors: k, minDist: 0.1, seed: 42, metric: "cosine", familySeconds: {}, packages: {} } };
+    };
+    // Below the size threshold the viewer lays the cloud out; asking for a build-time layout without a runtime fails at once.
+    const small = await buildAtlasBundle(requestPath, join(root, "browser"), { layout });
+    assert.deepEqual(small.cloud.layout, { where: "browser" });
+    writeFileSync(requestPath, JSON.stringify({ ...JSON.parse(readFileSync(requestPath, "utf8")), embeddings: { provider: "hashed-tfidf", layout: "build" } }));
+    await assert.rejects(buildAtlasBundle(requestPath, join(root, "no-runtime")), /build-time layout needs the Python runtime/u);
+    process.env.EBO_EMBEDDINGS_PYTHON = "/unused/python";
+    try {
+      const manifest = await buildAtlasBundle(requestPath, join(root, "build"), { layout });
+      assert.equal(manifest.cloud.layout?.where, "build");
+      assert.equal(manifest.cloud.layout?.run?.backend, "stand-in");
+      const units = tableFromIPC(readFileSync(join(root, "build", "units.arrow")));
+      assert.equal(families.length, units.numRows);
+      assert.deepEqual([...units.getChild("family")!.toArray()], [...families]);
+      for (let row = 0; row < units.numRows; row++) {
+        assert.equal(units.getChild("x")!.get(row), Number(units.getChild("row_id")!.get(row)));
+        const neighbors = units.getChild("neighbors")!.get(row)!.toJSON() as { ids: { toArray(): Int32Array } | null };
+        const ids = [...(neighbors.ids?.toArray() ?? [])];
+        assert.ok(ids.length <= 1 && ids.every((id) => families[id] === families[row] && id < row));
+      }
+    } finally { delete process.env.EBO_EMBEDDINGS_PYTHON; }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("attempts processed in worker processes give the same bundle, and every row id points into its own attempt", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-atlas-workers-"));
+  try {
+    await createAtlasFixture(join(root, "study"));
+    const requestPath = join(root, "bundle-request.json");
+    writeFileSync(requestPath, JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "synthetic-workers", title: "Synthetic workers",
+      cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], embeddings: { provider: "hashed-tfidf" } } satisfies AtlasBundleRequest));
+    const now = () => new Date("2026-10-07T00:00:00.000Z");
+    const serial = await buildAtlasBundle(requestPath, join(root, "serial"), { now, attemptWorkers: 1 });
+    const parallel = await buildAtlasBundle(requestPath, join(root, "parallel"), { now, attemptWorkers: 3 });
+    // Byte-identical, apart from the reports' generation times (the cohort report, the cohorts table and the certified tallies).
+    const timed = new Set(["reports/all.json", "tables/cohorts.parquet", "assessments.json"]);
+    assert.deepEqual(parallel.files.filter(({ path }) => !timed.has(path)), serial.files.filter(({ path }) => !timed.has(path)));
+    const untimed = (dir: string) => JSON.stringify(JSON.parse(readFileSync(join(root, dir, "assessments.json"), "utf8"), (key, value) => (key === "generated_at" ? undefined : value)));
+    assert.equal(untimed("parallel"), untimed("serial"));
+    const units = tableFromIPC(readFileSync(join(root, "serial", "units.arrow")));
+    const attemptOfRow = new Map<number, string>();
+    for (let row = 0; row < units.numRows; row++) attemptOfRow.set(Number(units.getChild("row_id")!.get(row)), String(units.getChild("attempt_id")!.get(row)));
+    assert.ok(new Set(attemptOfRow.values()).size > 1, "the fixture has several attempts, so later ones are shifted");
+    const assessments = JSON.parse(readFileSync(join(root, "serial", "assessments.json"), "utf8")) as { assessments: Array<{ attempt_id: string; citations: Array<{ row_id: number | null }> }> };
+    for (const doc of assessments.assessments) for (const { row_id } of doc.citations) if (row_id !== null) assert.equal(attemptOfRow.get(row_id), doc.attempt_id);
+    const audits = JSON.parse(readFileSync(join(root, "serial", "audit.json"), "utf8")) as { attempts: Record<string, { checks: Array<{ row_id: number }>; changes: Array<{ row_id: number }>; final: { row_id: number } | null; failure_chains: Array<{ failures: number[] }> }> };
+    for (const [attemptId, audit] of Object.entries(audits.attempts)) {
+      for (const row of [...audit.checks.map((c) => c.row_id), ...audit.changes.map((c) => c.row_id), ...(audit.final ? [audit.final.row_id] : []), ...audit.failure_chains.flatMap((c) => c.failures)]) assert.equal(attemptOfRow.get(row), attemptId);
+    }
+    for (const file of readdirSync(join(root, "serial", "native"))) {
+      const native = JSON.parse(readFileSync(join(root, "serial", "native", file), "utf8")) as { attempt_id: string; units: Record<string, unknown> };
+      for (const row of Object.keys(native.units)) assert.equal(attemptOfRow.get(Number(row)), native.attempt_id);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a compact cloud keeps the viewer's columns as dictionaries with short labels, clustered at build time", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ebo-atlas-compact-"));
+  try {
+    await createAtlasFixture(join(root, "study"));
+    const requestPath = join(root, "bundle-request.json");
+    writeFileSync(requestPath, JSON.stringify({ schemaVersion: "ebo.atlas-bundle-request/v2", id: "synthetic-compact", title: "Synthetic compact",
+      cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], embeddings: { provider: "hashed-tfidf", layout: "build" } } satisfies AtlasBundleRequest));
+    // Two tight groups per family, so the build finds clusters.
+    const layout = async (_path: string, _dimensions: number, given: readonly string[]) => {
+      const n = given.length, k = 15, xy = new Float32Array(2 * n);
+      given.forEach((_family, i) => { xy[2 * i] = (i % 2) * 10 + (i % 7) * 0.01; xy[2 * i + 1] = (i % 2) * 10 + (i % 5) * 0.01; });
+      return { xy, neighborIds: new Int32Array(n * k).fill(-1), neighborDistances: new Float32Array(n * k), k,
+        run: { backend: "stand-in", backendVersion: "0", device: "cpu", units: n, pca: 128, neighbors: k, minDist: 0.1, seed: 42, metric: "cosine", familySeconds: {}, packages: {} } };
+    };
+    process.env.EBO_EMBEDDINGS_PYTHON = "/unused/python";
+    try {
+      const full = await buildAtlasBundle(requestPath, join(root, "full"), { layout, compactCloud: false });
+      const manifest = await buildAtlasBundle(requestPath, join(root, "compact"), { layout, compactCloud: true });
+      assert.equal(manifest.cloud.layout?.compact, true);
+      assert.equal(full.cloud.layout?.compact, undefined);
+      const before = tableFromIPC(readFileSync(join(root, "full", "units.arrow"))), units = tableFromIPC(readFileSync(join(root, "compact", "units.arrow")));
+      assert.equal(units.numRows, before.numRows);
+      const names = units.schema.fields.map(({ name }) => name);
+      for (const dropped of ["embed_text", "unit_id", "first_event_key", "episode_id", "neighbors", "input_chars"]) assert.ok(!names.includes(dropped), dropped);
+      for (const kept of ["row_id", "attempt_id", "condition", "task_id", "unit_kind", "family", "label", "x", "y", "cluster_id", "cluster_label", "writes", "occurrences"]) assert.ok(names.includes(kept), kept);
+      assert.match(String(units.schema.fields.find(({ name }) => name === "attempt_id")!.type), /^Dictionary/u);
+      for (let row = 0; row < units.numRows; row++) {
+        assert.equal(units.getChild("attempt_id")!.get(row), before.getChild("attempt_id")!.get(row));
+        assert.equal(units.getChild("condition")!.get(row), before.getChild("condition")!.get(row));
+        assert.equal(units.getChild("label")!.get(row), String(before.getChild("embed_text")!.get(row) ?? "").slice(0, 96));
+      }
+      for (let row = 0; row < units.numRows; row++) assert.equal(units.getChild("cluster_label")!.get(row) === null, Number(units.getChild("cluster_id")!.get(row)) < 0);
+      const labels = JSON.parse(readFileSync(join(root, "compact", "labels.json"), "utf8")) as Array<{ text: string }>;
+      assert.ok(labels.some(({ text }) => text === "MESSAGES"), "each family present has its label");
+      assert.ok(manifest.files.some(({ path }) => path === "labels.json"));
+      assert.ok(Buffer.byteLength(readFileSync(join(root, "compact", "units.arrow"))) < Buffer.byteLength(readFileSync(join(root, "full", "units.arrow"))));
+    } finally { delete process.env.EBO_EMBEDDINGS_PYTHON; }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("build-time clusters are dense regions of each family's layout, labelled by their over-represented facets", () => {
+  const n = 60, xy = new Float32Array(2 * n), families: string[] = [], index = new FacetIndex();
+  for (let i = 0; i < n; i++) {
+    const tool = i < 40, group = i % 2;
+    xy[2 * i] = group * 10 + (i % 7) * 0.01; xy[2 * i + 1] = group * 10 + (i % 5) * 0.01;
+    families.push(tool ? "tools" : "messages");
+    index.add({ family: families[i]!, unit_kind: tool ? "tool" : "message", text: tool ? "" : group ? "parser grammar tokens" : "deploy release notes", tool_kind: tool ? "shell" : null,
+      command_head: tool ? (group ? "npm test" : "ls") : null, check_kind: null, target: null, status: "ok", occurrences: [] });
+  }
+  const { clusterId, clusterOf, labels } = clusterCloud(xy, families, index);
+  const labelOf = (row: number) => clusterOf(clusterId[row]!);
+  assert.equal(labelOf(1), "`npm test`");
+  assert.equal(labelOf(0), "`ls`");
+  assert.match(labelOf(41) ?? "", /parser|grammar|tokens/u);
+  assert.notEqual(clusterId[0], clusterId[1]);
+  // Families sit side by side, in the viewer's order (messages, episodes, tools): every tool is right of every message.
+  const toolX = Math.min(...Array.from({ length: 40 }, (_, i) => xy[2 * i]!)), messageX = Math.max(...Array.from({ length: 20 }, (_, i) => xy[2 * (40 + i)]!));
+  assert.ok(toolX > messageX);
+  assert.ok([...clusterId].filter((id) => id >= 0).length >= 0.95 * n, "nearly every unit of a dense group is in its cluster");
+  assert.deepEqual(labels.filter(({ priority }) => priority === 1e9).map(({ text }) => text), ["MESSAGES", "TOOLS"]);
 });

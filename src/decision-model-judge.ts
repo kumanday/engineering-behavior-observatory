@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { assertNoDuplicateJsonKeys, digestMetadata, validateArtifact } from "./artifacts.js";
@@ -296,40 +296,83 @@ export async function importDecisionModelResults(specPath: string, resultsPath: 
   const spec = readDecisionModelRunSpec(specPath);
   const base = dirname(resolve(specPath));
   const output = resolve(base, spec.output);
-  const text = readFileSync(resultsPath, "utf8");
-  const lines = text.split("\n").filter((line) => line.trim() !== "").map((line, index) => {
-    assertNoDuplicateJsonKeys(line);
-    const value = JSON.parse(line) as DecisionModelResultLine;
-    const errors = validateArtifact(`Result line ${String(index + 1)}`, value);
-    if (errors.length > 0) throw new Error(`Result line ${String(index + 1)} ${errors[0]!.field}: ${errors[0]!.message}`);
-    return value;
-  });
+  // Two streaming passes, so a results file of millions of lines is never one string or one array: the first checks
+  // every line's shape, digests the file and notes where each attempt's lines are; the second validates one attempt
+  // at a time against its retained evidence and stages its file. Nothing is published unless every line is valid.
+  const hash = createHash("sha256"), byAttempt = new Map<string, number[]>();
+  let results = 0;
+  // The digest is of the file's bytes, so the same results always name the same file.
+  for (const { line, number, offset, length } of readLineSpans(resultsPath, (bytes) => hash.update(bytes))) {
+    if (line.trim() === "") continue;
+    const value = parseResultLine(line, number);
+    const key = `${value.runId}\0${value.attemptId}`, spans = byAttempt.get(key);
+    if (spans) spans.push(offset, length, number); else byAttempt.set(key, [offset, length, number]);
+    results += 1;
+  }
   const entries = new Map(judgedEntries(resolve(base, spec.corpusRoot), resolve(base, spec.corpusIndex)).map((item) => [`${item.entry.runId}\0${item.entry.attemptId}`, item]));
-  const byAttempt = new Map<string, DecisionModelResultLine[]>();
-  for (const line of lines) byAttempt.set(`${line.runId}\0${line.attemptId}`, [...byAttempt.get(`${line.runId}\0${line.attemptId}`) ?? [], line]);
-  const name = `imported-${createHash("sha256").update(text).digest("hex").slice(0, 16)}.jsonl`;
-  const prepared: Array<{ directory: string; bundleRoot: string; results: DecisionModelAssertion[] }> = [];
-  for (const [key, group] of byAttempt) {
-    const item = entries.get(key);
-    if (item === undefined) throw new Error(`Results name attempt "${group[0]!.runId}/${group[0]!.attemptId}", which the corpus index does not contain.`);
-    const evidence = await createRetainedBehaviorEvidence(item.bundleRoot);
-    const dataset = { schemaVersion: "ebo.normalized-dataset/v1" as const, digest: `sha256:${digestMetadata(evidence.dataset).value}` as const };
-    const results = [];
-    for (const line of group) {
-      const result = decisionModelResult({ ...line, thresholds: spec.thresholds, dataset });
-      await validateBehaviorAssertion(result, evidence.dataset, evidence.resolver, undefined, evidence.capture);
-      results.push(result);
+  for (const key of byAttempt.keys()) if (!entries.has(key)) {
+    const [runId, attemptId] = key.split("\0");
+    throw new Error(`Results name attempt "${runId!}/${attemptId!}", which the corpus index does not contain.`);
+  }
+  const name = `imported-${hash.digest("hex").slice(0, 16)}.jsonl`;
+  const staged: Array<{ partial: string; path: string; bundleRoot: string }> = [];
+  const created: string[] = [];
+  const fd = openSync(resultsPath, "r");
+  try {
+    for (const [key, spans] of byAttempt) {
+      const item = entries.get(key)!;
+      const evidence = await createRetainedBehaviorEvidence(item.bundleRoot);
+      const dataset = { schemaVersion: "ebo.normalized-dataset/v1" as const, digest: `sha256:${digestMetadata(evidence.dataset).value}` as const };
+      const own: DecisionModelAssertion[] = [];
+      for (let i = 0; i < spans.length; i += 3) {
+        const bytes = Buffer.allocUnsafe(spans[i + 1]!);
+        readSync(fd, bytes, 0, bytes.length, spans[i]!);
+        const line = parseResultLine(bytes.toString("utf8"), spans[i + 2]!);
+        const result = decisionModelResult({ ...line, thresholds: spec.thresholds, dataset });
+        await validateBehaviorAssertion(result, evidence.dataset, evidence.resolver, undefined, evidence.capture);
+        own.push(result);
+      }
+      if (new Set(own.map(({ id }) => id)).size !== own.length) throw new Error(`Results for attempt "${own[0]!.runId}/${own[0]!.attemptId}" repeat a card.`);
+      const directory = join(output, safeSegment(item.entry.runId!), safeSegment(item.entry.attemptId!));
+      const made = mkdirSync(directory, { recursive: true });
+      if (made !== undefined) created.push(made);
+      const path = join(directory, name), partial = `${path}.partial`;
+      writeFileSync(partial, `${own.map((result) => JSON.stringify(result)).join("\n")}\n`, { flag: "wx", mode: 0o600 });
+      staged.push({ partial, path, bundleRoot: item.bundleRoot });
     }
-    if (new Set(results.map(({ id }) => id)).size !== results.length) throw new Error(`Results for attempt "${group[0]!.runId}/${group[0]!.attemptId}" repeat a card.`);
-    prepared.push({ directory: join(output, safeSegment(item.entry.runId!), safeSegment(item.entry.attemptId!)), bundleRoot: item.bundleRoot, results });
-  }
-  const assertionSets = [];
-  for (const { directory, bundleRoot, results } of prepared) {
-    mkdirSync(directory, { recursive: true });
-    const path = join(directory, name), partial = `${path}.partial`;
-    writeFileSync(partial, `${results.map((result) => JSON.stringify(result)).join("\n")}\n`, { flag: "wx", mode: 0o600 });
-    renameSync(partial, path);
-    assertionSets.push({ bundleRoot: relative(base, bundleRoot) || ".", path: relative(base, path) });
-  }
-  return { attempts: prepared.length, results: lines.length, assertionSets };
+  } catch (error) {
+    // An invalid file writes nothing: staged files and the directories made for them are removed.
+    for (const { partial } of staged) rmSync(partial, { force: true });
+    for (const directory of created.reverse()) rmSync(directory, { recursive: true, force: true });
+    throw error;
+  } finally { closeSync(fd); }
+  for (const { partial, path } of staged) renameSync(partial, path);
+  return { attempts: staged.length, results, assertionSets: staged.map(({ path, bundleRoot }) => ({ bundleRoot: relative(base, bundleRoot) || ".", path: relative(base, path) })) };
+}
+
+function parseResultLine(line: string, number: number): DecisionModelResultLine {
+  assertNoDuplicateJsonKeys(line);
+  const value = JSON.parse(line) as DecisionModelResultLine;
+  const errors = validateArtifact(`Result line ${String(number)}`, value);
+  if (errors.length > 0) throw new Error(`Result line ${String(number)} ${errors[0]!.field}: ${errors[0]!.message}`);
+  return value;
+}
+
+/** Each line of a file with its 1-based number and byte span, read in chunks. */
+function* readLineSpans(path: string, onBytes: (bytes: Buffer) => void): Generator<{ line: string; number: number; offset: number; length: number }> {
+  const fd = openSync(path, "r"), chunk = Buffer.allocUnsafe(1 << 20);
+  let pending = Buffer.alloc(0), start = 0, number = 0, size: number;
+  try {
+    while ((size = readSync(fd, chunk, 0, chunk.length, null)) !== 0) {
+      onBytes(chunk.subarray(0, size));
+      const data = Buffer.concat([pending, chunk.subarray(0, size)]);
+      let from = 0, newline: number;
+      while ((newline = data.indexOf(10, from)) !== -1) {
+        yield { line: data.toString("utf8", from, newline), number: ++number, offset: start, length: newline - from };
+        start += newline - from + 1; from = newline + 1;
+      }
+      pending = Buffer.from(data.subarray(from));
+    }
+    if (pending.length) yield { line: pending.toString("utf8"), number: ++number, offset: start, length: pending.length };
+  } finally { closeSync(fd); }
 }

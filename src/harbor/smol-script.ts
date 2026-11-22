@@ -74,9 +74,9 @@ def connection_options(manifest):
     if cloud.get('auth') == 'cli':
         if os.environ.get('SMOL_CLOUD_TOKEN'): raise ValueError('Unset SMOL_CLOUD_TOKEN before using explicit CLI authentication')
         return ConnectOptions(target='cloud', base_url=cloud['baseUrl'], max_retries=0)
-    token = os.environ.get(cloud['tokenEnv'])
-    if not token: raise ValueError('Missing Cloud control credential: ' + cloud['tokenEnv'])
-    return ConnectOptions(target='cloud', base_url=cloud['baseUrl'], api_key=token, max_retries=0)
+    value = os.environ.get(cloud['tokenEnv'])
+    if not value: raise ValueError('Cloud control credential variable is unset or empty: ' + cloud['tokenEnv'])
+    return ConnectOptions(target='cloud', base_url=cloud['baseUrl'], api_key=value, max_retries=0)
 
 async def machine_identity(machine, manifest):
     if manifest.get('target') != 'cloud': return machine.name
@@ -147,8 +147,8 @@ def validate_environment_manifest(manifest):
         if url.scheme != 'https' or not url.hostname or url.username or url.password or url.query or url.fragment or url.path not in ('', '/'):
             raise ValueError('Cloud baseUrl must be an HTTPS origin')
         cli = hierarchical(manifest) and cloud.get('auth') == 'cli' and 'tokenEnv' not in cloud
-        token = 'auth' not in cloud and re.fullmatch('[A-Z][A-Z0-9_]*', cloud.get('tokenEnv', ''))
-        if not (cli or token): raise ValueError('Cloud requires tokenEnv or explicit v3 CLI authentication')
+        named = 'auth' not in cloud and re.fullmatch('[A-Z][A-Z0-9_]*', cloud.get('tokenEnv', ''))
+        if not (cli or named): raise ValueError('Cloud requires tokenEnv or explicit v3 CLI authentication')
     if not isinstance(manifest.get('tasks'), dict) or not manifest['tasks']:
         raise ValueError('Environment manifest needs task image bindings')
     import re
@@ -265,7 +265,7 @@ class OwnedSmolEnvironment(SmolEnvironment):
         self.ebo_runtime = ebo_runtime
         self.ebo_manifest = ebo_manifest or {}
         conn = connection_options(self.ebo_manifest)
-        super().__init__(*args, target=conn.target, base_url=conn.base_url, api_key=conn.api_key, auto_checkpoint=False, fork_batch_window_ms=0, **kwargs)
+        super().__init__(*args, **{'target': conn.target, 'base_url': conn.base_url, 'api_key': conn.api_key}, auto_checkpoint=False, fork_batch_window_ms=0, **kwargs)
         self._connect = conn
         # Smol includes session_id in the guest hostname; keep it below Linux's 64-byte limit.
         self.session_id = hashlib.sha256(self.session_id.encode()).hexdigest()[:24]

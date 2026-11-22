@@ -204,14 +204,14 @@ export function createOpenResponsesRecorder(options: OpenResponsesRecorderOption
     server,
     register(route) {
       if (!ROUTE_ID.test(route.id) || routes.has(route.id)) throw new Error("Recorder route identity must be new and path-safe.");
-      const token = route.token ?? randomBytes(32).toString("hex");
-      if (token === "" || token === options.upstreamCredential) throw new Error("Recorder route token must be nonempty and differ from the upstream credential.");
+      const bearer = route.token ?? randomBytes(32).toString("hex");
+      if (bearer === "" || bearer === options.upstreamCredential) throw new Error("Recorder route token must be nonempty and differ from the upstream credential.");
       if (existsSync(join(options.root, route.id))) throw new Error(`Recorder route "${route.id}" already has a recording; use a new route identity.`);
       mkdirSync(options.root, { recursive: true, mode: 0o700 });
       mkdirSync(join(options.root, route.id), { mode: 0o700 });
-      secrets.push(token);
-      routes.set(route.id, { endpoint: route.endpoint, model: route.model, tokenDigest: createHash("sha256").update(token).digest(), requests: 0 });
-      return token;
+      secrets.push(bearer);
+      routes.set(route.id, { endpoint: route.endpoint, model: route.model, tokenDigest: createHash("sha256").update(bearer).digest(), requests: 0 });
+      return bearer;
     },
     async listen(port = 0, host = "127.0.0.1") {
       await new Promise<void>((resolve, fail) => { server.once("error", fail); server.listen(port, host, resolve); });

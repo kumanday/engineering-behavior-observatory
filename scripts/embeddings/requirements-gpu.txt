@@ -1,0 +1,4 @@
+# GPU layouts for scripts/embeddings/layout.py: RAPIDS cuML for CUDA 12 (NVIDIA driver 525.60.13 or later,
+# Volta or newer). Install after requirements.txt; it runs beside the CUDA 13 torch wheel.
+#   .embeddings-venv/bin/python -m pip install -r scripts/embeddings/requirements-gpu.txt
+cuml-cu12==26.10.0

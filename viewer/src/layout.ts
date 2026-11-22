@@ -63,27 +63,73 @@ function densityMap(xs: Float32Array, ys: Float32Array, box: { x0: number; y0: n
 export async function prepareCloud(unitsBytes: Uint8Array, getEmbeddings: () => Promise<{ data: Float32Array; dimensions: number } | null>,
   status: (msg: string) => void): Promise<{ ipc: Uint8Array; labels: CloudLabel[] | null }> {
   const table = tableFromIPC(unitsBytes);
-  if (table.schema.fields.some((f) => f.name === "x")) return { ipc: unitsBytes, labels: null };
-  const embeddings = await getEmbeddings();
-  if (!embeddings) throw new Error("This bundle has neither a layout nor embeddings for the cloud.");
-  const { data, dimensions: d } = embeddings;
+  const has = (name: string) => table.schema.fields.some((f) => f.name === name);
+  // A lab bundle carries its layout and clusters. An EBO bundle built with a build-time layout carries positions and
+  // neighbors, and is clustered here; any other EBO bundle is laid out here from its vectors.
+  if (has("x") && has("cluster_id")) return { ipc: unitsBytes, labels: null };
+  const placed = has("x");
+  const embeddings = placed ? null : await getEmbeddings();
+  if (!placed && !embeddings) throw new Error("This bundle has neither a layout nor embeddings for the cloud.");
+  const d = embeddings?.dimensions ?? 0, data = embeddings?.data ?? new Float32Array(0);
   const n = table.numRows;
-  if (data.length !== n * d) throw new Error(`embeddings.f32 holds ${data.length / d} vectors for ${n} units.`);
+  if (!placed && data.length !== n * d) throw new Error(`embeddings.f32 holds ${data.length / d} vectors for ${n} units.`);
   const col = (name: string) => table.getChild(name);
-  const rows: Row[] = Array.from({ length: n }, (_, i) => ({
-    row_id: Number(col("row_id")!.get(i)), family: String(col("family")!.get(i)), unit_kind: String(col("unit_kind")!.get(i)), embed_text: String(col("embed_text")!.get(i) ?? ""),
+  // A row's facets are read from the columns when needed, not kept as one object per unit: a large cloud has millions.
+  const familyOf = col("family")!.toArray() as string[];
+  const rows = { at: (i: number): Row => ({
+    row_id: i, family: String(familyOf[i]), unit_kind: String(col("unit_kind")!.get(i)), embed_text: String(col("embed_text")!.get(i) ?? ""),
     tool_kind: col("tool_kind")!.get(i) ?? null, command_head: col("command_head")!.get(i) ?? null, check_kind: col("check_kind")!.get(i) ?? null,
     target: col("target")!.get(i) ?? null, status: col("status")!.get(i) ?? null, occurrences: [...(col("occurrences")!.get(i)?.toArray?.() ?? [])].map(String),
-  }));
-  const x = new Float32Array(n), y = new Float32Array(n), cluster = new Int32Array(n).fill(-1);
+  }) };
+  const x = placed ? Float32Array.from(col("x")!.toArray() as Float32Array) : new Float32Array(n), y = placed ? Float32Array.from(col("y")!.toArray() as Float32Array) : new Float32Array(n);
+  const cluster = new Int32Array(n).fill(-1);
   const clusterLabel: (string | null)[] = new Array(n).fill(null);
-  const neighborIds: number[][] = Array.from({ length: n }, () => []), neighborDistances: number[][] = Array.from({ length: n }, () => []);
+  // A build-time layout brings its neighbors; only a layout made here collects them.
+  const neighborIds: number[][] = placed ? [] : Array.from({ length: n }, () => []), neighborDistances: number[][] = placed ? [] : Array.from({ length: n }, () => []);
   const labels: CloudLabel[] = [];
   let offset = 0;
+  /** Density clusters over one family's layout, labelled by the facets most over-represented in each. */
+  const clusterFamily = async (fi: number, family: string, members: number[], fx: Float32Array, fy: Float32Array, box: { x0: number; y0: number; w: number; h: number }) => {
+      // Density clusters; each unit joins the cluster whose boundary rectangles contain its pixel.
+      const clusters = await findClusters(densityMap(fx, fy, box), GRID, GRID, { unionThreshold: 10 });
+      const significant = clusters.filter((c) => c.pixelCount >= 4).sort((a, b) => b.sumDensity - a.sumDensity);
+      const background = new Map<string, number>();
+      for (const row of members) for (const f of new Set(facets(rows.at(row)))) background.set(f, (background.get(f) ?? 0) + 1);
+      significant.forEach((c, ci) => {
+        const id = 1000 * (fi + 1) + ci;
+        const inside = members.filter((row, i) => {
+          const px = ((fx[i]! - box.x0) / box.w) * GRID, py = ((fy[i]! - box.y0) / box.h) * GRID;
+          return cluster[row] === -1 && (c.boundaryRectApproximation ?? []).some(([x1, y1, x2, y2]) => px >= x1 && px <= x2 && py >= y1 && py <= y2);
+        });
+        if (inside.length < 5) return;
+        const counts = new Map<string, number>();
+        for (const row of inside) for (const f of new Set(facets(rows.at(row)))) counts.set(f, (counts.get(f) ?? 0) + 1);
+        const top = [...counts].filter(([, k2]) => k2 / inside.length >= 0.25)
+          .map(([f, k2]) => [f, (k2 / inside.length) * Math.log((k2 / inside.length) / ((background.get(f) ?? 1) / members.length) + 1e-9)] as const)
+          .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([f]) => f);
+        const text = top.join(" · ") || family;
+        for (const row of inside) { cluster[row] = id; clusterLabel[row] = text; }
+        const xs = inside.map((row) => x[row]!).sort((a, b) => a - b), ys = inside.map((row) => y[row]!).sort((a, b) => a - b);
+        labels.push({ x: xs[xs.length >> 1]!, y: ys[ys.length >> 1]!, text, level: 0, priority: inside.length });
+      });
+      labels.push({ x: box.x0 + box.w / 2, y: box.h + 0.5, text: family.toUpperCase(), level: 0, priority: 1e9 });
+  };
   for (const [fi, family] of FAMILIES.entries()) {
-    const members = rows.filter((r) => r.family === family).map((r) => r.row_id);
+    const members: number[] = [];
+    for (let i = 0; i < n; i++) if (familyOf[i] === family) members.push(i);
     if (!members.length) continue;
-    status(`Laying out ${members.length.toLocaleString()} ${family}…`);
+    status(`${placed ? "Clustering" : "Laying out"} ${members.length.toLocaleString()} ${family}…`);
+    if (placed) {
+      // Positions come from the build; families sit side by side as the viewer would place them.
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const row of members) { minX = Math.min(minX, x[row]!); maxX = Math.max(maxX, x[row]!); minY = Math.min(minY, y[row]!); maxY = Math.max(maxY, y[row]!); }
+      const fx = new Float32Array(members.length), fy = new Float32Array(members.length);
+      members.forEach((row, i) => { fx[i] = x[row] = x[row]! - minX + offset; fy[i] = y[row] = y[row]! - minY; });
+      const box = { x0: offset, y0: 0, w: Math.max(1e-6, maxX - minX), h: Math.max(1e-6, maxY - minY) };
+      offset += box.w * 1.12 + 1;
+      await clusterFamily(fi, family, members, fx, fy, box);
+      continue;
+    }
     // Identical vectors (identical texts) are laid out once and their units placed together. The key is the vector,
     // not the text: a restricted packet replaces texts with structural labels but keeps the vectors.
     const unique = new Map<string, number>(), uniqueOf = new Int32Array(members.length), firstRow: number[] = [];
@@ -117,29 +163,7 @@ export async function prepareCloud(unitsBytes: Uint8Array, getEmbeddings: () => 
     });
     const box = { x0: offset, y0: 0, w: Math.max(1e-6, maxX - minX), h: Math.max(1e-6, maxY - minY) };
     offset += box.w * 1.12 + 1;
-    // Density clusters; each unit joins the cluster whose boundary rectangles contain its pixel.
-    const clusters = await findClusters(densityMap(fx, fy, box), GRID, GRID, { unionThreshold: 10 });
-    const significant = clusters.filter((c) => c.pixelCount >= 4).sort((a, b) => b.sumDensity - a.sumDensity);
-    const background = new Map<string, number>();
-    for (const row of members) for (const f of new Set(facets(rows[row]!))) background.set(f, (background.get(f) ?? 0) + 1);
-    significant.forEach((c, ci) => {
-      const id = 1000 * (fi + 1) + ci;
-      const inside = members.filter((row, i) => {
-        const px = ((fx[i]! - box.x0) / box.w) * GRID, py = ((fy[i]! - box.y0) / box.h) * GRID;
-        return cluster[row] === -1 && (c.boundaryRectApproximation ?? []).some(([x1, y1, x2, y2]) => px >= x1 && px <= x2 && py >= y1 && py <= y2);
-      });
-      if (inside.length < 5) return;
-      const counts = new Map<string, number>();
-      for (const row of inside) for (const f of new Set(facets(rows[row]!))) counts.set(f, (counts.get(f) ?? 0) + 1);
-      const top = [...counts].filter(([, k2]) => k2 / inside.length >= 0.25)
-        .map(([f, k2]) => [f, (k2 / inside.length) * Math.log((k2 / inside.length) / ((background.get(f) ?? 1) / members.length) + 1e-9)] as const)
-        .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([f]) => f);
-      const text = top.join(" · ") || family;
-      for (const row of inside) { cluster[row] = id; clusterLabel[row] = text; }
-      const xs = inside.map((row) => x[row]!).sort((a, b) => a - b), ys = inside.map((row) => y[row]!).sort((a, b) => a - b);
-      labels.push({ x: xs[xs.length >> 1]!, y: ys[ys.length >> 1]!, text, level: 0, priority: inside.length });
-    });
-    labels.push({ x: box.x0 + box.w / 2, y: box.h + 0.5, text: family.toUpperCase(), level: 0, priority: 1e9 });
+    await clusterFamily(fi, family, members, fx, fy, box);
   }
   const neighborType = new Struct([new Field("ids", new List(new Field("item", new Int32(), true)), true), new Field("distances", new List(new Field("item", new Float32(), true)), true)]);
   const columns: Record<string, any> = Object.fromEntries(table.schema.fields.map((f) => [f.name, table.getChild(f.name)!]));
@@ -147,7 +171,8 @@ export async function prepareCloud(unitsBytes: Uint8Array, getEmbeddings: () => 
     ...columns,
     x: makeVector(x), y: makeVector(y), cluster_id: makeVector(cluster),
     cluster_label: vectorFromArray(clusterLabel, new Utf8()),
-    neighbors: vectorFromArray(neighborIds.map((ids, i) => ({ ids, distances: neighborDistances[i]! })), neighborType),
+    // A build-time layout brings its neighbors; otherwise they come from the UMAP above.
+    neighbors: placed ? table.getChild("neighbors")! : vectorFromArray(neighborIds.map((ids, i) => ({ ids, distances: neighborDistances[i]! })), neighborType),
   });
   return { ipc: tableToIPC(out, "stream"), labels };
 }

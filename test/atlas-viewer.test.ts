@@ -87,3 +87,20 @@ test("a source checkout's viewer build is checked against its stamp; an installe
     assert.equal(atlasViewerFreshness(dist).status, "stale");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("the cloud legend refuses a category it has folded into \"(other N)\", and one no unit has", async () => {
+  // The viewer module is plain TypeScript; Node strips its types.
+  const { LEGEND_LIMIT, unselectableLegendCategories } = await import(new URL("../../viewer/src/legend.ts", import.meta.url).href) as {
+    LEGEND_LIMIT: number;
+    unselectableLegendCategories: (requested: string[], counts: Array<{ value: string; count: number }>) => { folded: string[]; unknown: string[] };
+  };
+  // 14 arms, as on the board: the ten largest are shown and the rest fold, ties with the tenth stay shown.
+  const counts = Array.from({ length: 14 }, (_, i) => ({ value: `arm-${String(i)}`, count: 1000 - i * 10 }));
+  counts.push({ value: "tied-with-tenth", count: counts[LEGEND_LIMIT - 1]!.count });
+  assert.equal(LEGEND_LIMIT, 10);
+  assert.deepEqual(unselectableLegendCategories(["arm-0", "arm-9", "tied-with-tenth"], counts), { folded: [], unknown: [] });
+  assert.deepEqual(unselectableLegendCategories(["arm-0", "arm-12", "arm-13"], counts), { folded: ["arm-12", "arm-13"], unknown: [] });
+  assert.deepEqual(unselectableLegendCategories(["(other 5)", "(null)", "no-such-arm"], counts), { folded: [], unknown: ["no-such-arm"] });
+  // Ten values or fewer: nothing folds.
+  assert.deepEqual(unselectableLegendCategories(["arm-3"], counts.slice(0, 10)), { folded: [], unknown: [] });
+});

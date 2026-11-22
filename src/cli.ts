@@ -7,7 +7,7 @@ import { parseImportJson, readClosedImportFile, type Hash as ImportHash } from "
 import { redactSecrets } from "./redaction.js";
 import { createHash } from "node:crypto";
 import { readAtifFile } from "./atif-reader.js";
-import { importAtifFile } from "./atif-import.js";
+import { importAtifBatch, importAtifFile } from "./atif-import.js";
 import { listAtifProfilesV2 } from "./atif-producers-v2.js";
 import { importHarborTrial, inspectHarborTrial, type HarborOriginalBinding } from "./harbor-import.js";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
@@ -20,11 +20,14 @@ import { importDecisionModelResults, runDecisionModelJudge, type DecisionModelPr
 import { serveAtlas, writeAtlas, type AtlasFilters } from "./atlas.js";
 import {
   buildCorpusIndex,
+  buildCorpusIndexInParallel,
+  corpusIndexUsesWorkers,
   packPortableExport,
   queryCorpusIndex,
   readCorpusIndex,
   unpackPortableExport,
   validateCorpusIndex,
+  validateCorpusIndexInParallel,
   writeCorpusIndex,
   type CorpusIndexQuery,
 } from "./corpus.js";
@@ -97,7 +100,8 @@ const usage = `Usage: ebo [--help] | validate <artifact.json>... | task-packet <
        ebo atif import-harbor <trial-directory> <store> --namespace <source-id> [--model <name>] [--profile <overlay-context-id>] [--python <executable>]
        ebo atif import-leaderboard <cohort-request.json> <store> [--python <executable>]
        ebo atif read-leaderboard <store> <cohort-digest>
-       ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--task <id>] [--model <name>] [--profile <overlay-context-id>] [--python <executable>]
+       ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--task <id>] [--model <name>] [--harness-version <version>] [--outcome <verdict> --outcome-source <publisher> [--outcome-release <release>] [--outcome-record <trial path>]] [--profile <overlay-context-id>] [--python <executable>]
+       ebo atif import-batch <batch.jsonl> [--shard <k>/<n>] [--python <executable>]
        ebo agent-sdk run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo codex run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
        ebo factory run <bundle-root> <queue.json> <run-id> <output-root> [--workspace-root <path>] [--runtime-study <path>]
@@ -621,24 +625,48 @@ async function runAtifInspection(args: string[], write: (message: string) => voi
   if (["profiles", "overlays"].includes(args[0]!) && args.length === 1) {
     write(`${JSON.stringify(listAtifProfilesV2(), null, 2)}\n`); return 0;
   }
+  if (args[0] === "import-batch") {
+    const [_, batchPath, ...flags] = args;
+    const values = new Map<string, string>();
+    const usage = "Usage: ebo atif import-batch <batch.jsonl> [--shard <k>/<n>] [--python <executable>]\n  --shard k/n takes every n-th line from line k; shards are numbered 1 to n.\n";
+    if (!batchPath || batchPath.startsWith("--") || flags.length % 2) { write(usage); return 1; }
+    for (let index = 0; index < flags.length; index += 2) {
+      const flag = flags[index]!, value = flags[index + 1]!;
+      if (!["--shard", "--python"].includes(flag) || values.has(flag) || value.startsWith("--")) { write(usage); return 1; }
+      values.set(flag, value);
+    }
+    const shard = /^(\d+)\/(\d+)$/u.exec(values.get("--shard") ?? "1/1");
+    if (!shard || Number(shard[2]) < 1 || Number(shard[1]) < 1 || Number(shard[1]) > Number(shard[2])) { write("--shard takes k/n with 1 <= k <= n (shards are numbered from 1).\n"); return 1; }
+    const summary = await importAtifBatch(batchPath, { shard: [Number(shard[1]), Number(shard[2])], pythonExecutable: values.get("--python"),
+      onResult: (result) => write(`${JSON.stringify(result)}\n`) });
+    write(`${JSON.stringify(summary)}\n`);
+    return summary.failed ? 1 : 0;
+  }
   if (args[0] === "import") {
     const [_, sourcePath, destination, ...flags] = args;
     const values = new Map<string, string>();
-    if (!sourcePath || !destination || flags.length % 2) { write("Usage: ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--task <id>] [--model <name>] [--profile <overlay-context-id>] [--python <executable>]\n"); return 1; }
+    if (!sourcePath || !destination || flags.length % 2) { write("Usage: ebo atif import <trajectory.json> <new-directory> --run <id> --attempt <id> [--task <id>] [--model <name>] [--harness-version <version>] [--outcome <verdict> --outcome-source <publisher> [--outcome-release <release>] [--outcome-record <trial path>]] [--profile <overlay-context-id>] [--python <executable>]\n"); return 1; }
     for (let index = 0; index < flags.length; index += 2) {
       const flag = flags[index]!, value = flags[index + 1]!;
-      if (!["--run", "--attempt", "--task", "--model", "--profile", "--python"].includes(flag) || values.has(flag) || value.startsWith("--")) {
+      if (!["--run", "--attempt", "--task", "--model", "--harness-version", "--outcome", "--outcome-source", "--outcome-release", "--outcome-record", "--profile", "--python"].includes(flag) || values.has(flag) || value.startsWith("--")) {
         write("ATIF import requires unique, recognized options with values.\n"); return 1;
       }
       values.set(flag, value);
     }
     const profile = listAtifProfilesV2().find(({ id }) => id === values.get("--profile"));
     if (!values.has("--run") || !values.has("--attempt")) { write("ATIF import requires --run and --attempt. Producer metadata is read from the document.\n"); return 1; }
+    if (values.has("--outcome") !== values.has("--outcome-source") || (!values.has("--outcome") && (values.has("--outcome-release") || values.has("--outcome-record")))) {
+      write("A source outcome needs --outcome and --outcome-source together; --outcome-release and --outcome-record describe it.\n"); return 1;
+    }
     try {
       const result = await importAtifFile({ sourcePath, destination, runId: values.get("--run")!, attemptId: values.get("--attempt")!,
         producer: profile?.producer, pythonExecutable: values.get("--python"),
         ...(values.has("--task") ? { task: { id: values.get("--task")!, authority: "operator-declared" as const } } : {}),
-        ...(values.has("--model") ? { model: { id: values.get("--model")!, authority: "operator-declared" as const } } : {}) });
+        ...(values.has("--model") ? { model: { id: values.get("--model")!, authority: "operator-declared" as const } } : {}),
+        ...(values.has("--harness-version") ? { harnessVersion: { id: values.get("--harness-version")!, authority: "operator-declared" as const } } : {}),
+        ...(values.has("--outcome") ? { sourceOutcome: { outcome: values.get("--outcome")!, source: values.get("--outcome-source")!,
+          ...(values.has("--outcome-release") ? { release: values.get("--outcome-release")! } : {}), ...(values.has("--outcome-record") ? { record: values.get("--outcome-record")! } : {}),
+          authority: "third-party" as const } } : {}) });
       write(`${JSON.stringify({ destination, reused: result.reused, qualification: result.manifest.qualification, mapping: result.evidence.mapping }, null, 2)}\n`);
       return 0;
     } catch (error) { write(`ATIF import failed: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
@@ -679,7 +707,7 @@ async function runAggregationCommand(args: string[], write: (message: string) =>
     const corpusRoot = resolve(base, source.corpusRoot);
     const corpusIndexPath = resolve(base, source.corpusIndex);
     const corpusEntries = readCorpusIndex(corpusIndexPath);
-    const corpusIssues = validateCorpusIndex(corpusRoot, corpusEntries);
+    const corpusIssues = await validateCorpusIndexInParallel(corpusRoot, corpusEntries);
     if (corpusIssues.length > 0) throw new Error(`Corpus index is not current: ${corpusIssues[0]!.manifestPath} ${corpusIssues[0]!.message}`);
     const resolveJson = <Value>(path: string, label: string): Value => {
       const resolved = resolve(base, path);
@@ -808,10 +836,18 @@ function runCorpusCommand(args: string[], write: (message: string) => void): num
   const [command, first, second, third] = args;
   try {
     if (command === "build" && first !== undefined && second !== undefined && args.length === 3) {
-      const entries = buildCorpusIndex(first);
-      writeCorpusIndex(second, entries);
-      write(`Built ${entries.length} corpus index entr${entries.length === 1 ? "y" : "ies"}.\n`);
-      return 0;
+      // Manifests are projected in worker processes when there are many (EBO_WORKERS); a small corpus is built here.
+      if (!corpusIndexUsesWorkers(first)) {
+        const entries = buildCorpusIndex(first);
+        writeCorpusIndex(second, entries);
+        write(`Built ${entries.length} corpus index entr${entries.length === 1 ? "y" : "ies"}.\n`);
+        return 0;
+      }
+      return buildCorpusIndexInParallel(first).then((entries) => {
+        writeCorpusIndex(second, entries);
+        write(`Built ${entries.length} corpus index entr${entries.length === 1 ? "y" : "ies"}.\n`);
+        return 0;
+      }, (error: unknown) => { write(`${errorMessage(error)}\n`); return 1; });
     }
     if (command === "query" && first !== undefined) {
       const query = parseCorpusQuery(args.slice(2));

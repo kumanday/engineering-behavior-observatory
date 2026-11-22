@@ -10,12 +10,17 @@ import baseWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-base.worker.js?u
 import { Coordinator, wasmConnector } from "@uwdata/mosaic-core";
 import { EmbeddingAtlas } from "embedding-atlas";
 import { ClusterArmPanel, rowsOf } from "./enrichment";
-import { shortId, SwimlanesPanel, type LanesData } from "./lanes";
+import { setUnitTextColumn, shortId, SwimlanesPanel, type LanesData } from "./lanes";
+
+/** The most cloud table (Arrow bytes) the viewer loads: DuckDB-WASM's 4 GB address space less room for queries. */
+const CLOUD_BUDGET_BYTES = 2.5e9;
+const COMPACT_UNITS_HINT = "1,000,000";
 import { STOP_WORDS } from "./stopwords";
-import { ClaimsPanel, Drawer, Evidence, MatrixPanel, type AssessDoc, type AuditDoc, type ClaimsDoc, type DrawerView } from "./p3";
+import { LEGEND_LIMIT, unselectableLegendCategories } from "./legend";
+import { ClaimsPanel, Drawer, Evidence, expandAssessmentIndex, MatrixPanel, type AssessDoc, type AuditDoc, type ClaimsDoc, type DrawerView } from "./p3";
 import { FiguresPanel, type ViewsDoc } from "./views";
 import { prepareCloud } from "./layout";
-import { tableFromJSON, tableToIPC } from "apache-arrow";
+import { RecordBatch, RecordBatchReader, Table, tableFromArrays, tableToIPC } from "apache-arrow";
 import {
   commandRunning, decodeState, onCommandBoundary, describable, describe, encodeState, getState, listCommands, provide, recordChange, register, run, setState, subscribe, target,
   type CommandEvent, type Json,
@@ -46,12 +51,32 @@ async function initDuckDB(): Promise<duckdb.AsyncDuckDB> {
   return db;
 }
 
-interface BundleManifest { schemaVersion?: string; title?: string; study?: { id?: string; title?: string } }
+type EmbeddingSpec = { file: string; provider?: string; model?: string; revision?: string; dimensions: number;
+  run?: { texts: number; distinct: number; cached: number; embedded: number; seconds: number; runtime?: { device: string; deviceName?: string; dtype: string; batchSize: number; textsPerSecond: number | null; warning?: string } } };
+interface BundleManifest { schemaVersion?: string; title?: string; study?: { id?: string; title?: string }; cloud?: { units?: number; embeddings?: EmbeddingSpec }; derivedFrom?: { variant: string } }
+
+/** How the cloud's vectors were made, in words: the header and describe() say the same thing. */
+export function embeddingSummary(spec: EmbeddingSpec | undefined, derived?: string): string {
+  if (!spec) return "Embeddings: not recorded in this bundle";
+  const what = spec.provider === "embeddinggemma" ? `EmbeddingGemma 2 (${spec.model ?? "model unrecorded"})`
+    : spec.provider === "hashed-tfidf" || spec.provider === "local" ? "hashed TF-IDF (offline, no model)" : `${spec.provider ?? "unknown provider"} ${spec.model ?? ""}`.trim();
+  const runtime = spec.run?.runtime;
+  return `Embeddings: ${what} · ${spec.dimensions} dimensions${runtime ? ` · ${runtime.device}${runtime.deviceName ? ` (${runtime.deviceName})` : ""}` : ""}${derived ? ` · recomputed for the ${derived} packet` : ""}`;
+}
 
 async function main() {
   const manifest = await getJson<BundleManifest>("manifest.json");
   const title = manifest?.title ?? manifest?.study?.title ?? "Atlas bundle";
   document.getElementById("bundle-title")!.textContent = title;
+  const embeddings = manifest?.cloud?.embeddings, embeddingText = embeddingSummary(embeddings, manifest?.derivedFrom?.variant);
+  const embeddingEl = document.getElementById("bundle-embeddings")!;
+  embeddingEl.textContent = embeddingText;
+  const pass = embeddings?.run;
+  if (pass) embeddingEl.title = [`${pass.texts.toLocaleString()} units, ${pass.distinct.toLocaleString()} distinct texts (${pass.cached.toLocaleString()} from the cache, ${pass.embedded.toLocaleString()} embedded)`,
+    pass.runtime ? `${pass.runtime.dtype}, batch ${pass.runtime.batchSize}, ${pass.runtime.textsPerSecond ?? "?"} texts/s` : "", embeddings?.revision ? `revision ${embeddings.revision}` : "", pass.runtime?.warning ?? ""].filter(Boolean).join("\n");
+  describable("bundle", { describe: () => ({ summary: `${title}. ${embeddingText}.`,
+    data: { title, units: manifest?.cloud?.units ?? null, embeddings: embeddings ? { provider: embeddings.provider ?? null, model: embeddings.model ?? null, revision: embeddings.revision ?? null,
+      dimensions: embeddings.dimensions, run: (embeddings.run ?? null) as Json } : null, derivedFrom: manifest?.derivedFrom?.variant ?? null } }) });
   document.title = `${title} · EBO Atlas`;
 
   status("Starting DuckDB…");
@@ -59,18 +84,49 @@ async function main() {
   const coordinator = new Coordinator(wasmConnector({ duckdb: db }));
 
   status("Loading units…");
+  // The cloud table must fit DuckDB-WASM's 4 GB address space with room to query it. A bundle over that budget is
+  // reported by table and size here rather than failing somewhere inside the load.
+  const unitsBytes = (manifest as { files?: Array<{ path: string; bytes: number }> } | null)?.files?.find(({ path }) => path === "units.arrow")?.bytes;
+  if (unitsBytes !== undefined && unitsBytes > CLOUD_BUDGET_BYTES) {
+    throw new Error(`The cloud table (units.arrow) is ${(unitsBytes / 1e9).toFixed(1)} GB, ${((unitsBytes - CLOUD_BUDGET_BYTES) / 1e9).toFixed(1)} GB over the ${(CLOUD_BUDGET_BYTES / 1e9).toFixed(1)} GB this viewer can hold. Rebuild the bundle with a build-time layout, which writes the compact cloud above ${COMPACT_UNITS_HINT} units.`);
+  }
   // Arrow IPC needs no DuckDB extensions, so the viewer also works offline and from packets opened on disk.
   const resp = await fetch(file("units.arrow"));
   if (!resp.ok) throw new Error(`units.arrow not found in the bundle at ${bundleUrl}`);
-  const cloud = await prepareCloud(new Uint8Array(await resp.arrayBuffer()), async () => {
-    const spec = (manifest as { cloud?: { embeddings?: { file: string; dimensions: number } } } | null)?.cloud?.embeddings;
-    if (!spec) return null;
-    const r = await fetch(file(spec.file));
-    return r.ok ? { data: new Float32Array(await r.arrayBuffer()), dimensions: spec.dimensions } : null;
-  }, status);
   const conn = await db.connect();
-  await conn.insertArrowFromIPCStream(cloud.ipc, { name: "units", create: true });
+  const loadFailed = (error: unknown) => new Error(`Loading the cloud table (units${unitsBytes === undefined ? "" : `, ${(unitsBytes / 1e9).toFixed(2)} GB of Arrow`}) into DuckDB failed: ${error instanceof Error ? error.message : String(error)}`);
+  let cloud: { labels: Awaited<ReturnType<typeof prepareCloud>>["labels"] };
+  if ((manifest as { cloud?: { layout?: { compact?: boolean } } } | null)?.cloud?.layout?.compact) {
+    // A compact cloud arrives laid out and clustered. It is streamed into DuckDB a slice at a time: a browser cannot
+    // hold one multi-gigabyte buffer, and the table needs no work here.
+    try {
+      const reader = await RecordBatchReader.from(resp.body!);
+      let pending: RecordBatch[] = [], rows = 0, loaded = 0, create = true;
+      const flush = async () => {
+        await conn.insertArrowFromIPCStream(tableToIPC(new Table(pending), "stream"), { name: "units", create });
+        create = false; loaded += rows; pending = []; rows = 0;
+        status(`Loading units… ${loaded.toLocaleString()}`);
+      };
+      for await (const batch of reader) { pending.push(batch); rows += batch.numRows; if (rows >= 1 << 19) await flush(); }
+      if (pending.length || create) await flush();
+    } catch (error) { throw loadFailed(error); }
+    cloud = { labels: null };
+  } else {
+    const prepared = await prepareCloud(new Uint8Array(await resp.arrayBuffer()), async () => {
+      const spec = (manifest as { cloud?: { embeddings?: { file: string; dimensions: number } } } | null)?.cloud?.embeddings;
+      if (!spec) return null;
+      const r = await fetch(file(spec.file));
+      return r.ok ? { data: new Float32Array(await r.arrayBuffer()), dimensions: spec.dimensions } : null;
+    }, status);
+    try { await conn.insertArrowFromIPCStream(prepared.ipc, { name: "units", create: true }); } catch (error) { throw loadFailed(error); }
+    cloud = prepared;
+  }
+  const unitColumns = new Set((await conn.query("DESCRIBE units")).toArray().map((row) => String(row.toJSON().column_name)));
   await conn.close();
+  // A compact cloud keeps a short label in place of the full text and leaves neighbors out.
+  const textColumn = unitColumns.has("embed_text") ? "embed_text" : "label";
+  const neighborsColumn = unitColumns.has("neighbors") ? "neighbors" : undefined;
+  setUnitTextColumn(textColumn);
 
   // Embedding Atlas labels are { x, y, content, level, priority }; labels.json stores the text as `text`.
   let labels: { x: number; y: number; content: string; level?: number; priority?: number }[] | null = null;
@@ -79,7 +135,8 @@ async function main() {
     labels = raw?.length ? raw.map((l) => ({ x: l.x, y: l.y, content: (("content" in l ? l.content : undefined) ?? l.text ?? "").replace(/`/g, ""), level: l.level ?? 0, priority: l.priority ?? 0 })) : null;
   }
   const n = rowsOf(await coordinator.query(`SELECT count(*) AS n FROM units`))[0].n;
-  status(`${Number(n).toLocaleString()} units${labels ? " · facet labels" : " · auto labels"}`);
+  const readyStatus = `${Number(n).toLocaleString()} units${labels ? " · facet labels" : " · auto labels"}`;
+  status(readyStatus);
 
   // bottom panel: tabs over the shared table
   const host = document.getElementById("panel")!;
@@ -96,14 +153,26 @@ async function main() {
   const lanesData = await getJson<LanesData>("lanes.json");
   const [assessDoc, auditDoc, claimsDoc, viewsDoc] = await Promise.all([
     getJson<AssessDoc>("assessments.json"), getJson<AuditDoc>("audit.json"), getJson<ClaimsDoc>("claims.json"), getJson<ViewsDoc>("views.json")]);
-  if (assessDoc) {
+  if (assessDoc?.index) {
+    // A large bundle indexes its card results; each attempt's details load when a view of it opens.
+    status(`Loading ${assessDoc.index.rows.toLocaleString()} card results…`);
+    const r = await fetch(file(assessDoc.index.file));
+    assessDoc.assessments = r.ok ? expandAssessmentIndex(assessDoc, new Uint8Array(await r.arrayBuffer())) : [];
+    status(`${readyStatus} · ${assessDoc.assessments.length.toLocaleString()} card results`);
+  }
+  if (lanesData?.split) lanesData.usage ??= {};
+  if (assessDoc && viewsDoc?.views.length) {
     // the `assessments` host table view specs may query
-    const rows = assessDoc.assessments.map((x) => ({ id: x.id, attempt_id: x.attempt_id, condition: x.condition, task_id: x.task_id, trial_id: x.trial_id,
-      mode: x.mode, card: x.card, family: x.family, outcome: x.outcome, value: x.value ?? null, direction: x.direction ?? null, confidence: x.confidence ?? null, probability: x.probability ?? null, citations: x.citations.length,
-      in_primary: Boolean(x.cohorts?.primary && x.cohorts.primary.included !== false) }));
+    const xs = assessDoc.assessments;
     const c2 = await db.connect();
-    // IPC bytes, not a Table object: DuckDB-WASM bundles its own apache-arrow
-    if (rows.length) await c2.insertArrowFromIPCStream(tableToIPC(tableFromJSON(rows), "stream"), { name: "assessments", create: true });
+    // IPC bytes, not a Table object: DuckDB-WASM bundles its own apache-arrow. Built column by column: a large bundle
+    // has millions of results.
+    if (xs.length) await c2.insertArrowFromIPCStream(tableToIPC(tableFromArrays({
+      id: xs.map((x) => x.id), attempt_id: xs.map((x) => x.attempt_id), condition: xs.map((x) => x.condition), task_id: xs.map((x) => x.task_id), trial_id: xs.map((x) => x.trial_id),
+      mode: xs.map((x) => x.mode), card: xs.map((x) => x.card), family: xs.map((x) => x.family), outcome: xs.map((x) => x.outcome), value: xs.map((x) => x.value ?? null),
+      direction: xs.map((x) => x.direction ?? null), confidence: xs.map((x) => x.confidence ?? null), probability: xs.map((x) => x.probability ?? null),
+      citations: Int32Array.from(xs, (x) => x.citationCount ?? x.citations.length), in_primary: xs.map((x) => Boolean(x.cohorts?.primary && x.cohorts.primary.included !== false)),
+    }), "stream"), { name: "assessments", create: true });
     else await c2.query("CREATE TABLE assessments (id VARCHAR, attempt_id VARCHAR, condition VARCHAR, task_id VARCHAR, trial_id VARCHAR, mode VARCHAR, card VARCHAR, family VARCHAR, outcome VARCHAR, value VARCHAR, direction VARCHAR, confidence DOUBLE, probability DOUBLE, citations INTEGER, in_primary BOOLEAN)");
     await c2.close();
   }
@@ -117,7 +186,7 @@ async function main() {
     highlight: (rows) => highlight(rows),
     showInLanes: (attemptId, row) => { run("focusAttempt", { attemptId, row: row ?? null }); },
   }) : null;
-  if (lanes) lanes.ev = ev;
+  if (lanes) { lanes.ev = ev; lanes.base = bundleUrl; }
   if (ev) new MatrixPanel(document.getElementById("body-assessments")!, ev);
   else document.getElementById("body-assessments")!.innerHTML = `<p class="empty pad">This bundle has no assessments (assessments.json).</p>`;
   const claimsPanel = ev ? new ClaimsPanel(document.getElementById("body-claims")!, claimsDoc, ev) : null;
@@ -204,14 +273,14 @@ async function main() {
   const atlas = new EmbeddingAtlas(document.getElementById("atlas")!, {
     coordinator,
     // No `features` list: it pushed the per-column count charts below the fold and truncated long tags.
-    data: { table: "units", id: "row_id", projection: { x: "x", y: "y" }, neighbors: "neighbors", text: "embed_text" },
+    data: { table: "units", id: "row_id", projection: { x: "x", y: "y" }, ...(neighborsColumn ? { neighbors: neighborsColumn } : {}), text: textColumn },
     colorScheme: dark() ? "dark" : "light",
     embeddingViewConfig: { autoLabelStopWords: STOP_WORDS },
     embeddingViewLabels: labels,
     defaultChartsConfig: {
       // shallow-merged over the default embedding spec, so data must be complete
-      embedding: { data: { x: "x", y: "y", text: "embed_text", neighbors: "neighbors", category: colorBy === "none" ? null : colorBy } },
-      include: ["condition", "task_id", "unit_kind", "tool_kind", "check_kind", "status", "harness_id", "trial_id", "cited_assessments", "cluster_label", "embed_text"],
+      embedding: { data: { x: "x", y: "y", text: textColumn, ...(neighborsColumn ? { neighbors: neighborsColumn } : {}), category: colorBy === "none" ? null : colorBy } },
+      include: ["condition", "task_id", "unit_kind", "tool_kind", "check_kind", "status", "harness_id", "trial_id", "cited_assessments", "cluster_label", textColumn],
     },
     onPredicateChange: (predicate) => { refreshing = Promise.all([panel.setPredicate(predicate), lanes?.setPredicate(predicate)]).then(() => undefined); },
     onStateChange: (state) => {
@@ -261,8 +330,24 @@ async function main() {
     run: async ({ rectangle, polygon }) => { await setCloudState({ brush: rectangle ?? polygon ?? null }); return rectangle ? "Brushed a rectangle in the cloud." : "Brushed a lasso in the cloud."; } });
   register({ name: "clearSelection", description: "Clear the cloud brush and highlight.", args: obj({}),
     run: async () => { await setCloudState({ brush: null }); highlight(null); return "Cleared the cloud selection."; } });
-  register<{ categories: string[] }>({ name: "setLegendSelection", description: "Select color-legend categories in the cloud (empty clears).", args: obj({ categories: { type: "array", items: { type: "string" } } }),
-    run: async ({ categories }) => { await setCloudState({ legend: categories.length ? { selection: categories } : null }); return categories.length ? `Legend selection: ${categories.join(", ")}.` : "Cleared the legend selection."; } });
+  register<{ categories: string[] }>({ name: "setLegendSelection",
+    description: `Select color-legend categories in the cloud (empty clears). The legend shows the ${LEGEND_LIMIT} most frequent values and folds the rest into "(other N)"; a folded value is refused, and its column's count plot selects it (cloudTool chart_set_state).`,
+    args: obj({ categories: { type: "array", items: { type: "string" } } }),
+    run: async ({ categories }) => {
+      const id = embeddingChartId();
+      const column = (id ? (atlasState.charts?.[id] as { data?: { category?: string | null } } | undefined)?.data?.category : undefined) ?? (colorBy === "none" ? null : colorBy);
+      if (categories.length && !column) throw new Error("The cloud is not coloured by a column, so its legend has no categories to select.");
+      if (categories.length && column) {
+        const quoted = `"${column.replaceAll('"', '""')}"`;
+        const counts = rowsOf(await coordinator.query(`SELECT CAST(${quoted} AS TEXT) AS value, count(*)::INTEGER AS count FROM units WHERE ${quoted} IS NOT NULL GROUP BY 1`))
+          .map((r) => ({ value: String(r.value), count: Number(r.count) }));
+        const { folded, unknown } = unselectableLegendCategories(categories, counts);
+        if (unknown.length) throw new Error(`No unit has ${column} ${unknown.map((c) => JSON.stringify(c)).join(", ")}.`);
+        if (folded.length) throw new Error(`The colour legend shows the ${LEGEND_LIMIT} most frequent ${column} values and folds the rest into "(other N)", so it cannot select ${folded.map((c) => JSON.stringify(c)).join(", ")}. Select ${folded.length > 1 ? "them" : "it"} in the ${column} count plot (cloudTool chart_set_state on that chart).`);
+      }
+      await setCloudState({ legend: categories.length ? { selection: categories } : null });
+      return categories.length ? `Legend selection: ${categories.join(", ")}.` : "Cleared the legend selection.";
+    } });
   register<{ tool: string; input?: Record<string, unknown> }>({ name: "cloudTool", description: "Run one of Embedding Atlas's own tools (see listCloudTools), e.g. chart_set_state or data_query.",
     args: obj({ tool: { type: "string" }, input: { type: "object" } }, ["tool"]),
     run: async ({ tool, input }) => {

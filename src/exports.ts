@@ -90,9 +90,11 @@ export function sanitizeDerivedExport(
   policy: PortableExportPolicy,
   correlations: readonly string[] = [],
   onFinding?: (finding: LocatedSecretFinding) => void,
+  /** The environment's sensitive values, when the caller sanitizes many documents under one environment. */
+  environment?: readonly string[],
 ): unknown {
   validatePolicy(policy);
-  const sensitive = effectiveSensitiveValues(policy);
+  const sensitive = effectiveSensitiveValues(policy, environment);
   const replacements = new Map(correlations.map((source) => [source, `ref-${createHash("sha256").update(source).digest("hex").slice(0, 20)}`]));
   // Derived views may embed cited session envelopes; apply native reasoning omission too.
   const bytes = sanitizeArtifact(Buffer.from(canonicalizeMetadata(value)), "application/json", policy, replacements,
@@ -1341,8 +1343,8 @@ function policyRecord(policy: PortableExportPolicy): Record<string, unknown> {
   };
 }
 
-function effectiveSensitiveValues(policy: PortableExportPolicy): string[] {
-  return [...new Set([...(policy.sensitiveValues ?? []).filter((value) => value !== ""), ...environmentSensitiveValues()])]
+function effectiveSensitiveValues(policy: PortableExportPolicy, environment: readonly string[] = environmentSensitiveValues()): string[] {
+  return [...new Set([...(policy.sensitiveValues ?? []).filter((value) => value !== ""), ...environment])]
     .sort((left, right) => right.length - left.length);
 }
 

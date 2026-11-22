@@ -25,7 +25,7 @@ test("evidence packets: three variants, verification, withholding and claims tha
         numbers: [{ id: "attempts", label: "attempts", value: 7, kind: "lab", expr: { sql: "SELECT count(*) FROM attempts" } }] }] };
     writeFileSync(join(root, "claims.json"), JSON.stringify(claims));
     const request: AtlasBundleRequest = { schemaVersion: "ebo.atlas-bundle-request/v2", id: "synthetic", title: "Synthetic study",
-      cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], claims: "claims.json" };
+      embeddings: { provider: "hashed-tfidf" }, cohorts: [{ id: "all", atlasRequest: "study/atlas.json" }], claims: "claims.json" };
     writeFileSync(join(root, "request.json"), JSON.stringify(request));
     await buildAtlasBundle(join(root, "request.json"), join(root, "bundle"));
 
@@ -70,7 +70,7 @@ test("evidence packets: three variants, verification, withholding and claims tha
     for (const variant of ["partner", "restricted"] as const) {
       assert.deepEqual(verifyPacketBundle(join(root, `packet-${variant}`, "viewer/bundle")), { ok: true, changed: [], missing: [], unlisted: [] }, variant);
       const derived = JSON.parse(readFileSync(join(root, `packet-${variant}`, "viewer/bundle/manifest.json"), "utf8")) as { derivedFrom?: { variant: string }; cloud: { embeddings: { provider: string } } };
-      assert.deepEqual([derived.derivedFrom?.variant, derived.cloud.embeddings.provider], [variant, "local"]);
+      assert.deepEqual([derived.derivedFrom?.variant, derived.cloud.embeddings.provider], [variant, "hashed-tfidf"]);
     }
     // Shared variants drop local paths and keep no write paths in restricted units.
     const partnerAssessments = readFileSync(join(root, "packet-partner", "viewer/bundle/assessments.json"), "utf8");

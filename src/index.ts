@@ -508,7 +508,7 @@ export type {
   ReviewSampleCriteria,
   ReviewSourceSet,
 } from "./human-calibration.js";
-export { aggregateEvaluation } from "./aggregation.js";
+export { aggregateEvaluation, assertionLineage, behaviorMembers } from "./aggregation.js";
 export type {
   AggregateMeasurement,
   AggregateMetric,
@@ -516,6 +516,8 @@ export type {
   AggregationInput,
   AggregationReport,
   AggregationRequest,
+  AssertionLineage,
+  BehaviorMember,
   AttemptSelectionPolicy,
 } from "./aggregation.js";
 export {

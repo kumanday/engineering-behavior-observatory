@@ -1,4 +1,4 @@
-import { projectAtifCore, type AtifCoreInput } from "./atif-core.js";
+import { projectAtifCore, type AtifCoreInput, boundedAttributes } from "./atif-core.js";
 import { applyAtifOverlays } from "./atif-overlays.js";
 import { validateNormalizedDataset } from "./normalization-integrity.js";
 import { digestValue, object } from "./projection-v2.js";
@@ -30,11 +30,11 @@ export async function normalizeAtif(input: AtifCoreInput) {
       source: { harness: "atif.generic", nativeType: typed.source.nativeType, nativeReference: typed.source.nativeReference },
       nativeTime: { status: "unknown", reason: "EXECUTION_TIME_UNREPORTED" } };
     const operation = typed.scope.kind === "operation" ? operationsById.get(typed.scope.id!) : undefined;
-    return { ...event, nativeOrder: typed.nativeOrder, content: typed.content, attributes: { ...event.attributes,
+    return { ...event, nativeOrder: typed.nativeOrder, content: typed.content, attributes: boundedAttributes({ ...event.attributes,
       ...(operation ? { toolCallId: operation.id,
         ...(operation.inputDigest.status === "known" ? { inputDigest: operation.inputDigest.value } : {}),
         ...(typed.facts.operation?.endpoint === "result" && typed.facts.operation.failure.status === "known" && typed.facts.operation.failure.value ? { isError: true } : {}),
-        ...(operation.issuingInference.status === "known" ? { inferenceId: operation.issuingInference.value.id } : {}) } : {}) } };
+        ...(operation.issuingInference.status === "known" ? { inferenceId: operation.issuingInference.value.id } : {}) } : {}) }) };
   });
   const capabilityProfile = structuredClone(core.v1.dataset.capabilityProfile);
   for (const event of events) if (capabilityProfile.families[event.family].status === "unsupported") capabilityProfile.families[event.family] = { status: "partial", detail: "Optional overlay interpretation over retained document records." };

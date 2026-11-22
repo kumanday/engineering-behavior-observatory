@@ -12,7 +12,7 @@
       "type": "object", "additionalProperties": false, "required": ["request", "report"],
       "properties": { "request": { "$ref": "#/$defs/path" }, "report": { "$ref": "#/$defs/path" } }
     },
-    "dimension": { "enum": ["task", "model", "harness", "trial", "capture-qualification", "evidence-origin"] },
+    "dimension": { "enum": ["task", "model", "harness", "harness-version", "trial", "capture-qualification", "evidence-origin", "source-outcome"] },
     "filters": {
       "type": "object",
       "additionalProperties": false,
@@ -20,9 +20,11 @@
         "task": { "$ref": "#/$defs/identifier" },
         "model": { "$ref": "#/$defs/identifier" },
         "harness": { "$ref": "#/$defs/identifier" },
+        "harness-version": { "$ref": "#/$defs/identifier" },
         "trial": { "$ref": "#/$defs/identifier" },
         "capture-qualification": { "$ref": "#/$defs/identifier" },
-        "evidence-origin": { "$ref": "#/$defs/identifier" }
+        "evidence-origin": { "$ref": "#/$defs/identifier" },
+        "source-outcome": { "$ref": "#/$defs/identifier" }
       }
     },
     "request": {
@@ -133,8 +135,8 @@
         },
         "assertions": {
           "type": "array", "maxItems": 100000,
-          "items": { "type": "object", "additionalProperties": false, "required": ["runId", "attemptId", "id", "digest"], "properties": {
-            "runId": { "$ref": "#/$defs/identifier" }, "attemptId": { "$ref": "#/$defs/identifier" }, "id": { "$ref": "#/$defs/identifier" }, "digest": { "$ref": "urn:ebo:schema:normalization-integrity:v1#/$defs/digest" }
+          "items": { "type": "object", "additionalProperties": false, "required": ["runId", "attemptId", "count", "digest"], "properties": {
+            "runId": { "$ref": "#/$defs/identifier" }, "attemptId": { "$ref": "#/$defs/identifier" }, "count": { "type": "integer", "minimum": 1 }, "digest": { "$ref": "urn:ebo:schema:normalization-integrity:v1#/$defs/digest" }
           } }
         },
         "calibrations": {
@@ -190,7 +192,7 @@
     "behaviorAggregate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["behavior","family","producer","population","verdicts","assertions"],
+      "required": ["behavior","family","producer","population","verdicts","members","exceptions"],
       "properties": {
         "behavior": {"$ref":"urn:ebo:schema:behavior-assertions:v1#/$defs/judgedBehavior"},
         "family": {"type":"string","pattern":"^[A-Z]{2}$"},
@@ -235,7 +237,16 @@
             }
           }
         },
-        "assertions": {
+        "members": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["count","digest"],
+          "properties": {
+            "count": {"type":"integer","minimum":1},
+            "digest": {"$ref":"urn:ebo:schema:normalization-integrity:v1#/$defs/digest"}
+          }
+        },
+        "exceptions": {
           "type": "array",
           "items": {
             "type": "object",
@@ -287,9 +298,10 @@
         "groups": {
           "type": "array", "maxItems": 100000,
           "items": {
-            "type": "object", "additionalProperties": false, "required": ["dimensions", "metrics", "variations"],
+            "type": "object", "additionalProperties": false, "required": ["dimensions", "attempts", "metrics", "variations"],
             "properties": {
               "dimensions": { "$ref": "#/$defs/filters" },
+              "attempts": { "type": "array", "maxItems": 100000, "items": { "type": "integer", "minimum": 0 } },
               "behaviors": { "type": "array", "items": { "$ref": "#/$defs/behaviorAggregate" } },
               "directions": { "type": "array", "items": { "$ref": "#/$defs/directionAggregate" } },
               "metrics": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/metric" } },

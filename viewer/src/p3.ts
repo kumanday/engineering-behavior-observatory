@@ -2,8 +2,9 @@
 // records; attempt audit; unit native records). Data from p3/build.py and p3/claims.py under data/<study>/p3/.
 // Matrix counts are computed in the browser from the assessment records (exploratory) and compared with the EBO Atlas
 // report tallies where the study has them (certified).
-import { cls, esc, fmtDur, num, shortId, trialLabel } from "./lanes";
+import { cls, esc, fmtDur, num, shortId, sourceOutcomeTitle, trialLabel } from "./lanes";
 import { describable, provide, register, run, target, type Json } from "./registry";
+import { tableFromIPC } from "apache-arrow";
 
 /** What the drawer shows, as data: enough to reopen it exactly (state round-trip, undo, links). */
 export type DrawerView =
@@ -28,15 +29,48 @@ export interface Assessment {
   direction: string | null; probability?: number | null; probabilities?: Record<string, unknown> | null; thresholds?: { present: number; absent: number } | null;
   outcome: string; value: string | null; confidence: number | null; rationale: string | null; alternative: string | null; review: string | null;
   evaluator: string; rubric: string | null; cohorts: Record<string, { included?: boolean; disputed?: boolean; review?: string }>; source: string; citations: Citation[];
+  /** False for a large bundle's indexed result until its attempt's details are loaded; its citation count is known before. */
+  detailed?: boolean; citationCount?: number;
 }
-export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; harness_id: string; model_id: string; terminal_state: string | null; failure_class: string | null; source_outcome?: string; cohorts: string[]; bundle: string; native_span_seconds: number | null;
+export interface AttemptMeta { attempt_id: string; short: string; condition: string; task_id: string | null; trial_id: string | null; harness_id: string; model_id: string; terminal_state: string | null; failure_class: string | null; source_outcome?: string; source_outcome_source?: string; source_outcome_release?: string; source_outcome_record?: string; harness_version?: string | null; cohorts: string[]; bundle: string; native_span_seconds: number | null;
   native_record_count?: number | null; unmapped_record_count?: number | null; event_count?: number | null; event_types?: Record<string, number>; units?: number; tool_calls?: number }
-interface CertCell { group: Record<string, string>; card: string; family?: string; mode?: string; counts: Record<string, number>; values?: Record<string, number>; denominator: number; assertions: string[]; conditions?: string[] }
+interface CertCell { group: Record<string, string>; card: string; family?: string; mode?: string; counts: Record<string, number>; values?: Record<string, number>; denominator: number; assertions?: string[]; conditions?: string[] }
 export interface AssessDoc {
   study: string; cohorts: { id: string; title: string; certified: boolean; report: string | null }[]; attempts: AttemptMeta[]; assessments: Assessment[];
   /** The judged cards and their families, in ontology order. */
   cards?: { id: string; family: string; title: string; directions?: string[] }[]; families?: { id: string; name: string }[];
   certified: Record<string, { source: string; generated_at: string; group_by: string[]; cells: CertCell[] }>; notes: string[];
+  /** A large bundle: the card results are indexed in an Arrow file, and each attempt's details are in `split`<attempt>.json. */
+  index?: { file: string; rows: number; dictionaries: Record<string, string[]> }; split?: string;
+}
+
+/**
+ * The card results of a large bundle, from its index: identity, verdict and cohort flags for every result, enough for
+ * the matrix and lists. Details (what the producer was shown, probabilities, rationale, citations) load per attempt.
+ */
+export function expandAssessmentIndex(doc: AssessDoc, bytes: Uint8Array): Assessment[] {
+  const table = tableFromIPC(bytes), dict = doc.index!.dictionaries;
+  const col = (name: string) => table.getChild(name)!.toArray() as Int32Array | Float32Array;
+  const codes = Object.fromEntries(["card", "mode", "producer", "outcome", "value", "direction", "review", "included", "disputed"].map((name) => [name, col(name)]));
+  const ids = table.getChild("id")!, attempt = col("attempt"), probability = col("probability"), confidence = col("confidence"), citationCounts = col("citations");
+  const cards = new Map((doc.cards ?? []).map((c) => [c.id, c]));
+  const word = (name: string, row: number) => { const code = codes[name]![row]!; return code < 0 ? null : dict[name]![code]!; };
+  const cohortsOf = new Map<string, Assessment["cohorts"]>();
+  const out: Assessment[] = new Array(table.numRows);
+  for (let row = 0; row < table.numRows; row++) {
+    const meta = doc.attempts[attempt[row]!]!, card = word("card", row)!;
+    const key = `${codes.included![row]}|${codes.disputed![row]}`;
+    if (!cohortsOf.has(key)) {
+      const included = (word("included", row) ?? "").split(",").filter(Boolean), disputed = new Set((word("disputed", row) ?? "").split(",").filter(Boolean));
+      cohortsOf.set(key, Object.fromEntries(meta.cohorts.map((c) => [c, { included: included.includes(c), ...(disputed.has(c) ? { disputed: true } : {}) }])));
+    }
+    out[row] = { id: String(ids.get(row)), attempt_id: meta.attempt_id, short: meta.short, condition: meta.condition, task_id: meta.task_id, trial_id: meta.trial_id,
+      card, family: cards.get(card)?.family ?? "", title: cards.get(card)?.title ?? "", mode: word("mode", row)!, producer: word("producer", row) ?? undefined,
+      outcome: word("outcome", row)!, value: word("value", row), direction: word("direction", row),
+      probability: Number.isNaN(probability[row]!) ? null : probability[row]!, confidence: Number.isNaN(confidence[row]!) ? null : confidence[row]!,
+      review: word("review", row), cohorts: cohortsOf.get(key)!, rationale: null, alternative: null, evaluator: word("producer", row) ?? "", rubric: null, source: "", citations: [], detailed: false, citationCount: citationCounts[row]! };
+  }
+  return out;
 }
 interface Run { row_id: number; seq: number; step: number; t_ms: number | null; status: string | null; kinds?: string[]; exit_code?: number | null; output_redirected?: boolean; command?: string; how?: string; paths?: string[]; detected?: string }
 interface AuditAttempt {
@@ -55,7 +89,9 @@ export interface ClaimsDoc { source: { file: string; title: string; also?: strin
 
 export interface EvidenceHooks { highlight: (rows: number[] | null) => void; showInLanes: (attemptId: string, row?: number | null) => void }
 
-const SHOW_MAX = 200_000;   // rendering safeguard for very long native lines (the data itself is never truncated)
+const SHOW_MAX = 200_000;
+/** Rows the judgment list draws at once. */
+const LIST_MAX = 500;   // rendering safeguard for very long native lines (the data itself is never truncated)
 const fmtT = (ms: number | null | undefined) => (ms == null ? "—" : fmtDur(ms));
 const MODE_LABEL: Record<string, string> = { "llm-judge": "LLM judge", "decision-model": "decision model" };
 const modeLabel = (m: string) => MODE_LABEL[m] ?? m;
@@ -119,24 +155,27 @@ export class Evidence {
   readonly meta: Map<string, AttemptMeta>;
   /** Units cited by any judgment (P3 links snapshot citations to units too, which the P1 `cited` flag misses). */
   readonly citedRows: Set<number>;
-  constructor(private base: string, readonly doc: AssessDoc, readonly audit: AuditDoc | null, readonly drawer: Drawer, readonly hooks: EvidenceHooks) {
+  private readonly byAttempt = new Map<string, Assessment[]>();
+  private readonly loaded = new Map<string, Promise<void>>();
+  constructor(private base: string, readonly doc: AssessDoc, readonly audit: (AuditDoc & { split?: string }) | null, readonly drawer: Drawer, readonly hooks: EvidenceHooks) {
     this.byId = new Map(doc.assessments.map((a) => [a.id, a]));
     this.meta = new Map(doc.attempts.map((a) => [a.attempt_id, a]));
+    for (const a of doc.assessments) (this.byAttempt.get(a.attempt_id) ?? this.byAttempt.set(a.attempt_id, []).get(a.attempt_id)!).push(a);
     this.citedRows = new Set(doc.assessments.flatMap((a) => a.citations.map((c) => c.row_id).filter((r): r is number => r != null)));
     const obj = (properties: Record<string, unknown>, required = Object.keys(properties)) => ({ type: "object", required, properties, additionalProperties: false });
     const attempt = { attemptId: { type: "string" } };
     register<{ id: string }>({ name: "openAssessment", description: "Open a judge assessment: rationale, alternative explanation and cited native records.", args: obj({ id: { type: "string" } }),
-      run: ({ id }) => { this.openAssessment(id); return `Opened assessment ${id}.`; } });
+      run: async ({ id }) => { await this.prepare(this.byId.get(id)?.attempt_id); this.openAssessment(id); return `Opened assessment ${id}.`; } });
     register<{ attemptId: string; row: number }>({ name: "openUnit", description: "Open the native records of one behavior unit.", args: obj({ ...attempt, row: { type: "integer" } }),
-      run: async ({ attemptId, row }) => { await this.openUnit(attemptId, row); return `Opened unit row ${row} of attempt ${shortId(attemptId)}.`; } });
+      run: async ({ attemptId, row }) => { await this.prepare(attemptId); await this.openUnit(attemptId, row); return `Opened unit row ${row} of attempt ${shortId(attemptId)}.`; } });
     register<{ attemptId: string }>({ name: "openAudit", description: "Open an attempt's audit: checks vs source changes vs final claims, failure chains, final message.", args: obj(attempt),
-      run: ({ attemptId }) => { this.openAudit(attemptId); return `Opened the audit of attempt ${shortId(attemptId)}.`; } });
+      run: async ({ attemptId }) => { await this.prepare(attemptId); this.openAudit(attemptId); return `Opened the audit of attempt ${shortId(attemptId)}.`; } });
     register<{ attemptId: string }>({ name: "openChains", description: "Open an attempt's failure chains.", args: obj(attempt),
-      run: ({ attemptId }) => { this.openChains(attemptId); return `Opened the failure chains of attempt ${shortId(attemptId)}.`; } });
+      run: async ({ attemptId }) => { await this.prepare(attemptId); this.openChains(attemptId); return `Opened the failure chains of attempt ${shortId(attemptId)}.`; } });
     register<{ attemptId: string; chain: number }>({ name: "openCompare", description: "Compare a failure chain's last failed call with the next call of the same tool.", args: obj({ ...attempt, chain: { type: "integer", minimum: 0 } }),
-      run: async ({ attemptId, chain }) => { await this.openCompare(attemptId, chain); return `Compared failure chain ${chain + 1} of attempt ${shortId(attemptId)}.`; } });
+      run: async ({ attemptId, chain }) => { await this.prepare(attemptId); await this.openCompare(attemptId, chain); return `Compared failure chain ${chain + 1} of attempt ${shortId(attemptId)}.`; } });
     register<{ attemptId: string; rows: number[] }>({ name: "openChainAt", description: "Open the failure chain containing these units (or the attempt's chains).", args: obj({ ...attempt, rows: { type: "array", items: { type: "integer" } } }),
-      run: async ({ attemptId, rows }) => { await this.openChainAt(attemptId, rows); return `Opened the failure chain at attempt ${shortId(attemptId)}.`; } });
+      run: async ({ attemptId, rows }) => { await this.prepare(attemptId); await this.openChainAt(attemptId, rows); return `Opened the failure chain at attempt ${shortId(attemptId)}.`; } });
     register<{ title: string; items: { attemptId: string; row: number }[] }>({ name: "openFailureGroup", description: "Open failed calls that share a tool and error, across attempts.",
       args: obj({ title: { type: "string" }, items: { type: "array", items: obj({ attemptId: { type: "string" }, row: { type: "integer" } }) } }),
       run: ({ title, items }) => { this.hooks.highlight(items.map(({ row }) => row)); this.openFailures(title, items); return `Opened and highlighted ${items.length} failed calls: ${title}.`; } });
@@ -159,6 +198,7 @@ export class Evidence {
 
   /** Reopen a drawer view from its description. */
   async reopen(view: DrawerView) {
+    await this.prepare(view.kind === "assessment" ? this.byId.get(view.id)?.attempt_id : view.kind === "failures" ? undefined : view.attemptId);
     if (view.kind === "unit") await this.openUnit(view.attemptId, view.row);
     else if (view.kind === "assessment") this.openAssessment(view.id);
     else if (view.kind === "audit") this.openAudit(view.attemptId);
@@ -180,7 +220,10 @@ export class Evidence {
       const A = this.audit?.attempts[view.attemptId];
       return { summary: `${view.kind} of ${this.attemptLabel(view.attemptId)}${A ? `: ${A.checks.length} captured checks, ${A.changes.length} source changes, ${A.failure_chains.length} failure chains` : ""}.`,
         // The chains themselves, so a reader (or an assistant) can answer from describe() what the drawer shows.
-        data: { view, checkVerdicts: A?.verdicts ?? [], checkFreshness: A?.freshness_coverage ?? null,
+        data: { view, harnessVersion: this.meta.get(view.attemptId)?.harness_version ?? null,
+          sourceOutcome: this.meta.get(view.attemptId)?.source_outcome ? { outcome: this.meta.get(view.attemptId)!.source_outcome!, source: this.meta.get(view.attemptId)!.source_outcome_source ?? null,
+            release: this.meta.get(view.attemptId)!.source_outcome_release ?? null, record: this.meta.get(view.attemptId)!.source_outcome_record ?? null } : null,
+          checkVerdicts: A?.verdicts ?? [], checkFreshness: A?.freshness_coverage ?? null,
           assessments: this.assessmentsOf(view.attemptId).map((a) => ({ id: a.id, card: a.card, mode: a.mode, outcome: a.outcome, value: a.value, direction: a.direction })),
           failureChains: A?.failure_chains.length ?? null,
           chains: (A?.failure_chains ?? []).map((f) => ({ tool: f.tool, failures: f.failures.length, firstStep: f.first_step, tMs: f.t_ms, signature: f.signature, nextOk: f.next_ok, nextRow: f.next_same_tool })) } as unknown as Json };
@@ -195,7 +238,31 @@ export class Evidence {
     const m = this.meta.get(id);
     return m ? `${m.condition} · ${trialLabel(m.trial_id)} · ${m.short}${m.cohorts.length ? ` · ${m.cohorts.join(", ")}` : ""}` : id;
   }
-  assessmentsOf(attemptId: string) { return this.doc.assessments.filter((a) => a.attempt_id === attemptId); }
+  assessmentsOf(attemptId: string) { return this.byAttempt.get(attemptId) ?? []; }
+
+  /**
+   * A large bundle keeps each attempt's assessment details and audit in their own files: load them before a view of
+   * the attempt opens. Inline bundles have everything already, so this does nothing for them.
+   */
+  prepare(attemptId: string | undefined): Promise<void> {
+    if (attemptId === undefined || (!this.doc.split && !this.audit?.split)) return Promise.resolve();
+    if (!this.loaded.has(attemptId)) this.loaded.set(attemptId, (async () => {
+      const get = async (path: string) => { try { const r = await fetch(`${this.base}/${path}${attemptId}.json`); return r.ok ? await r.json() : null; } catch { return null; } };
+      const [details, audit] = await Promise.all([this.doc.split ? get(this.doc.split) : null, this.audit?.split ? get(this.audit.split) : null]);
+      for (const full of (details ?? []) as Assessment[]) {
+        const own = this.byId.get(full.id);
+        if (!own) continue;
+        Object.assign(own, full, { detailed: true });
+        for (const c of full.citations) if (c.row_id != null) this.citedRows.add(c.row_id);
+      }
+      if (audit && this.audit) this.audit.attempts[attemptId] = audit as AuditAttempt;
+    })());
+    return this.loaded.get(attemptId)!;
+  }
+  /** Loads the details of many attempts (a task's lanes), a few at a time. */
+  async prepareMany(attemptIds: readonly string[]): Promise<void> {
+    for (let i = 0; i < attemptIds.length; i += 16) await Promise.all(attemptIds.slice(i, i + 16).map((id) => this.prepare(id)));
+  }
 
   recordHtml(r: NativeRec) {
     if (!r.resolved) return `<div class="rec"><div class="rec-h">${esc(r.artifact)} ${esc(r.locator)} · <b>not resolved</b></div></div>`;
@@ -277,10 +344,10 @@ export class Evidence {
     };
     const asm = this.assessmentsOf(attemptId);
     this.drawer.open({ kind: "audit", attemptId }, `Audit · ${trialLabel(m.trial_id)} ${m.short}`, () => `
-      <dl class="kv"><dt>Attempt</dt><dd class="mono small">${esc(m.attempt_id)}</dd><dt>Arm</dt><dd>${esc(m.condition)} (${esc(m.harness_id)} · ${esc(m.model_id)})</dd>
+      <dl class="kv"><dt>Attempt</dt><dd class="mono small">${esc(m.attempt_id)}</dd><dt>Arm</dt><dd>${esc(m.condition)} (${esc(m.harness_id)}${m.harness_version ? ` ${esc(m.harness_version)}` : ""} · ${esc(m.model_id)})</dd>
         <dt>Task / trial</dt><dd>${esc(m.task_id ?? "task unavailable")} · ${esc(trialLabel(m.trial_id))}</dd><dt>Cohorts</dt><dd>${esc(m.cohorts.join(", ") || "—")}</dd>
         <dt>Terminal</dt><dd>${esc(m.terminal_state ?? "unavailable")}${m.failure_class && m.failure_class !== "none" ? ` (${esc(m.failure_class)})` : ""}</dd>
-        ${m.source_outcome ? `<dt>Leaderboard verdict</dt><dd>${esc(m.source_outcome)} (third-party)</dd>` : ""}
+        ${m.source_outcome ? `<dt>${esc(m.source_outcome_source ?? "Third-party")} verdict</dt><dd title="${esc(sourceOutcomeTitle(m))}">${esc(m.source_outcome)} (third-party${m.source_outcome_release ? `, release ${esc(m.source_outcome_release)}` : ""})${m.source_outcome_record ? `<br><span class="mono small">${esc(m.source_outcome_record)}</span>` : ""}</dd>` : ""}
         <dt>Steps</dt><dd>${num(A.steps)} actions (tool calls + compactions)</dd></dl>
       ${asm.length ? `<p>Judge: ${asm.map((a) => `<button class="link" data-assess="${esc(a.id)}" ${target("openAssessment", a.id)}>${esc(a.card)} ${outChip(a.outcome, a.value)}</button>`).join(" ")}</p>` : ""}
       <h4>Final claims vs captured checks</h4>
@@ -429,8 +496,8 @@ export class MatrixPanel {
     const obj = (properties: Record<string, unknown>, required = Object.keys(properties)) => ({ type: "object", required, properties, additionalProperties: false });
     register<{ cohort: string }>({ name: "setMatrixCohort", description: "Count assessments of one cohort (or all attempts).", args: obj({ cohort: { type: "string" } }),
       run: ({ cohort }) => { this.cohort = cohort; this.sel = null; this.render(); return `Assessments show ${cohort === "all" ? "all attempts" : `cohort ${cohort}`}.`; } });
-    register<{ task: string | null }>({ name: "setMatrixTask", description: "Count assessments of one task (or all tasks).", args: obj({ task: { type: ["string", "null"] } }),
-      run: ({ task }) => { this.task = task; this.sel = null; this.render(); return `Assessments show ${task === "all" ? "all tasks" : task}.`; } });
+    register<{ task: string | null }>({ name: "setMatrixTask", description: "Count assessments of one task. \"all\" counts every task; null counts only attempts whose task is unavailable.", args: obj({ task: { type: ["string", "null"] } }),
+      run: ({ task }) => { this.task = task; this.sel = null; this.render(); return `Assessments show ${task === "all" ? "all tasks" : task ?? "attempts whose task is unavailable"}.`; } });
     register<{ mode: string }>({ name: "setMatrixMode", description: "Show the results of one producer mode: llm-judge or decision-model.", args: obj({ mode: { type: "string" } }),
       run: ({ mode }) => { this.mode = mode; this.sel = null; this.render(); return `Assessments show ${modeLabel(mode)} results.`; } });
     register<{ direction: string }>({ name: "setMatrixDirection", description: "Count only present results of one direction (favourable, unfavourable, neutral), or all results.", args: obj({ direction: { type: "string" } }),
@@ -447,13 +514,13 @@ export class MatrixPanel {
   /** The card × arm counts currently shown, with their certified/exploratory status. */
   describe() {
     const pool = this.pool(), arms = this.arms(), cats = this.cats();
+    const tally = this.tally(pool);
     const cells = cats.flatMap((cat) => arms.map((arm) => {
-      const xs = pool.filter((a) => a.card === cat && a.condition === arm);
-      const counts: Record<string, number> = Object.fromEntries(OUTCOMES.map((o) => [o, xs.filter((a) => a.outcome === o).length]));
-      const unrecognized = xs.filter((a) => !(OUTCOMES as readonly string[]).includes(a.outcome)).length;
-      if (unrecognized) counts.unrecognized = unrecognized;
-      const cert = this.certCell(cat, arm);
-      return { card: cat, mode: this.mode, arm, judgments: xs.length, counts, certified: cert ? OUTCOMES.every((o) => (cert.counts[o] ?? 0) === counts[o]) && cert.denominator === xs.length : false };
+      const t = tally.get(`${cat}\0${arm}`);
+      const counts: Record<string, number> = { ...(t?.counts ?? Object.fromEntries(OUTCOMES.map((o) => [o, 0]))) };
+      if (t?.unrecognized) counts.unrecognized = t.unrecognized;
+      const judgments = t?.n ?? 0, cert = this.certCell(cat, arm);
+      return { card: cat, mode: this.mode, arm, judgments, counts, certified: cert ? OUTCOMES.every((o) => (cert.counts[o] ?? 0) === counts[o]) && cert.denominator === judgments : false };
     }));
     return { summary: `${pool.length} judgments, ${this.cohort === "all" ? "all attempts" : `cohort ${this.cohort}`}${this.task !== "all" ? `, task ${this.task}` : ""}.`, data: { cohort: this.cohort, task: this.task, cells } };
   }
@@ -463,6 +530,18 @@ export class MatrixPanel {
     return this.ev.doc.assessments.filter((a) => (this.cohort === "all" || (a.cohorts[this.cohort] && a.cohorts[this.cohort].included !== false))
       && (this.task === "all" || a.task_id === this.task) && a.mode === this.mode && (this.direction === "all" || a.direction === this.direction))
       .filter((a) => { const k = `${a.attempt_id}\0${a.card}\0${a.outcome}\0${a.value ?? ""}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  }
+  /** Verdict counts per card and arm, in one pass over the pool (a per-cell scan is cards × arms × results). */
+  private tally(pool: readonly Assessment[]) {
+    const tally = new Map<string, { n: number; counts: Record<string, number>; unrecognized: number }>();
+    for (const a of pool) {
+      const key = `${a.card}\0${a.condition}`;
+      let t = tally.get(key);
+      if (!t) { t = { n: 0, counts: Object.fromEntries(OUTCOMES.map((o) => [o, 0])), unrecognized: 0 }; tally.set(key, t); }
+      t.n += 1;
+      if (a.outcome in t.counts) t.counts[a.outcome]! += 1; else t.unrecognized += 1;
+    }
+    return tally;
   }
   private arms() { return [...new Set(this.ev.doc.attempts.map((a) => a.condition))].sort(); }
   private modes() { return [...new Set(this.ev.doc.assessments.map((a) => a.mode))].sort(); }
@@ -491,22 +570,22 @@ export class MatrixPanel {
       if (!own.length || (this.task !== "all" && !own.every((x) => "task" in x.group))) return null;
       const counts: Record<string, number> = {};
       for (const x of own) for (const [k, v] of Object.entries(x.counts)) counts[k] = (counts[k] ?? 0) + v;
-      return { group: own[0]!.group, card: cat, counts, denominator: own.reduce((sum, x) => sum + x.denominator, 0), assertions: own.flatMap((x) => x.assertions), conditions: [arm] };
+      return { group: own[0]!.group, card: cat, counts, denominator: own.reduce((sum, x) => sum + x.denominator, 0), assertions: own.flatMap((x) => x.assertions ?? []), conditions: [arm] };
     }
     if (this.task !== "all") return null;
     return c.cells.find((x) => x.card === cat && (x.group.model ?? m.model_id) === m.model_id && (x.group.harness ?? m.harness_id) === m.harness_id && (!x.group.task || x.group.task === m.task_id)) ?? null;
   }
   render() {
-    const pool = this.pool(), arms = this.arms(), cats = this.cats();
+    const pool = this.pool(), arms = this.arms(), cats = this.cats(), tally = this.tally(pool);
     const tasks = [...new Set(this.ev.doc.attempts.map((a) => a.task_id))].sort();
-    const attemptsIn = (arm: string) => this.ev.doc.attempts.filter((a) => a.condition === arm && (this.cohort === "all" || a.cohorts.includes(this.cohort)) && (this.task === "all" || a.task_id === this.task)).length;
+    const attemptsOf = new Map<string, number>();
+    for (const a of this.ev.doc.attempts) if ((this.cohort === "all" || a.cohorts.includes(this.cohort)) && (this.task === "all" || a.task_id === this.task)) attemptsOf.set(a.condition, (attemptsOf.get(a.condition) ?? 0) + 1);
     const anyCert = Object.keys(this.ev.doc.certified).length > 0;
     const cell = (cat: string, arm: string) => {
-      const xs = pool.filter((a) => a.card === cat && a.condition === arm);
-      const n = xs.length, k = attemptsIn(arm);
+      const t = tally.get(`${cat}\0${arm}`) ?? { n: 0, counts: Object.fromEntries(OUTCOMES.map((o) => [o, 0])) as Record<string, number>, unrecognized: 0 };
+      const n = t.n, k = attemptsOf.get(arm) ?? 0;
       if (!k) return `<td class="mx na">—</td>`;
-      const counts = Object.fromEntries(OUTCOMES.map((o) => [o, xs.filter((a) => a.outcome === o).length]));
-      const unrecognized = xs.filter((a) => !(OUTCOMES as readonly string[]).includes(a.outcome)).length;
+      const counts = t.counts, unrecognized = t.unrecognized;
       const cert = this.certCell(cat, arm);
       let mark = `<span class="tag-x" title="Computed in the browser from the judge assertions">exploratory</span>`;
       if (cert) {
@@ -522,6 +601,8 @@ export class MatrixPanel {
         <span class="meta">${n} judgment${n === 1 ? "" : "s"} · ${k} attempt${k === 1 ? "" : "s"} in arm</span>${mark}</td>`;
     };
     const list = this.sel ? pool.filter((a) => a.card === this.sel!.cat && a.condition === this.sel!.arm) : pool;
+    // The list shows its first rows; a large study has millions of results, which no page can draw at once.
+    const shown = list.slice(0, LIST_MAX);
     this.root.innerHTML = `
       <div class="panel-head"><div><h2>Assessments</h2>
         <p class="sub">${pool.length} ${esc(modeLabel(this.mode))} judgments (one per attempt × behavior card)${this.direction !== "all" ? ` · ${esc(this.direction)} only` : ""} · ${this.cohort === "all" ? "all attempts" : `cohort ${esc(this.cohort)}`}${this.task !== "all" ? ` · ${esc(this.task ?? "task unavailable")}` : ""}</p></div>
@@ -543,10 +624,10 @@ export class MatrixPanel {
       <div class="p3-split">
         <div class="table-wrap mx-wrap"><table class="grid mxt"><thead><tr><th scope="col">Behavior card</th>${arms.map((a) => `<th scope="col" class="arm"><span class="arm-name">${esc(a)}</span></th>`).join("")}</tr></thead>
           <tbody>${cats.map((c, i) => `${i === 0 || this.familyOf(c) !== this.familyOf(cats[i - 1]!) ? `<tr class="mx-family"><th scope="colgroup" colspan="${arms.length + 1}">${esc(this.familyOf(c))}${this.familyName(this.familyOf(c)) ? ` · ${esc(this.familyName(this.familyOf(c)))}` : ""}</th></tr>` : ""}<tr><th scope="row" class="c-label"><span class="lbl">${esc(c)} ${esc(this.titleOf(c))}</span></th>${arms.map((a) => cell(c, a)).join("")}</tr>`).join("")}</tbody></table></div>
-        <div class="table-wrap jl-wrap"><p class="sub">${this.sel ? `${esc(this.sel.cat)} × ${esc(this.sel.arm)} · <button class="link" data-clear ${target("selectMatrixCell", "all")}>show all</button>` : "All judgments"} (${list.length})</p>
+        <div class="table-wrap jl-wrap"><p class="sub">${this.sel ? `${esc(this.sel.cat)} × ${esc(this.sel.arm)} · <button class="link" data-clear ${target("selectMatrixCell", "all")}>show all</button>` : "All judgments"} (${list.length.toLocaleString()}${list.length > shown.length ? `; the first ${shown.length.toLocaleString()} shown, pick a cell to narrow it` : ""})</p>
           <table class="grid jl"><thead><tr><th>Arm</th><th>Task</th><th>Trial</th><th>Attempt</th><th>Card</th><th>By</th><th>Verdict</th><th>Direction</th><th class="num">Conf. / prob.</th><th class="num">Cites</th><th>Rationale (start)</th></tr></thead>
-          <tbody>${list.map((a) => `<tr data-id="${esc(a.id)}" ${target("openAssessment", a.id)} tabindex="0"><td>${esc(a.condition)}</td><td>${esc(a.task_id)}</td><td>${esc(a.trial_id ?? "unavailable")}</td><td class="mono">${esc(a.short)}</td><td>${esc(a.card)}</td>
-            <td class="small">${esc(modeLabel(a.mode))}</td><td>${outChip(a.outcome, a.value)}</td><td>${dirChip(a.direction) || "—"}</td><td class="num">${a.confidence != null ? num(a.confidence) : a.probability != null ? num(a.probability) : "—"}</td><td class="num">${a.citations.length}</td><td class="small">${esc((a.rationale ?? "").slice(0, 140))}${(a.rationale ?? "").length > 140 ? "…" : ""}</td></tr>`).join("")}</tbody></table></div>
+          <tbody>${shown.map((a) => `<tr data-id="${esc(a.id)}" ${target("openAssessment", a.id)} tabindex="0"><td>${esc(a.condition)}</td><td>${esc(a.task_id)}</td><td>${esc(a.trial_id ?? "unavailable")}</td><td class="mono">${esc(a.short)}</td><td>${esc(a.card)}</td>
+            <td class="small">${esc(modeLabel(a.mode))}</td><td>${outChip(a.outcome, a.value)}</td><td>${dirChip(a.direction) || "—"}</td><td class="num">${a.confidence != null ? num(a.confidence) : a.probability != null ? num(a.probability) : "—"}</td><td class="num">${a.citationCount ?? a.citations.length}</td><td class="small">${esc((a.rationale ?? "").slice(0, 140))}${(a.rationale ?? "").length > 140 ? "…" : ""}</td></tr>`).join("")}</tbody></table></div>
       </div>`;
     this.root.querySelector<HTMLSelectElement>("[data-mode]")?.addEventListener("change", (e) => run("setMatrixMode", { mode: (e.target as HTMLSelectElement).value }));
     this.root.querySelector<HTMLSelectElement>("[data-direction]")?.addEventListener("change", (e) => run("setMatrixDirection", { direction: (e.target as HTMLSelectElement).value }));

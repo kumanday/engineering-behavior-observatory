@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
 
 import { canonicalizeMetadata, digestBytes, digestMetadata, validateArtifact } from "./artifacts.js";
-import { isDecisionModelAssertion, validateRetainedBehaviorAssertion, type BehaviorAssertion, type BehaviorProducer } from "./behavior-assertions.js";
+import { isDecisionModelAssertion, type BehaviorAssertion, type BehaviorProducer } from "./behavior-assertions.js";
 import { BEHAVIOR_DIRECTIONS, BEHAVIOR_VERDICTS, behaviorDirection, loadDefaultBehaviorOntology, resolveBehaviorCard, type BehaviorCard, type BehaviorDecision, type BehaviorDirection, type BehaviorVerdict } from "./behavior-ontology.js";
 import type { CorpusIndexEntry } from "./corpus.js";
 import {
@@ -14,10 +14,10 @@ import {
 } from "./human-calibration.js";
 import { assessComparisonEligibility, type ComparisonCapability, type ComparisonReport, type ComparisonRequest } from "./normalization-integrity.js";
 import { readBoundedFile } from "./scheduler.js";
-import { createRetainedStructuralObservationSet, type StructuralObservationSet } from "./structural-observations.js";
-import { withRetainedEvidenceReuse } from "./retained-evidence.js";
+import type { StructuralObservationSet } from "./structural-observations.js";
+import { validateBundles } from "./bundle-validation.js";
 
-export type AggregationDimension = "task" | "model" | "harness" | "trial" | "capture-qualification" | "evidence-origin";
+export type AggregationDimension = "task" | "model" | "harness" | "harness-version" | "trial" | "capture-qualification" | "evidence-origin" | "source-outcome";
 export type EvidenceOriginSelection = "owned" | "imported" | "separate";
 export type AttemptSelectionPolicy = "all-attempts" | "latest-attempt-per-run";
 
@@ -95,11 +95,19 @@ export type BehaviorAggregate = {
   verdicts: ReadonlyArray<{ verdict: BehaviorVerdict; measurement: AggregateMeasurement }>;
   /** Dimension cards only: each named value's share of the attempts judged present. */
   values?: ReadonlyArray<{ value: string; measurement: AggregateMeasurement }>;
-  assertions: ReadonlyArray<{
-    runId: string; attemptId: string; id: string; digest: `sha256:${string}`;
-    reviewOutcome: ReturnType<typeof effectiveReviewOutcome>; disputed: boolean;
-    included: boolean;
-  }>;
+  /** The card results of the group's attempts in this partition: how many, and the digest of their sorted digests. */
+  members: { count: number; digest: `sha256:${string}` };
+  /**
+   * Members whose flags differ from the default (included, not disputed, review outcome `unreviewed`, or
+   * `judge-abstained` for an unknown verdict). `behaviorMembers` lists every member with its flags.
+   */
+  exceptions: readonly BehaviorMember[];
+};
+
+export type BehaviorMember = {
+  runId: string; attemptId: string; id: string; digest: `sha256:${string}`;
+  reviewOutcome: ReturnType<typeof effectiveReviewOutcome>; disputed: boolean;
+  included: boolean;
 };
 
 /**
@@ -137,12 +145,15 @@ export type AggregationReport = {
     corpusIndexDigest: `sha256:${string}`;
     manifests: ReadonlyArray<{ runId: string; attemptId: string; digest: `sha256:${string}` }>;
     observationSets: ReadonlyArray<{ runId: string; attemptId: string; digest: `sha256:${string}` }>;
-    assertions: ReadonlyArray<{ runId: string; attemptId: string; id: string; digest: `sha256:${string}` }>;
+    /** One entry per attempt: its card results' count and the digest of their sorted digests. */
+    assertions: ReadonlyArray<AssertionLineage>;
     calibrations: ReadonlyArray<{ selectionDigest: `sha256:${string}`; historyDigest: `sha256:${string}` }>;
     comparisonGates: ReadonlyArray<{ requestDigest: `sha256:${string}`; reportDigest: `sha256:${string}` }>;
   };
   groups: ReadonlyArray<{
     dimensions: Partial<Record<AggregationDimension, string>>;
+    /** The group's selected attempts, as indices into `sourceLineage.manifests`. */
+    attempts: readonly number[];
     metrics: readonly AggregateMetric[];
     behaviors?: readonly BehaviorAggregate[];
     directions?: readonly DirectionAggregate[];
@@ -187,11 +198,45 @@ export function readAggregationAssertions(base: string, sources: AggregationRequ
   ];
 }
 
+export type AssertionLineage = { runId: string; attemptId: string; count: number; digest: `sha256:${string}` };
+
+/**
+ * Card-result lineage per attempt, in the order attempts first appear: the number of results and the digest of their
+ * sorted digests. A cohort holds about 93 results per attempt, so per-result entries would outgrow the report.
+ */
+export function assertionLineage(documents: Iterable<Pick<BehaviorAssertion, "runId" | "attemptId">>): AssertionLineage[] {
+  const byAttempt = new Map<string, { runId: string; attemptId: string; digests: string[] }>();
+  for (const document of documents) {
+    const key = attemptKey(document);
+    let entry = byAttempt.get(key);
+    if (!entry) { entry = { runId: document.runId, attemptId: document.attemptId, digests: [] }; byAttempt.set(key, entry); }
+    entry.digests.push(metadataDigest(document));
+  }
+  return [...byAttempt.values()].map(({ runId, attemptId, digests }) => ({ runId, attemptId, count: digests.length, digest: metadataDigest(digests.sort()) }));
+}
+
 export function aggregateEvaluation(
   input: AggregationInput,
   policy: Pick<AggregationRequest, "groupBy" | "selectedAttemptPolicy" | "recurrence" | "evidenceOrigins">,
 ): Promise<AggregationReport> {
   return aggregateValidatedEvaluation(input, policy);
+}
+
+/** Inputs whose every observation set and assertion was validated against its retained evidence in this process. */
+const validatedInputs = new WeakSet<AggregationInput>();
+
+/**
+ * Aggregates a subset of an input that `aggregateEvaluation` has already validated, without validating its sources
+ * again (Atlas filters a validated source many times). Every subset document must be one of the validated input's
+ * own documents, by identity; anything else is validated as usual.
+ */
+export function aggregateValidatedSubset(validated: AggregationInput, subset: AggregationInput,
+  policy: Pick<AggregationRequest, "groupBy" | "selectedAttemptPolicy" | "recurrence" | "evidenceOrigins">): Promise<AggregationReport> {
+  const observationSets = new Set(validated.observationSets.map(({ document }) => document));
+  const assertions = new Set(validated.assertions.map(({ document }) => document));
+  const contained = validatedInputs.has(validated) && subset.calibrations === validated.calibrations && subset.comparisons === validated.comparisons
+    && subset.observationSets.every(({ document }) => observationSets.has(document)) && subset.assertions.every(({ document }) => assertions.has(document));
+  return aggregateValidatedEvaluation(subset, policy, contained);
 }
 
 export function selectAggregationAttempts(entries: readonly CorpusIndexEntry[], policy: AttemptSelectionPolicy, origins: EvidenceOriginSelection = "owned"): CorpusIndexEntry[] {
@@ -203,6 +248,7 @@ export function selectAggregationAttempts(entries: readonly CorpusIndexEntry[], 
 async function aggregateValidatedEvaluation(
   input: AggregationInput,
   policy: Pick<AggregationRequest, "groupBy" | "selectedAttemptPolicy" | "recurrence" | "evidenceOrigins">,
+  prevalidated = false,
 ): Promise<AggregationReport> {
   assertPolicy(policy);
   const { attempts, duplicates } = uniqueAttempts(input.corpusEntries, policy.evidenceOrigins ?? "owned");
@@ -227,35 +273,48 @@ async function aggregateValidatedEvaluation(
   };
   for (const { bundleRoot, document } of observationSources.values()) bundleOf(bundleRoot).observationSets.push(document);
   for (const { bundleRoot, document } of assertionSources.values()) bundleOf(bundleRoot).assertions.push(document);
-  await withRetainedEvidenceReuse(async () => {
-    for (const [bundleRoot, sources] of byBundle) {
-      for (const document of sources.observationSets) {
-        assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
-        const rebuilt = await createRetainedStructuralObservationSet(bundleRoot);
-        if (canonicalizeMetadata(rebuilt) !== canonicalizeMetadata(document)) throw new Error(`Structural observation set for attempt "${document.attemptId}" is stale.`);
-        rebuiltSets.set(`${document.runId}\0${document.attemptId}`, rebuilt);
-      }
-      for (const document of sources.assertions) {
-        assertIndexedBundle(bundleRoot, document.runId, document.attemptId, attempts);
-        await validateRetainedBehaviorAssertion(bundleRoot, document);
-      }
-    }
-  });
+  // Attempts by identity, and each bundle's manifest digest computed once: every observation set and card result of
+  // an attempt checks its binding, and a per-document scan of every attempt is quadratic in the cohort.
+  const indexed = new Map<string, Attempt[]>();
+  for (const attempt of attempts) { const key = attemptKey(attempt); indexed.set(key, [...indexed.get(key) ?? [], attempt]); }
+  const manifestDigests = new Map<string, string>();
+  const assertIndexedBundle = (bundleRoot: string, runId: string, attemptId: string) => assertIndexedBundleIn(bundleRoot, runId, attemptId, indexed, manifestDigests);
+  // Bindings first (cheap, in order), then each bundle's documents against its retained evidence, in parallel when
+  // there are many. A validated source's sets equal their rebuilt sets (that is what was checked), so the documents
+  // stand in for them.
+  for (const [bundleRoot, sources] of byBundle) {
+    for (const document of [...sources.observationSets, ...sources.assertions]) assertIndexedBundle(bundleRoot, document.runId, document.attemptId);
+  }
+  if (!prevalidated) await validateBundles([...byBundle].map(([bundleRoot, sources]) => ({ bundleRoot, ...sources })));
+  for (const sources of byBundle.values()) for (const document of sources.observationSets) rebuiltSets.set(`${document.runId}\0${document.attemptId}`, document);
   // Reports keep the order of the request's sources.
   for (const { document } of observationSources.values()) observations.set(`${document.runId}\0${document.attemptId}`, rebuiltSets.get(`${document.runId}\0${document.attemptId}`)!);
   for (const { document } of assertionSources.values()) assertions.set(assertionKey(document), document);
-  for (const { selection } of input.calibrations) await revalidateReviewSample(selection);
+  for (const { selection } of input.calibrations) if (!prevalidated) await revalidateReviewSample(selection);
+  if (!prevalidated) validatedInputs.add(input);
   const reviewOutcomes = reviewOutcomeIndex(input.calibrations);
   const selectedIds = new Set(selected.map(attemptKey));
   const groupBy = attempts.some((attempt) => evidenceOrigin(attempt) === "imported") && !policy.groupBy.includes("evidence-origin")
     ? [...policy.groupBy, "evidence-origin" as const] : [...policy.groupBy];
+  // Each group reads only its members' assertions, in source order: scanning every assertion once per group is
+  // quadratic when a cohort has many groups and millions of card results.
+  const sourceOrder = new Map<string, number>(), byAttempt = new Map<string, Array<[string, BehaviorAssertion]>>();
+  for (const [key, assertion] of assertions) {
+    sourceOrder.set(key, sourceOrder.size);
+    const list = byAttempt.get(attemptKey(assertion));
+    if (list) list.push([key, assertion]); else byAttempt.set(attemptKey(assertion), [[key, assertion]]);
+  }
+  const manifestIndex = new Map(attempts.map((attempt, index) => [attemptKey(attempt), index]));
   const groups = groupAttempts(attempts, groupBy).map(([dimensions, allMembers]) => {
     const members = allMembers.filter((attempt) => selectedIds.has(attemptKey(attempt)));
+    const groupAssertions = new Map(members.flatMap((attempt) => byAttempt.get(attemptKey(attempt)) ?? [])
+      .sort(([a], [b]) => sourceOrder.get(a)! - sourceOrder.get(b)!));
     return {
       dimensions,
-      metrics: groupMetrics(members, attempts, observations, assertions, reviewOutcomes, dimensions),
-      behaviors: behaviorAggregates(members, assertions, reviewOutcomes),
-      directions: directionAggregates(members, assertions),
+      attempts: members.map((attempt) => manifestIndex.get(attemptKey(attempt))!),
+      metrics: groupMetrics(members, attempts, observations, groupAssertions, reviewOutcomes, dimensions),
+      behaviors: behaviorAggregates(members, groupAssertions, reviewOutcomes),
+      directions: directionAggregates(members, groupAssertions),
       variations: [
         variation("terminal-state", members, policy.recurrence.minimumOccurrences),
         variation("verifier-status", members, policy.recurrence.minimumOccurrences),
@@ -285,7 +344,7 @@ async function aggregateValidatedEvaluation(
       corpusIndexDigest: input.lineage?.corpusIndexDigest ?? metadataDigest(input.corpusEntries),
       manifests: attempts.map(({ runId, attemptId, manifestDigest: digest }) => ({ runId, attemptId, digest })),
       observationSets: [...observationSources.values()].map(({ document }) => ({ runId: document.runId, attemptId: document.attemptId, digest: metadataDigest(document) })),
-      assertions: [...assertionSources.values()].map(({ document }) => ({ runId: document.runId, attemptId: document.attemptId, id: document.id, digest: metadataDigest(document) })),
+      assertions: assertionLineage([...assertionSources.values()].map(({ document }) => document)),
       calibrations: input.calibrations.map(({ selection, history }) => ({ selectionDigest: metadataDigest(selection), historyDigest: metadataDigest(history) })),
       comparisonGates: input.comparisons.flatMap(({ eligibility }) => eligibility.map(({ request, report }) => ({
         requestDigest: metadataDigest(request),
@@ -315,7 +374,7 @@ function behaviorAggregates(selected: readonly Attempt[], assertions: ReadonlyMa
   const partitions = new Map<string, BehaviorAssertion[]>();
   for (const assertion of assertions.values()) {
     if (!selectedIds.has(attemptKey(assertion))) continue;
-    const key = canonicalizeMetadata({ behavior: assertion.behavior, producer: assertion.producer, rubric: isDecisionModelAssertion(assertion) ? null : assertion.rubric });
+    const key = partitionKey(assertion);
     const values = partitions.get(key) ?? [];
     values.push(assertion);
     partitions.set(key, values);
@@ -330,10 +389,12 @@ function behaviorAggregates(selected: readonly Attempt[], assertions: ReadonlyMa
     const decisions: BehaviorDecision[] = [];
     const exclusions: string[] = [];
     const outcome = (assertion: BehaviorAssertion): ReviewOutcome => reviews.get(assertionBindingKey(assertion)) ?? {
-      outcome: assertion.judgment.verdict === "unknown" ? "judge-abstained" : "unreviewed", disputed: false,
+      outcome: defaultReviewOutcome(assertion), disputed: false,
     };
+    const byAttempt = new Map<string, BehaviorAssertion[]>();
+    for (const assertion of values) { const key = attemptKey(assertion); const list = byAttempt.get(key); if (list) list.push(assertion); else byAttempt.set(key, [assertion]); }
     for (const attempt of selected) {
-      const candidates = values.filter((assertion) => attemptKey(assertion) === attemptKey(attempt));
+      const candidates = byAttempt.get(attemptKey(attempt)) ?? [];
       const judged = new Map(candidates.map(({ judgment }) => {
         const decision: BehaviorDecision = { verdict: judgment.verdict, ...(judgment.verdict === "present" && judgment.value !== undefined ? { value: judgment.value } : {}) };
         return [canonicalizeMetadata(decision), decision];
@@ -358,10 +419,65 @@ function behaviorAggregates(selected: readonly Attempt[], assertions: ReadonlyMa
         measurement: rateMetric(name, "attempt", present.filter(({ value }) => value === name).length,
           present.length, "present-attempt-card", exclusionCounts(decisions.flatMap(({ verdict }) => verdict === "present" ? [] : [`verdict-${verdict}`]), "attempt-card")).measurement,
       })) }),
-      assertions: values.map((assertion) => ({ runId: assertion.runId, attemptId: assertion.attemptId, id: assertion.id,
-        digest: metadataDigest(assertion), reviewOutcome: outcome(assertion).outcome, disputed: outcome(assertion).disputed,
-        included: included.has(assertionKey(assertion)) })),
+      members: memberDigest(values),
+      exceptions: values.flatMap((assertion) => {
+        const { outcome: reviewOutcome, disputed } = outcome(assertion), isIncluded = included.has(assertionKey(assertion));
+        return isIncluded && !disputed && reviewOutcome === defaultReviewOutcome(assertion) ? []
+          : [{ runId: assertion.runId, attemptId: assertion.attemptId, id: assertion.id, digest: metadataDigest(assertion), reviewOutcome, disputed, included: isIncluded }];
+      }),
     };
+  });
+}
+
+function partitionKey(assertion: BehaviorAssertion): string {
+  return canonicalizeMetadata({ behavior: assertion.behavior, producer: assertion.producer, rubric: isDecisionModelAssertion(assertion) ? null : assertion.rubric });
+}
+
+function defaultReviewOutcome(assertion: BehaviorAssertion): BehaviorMember["reviewOutcome"] {
+  return assertion.judgment.verdict === "unknown" ? "judge-abstained" : "unreviewed";
+}
+
+function memberDigest(assertions: readonly BehaviorAssertion[]): BehaviorAggregate["members"] {
+  return { count: assertions.length, digest: metadataDigest(assertions.map((assertion) => metadataDigest(assertion)).sort()) };
+}
+
+/**
+ * Every card result of each group's behavior partitions with its flags, rebuilt from a report and the card results it
+ * was built from: the group's attempts (`attempts`), the partition's card, producer and rubric, and the exceptions.
+ * Throws when the results do not reproduce a partition's count and digest.
+ */
+export function behaviorMembers(report: Pick<AggregationReport, "groups" | "sourceLineage">, assertions: Iterable<BehaviorAssertion>):
+  Array<Array<Array<{ assertion: BehaviorAssertion } & BehaviorMember>>> {
+  const byAttempt = new Map<string, BehaviorAssertion[]>(), seen = new Set<string>();
+  for (const assertion of assertions) {
+    if (seen.has(assertionKey(assertion))) continue;
+    seen.add(assertionKey(assertion));
+    const key = attemptKey(assertion), list = byAttempt.get(key);
+    if (list) list.push(assertion); else byAttempt.set(key, [assertion]);
+  }
+  return report.groups.map((group) => {
+    const partitions = new Map<string, BehaviorAssertion[]>();
+    for (const index of group.attempts) {
+      const manifest = report.sourceLineage.manifests[index];
+      if (!manifest) throw new Error(`Aggregation group attempt index ${String(index)} names no manifest.`);
+      for (const assertion of byAttempt.get(attemptKey(manifest)) ?? []) {
+        const key = partitionKey(assertion), list = partitions.get(key);
+        if (list) list.push(assertion); else partitions.set(key, [assertion]);
+      }
+    }
+    return (group.behaviors ?? []).map((behavior) => {
+      const values = partitions.get(canonicalizeMetadata({ behavior: behavior.behavior, producer: behavior.producer, rubric: behavior.rubric ?? null })) ?? [];
+      const rebuilt = memberDigest(values);
+      if (rebuilt.count !== behavior.members.count || rebuilt.digest !== behavior.members.digest) {
+        throw new Error(`Card results for ${behavior.behavior.cardId} in group ${JSON.stringify(group.dimensions)} do not match the report (${String(rebuilt.count)} of ${String(behavior.members.count)}).`);
+      }
+      const exceptions = new Map(behavior.exceptions.map((exception) => [`${exception.runId}\0${exception.attemptId}\0${exception.id}`, exception]));
+      return values.map((assertion) => {
+        const exception = exceptions.get(assertionKey(assertion));
+        return { assertion, runId: assertion.runId, attemptId: assertion.attemptId, id: assertion.id, digest: exception?.digest ?? metadataDigest(assertion),
+          reviewOutcome: exception?.reviewOutcome ?? defaultReviewOutcome(assertion), disputed: exception?.disputed ?? false, included: exception?.included ?? true };
+      });
+    });
   });
 }
 
@@ -725,10 +841,12 @@ function uniqueAttempts(entries: readonly CorpusIndexEntry[], origins: EvidenceO
   return { attempts: [...attempts.values()].sort((left, right) => attemptKey(left).localeCompare(attemptKey(right))), duplicates };
 }
 
-function assertIndexedBundle(bundleRoot: string, runId: string, attemptId: string, attempts: readonly Attempt[]): void {
-  const indexed = attempts.filter((attempt) => attempt.runId === runId && attempt.attemptId === attemptId);
+function assertIndexedBundleIn(bundleRoot: string, runId: string, attemptId: string, attempts: ReadonlyMap<string, readonly Attempt[]>, digests: Map<string, string>): void {
+  const indexed = attempts.get(`${runId}\0${attemptId}`) ?? [];
   if (indexed.length !== 1) throw new Error(`Derived source run "${runId}" attempt "${attemptId}" has no unique corpus entry.`);
-  const actual = `sha256:${digestBytes(readBoundedFile(join(resolve(bundleRoot), "manifest.json"), "Derived source manifest")).value}`;
+  const root = resolve(bundleRoot);
+  if (!digests.has(root)) digests.set(root, `sha256:${digestBytes(readBoundedFile(join(root, "manifest.json"), "Derived source manifest")).value}`);
+  const actual = digests.get(root)!;
   if (actual !== indexed[0]!.manifestDigest) {
     throw new Error(`Derived source run "${runId}" attempt "${attemptId}" does not match the indexed manifest digest.`);
   }
@@ -764,9 +882,12 @@ function dimensionValue(attempt: Attempt, dimension: AggregationDimension): stri
     task: attempt.taskId,
     model: attempt.modelId,
     harness: attempt.harnessId,
+    "harness-version": attempt.harnessVersion,
     trial: attempt.trialId,
     "capture-qualification": attempt.captureQualification,
     "evidence-origin": evidenceOrigin(attempt),
+    // A third party's verdict on an imported trial; owned runs have none, so they group as unavailable.
+    "source-outcome": attempt.sourceOutcome,
   })[dimension];
 }
 

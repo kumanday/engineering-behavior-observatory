@@ -64,6 +64,17 @@ export function digestMetadata(metadata: unknown): Digest {
   return digestBytes(Buffer.from(canonicalizeMetadata(metadata)));
 }
 
+const onceDigests = new WeakMap<object, Digest>();
+/**
+ * The metadata digest of a document that is not changed after it is built (a retained-evidence dataset), computed
+ * once per process: an attempt's observation set and every card result check the same multi-megabyte dataset.
+ */
+export function digestMetadataOnce(document: object): Digest {
+  let known = onceDigests.get(document);
+  if (known === undefined) { known = digestMetadata(document); onceDigests.set(document, known); }
+  return known;
+}
+
 export function verifyDigest(bytes: Uint8Array, expected: Digest): boolean {
   const actual = digestBytes(bytes);
   return expected.algorithm === actual.algorithm && expected.value === actual.value;
@@ -170,7 +181,7 @@ export function assertUniqueArtifactIdentities(identities: readonly ArtifactIden
 
 export function validateArtifact(artifact: string, document: unknown): ArtifactValidationError[] {
   const schemaVersion = schemaVersionOf(document);
-  const validate = validators.get(schemaVersion);
+  const validate = validators.get(schemaVersion)?.();
 
   if (validate === undefined) {
     return [{ artifact, schemaVersion, field: "/schemaVersion", message: "Unsupported schema version." }];
@@ -1244,7 +1255,7 @@ export function writeMetadataAtomicallyIfAbsentSync(
   }
 }
 
-function loadValidators(): Map<string, ValidateFunction> {
+function loadValidators(): Map<string, () => ValidateFunction> {
   const readSchema = (name: string): object => JSON.parse(readFileSync(`${schemaDirectory}${name}`, "utf8"));
   const ajv = new Ajv2020({ allErrors: true, strict: false });
 
@@ -1311,92 +1322,101 @@ function loadValidators(): Map<string, ValidateFunction> {
   ajv.addSchema(readSchema("harbor-queue.v1.schema.json"));
 
   return new Map([
-    ["ebo.harness-verification/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/receipt")],
-    ["ebo.harness-verification-admission/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/admission")],
-    ["ebo.harness-verification-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/snapshot")],
-    ["ebo.harness-verification-candidate/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/candidate")],
-    ["ebo.run-verification/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/run")],
-    ["ebo.capture-lifecycle/v1", requiredValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/lifecycle")],
-    ["ebo.leaderboard-request-receipt/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/requestReceipt")],
-    ["ebo.leaderboard-policy-input/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/policyInput")],
-    ["ebo.leaderboard-policy-receipt/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/policyReceipt")],
-    ["ebo.leaderboard-source-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/sourceSnapshot")],
-    ["ebo.leaderboard-cohort-request/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/request")],
-    ["ebo.leaderboard-cohort/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/cohort")],
-    ["ebo.leaderboard-acquisition/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/acquisition")],
-    ["ebo.import-scan/v1", requiredValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/scan")],
-    ["ebo.harbor-trial-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/inspection")],
-    ["ebo.harbor-source-snapshot/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/snapshot")],
-    ["ebo.harbor-execution/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/execution")],
-    ["ebo.harbor-capture-binding/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/binding")],
-    ["ebo.harbor-capture-membership/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/membership")],
-    ["ebo.harbor-assessment/v1", requiredValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/assessment")],
+    ["ebo.harness-verification/v1", lazyValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/receipt")],
+    ["ebo.harness-verification-admission/v1", lazyValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/admission")],
+    ["ebo.harness-verification-snapshot/v1", lazyValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/snapshot")],
+    ["ebo.harness-verification-candidate/v1", lazyValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/candidate")],
+    ["ebo.run-verification/v1", lazyValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/run")],
+    ["ebo.capture-lifecycle/v1", lazyValidator(ajv, "urn:ebo:schema:harness-verification:v1#/$defs/lifecycle")],
+    ["ebo.leaderboard-request-receipt/v1", lazyValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/requestReceipt")],
+    ["ebo.leaderboard-policy-input/v1", lazyValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/policyInput")],
+    ["ebo.leaderboard-policy-receipt/v1", lazyValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/policyReceipt")],
+    ["ebo.leaderboard-source-snapshot/v1", lazyValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/sourceSnapshot")],
+    ["ebo.leaderboard-cohort-request/v1", lazyValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/request")],
+    ["ebo.leaderboard-cohort/v1", lazyValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/cohort")],
+    ["ebo.leaderboard-acquisition/v1", lazyValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/acquisition")],
+    ["ebo.import-scan/v1", lazyValidator(ajv, "urn:ebo:schema:leaderboard-import:v1#/$defs/scan")],
+    ["ebo.harbor-trial-inspection/v1", lazyValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/inspection")],
+    ["ebo.harbor-source-snapshot/v1", lazyValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/snapshot")],
+    ["ebo.harbor-execution/v1", lazyValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/execution")],
+    ["ebo.harbor-capture-binding/v1", lazyValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/binding")],
+    ["ebo.harbor-capture-membership/v1", lazyValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/membership")],
+    ["ebo.harbor-assessment/v1", lazyValidator(ajv, "urn:ebo:schema:harbor-import:v1#/$defs/assessment")],
 
-    ["ebo.atif-core-mapping/v1", requiredValidator(ajv, "urn:ebo:schema:atif-core-mapping:v1")],
-    ["ebo.atif-overlay/v1", requiredValidator(ajv, "urn:ebo:schema:atif-overlay:v1")],
-    ["ebo.pi-atif-mapping/v1", requiredValidator(ajv, "urn:ebo:schema:pi-atif-mapping:v1")],
-    ["ebo.evidence-companion/v1", requiredValidator(ajv, "urn:ebo:schema:evidence-companion:v1")],
-    ["ebo.import-manifest/v3", requiredValidator(ajv, "urn:ebo:schema:import-manifest:v3")],
-    ["ebo.atif-inspection/v1", requiredValidator(ajv, "urn:ebo:schema:atif-inspection:v1")],
-    ["ebo.atif-producer-profile/v1", requiredValidator(ajv, "urn:ebo:schema:atif-producer-profile:v1")],
-    ["ebo.task-packet/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet.v1.schema.json")],
-    ["ebo.task-packet-freeze/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet-freeze.v1.schema.json")],
-    ["ebo.task-packet-experiment/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet-experiment.v1.schema.json")],
-    ["ebo.study-freeze/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/freeze")],
-    ["ebo.study-queue/v1", requiredValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/queue")],
-    ["ebo.task-packet-queue/v1", requiredValidator(ajv, "https://ebo.dev/schemas/task-packet-queue.v1.schema.json")],
-    ["run-manifest/v2", requiredValidator(ajv, "urn:ebo:schema:run-bundle:v2")],
-    ["verifier-result/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/verifierResult`)],
-    ["capture-report/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/captureReport`)],
-    ["export-manifest/v1", requiredValidator(ajv, `${runBundleSchemaId}#/$defs/exportManifest`)],
-    ["ebo.uniform-event/v1", requiredValidator(ajv, "urn:ebo:schema:uniform-events:v1#/$defs/uniformEvent")],
-    ["ebo.adapter-capability-profile/v1", requiredValidator(ajv, "urn:ebo:schema:uniform-events:v1#/$defs/capabilityProfile")],
-    ["ebo.typed-dataset/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/dataset")],
-    ["ebo.typed-event/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/event")],
-    ["ebo.operation/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operation")],
-    ["ebo.operation-identity/v1", requiredValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operationIdentity")],
-    ["ebo.normalized-dataset/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/normalizedDataset")],
-    ["ebo.adapter-coverage-report/v1", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/coverageReport")],
-    ["ebo.comparison-request/v2", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/comparisonRequestV2")],
-    ["ebo.comparison-report/v2", requiredValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/comparisonReportV2")],
-    ["ebo.structural-observation/v1", requiredValidator(ajv, "urn:ebo:schema:structural-observations:v1#/$defs/observation")],
-    ["ebo.structural-observation-set/v1", requiredValidator(ajv, "urn:ebo:schema:structural-observations:v1#/$defs/set")],
-    ["ebo.behavior-ontology/v2", requiredValidator(ajv, "urn:ebo:schema:behavior-ontology:v2#/$defs/ontology")],
-    ["ebo.behavior-assertion/v2", requiredValidator(ajv, "urn:ebo:schema:behavior-assertions:v1#/$defs/assertion")],
-    ["ebo.behavior-review/v1", requiredValidator(ajv, "urn:ebo:schema:behavior-assertions:v1#/$defs/review")],
-    ["ebo.occurrence-ratings/v1", requiredValidator(ajv, "urn:ebo:schema:occurrence-ratings:v1#/$defs/ratings")],
-    ["ebo.claim-checks/v1", requiredValidator(ajv, "urn:ebo:schema:claim-checks:v1#/$defs/checks")],
-    ["ebo.atlas-bundle-request/v2", requiredValidator(ajv, "urn:ebo:schema:atlas-bundle:v1#/$defs/request")],
-    ["ebo.atlas-bundle/v2", requiredValidator(ajv, "urn:ebo:schema:atlas-bundle:v1#/$defs/bundle")],
-    ["ebo.semantic-judge-request/v2", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/request")],
-    ["ebo.semantic-judge-input/v2", requiredValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/input")],
-    ["ebo.study-runtime-lock/v2", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v2#/$defs/lock")],
-    ["ebo.runtime-launch/v2", requiredValidator(ajv, "urn:ebo:schema:study-runtimes:v2#/$defs/launch")],
-    ["ebo.semantic-judgment/v4", requiredValidator(ajv, "urn:ebo:schema:semantic-judge-runtime:v1#/$defs/judgment")],
-    ["ebo.review-source-set/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sourceSet")],
-    ["ebo.review-sample-criteria/v2", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/criteria")],
-    ["ebo.review-sample/v2", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sample")],
-    ["ebo.review-packet/v2", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/packet")],
-    ["ebo.human-review-decision/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/decision")],
-    ["ebo.review-history/v1", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/history")],
-    ["ebo.calibration-summary/v2", requiredValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/summary")],
-    ["ebo.aggregation-request/v2", requiredValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/request")],
-    ["ebo.decision-model-run/v1", requiredValidator(ajv, "urn:ebo:schema:decision-model-judge:v1#/$defs/run")],
-    ["ebo.decision-model-result/v1", requiredValidator(ajv, "urn:ebo:schema:decision-model-judge:v1#/$defs/result")],
-    ["ebo.aggregation-report/v2", requiredValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/report")],
-    ["ebo.deepseek-runtime-composition/v1", requiredValidator(ajv, "https://ebo.dev/schemas/deepseek-runtime-composition.v1.schema.json")],
-    ["ebo.harbor-admission/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-admission.v1.schema.json")],
-    ["ebo.harbor-review/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-review.v1.schema.json")],
-    ["ebo.harbor-freeze/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-freeze.v1.schema.json")],
-    ["ebo.harbor-experiment/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-experiment.v1.schema.json")],
-    ["ebo.harbor-queue/v1", requiredValidator(ajv, "https://ebo.dev/schemas/harbor-queue.v1.schema.json")],
+    ["ebo.atif-core-mapping/v1", lazyValidator(ajv, "urn:ebo:schema:atif-core-mapping:v1")],
+    ["ebo.atif-overlay/v1", lazyValidator(ajv, "urn:ebo:schema:atif-overlay:v1")],
+    ["ebo.pi-atif-mapping/v1", lazyValidator(ajv, "urn:ebo:schema:pi-atif-mapping:v1")],
+    ["ebo.evidence-companion/v1", lazyValidator(ajv, "urn:ebo:schema:evidence-companion:v1")],
+    ["ebo.import-manifest/v3", lazyValidator(ajv, "urn:ebo:schema:import-manifest:v3")],
+    ["ebo.atif-inspection/v1", lazyValidator(ajv, "urn:ebo:schema:atif-inspection:v1")],
+    ["ebo.atif-producer-profile/v1", lazyValidator(ajv, "urn:ebo:schema:atif-producer-profile:v1")],
+    ["ebo.task-packet/v1", lazyValidator(ajv, "https://ebo.dev/schemas/task-packet.v1.schema.json")],
+    ["ebo.task-packet-freeze/v1", lazyValidator(ajv, "https://ebo.dev/schemas/task-packet-freeze.v1.schema.json")],
+    ["ebo.task-packet-experiment/v1", lazyValidator(ajv, "https://ebo.dev/schemas/task-packet-experiment.v1.schema.json")],
+    ["ebo.study-freeze/v1", lazyValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/freeze")],
+    ["ebo.study-queue/v1", lazyValidator(ajv, "urn:ebo:schema:study-runtime-bindings:v1#/$defs/queue")],
+    ["ebo.task-packet-queue/v1", lazyValidator(ajv, "https://ebo.dev/schemas/task-packet-queue.v1.schema.json")],
+    ["run-manifest/v2", lazyValidator(ajv, "urn:ebo:schema:run-bundle:v2")],
+    ["verifier-result/v1", lazyValidator(ajv, `${runBundleSchemaId}#/$defs/verifierResult`)],
+    ["capture-report/v1", lazyValidator(ajv, `${runBundleSchemaId}#/$defs/captureReport`)],
+    ["export-manifest/v1", lazyValidator(ajv, `${runBundleSchemaId}#/$defs/exportManifest`)],
+    ["ebo.uniform-event/v1", lazyValidator(ajv, "urn:ebo:schema:uniform-events:v1#/$defs/uniformEvent")],
+    ["ebo.adapter-capability-profile/v1", lazyValidator(ajv, "urn:ebo:schema:uniform-events:v1#/$defs/capabilityProfile")],
+    ["ebo.typed-dataset/v1", lazyValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/dataset")],
+    ["ebo.typed-event/v1", lazyValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/event")],
+    ["ebo.operation/v1", lazyValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operation")],
+    ["ebo.operation-identity/v1", lazyValidator(ajv, "urn:ebo:schema:normalization:v2#/$defs/operationIdentity")],
+    ["ebo.normalized-dataset/v1", lazyValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/normalizedDataset")],
+    ["ebo.adapter-coverage-report/v1", lazyValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/coverageReport")],
+    ["ebo.comparison-request/v2", lazyValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/comparisonRequestV2")],
+    ["ebo.comparison-report/v2", lazyValidator(ajv, "urn:ebo:schema:normalization-integrity:v1#/$defs/comparisonReportV2")],
+    ["ebo.structural-observation/v1", lazyValidator(ajv, "urn:ebo:schema:structural-observations:v1#/$defs/observation")],
+    ["ebo.structural-observation-set/v1", lazyValidator(ajv, "urn:ebo:schema:structural-observations:v1#/$defs/set")],
+    ["ebo.behavior-ontology/v2", lazyValidator(ajv, "urn:ebo:schema:behavior-ontology:v2#/$defs/ontology")],
+    ["ebo.behavior-assertion/v2", lazyValidator(ajv, "urn:ebo:schema:behavior-assertions:v1#/$defs/assertion")],
+    ["ebo.behavior-review/v1", lazyValidator(ajv, "urn:ebo:schema:behavior-assertions:v1#/$defs/review")],
+    ["ebo.occurrence-ratings/v1", lazyValidator(ajv, "urn:ebo:schema:occurrence-ratings:v1#/$defs/ratings")],
+    ["ebo.claim-checks/v1", lazyValidator(ajv, "urn:ebo:schema:claim-checks:v1#/$defs/checks")],
+    ["ebo.atlas-bundle-request/v2", lazyValidator(ajv, "urn:ebo:schema:atlas-bundle:v1#/$defs/request")],
+    ["ebo.atlas-bundle/v2", lazyValidator(ajv, "urn:ebo:schema:atlas-bundle:v1#/$defs/bundle")],
+    ["ebo.semantic-judge-request/v2", lazyValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/request")],
+    ["ebo.semantic-judge-input/v2", lazyValidator(ajv, "urn:ebo:schema:semantic-judge:v1#/$defs/input")],
+    ["ebo.study-runtime-lock/v2", lazyValidator(ajv, "urn:ebo:schema:study-runtimes:v2#/$defs/lock")],
+    ["ebo.runtime-launch/v2", lazyValidator(ajv, "urn:ebo:schema:study-runtimes:v2#/$defs/launch")],
+    ["ebo.semantic-judgment/v4", lazyValidator(ajv, "urn:ebo:schema:semantic-judge-runtime:v1#/$defs/judgment")],
+    ["ebo.review-source-set/v1", lazyValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sourceSet")],
+    ["ebo.review-sample-criteria/v2", lazyValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/criteria")],
+    ["ebo.review-sample/v2", lazyValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/sample")],
+    ["ebo.review-packet/v2", lazyValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/packet")],
+    ["ebo.human-review-decision/v1", lazyValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/decision")],
+    ["ebo.review-history/v1", lazyValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/history")],
+    ["ebo.calibration-summary/v2", lazyValidator(ajv, "urn:ebo:schema:human-calibration:v1#/$defs/summary")],
+    ["ebo.aggregation-request/v2", lazyValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/request")],
+    ["ebo.decision-model-run/v1", lazyValidator(ajv, "urn:ebo:schema:decision-model-judge:v1#/$defs/run")],
+    ["ebo.decision-model-result/v1", lazyValidator(ajv, "urn:ebo:schema:decision-model-judge:v1#/$defs/result")],
+    ["ebo.aggregation-report/v2", lazyValidator(ajv, "urn:ebo:schema:aggregation:v1#/$defs/report")],
+    ["ebo.deepseek-runtime-composition/v1", lazyValidator(ajv, "https://ebo.dev/schemas/deepseek-runtime-composition.v1.schema.json")],
+    ["ebo.harbor-admission/v1", lazyValidator(ajv, "https://ebo.dev/schemas/harbor-admission.v1.schema.json")],
+    ["ebo.harbor-review/v1", lazyValidator(ajv, "https://ebo.dev/schemas/harbor-review.v1.schema.json")],
+    ["ebo.harbor-freeze/v1", lazyValidator(ajv, "https://ebo.dev/schemas/harbor-freeze.v1.schema.json")],
+    ["ebo.harbor-experiment/v1", lazyValidator(ajv, "https://ebo.dev/schemas/harbor-experiment.v1.schema.json")],
+    ["ebo.harbor-queue/v1", lazyValidator(ajv, "https://ebo.dev/schemas/harbor-queue.v1.schema.json")],
   ]);
 }
 
-function requiredValidator(ajv: Ajv2020, schemaId: string): ValidateFunction {
-  const validate = ajv.getSchema(schemaId);
-  if (validate === undefined) throw new Error(`Missing bundled schema ${schemaId}.`);
-  return validate;
+/**
+ * A validator compiled on first use: compiling every bundled schema took most of each CLI start, and one command
+ * validates a handful of artifact kinds. Each lookup still fails when the bundled schema is missing.
+ */
+function lazyValidator(ajv: Ajv2020, schemaId: string): () => ValidateFunction {
+  let validate: ValidateFunction | undefined;
+  return () => {
+    if (validate === undefined) {
+      validate = ajv.getSchema(schemaId);
+      if (validate === undefined) throw new Error(`Missing bundled schema ${schemaId}.`);
+    }
+    return validate;
+  };
 }
 
 function canonicalJson(value: unknown, ancestors: Set<object>): string {

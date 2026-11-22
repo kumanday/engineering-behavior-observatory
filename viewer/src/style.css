@@ -3,6 +3,7 @@
 html, body { height: 100%; margin: 0; }
 body { background: var(--surface-0); color: var(--text-primary); font: 13px/1.4 var(--font-body); display: flex; flex-direction: column; }
 
+.bundle-meta { color: var(--text-muted); font-size: 12px; }
 .topbar { display: flex; align-items: center; gap: 16px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--surface-1); }
 .brand { font-weight: 650; letter-spacing: 0.01em; }
 .tag { font-weight: 500; font-size: 11px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; margin-left: 4px; }

@@ -89,12 +89,15 @@ cut-down view of every step.
 Paths are relative to the run file. Credentials come from the environment and
 are never written.
 
-The example uses the operating point at which Jev was measured on ATIF
-trajectories, 0.9 for present and 0.1 for absent. On two blind audits of 160
-trajectories by an independent reader, Jev scored an AUC of 0.939 and 0.930,
-and its results at 0.9 or above agreed with the reader 95.9% and 96.7% of the
-time. Other thresholds, other models and native captures have not been
-measured.
+The example uses the model and operating point at which Jev was measured on
+ATIF trajectories: `jev-1.14.0`, with 0.9 for present and 0.1 for absent.
+Without `model`, the `typesafe` provider uses `jev-1.13.0`, which has not been
+measured. On two blind audits of 100 and 60 trajectories, scored against a
+blind LLM reader, Jev scored an AUC of 0.939 and 0.930. Its present verdicts
+(0.9 or above) agreed with the reader 95.6% (task-resampled 95% interval 94.2%
+to 96.9%) and 96.1% (94.2% to 97.9%) of the time, and covered 39.3% and 36.4%
+of the cases the reader judged present. Other thresholds, other models and
+native captures have not been measured.
 
 ## Large cohorts
 
@@ -152,7 +155,8 @@ ebo judge decision-model import study/decision-model.json results.jsonl
 Each line is checked against its retained attempt: the attempt exists in the
 corpus, the card exists, the probabilities have the card's shape and sum to 1,
 and the verdict follows from the thresholds. If any line fails, nothing is
-written. Valid results are written to `<output>/<run>/<attempt>/imported-<digest>.jsonl`
+written. The file is read in two streaming passes, so a file of millions of
+lines needs memory for one attempt's results at a time. Valid results are written to `<output>/<run>/<attempt>/imported-<digest>.jsonl`
 and listed for `assertionSets`. The `evidence` block must describe what the
 external model was actually shown.
 

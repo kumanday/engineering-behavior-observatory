@@ -1,0 +1,14 @@
+# Pinned runtime for Atlas unit embeddings (scripts/embeddings/embed.py) and build-time layouts (layout.py).
+# Python 3.12 or later.
+#   python3 -m venv .embeddings-venv
+#   .embeddings-venv/bin/python -m pip install -r scripts/embeddings/requirements.txt
+# On a CUDA machine, add requirements-gpu.txt so layouts run on the GPU with cuML.
+# The default Linux torch wheel bundles CUDA 13; macOS wheels use MPS on Apple silicon; any platform falls back to CPU.
+torch==2.15.0
+transformers==5.23.0
+sentence-transformers==6.3.0
+# EmbeddingGemma 2 is multimodal: SentenceTransformers loads its image processor even for text.
+torchvision==0.29.2
+pillow==13.0.0
+numpy==2.5.5
+umap-learn==0.6.0

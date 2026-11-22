@@ -33,8 +33,10 @@ See [Google's authentication guide](https://www.antigravity.google/docs/install?
 
 ## Freeze the condition
 
-The five configuration records use `ebo.antigravity-config/v1`. The
-[example directory](../../examples/antigravity/) contains each record separately.
+The five configuration records use `ebo.antigravity-config/v1`. The examples
+hold each in its own file: [capture](../../examples/antigravity/capture.json),
+[harness](../../examples/antigravity/harness.json), [limits](../../examples/antigravity/limits.json),
+[model](../../examples/antigravity/model.json) and [tools](../../examples/antigravity/tools.json).
 Choose the model from the CLI's own `agy models` output. Model selection is a
 study input; the example `gemini-4-argon-high` does not establish access.
 

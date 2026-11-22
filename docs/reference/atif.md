@@ -29,6 +29,30 @@ record and accepts `--model`; a Harness Leaderboard cohort takes the model from
 the leaderboard's own policy rows.
 Imported qualification stays separate from qualified native capture.
 
+`--harness-version` declares the harness version; it names the version in the
+corpus index and in Atlas arms, and the document's `agent.version` stays
+recorded as observed. `--outcome` with `--outcome-source` records a third
+party's verdict on the trial, such as a leaderboard's `pass`, `fail` or
+`infra-excluded`, with `--outcome-release` and `--outcome-record` (the trial
+path in the publisher's table) as provenance. The manifest keeps it as a
+third-party assessment, apart from EBO's run status. The corpus index carries
+it as `sourceOutcome`, aggregation can group by `source-outcome`, and Atlas
+shows it in lanes, the audit drawer and the `attempts` table.
+
+## Import a batch
+
+`ebo atif import-batch batch.jsonl` imports one trial per line in a single
+process. Each line is a JSON object with `source`, `destination`, `run` and
+`attempt`, and optionally `task`, `model`, `profile`, `harnessVersion` and
+`outcome` (`outcome`, `source`, `release`, `record`); paths are relative to the
+batch file. Each line's result is printed as it finishes. A failed line is
+reported and the batch continues, and the command exits 1 when any line failed.
+A destination that already holds the same admission is reused, so a batch can
+be rerun after an interruption. Each destination's parent directories are
+created as needed. `--shard k/n` takes every n-th line from line k, numbering
+shards from 1, so `--shard 1/4` to `--shard 4/4` split one batch across four
+processes.
+
 Inspection reports EBO structural validation, version policy, pointer digests,
 reference availability and unmapped fields. `--python /path/to/python` adds an
 optional cross-check using the installed Harbor validator. Its actual version,
@@ -47,7 +71,10 @@ Each measurement describes its recorded document. Embedded children have
 independent sources and populations, including when their agent versions
 differ. Parent totals are not added to child totals. Missing fields remain
 unknown; an explicitly empty call collection can establish a document-level
-zero. A zero never establishes the absence of activity outside that document.
+zero. An event attribute longer than 512 characters (a producer that writes a
+whole command as the tool name) is shortened with a marker and named in the
+event's `shortenedAttributes`; the complete value stays in the retained
+document. A zero never establishes the absence of activity outside that document.
 
 Tool calls and results correlate by `tool_call_id` within their issuing step.
 Repeated IDs in different steps remain distinct. Missing or ambiguous identities

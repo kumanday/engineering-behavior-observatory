@@ -25,6 +25,14 @@ export type AtlasUnit = {
 export type AtlasUnitEvent = { unit_id: string; event_key: string; part: string };
 
 const MESSAGE_CHARS = 1200, EPISODE_MESSAGE_CHARS = 600, SUMMARY_CHARS = 1500;   // embedding input only; stored text is complete
+/**
+ * The first `max` characters of `text`, never ending inside a surrogate pair. `String.slice` counts UTF-16 code units,
+ * so a plain slice can cut an emoji in half and leave a lone surrogate, which tokenizers reject.
+ */
+export function clipText(text: string, max: number): string {
+  const clipped = text.slice(0, max), last = clipped.charCodeAt(clipped.length - 1);
+  return last >= 0xd800 && last <= 0xdbff && text.length > max ? clipped.slice(0, -1) : clipped;
+}
 const SHELL = new Set(["bash", "shell", "exec", "exec_command", "commandexecution", "run_terminal_cmd", "run_command", "execute", "terminal", "bashoutput", "killshell"]);
 const READ = new Set(["read", "view", "read_file", "view_file", "cat", "open_file", "notebookread"]);
 const EDIT = new Set(["edit", "write", "multiedit", "apply_patch", "str_replace", "str_replace_editor", "create", "write_file", "edit_file", "notebookedit", "patch", "filechange"]);
@@ -59,9 +67,9 @@ export function commandHead(command: string): { head: string; segments: number }
     }
     tokens = [tokens[0]!, ...tokens.slice(i)];
   }
-  if (tokens.length > 2 && ["-m", "exec", "run", "dlx", "x"].includes(tokens[1]!)) return { head: tokens.slice(0, 3).join(" ").slice(0, 60), segments: segs.length };
+  if (tokens.length > 2 && ["-m", "exec", "run", "dlx", "x"].includes(tokens[1]!)) return { head: clipText(tokens.slice(0, 3).join(" "), 60), segments: segs.length };
   const head = tokens.length > 1 && /^[A-Za-z][\w:.-]*$/u.test(tokens[1]!) ? tokens.slice(0, 2).join(" ") : tokens[0] ?? "";
-  return { head: head.slice(0, 60), segments: segs.length };
+  return { head: clipText(head, 60), segments: segs.length };
 }
 
 /** The first check a command runs, else what its first segment does (vcs, install, inspect, other). */
@@ -78,11 +86,11 @@ const MASKS: Array<[RegExp, string]> = [[/(?:[A-Za-z]:)?(?:\/[\w.@+-]+){2,}\/?/g
 const ERROR_LINE = /(error|failed|failure|fail\b|exception|traceback|cannot|not found|denied|refused|timed out|✗|✕)/iu;
 /** The first error line of a failed call's output, with paths, hex ids and numbers masked, so similar failures group. */
 export function errorSignature(text: string): string | null {
-  for (const line of text.slice(0, 6000).split(/\r?\n/u)) {
+  for (const line of clipText(text, 6000).split(/\r?\n/u)) {
     if (!ERROR_LINE.test(line)) continue;
     let s = line.trim();
     for (const [pattern, replacement] of MASKS) s = s.replace(pattern, replacement);
-    return s.slice(0, 140);
+    return clipText(s, 140);
   }
   return null;
 }
@@ -90,7 +98,7 @@ export function errorSignature(text: string): string | null {
 function pathHint(value: unknown): string | null {
   if (typeof value !== "string" || !value) return null;
   const parts = value.replace(/\\/gu, "/").split("/").filter((p) => p && p !== "." && p !== "workspace" && p !== "repo");
-  return parts.length ? parts.slice(-3).join("/").slice(0, 120) : null;
+  return parts.length ? clipText(parts.slice(-3).join("/"), 120) : null;
 }
 
 /** Area and file type of a target, not the file itself: `src/components/*.tsx (test)`. */
@@ -345,9 +353,9 @@ export function deriveUnits({ attemptId, events, occurrences, resolveContent, ev
   const embedText = (d: Draft, summary?: string): string => {
     const text = texts.get(d) ?? "";
     switch (d.unit_kind) {
-      case "message": return `${d.role === "harness" ? "[injected by harness] " : ""}${text.slice(0, MESSAGE_CHARS)}`;
-      case "episode": return `${text.slice(0, EPISODE_MESSAGE_CHARS)}\n→ ${summary ?? ""}`;
-      case "compaction": return `context compacted${text ? `: ${text.slice(0, SUMMARY_CHARS)}` : ""}`;
+      case "message": return `${d.role === "harness" ? "[injected by harness] " : ""}${clipText(text, MESSAGE_CHARS)}`;
+      case "episode": return `${clipText(text, EPISODE_MESSAGE_CHARS)}\n→ ${summary ?? ""}`;
+      case "compaction": return `context compacted${text ? `: ${clipText(text, SUMMARY_CHARS)}` : ""}`;
       case "delegation": return `delegation event: ${d.subkind ?? "delegation"}`;
       default: {
         const tc = targetClass(d.target);
@@ -367,7 +375,8 @@ export function deriveUnits({ attemptId, events, occurrences, resolveContent, ev
   const ordered = [...drafts.map((draft) => ({ draft, summary: undefined as string | undefined, at: position.get(draft)! })),
     ...episodeUnits.map(({ draft, summary, members }) => ({ draft, summary, at: position.get(members[0]!)! + 0.5 }))].sort((a, b) => a.at - b.at);
   ordered.forEach(({ draft, summary }, seq) => {
-    const text = embedText(draft, summary);
+    // A transcript can already hold a lone surrogate (an escaped half pair); embedding input is always well formed.
+    const text = embedText(draft, summary).toWellFormed();
     const { first: _first, eventParts, ...rest } = draft;
     const tags = new Set(eventParts.flatMap(([id]) => [...(occurrenceTags.get(id) ?? [])]));
     units.push({ ...rest, seq, episode_id: draft.unit_kind === "episode" ? null : episodeOf.get(draft) ?? null,

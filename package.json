@@ -1,6 +1,6 @@
 {
   "name": "engineering-behavior-observatory",
-  "version": "2.0.0-rc.2",
+  "version": "2.0.0",
   "description": "Capture engineering-agent trajectories, evaluate behavior, and inspect cited evidence across harnesses.",
   "license": "Apache-2.0",
   "repository": {
