@@ -17,8 +17,8 @@ record of an open-ended engineering task.
 
 [![The Behavior Atlas: an embedding cloud of agent actions above per-trial swimlanes](https://raw.githubusercontent.com/kumanday/engineering-behavior-observatory/main/docs/assets/ebo-atlas.png)](https://github.com/kumanday/engineering-behavior-observatory/blob/main/docs/assets/ebo-promo.mp4)
 
-▶ **[Watch the four-minute tour](https://github.com/kumanday/engineering-behavior-observatory/blob/main/docs/assets/ebo-promo.mp4)**
-(MP4, 1080p): capture, the uniform schema, evaluation, claims, cohorts and the Atlas.
+▶ **[Watch the three-minute tour](https://github.com/kumanday/engineering-behavior-observatory/blob/main/docs/assets/ebo-promo.mp4)**
+(MP4, 1080p): capture, import, the 93 behavior cards, both judging modes, the Atlas and the evidence behind a result.
 
 ## Install
 
@@ -78,7 +78,7 @@ authoritative; derived views never replace it.
 | <img src="https://github.com/earendil-works.png?size=48" width="28" height="28" alt="Earendil Works"> **[Pi](docs/harnesses/pi-sdk.md)** | Direct TypeScript session/extension APIs · `ebo pi run` | Native session tree, tool/message lifecycle, passive observer, compaction, retries, usage |
 | <img src="https://github.com/OpenHands.png?size=48" width="28" height="28" alt="OpenHands"> **[OpenHands](docs/harnesses/openhands-agent-server.md)** | Agent Server REST/WebSocket · library API | Stream/final event reconciliation, conversation state, exposed hooks, workspace |
 | <img src="https://github.com/deepseek-ai.png?size=48" width="28" height="28" alt="DeepSeek"> **[DeepSeek Harness](docs/harnesses/deepseek-harness.md)** | Official TypeScript JSON-RPC client · library API | Durable session events, lifecycle notifications, selected runtime/plugin composition |
-| **[Google Antigravity CLI](docs/harnesses/antigravity-cli.md)** | Owned standalone `agy` child over stream-json · `ebo antigravity run` | Conversation and step identities, tools, subagent metadata, cumulative usage, workspace |
+| <img src="https://github.com/google-antigravity.png?size=48" width="28" height="28" alt="Google Antigravity"> **[Google Antigravity CLI](docs/harnesses/antigravity-cli.md)** | Owned standalone `agy` child over stream-json · `ebo antigravity run` | Conversation and step identities, tools, subagent metadata, cumulative usage, workspace |
 | <img src="https://github.com/Factory-AI.png?size=48" width="28" height="28" alt="Factory"> **[Factory Droid](docs/harnesses/factory-droid.md)** | Official TypeScript SDK with owned native JSON-RPC child · `ebo factory run` | Frames before SDK parsing, session/turn identity, tools, permissions, compaction, child identities and usage |
 
 Icons identify the upstream projects or publishers. Support is **capability-specific**:
