@@ -4,7 +4,7 @@
       <div class="wrap hero-grid">
         <div class="hero-copy">
           <h1>Every finding traced to the native line behind&nbsp;it.</h1>
-          <p class="lede">The Engineering Behavior Observatory captures how an engineering agent did the work: native sessions, tool calls, hooks and workspace changes, across nine harnesses. Each behavioral assessment cites the records it rests on, and each published number recomputes from the study's own data.</p>
+          <p class="lede">The Engineering Behavior Observatory captures how an engineering agent did the work: native sessions, tool calls, hooks and workspace changes, across nine harnesses. It also imports published ATIF trajectories as third-party records. Each behavioral assessment cites the records it rests on, and each published number recomputes from the study's own data.</p>
           <div class="actions">
             <a class="btn primary" href="#tour">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4.5 2.6v10.8L13 8z"/></svg>
@@ -22,12 +22,14 @@
           <caption>Instrument specification</caption>
           <tbody>
             <tr style="--i:0"><th scope="row">Capture</th><td>9 harnesses, each through its own official boundary</td></tr>
-            <tr style="--i:1"><th scope="row">Qualification</th><td>before normalization; unqualified bundles rejected</td></tr>
-            <tr style="--i:2"><th scope="row">Schema</th><td><code>ebo.uniform-event/v1</code>, 10 families × 4 phases</td></tr>
-            <tr style="--i:3"><th scope="row">Judgment</th><td>cited evidence, an alternative explanation, may abstain</td></tr>
-            <tr style="--i:4"><th scope="row">Integrity</th><td>SHA-256 per cited native line, re-hashed on validation</td></tr>
-            <tr style="--i:5"><th scope="row">Missing data</th><td>explicit; never <code>false</code>, never zero</td></tr>
-            <tr style="--i:6"><th scope="row">Sharing</th><td>internal, partner and restricted packets; export fails closed</td></tr>
+            <tr style="--i:1"><th scope="row">Import</th><td>ATIF, Harbor jobs and Harness Leaderboard cohorts, kept apart from captures</td></tr>
+            <tr style="--i:2"><th scope="row">Qualification</th><td>before normalization; unqualified bundles rejected</td></tr>
+            <tr style="--i:3"><th scope="row">Schema</th><td><code>ebo.uniform-event/v1</code>, 10 families × 4 phases</td></tr>
+            <tr style="--i:4"><th scope="row">Ontology</th><td>93 behavior cards in 11 families; present, absent or unknown</td></tr>
+            <tr style="--i:5"><th scope="row">Judgment</th><td>an LLM judge that cites its evidence, or a decision model for whole cohorts</td></tr>
+            <tr style="--i:6"><th scope="row">Integrity</th><td>SHA-256 per cited native line, re-hashed on validation</td></tr>
+            <tr style="--i:7"><th scope="row">Missing data</th><td>explicit; never <code>false</code>, never zero</td></tr>
+            <tr style="--i:8"><th scope="row">Sharing</th><td>internal, partner and restricted packets; export fails closed</td></tr>
           </tbody>
         </table>
       </div>
@@ -75,6 +77,10 @@
             <p>Native messages, tool activity, exposed lifecycle hooks, usage, OTLP receipt and workspace state, written continuously. Failed and interrupted attempts stay valid partial bundles.</p>
           </li>
           <li>
+            <h3>Import</h3>
+            <p>A published ATIF trajectory, a Harbor job or a pinned Harness Leaderboard cohort enters as a third party's record. EBO shows what the producer wrote and infers no tool outcome the record does not hold.</p>
+          </li>
+          <li>
             <h3>Qualification</h3>
             <p>Each bundle's evidence is checked before anything is derived from it. An unqualified bundle is rejected before normalization.</p>
           </li>
@@ -89,7 +95,7 @@
           </li>
           <li>
             <h3>Evaluation</h3>
-            <p>Structural extractors report exact facts. An LLM judge reads an explicit evidence selection, optionally blinded to the evaluated model, weighs an alternative explanation and decides one behavior card: present, absent or unknown. The ontology has 93 cards in 11 families.</p>
+            <p>Structural extractors report exact facts. An LLM judge reads an explicit evidence selection, optionally blinded to the evaluated model, weighs an alternative explanation and decides one behavior card: present, absent or unknown. A decision model judges whole cohorts, every card on every attempt, without citations. The two modes' results are never pooled. The ontology has 93 cards in 11 families.</p>
             <p class="outcomes" aria-label="Verdicts on a behavior card"><span class="o pres">present</span><span class="o abs">absent</span><span class="o unk">unknown</span></p>
           </li>
           <li>
@@ -170,6 +176,39 @@
             <div><dt>Figures</dt><dd>View specs rendered live, each with a receipt that its numbers match the build.</dd></div>
           </dl>
         </div>
+      </div>
+    </section>
+
+    <section class="sec" id="study" aria-labelledby="study-h">
+      <div class="wrap sec-grid">
+        <header class="sec-head">
+          <h2 id="study-h">Field study</h2>
+          <p>EBO 2 was built on, and tested against, one public corpus: release v0.1.10 of the <a href="https://huggingface.co/spaces/joelniklaus/harness-leaderboard">Harness Leaderboard</a>, which publishes the trajectory of every trial under Apache-2.0. All 49,667 attempts of 14 harness versions were imported, judged against the 93 cards and built into one Atlas bundle.</p>
+          <p>The Adaptive Systems Research Institute publishes the study as an interactive report: a guided tour of the Atlas on this data, six findings with their intervals, and the limits.</p>
+          <div class="actions">
+            <a class="btn primary" href="https://adaptivesystems.institute/publications/harness-leaderboard/">Read the report</a>
+            <a class="btn" href="{{ relURL "docs/reference/leaderboard-imports/" }}">Import a cohort</a>
+          </div>
+        </header>
+        <dl class="views">
+          <div><dt>Scale</dt><dd>6,789,051 units from 24.3 million events, and 4,612,635 card results: present, absent or unknown for every card on every attempt.</dd></div>
+          <div><dt>Ranking</dt><dd>A pass rate matched on task, model and effort orders the 12 ranked harnesses as the leaderboard does, place for place.</dd></div>
+          <div><dt>One setting</dt><dd>OpenClaw 2026.11.1 passes 47.5% with one recorded setting on against 34.1% as shipped, in about half the steps. The leaderboard's maintainer found and documented the setting.</dd></div>
+          <div><dt>Repetition</dt><dd>In every harness version, 1% of the attempts hold between 17% and 78% of the repeated tool calls.</dd></div>
+          <div><dt>Card results</dt><dd>From an attempt's 93 verdicts a regularised model names its harness version among 14 with 51.4% accuracy on held-out tasks, against 7.2% by chance. Added to the task and the attempt's length, they move the prediction of pass or fail from an AUC of 0.882 to 0.891.</dd></div>
+          <div><dt>Missing data</dt><dd>An imported trajectory carries no tool outcome EBO reads: no status, exit code or error signature on 5,233,017 tool units. EBO reports them as unavailable and infers none.</dd></div>
+        </dl>
+        <figure class="plate wide" aria-labelledby="plate-2-cap">
+          <div class="plate-mat">
+            <div class="plate-image">
+              <img src="{{ relURL "assets/" }}ebo-atlas-leaderboard.png" width="1920" height="1080" loading="lazy" alt="The EBO Atlas over the leaderboard release: an embedding cloud of 6,789,051 units in three groups labelled messages, episodes and tools, coloured by harness version, with counts per harness and task on the right and the unit table below.">
+            </div>
+          </div>
+          <figcaption id="plate-2-cap">
+            <p class="plate-title"><span class="plate-no">Plate II</span> The Behavior Atlas over Harness Leaderboard v0.1.10 with two archived harness versions: 14 arms, 6 model and effort setups, 198 tasks.</p>
+            <p class="note">Units embedded with EmbeddingGemma 2. Card results come from the decision model. Against a blind LLM reader its present verdicts are shared 95.6% and 96.1% of the time in two audits, and it finds 39.3% and 36.4% of the reader's cases. No person labelled a trajectory.</p>
+          </figcaption>
+        </figure>
       </div>
     </section>
 

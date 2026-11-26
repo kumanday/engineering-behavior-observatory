@@ -7,7 +7,7 @@ disableKinds = ["taxonomy", "term", "RSS", "sitemap"]
 enableRobotsTXT = false
 
 [params]
-  description = "EBO captures an engineering agent's native trajectory and workspace changes across nine harnesses, and ties every behavioral finding to cited native lines that re-hash and numbers that recompute."
+  description = "EBO captures an engineering agent's native trajectory and workspace changes across nine harnesses, imports published ATIF trajectories, and ties every behavioral finding to cited native lines that re-hash and numbers that recompute."
   repo = "https://github.com/kumanday/engineering-behavior-observatory"
   deepwiki = "https://deepwiki.com/kumanday/engineering-behavior-observatory"
   # Set by the Pages workflow through HUGO_PARAMS_BUILD (version and commit).
@@ -53,7 +53,7 @@ enableRobotsTXT = false
 [[module.mounts]]
   source = "../docs/assets"
   target = "static/assets"
-  files = ["ebo-atlas.png", "ebo-promo.mp4", "ebo-promo-poster.jpg"]
+  files = ["ebo-atlas.png", "ebo-atlas-leaderboard.png", "ebo-promo.mp4", "ebo-promo-poster.jpg"]
 [[module.mounts]]
   source = "static"
   target = "static"
